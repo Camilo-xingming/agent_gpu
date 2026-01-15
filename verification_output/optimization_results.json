@@ -1,0 +1,11 @@
+{
+  "baseline_cycles": 954,
+  "optimized_cycles": 199,
+  "fully_optimized_cycles": 124,
+  "ultimate_optimized_cycles": 112,
+  "nvidia_reference_cycles": 82,
+  "target_cycles": 164,
+  "achieved_50_percent": true,
+  "best_performance_ratio": 0.7321428571428571,
+  "best_config": "Ultimate Optimized"
+}
