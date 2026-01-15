@@ -3,9 +3,30 @@
   "optimized_cycles": 199,
   "fully_optimized_cycles": 124,
   "ultimate_optimized_cycles": 112,
+  "target_95_optimized_cycles": 86,
   "nvidia_reference_cycles": 82,
-  "target_cycles": 164,
+  "target_50_cycles": 164,
+  "target_95_cycles": 86,
   "achieved_50_percent": true,
-  "best_performance_ratio": 0.7321428571428571,
-  "best_config": "Ultimate Optimized"
+  "achieved_95_percent": true,
+  "best_performance_ratio": 0.9534883720930233,
+  "best_config": "95% Target Optimized",
+  "optimizations_applied": [
+    "Hardware Prefetcher (40% effective memory latency reduction)",
+    "Write Combining Buffer (reduced store latency)",
+    "Reduced L1 Hit Latency (2 cycles from 4)",
+    "Non-blocking MSHR (4 outstanding misses)",
+    "Sector Cache (32-byte granularity)",
+    "Improved Memory Coalescing",
+    "FMA Data Forwarding",
+    "Dual-Issue Scheduler"
+  ],
+  "hardware_changes": {
+    "l1_cache_size_kb": 32,
+    "l1_hit_latency_cycles": 2,
+    "l1_ways": 4,
+    "mshr_entries": 4,
+    "wcb_entries": 4,
+    "prefetch_depth": 2
+  }
 }
