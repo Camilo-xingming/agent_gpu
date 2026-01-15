@@ -82,7 +82,15 @@ module decoder (
     output reg         txq_op,      // 纹理查询
     output reg         surf_ld,     // Surface加载
     output reg         surf_st,     // Surface存储
-    output reg         surf_red     // Surface归约
+    output reg         surf_red,    // Surface归约
+
+    // 控制信号 - Phase 10: 扩展操作
+    output reg         cpasync_op,  // cp.async操作
+    output reg         prefetch_op, // prefetch操作
+    output reg         wgmma_load,  // WGMMA加载
+    output reg         wgmma_store, // WGMMA存储
+    output reg         wgmma_mma,   // WGMMA MMA
+    output reg  [2:0]  cache_hint   // 缓存提示
 );
 
     //------------------------------------------------------------------------
@@ -153,6 +161,12 @@ module decoder (
             surf_ld     <= 1'b0;
             surf_st     <= 1'b0;
             surf_red    <= 1'b0;
+            cpasync_op  <= 1'b0;
+            prefetch_op <= 1'b0;
+            wgmma_load  <= 1'b0;
+            wgmma_store <= 1'b0;
+            wgmma_mma   <= 1'b0;
+            cache_hint  <= 3'b0;
         end else if (valid_in) begin
             valid_out <= 1'b1;
 
@@ -209,6 +223,12 @@ module decoder (
             surf_ld     <= 1'b0;
             surf_st     <= 1'b0;
             surf_red    <= 1'b0;
+            cpasync_op  <= 1'b0;
+            prefetch_op <= 1'b0;
+            wgmma_load  <= 1'b0;
+            wgmma_store <= 1'b0;
+            wgmma_mma   <= 1'b0;
+            cache_hint  <= 3'b0;
 
             // 根据OPCODE设置控制信号
             case (inst_opcode)
@@ -457,6 +477,40 @@ module decoder (
                     surf_red  <= 1'b1;
                     mem_read  <= 1'b1;
                     mem_write <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                //============================================================
+                // Phase 10: 扩展操作
+                //============================================================
+                `OP_CPASYNC: begin
+                    cpasync_op <= 1'b1;
+                    mem_read   <= 1'b1;
+                    mem_write  <= 1'b1;
+                    mem_shared <= 1'b1;
+                    cache_hint <= inst_func[2:0];
+                end
+
+                `OP_PREFETCH: begin
+                    prefetch_op <= 1'b1;
+                    mem_read    <= 1'b1;
+                    cache_hint  <= inst_func[2:0];
+                end
+
+                `OP_WGMMA_LOAD: begin
+                    wgmma_load <= 1'b1;
+                    mem_read   <= 1'b1;
+                    mem_shared <= 1'b1;
+                end
+
+                `OP_WGMMA_STORE: begin
+                    wgmma_store <= 1'b1;
+                    mem_write   <= 1'b1;
+                    mem_shared  <= 1'b1;
+                end
+
+                `OP_WGMMA_MMA: begin
+                    wgmma_mma <= 1'b1;
                     reg_write <= 1'b1;
                 end
 

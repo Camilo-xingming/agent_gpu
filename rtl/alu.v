@@ -12,10 +12,13 @@ module alu (
     input  wire [31:0] operand_b,   // 操作数B
     input  wire [31:0] operand_c,   // 操作数C (用于BFI, PRMT, SAD, SELP)
     input  wire        pred_in,     // 谓词输入 (用于SELP)
+    input  wire        carry_in,    // 进位输入 (用于addc, subc)
     output reg  [31:0] result,      // 结果
+    output reg  [31:0] result_hi,   // 高32位结果 (用于mul.wide)
     output wire        zero,        // 零标志
     output wire        negative,    // 负数标志
-    output wire        overflow     // 溢出标志
+    output wire        overflow,    // 溢出标志
+    output reg         carry_out    // 进位输出 (用于add.cc, sub.cc)
 );
 
     //------------------------------------------------------------------------
@@ -23,6 +26,8 @@ module alu (
     //------------------------------------------------------------------------
     wire [32:0] add_result;
     wire [32:0] sub_result;
+    wire [32:0] addc_result;    // add with carry
+    wire [32:0] subc_result;    // sub with borrow
     wire signed [31:0] signed_a;
     wire signed [31:0] signed_b;
 
@@ -30,6 +35,14 @@ module alu (
     assign signed_b = operand_b;
     assign add_result = {1'b0, operand_a} + {1'b0, operand_b};
     assign sub_result = {1'b0, operand_a} - {1'b0, operand_b};
+    assign addc_result = {1'b0, operand_a} + {1'b0, operand_b} + {32'b0, carry_in};
+    assign subc_result = {1'b0, operand_a} - {1'b0, operand_b} - {32'b0, carry_in};
+
+    //------------------------------------------------------------------------
+    // MUL.WIDE (32x32 -> 64-bit result)
+    //------------------------------------------------------------------------
+    wire [63:0] mul_wide_u = operand_a * operand_b;
+    wire signed [63:0] mul_wide_s = signed_a * signed_b;
 
     //------------------------------------------------------------------------
     // POPC (Population Count) - 计算1的个数
@@ -156,10 +169,17 @@ module alu (
     // ALU 操作选择
     //------------------------------------------------------------------------
     always @(*) begin
+        result_hi = 32'b0;
+        carry_out = 1'b0;
+
         case (func)
             // 基础运算
-            `FUNC_ADD:   result = add_result[31:0];
-            `FUNC_SUB:   result = sub_result[31:0];
+            `FUNC_ADD:   begin
+                result = add_result[31:0];
+            end
+            `FUNC_SUB:   begin
+                result = sub_result[31:0];
+            end
             `FUNC_AND:   result = operand_a & operand_b;
             `FUNC_OR:    result = operand_a | operand_b;
             `FUNC_XOR:   result = operand_a ^ operand_b;
@@ -195,6 +215,30 @@ module alu (
             `FUNC_SELP:  result = pred_in ? operand_a : operand_b;
             `FUNC_SLCT:  result = signed_b[31] ? operand_a : operand_b;  // 根据c的符号选择
 
+            // 进位运算 (add.cc, addc, sub.cc, subc)
+            `FUNC_ADD_CC: begin
+                result = add_result[31:0];
+                carry_out = add_result[32];
+            end
+            `FUNC_ADDC: begin
+                result = addc_result[31:0];
+                carry_out = addc_result[32];
+            end
+            `FUNC_SUB_CC: begin
+                result = sub_result[31:0];
+                carry_out = sub_result[32];  // borrow
+            end
+            `FUNC_SUBC: begin
+                result = subc_result[31:0];
+                carry_out = subc_result[32];  // borrow
+            end
+
+            // 宽乘法 (mul.wide: 32x32 -> 64)
+            `FUNC_MUL_WIDE: begin
+                result = mul_wide_u[31:0];
+                result_hi = mul_wide_u[63:32];
+            end
+
             default:     result = 32'b0;
         endcase
     end
@@ -220,7 +264,7 @@ endmodule
 //============================================================================
 // SIMD ALU - 32个并行ALU用于Warp执行
 // 每个Warp的32个线程同时执行
-// 支持完整PTX整数指令集
+// 支持完整PTX整数指令集，包括进位操作和宽乘法
 //============================================================================
 module simd_alu #(
     parameter LANES = `THREADS_PER_WARP  // 32
@@ -230,11 +274,14 @@ module simd_alu #(
     input  wire [LANES*32-1:0]  operand_b,  // 32个操作数B
     input  wire [LANES*32-1:0]  operand_c,  // 32个操作数C (BFI, PRMT, SAD, SELP)
     input  wire [LANES-1:0]     pred_in,    // 32个谓词输入 (SELP)
+    input  wire [LANES-1:0]     carry_in,   // 32个进位输入 (addc, subc)
     input  wire [LANES-1:0]     lane_mask,  // 活跃线程掩码
     output wire [LANES*32-1:0]  result,     // 32个结果
+    output wire [LANES*32-1:0]  result_hi,  // 32个高32位结果 (mul.wide)
     output wire [LANES-1:0]     zero_flags,
     output wire [LANES-1:0]     neg_flags,
-    output wire [LANES-1:0]     ovf_flags
+    output wire [LANES-1:0]     ovf_flags,
+    output wire [LANES-1:0]     carry_out   // 32个进位输出 (add.cc, sub.cc)
 );
 
     genvar i;
@@ -244,8 +291,10 @@ module simd_alu #(
             wire [31:0] lane_b = operand_b[i*32 +: 32];
             wire [31:0] lane_c = operand_c[i*32 +: 32];
             wire lane_pred = pred_in[i];
+            wire lane_cin = carry_in[i];
             wire [31:0] lane_result;
-            wire lane_zero, lane_neg, lane_ovf;
+            wire [31:0] lane_result_hi;
+            wire lane_zero, lane_neg, lane_ovf, lane_cout;
 
             alu u_alu (
                 .func      (func),
@@ -253,17 +302,22 @@ module simd_alu #(
                 .operand_b (lane_b),
                 .operand_c (lane_c),
                 .pred_in   (lane_pred),
+                .carry_in  (lane_cin),
                 .result    (lane_result),
+                .result_hi (lane_result_hi),
                 .zero      (lane_zero),
                 .negative  (lane_neg),
-                .overflow  (lane_ovf)
+                .overflow  (lane_ovf),
+                .carry_out (lane_cout)
             );
 
             // 只有活跃线程的结果有效
             assign result[i*32 +: 32] = lane_mask[i] ? lane_result : 32'b0;
+            assign result_hi[i*32 +: 32] = lane_mask[i] ? lane_result_hi : 32'b0;
             assign zero_flags[i] = lane_mask[i] & lane_zero;
             assign neg_flags[i] = lane_mask[i] & lane_neg;
             assign ovf_flags[i] = lane_mask[i] & lane_ovf;
+            assign carry_out[i] = lane_mask[i] & lane_cout;
         end
     endgenerate
 

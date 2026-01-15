@@ -228,6 +228,22 @@
 `define FP16X2_FMA      6'b100011   // fma.f16x2
 
 //============================================================================
+// FP64 功能码 (双精度浮点)
+//============================================================================
+`define FP64_ADD        6'b000000   // add.f64
+`define FP64_SUB        6'b000001   // sub.f64
+`define FP64_MUL        6'b000010   // mul.f64
+`define FP64_DIV        6'b000011   // div.f64
+`define FP64_FMA        6'b000100   // fma.f64
+`define FP64_NEG        6'b000101   // neg.f64
+`define FP64_ABS        6'b000110   // abs.f64
+`define FP64_MIN        6'b000111   // min.f64
+`define FP64_MAX        6'b001000   // max.f64
+`define FP64_SQRT       6'b001001   // sqrt.f64
+`define FP64_RSQRT      6'b001010   // rsqrt.f64
+`define FP64_RCP        6'b001011   // rcp.f64
+
+//============================================================================
 // 类型转换功能码 (CVT指令)
 //============================================================================
 `define CVT_S32_F32     6'b000000   // cvt.s32.f32
@@ -238,6 +254,10 @@
 `define CVT_F64_F32     6'b000101   // cvt.f64.f32
 `define CVT_F32_F16     6'b000110   // cvt.f32.f16
 `define CVT_F16_F32     6'b000111   // cvt.f16.f32
+`define CVT_S64_F64     6'b001000   // cvt.s64.f64
+`define CVT_U64_F64     6'b001001   // cvt.u64.f64
+`define CVT_F64_S64     6'b001010   // cvt.f64.s64
+`define CVT_F64_U64     6'b001011   // cvt.f64.u64
 
 //============================================================================
 // WMMA 功能码
@@ -336,5 +356,65 @@
 `define GLOBAL_ADDR_WIDTH   32      // 全局地址宽度
 `define GLOBAL_DATA_WIDTH   32      // 全局数据宽度
 `define CACHE_LINE_SIZE     32      // 缓存行大小(字节)
+
+//============================================================================
+// 缓存控制修饰符 (Cache Hints)
+//============================================================================
+`define CACHE_DEFAULT   3'b000      // 默认缓存行为
+`define CACHE_CA        3'b001      // Cache at all levels (ld.ca)
+`define CACHE_CG        3'b010      // Cache at global level (ld.cg)
+`define CACHE_CS        3'b011      // Cache streaming (ld.cs)
+`define CACHE_LU        3'b100      // Last use (ld.lu)
+`define CACHE_CV        3'b101      // Cache as volatile (ld.cv)
+`define CACHE_WB        3'b110      // Write-back (st.wb)
+`define CACHE_WT        3'b111      // Write-through (st.wt)
+
+//============================================================================
+// 异步拷贝功能码 (cp.async)
+//============================================================================
+`define CPASYNC_CA      6'b000000   // cp.async.ca.shared.global
+`define CPASYNC_CG      6'b000001   // cp.async.cg.shared.global
+`define CPASYNC_COMMIT  6'b000010   // cp.async.commit_group
+`define CPASYNC_WAIT    6'b000011   // cp.async.wait_group
+`define CPASYNC_WAIT_ALL 6'b000100  // cp.async.wait_all
+`define CPASYNC_BULK    6'b001000   // cp.async.bulk
+
+//============================================================================
+// 整数进位操作功能码
+//============================================================================
+`define FUNC_ADD_CC     6'b100000   // add.cc (with carry out)
+`define FUNC_ADDC       6'b100001   // addc (add with carry in)
+`define FUNC_SUB_CC     6'b100010   // sub.cc (with borrow out)
+`define FUNC_SUBC       6'b100011   // subc (sub with borrow in)
+`define FUNC_MUL_WIDE   6'b100100   // mul.wide (32x32->64)
+
+//============================================================================
+// WGMMA (Hopper) 功能码
+//============================================================================
+`define WGMMA_M64N8K16      6'b000000   // wgmma.mma_async m64n8k16
+`define WGMMA_M64N16K16     6'b000001   // wgmma.mma_async m64n16k16
+`define WGMMA_M64N32K16     6'b000010   // wgmma.mma_async m64n32k16
+`define WGMMA_M64N64K16     6'b000011   // wgmma.mma_async m64n64k16
+`define WGMMA_M64N128K16    6'b000100   // wgmma.mma_async m64n128k16
+`define WGMMA_M64N256K16    6'b000101   // wgmma.mma_async m64n256k16
+`define WGMMA_FENCE         6'b010000   // wgmma.fence
+`define WGMMA_COMMIT_GROUP  6'b010001   // wgmma.commit_group
+`define WGMMA_WAIT_GROUP    6'b010010   // wgmma.wait_group
+
+//============================================================================
+// 预取指令功能码
+//============================================================================
+`define PREFETCH_L1     6'b000000   // prefetch.L1
+`define PREFETCH_L2     6'b000001   // prefetch.L2
+`define PREFETCHU_L1    6'b000010   // prefetchu.L1 (uniform)
+
+//============================================================================
+// 扩展操作码 (Phase 10+)
+//============================================================================
+`define OP_CPASYNC      6'b101011   // cp.async operations
+`define OP_PREFETCH     6'b101100   // prefetch operations
+`define OP_WGMMA_LOAD   6'b101101   // WGMMA load
+`define OP_WGMMA_STORE  6'b101110   // WGMMA store
+`define OP_WGMMA_MMA    6'b101111   // WGMMA mma_async
 
 `endif // GPU_DEFINES_VH
