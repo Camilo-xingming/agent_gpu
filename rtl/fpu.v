@@ -290,13 +290,17 @@ module fp_add_simple (
                          sign_a;
 
     // 规范化 (简化)
+    // When sum[25]=1: overflow by 2 positions, exp+2
+    // When sum[24]=1: overflow by 1 position, exp+1
+    // When sum[23]=1: no overflow, exp unchanged
+    // Otherwise: underflow, exp-1
     wire [7:0] final_exp;
     wire [22:0] final_man;
 
-    assign final_exp = sum[25] ? result_exp + 8'd1 :
-                       sum[24] ? result_exp :
-                       sum[23] ? result_exp - 8'd1 :
-                       result_exp - 8'd2;
+    assign final_exp = sum[25] ? result_exp + 8'd2 :
+                       sum[24] ? result_exp + 8'd1 :
+                       sum[23] ? result_exp :
+                       result_exp - 8'd1;
 
     assign final_man = sum[25] ? sum[24:2] :
                        sum[24] ? sum[23:1] :

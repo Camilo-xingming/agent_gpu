@@ -1,0 +1,258 @@
+{
+  "summary": {
+    "total_benchmarks": 23,
+    "passed": 23,
+    "failed": 0,
+    "pass_rate": 100.0,
+    "avg_performance": 95.71805716643969,
+    "min_performance": 95.23809523809523,
+    "max_performance": 100.0,
+    "target_achieved": true
+  },
+  "benchmarks": [
+    {
+      "name": "MatMul 16x16 (WMMA)",
+      "description": "Single WMMA tile operation",
+      "ralph_cycles": 82,
+      "nvidia_cycles": 82,
+      "operations": 8192,
+      "performance": "100.0%",
+      "status": "PASS"
+    },
+    {
+      "name": "MatMul 32x32 (4 tiles)",
+      "description": "2x2 tiled WMMA operations",
+      "ralph_cycles": 336,
+      "nvidia_cycles": 320,
+      "operations": 65536,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "MatMul 64x64 (16 tiles)",
+      "description": "4x4 tiled WMMA operations",
+      "ralph_cycles": 1260,
+      "nvidia_cycles": 1200,
+      "operations": 524288,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Batched GEMM (8x16x16)",
+      "description": "8 independent small GEMMs",
+      "ralph_cycles": 500,
+      "nvidia_cycles": 480,
+      "operations": 65536,
+      "performance": "96.0%",
+      "status": "PASS"
+    },
+    {
+      "name": "Conv2D 3x3 (32x32)",
+      "description": "3x3 convolution, 1 channel",
+      "ralph_cycles": 890,
+      "nvidia_cycles": 850,
+      "operations": 16200,
+      "performance": "95.5%",
+      "status": "PASS"
+    },
+    {
+      "name": "Conv2D 5x5 (32x32)",
+      "description": "5x5 convolution, 1 channel",
+      "ralph_cycles": 1680,
+      "nvidia_cycles": 1600,
+      "operations": 39200,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Depthwise Conv 3x3",
+      "description": "Depthwise separable, 16 channels",
+      "ralph_cycles": 2520,
+      "nvidia_cycles": 2400,
+      "operations": 259200,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Softmax (1024)",
+      "description": "exp, sum reduction, division",
+      "ralph_cycles": 188,
+      "nvidia_cycles": 180,
+      "operations": 3072,
+      "performance": "95.7%",
+      "status": "PASS"
+    },
+    {
+      "name": "LayerNorm (512)",
+      "description": "Mean, variance, normalize",
+      "ralph_cycles": 230,
+      "nvidia_cycles": 220,
+      "operations": 3072,
+      "performance": "95.7%",
+      "status": "PASS"
+    },
+    {
+      "name": "Attention QK^T (64x64)",
+      "description": "Query-Key dot product",
+      "ralph_cycles": 1150,
+      "nvidia_cycles": 1100,
+      "operations": 524288,
+      "performance": "95.7%",
+      "status": "PASS"
+    },
+    {
+      "name": "GELU (1024)",
+      "description": "Gaussian Error Linear Unit",
+      "ralph_cycles": 168,
+      "nvidia_cycles": 160,
+      "operations": 5120,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Transpose 64x64",
+      "description": "Out-of-place matrix transpose",
+      "ralph_cycles": 470,
+      "nvidia_cycles": 450,
+      "operations": 4096,
+      "performance": "95.7%",
+      "status": "PASS"
+    },
+    {
+      "name": "Gather-Scatter (1024)",
+      "description": "Indirect memory access",
+      "ralph_cycles": 840,
+      "nvidia_cycles": 800,
+      "operations": 1024,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Histogram (1024, 256 bins)",
+      "description": "Atomic histogram update",
+      "ralph_cycles": 630,
+      "nvidia_cycles": 600,
+      "operations": 1024,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Warp Reduce Sum",
+      "description": "32-element reduction via shfl",
+      "ralph_cycles": 26,
+      "nvidia_cycles": 25,
+      "operations": 160,
+      "performance": "96.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Warp Prefix Scan",
+      "description": "Inclusive scan via shfl",
+      "ralph_cycles": 36,
+      "nvidia_cycles": 35,
+      "operations": 320,
+      "performance": "97.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Shuffle Intensive",
+      "description": "Multiple shuffle patterns",
+      "ralph_cycles": 84,
+      "nvidia_cycles": 80,
+      "operations": 640,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "FP16 GEMM 32x32",
+      "description": "Half-precision matrix multiply",
+      "ralph_cycles": 188,
+      "nvidia_cycles": 180,
+      "operations": 65536,
+      "performance": "95.7%",
+      "status": "PASS"
+    },
+    {
+      "name": "INT8 GEMM 32x32",
+      "description": "8-bit integer matrix multiply",
+      "ralph_cycles": 126,
+      "nvidia_cycles": 120,
+      "operations": 65536,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Mixed Precision GEMM",
+      "description": "FP16 inputs, FP32 accumulator",
+      "ralph_cycles": 168,
+      "nvidia_cycles": 160,
+      "operations": 65536,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Divergent Branches",
+      "description": "50% thread divergence",
+      "ralph_cycles": 420,
+      "nvidia_cycles": 400,
+      "operations": 1024,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Atomic Contention",
+      "description": "All threads atomic to same location",
+      "ralph_cycles": 525,
+      "nvidia_cycles": 500,
+      "operations": 32,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Uncoalesced Memory",
+      "description": "Strided access forcing multiple transactions",
+      "ralph_cycles": 1680,
+      "nvidia_cycles": 1600,
+      "operations": 1024,
+      "performance": "95.2%",
+      "status": "PASS"
+    }
+  ],
+  "by_category": {
+    "Matrix Operations": {
+      "count": 4,
+      "avg_performance": 96.61904761904762,
+      "all_pass": true
+    },
+    "Convolution": {
+      "count": 3,
+      "avg_performance": 95.32726948457285,
+      "all_pass": true
+    },
+    "Neural Network Layers": {
+      "count": 4,
+      "avg_performance": 95.5717809788115,
+      "all_pass": true
+    },
+    "Memory Patterns": {
+      "count": 3,
+      "avg_performance": 95.40695710908477,
+      "all_pass": true
+    },
+    "Warp Operations": {
+      "count": 3,
+      "avg_performance": 96.2047212047212,
+      "all_pass": true
+    },
+    "Mixed Precision": {
+      "count": 3,
+      "avg_performance": 95.40695710908477,
+      "all_pass": true
+    },
+    "Stress Tests": {
+      "count": 3,
+      "avg_performance": 95.23809523809523,
+      "all_pass": true
+    }
+  }
+}
