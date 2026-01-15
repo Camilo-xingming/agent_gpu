@@ -140,7 +140,7 @@ module streaming_multiprocessor #(
     //------------------------------------------------------------------------
     // Warp状态
     //------------------------------------------------------------------------
-    wire [31:0] warp_pc [0:NUM_WARPS-1];
+    wire [NUM_WARPS*32-1:0] warp_pc_flat;
 
     // Warp退出信号
     wire warp_exit_en = dec_exit_op && (pipe_state == PIPE_EXEC);
@@ -165,7 +165,7 @@ module streaming_multiprocessor #(
         .warp_valid       (warp_valid),
         .warp_ready       (warp_ready),
         .warp_waiting     (warp_waiting),
-        .warp_pc          (warp_pc)
+        .warp_pc_flat     (warp_pc_flat)
     );
 
     //------------------------------------------------------------------------
@@ -354,7 +354,7 @@ module streaming_multiprocessor #(
 
                 PIPE_FETCH: begin
                     if (warp_selected) begin
-                        pc_reg <= warp_pc[active_warp_id];
+                        pc_reg <= warp_pc_flat[active_warp_id*32 +: 32];
                         if (imem_valid) begin
                             instruction_reg <= imem_data;
                             pipe_state <= PIPE_DECODE;

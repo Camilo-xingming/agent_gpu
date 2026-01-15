@@ -1,0 +1,352 @@
+//============================================================================
+// RalphGPU - Atomic Unit
+// 原子操作单元: add, min, max, inc, dec, and, or, xor, exch, cas
+// 支持全局内存和共享内存的原子操作
+//============================================================================
+
+`include "gpu_defines.vh"
+
+module atomic_unit (
+    input  wire        clk,
+    input  wire        rst_n,
+
+    // 操作请求
+    input  wire        req_valid,
+    input  wire [5:0]  func,           // 原子操作类型
+    input  wire [31:0] addr,           // 内存地址
+    input  wire [31:0] operand_a,      // 操作数A (用于大多数操作)
+    input  wire [31:0] operand_b,      // 操作数B (用于CAS的比较值)
+    input  wire        mem_shared,     // 1=共享内存, 0=全局内存
+
+    // 内存接口 (请求)
+    output reg         mem_req,
+    output reg         mem_write,
+    output reg  [31:0] mem_addr,
+    output reg  [31:0] mem_wdata,
+
+    // 内存接口 (响应)
+    input  wire        mem_ready,
+    input  wire [31:0] mem_rdata,
+
+    // 结果
+    output reg  [31:0] result,         // 原始值(交换前)
+    output reg         result_valid,
+    output reg         busy
+);
+
+    //------------------------------------------------------------------------
+    // 状态机
+    //------------------------------------------------------------------------
+    localparam IDLE      = 3'd0;
+    localparam READ_REQ  = 3'd1;
+    localparam READ_WAIT = 3'd2;
+    localparam COMPUTE   = 3'd3;
+    localparam WRITE_REQ = 3'd4;
+    localparam WRITE_WAIT= 3'd5;
+    localparam DONE      = 3'd6;
+
+    reg [2:0] state;
+
+    // 操作存储
+    reg [5:0]  func_reg;
+    reg [31:0] addr_reg;
+    reg [31:0] operand_a_reg;
+    reg [31:0] operand_b_reg;
+    reg [31:0] old_value;
+    reg [31:0] new_value;
+
+    //------------------------------------------------------------------------
+    // 原子操作计算
+    //------------------------------------------------------------------------
+    wire signed [31:0] signed_old = old_value;
+    wire signed [31:0] signed_a   = operand_a_reg;
+
+    always @(*) begin
+        case (func_reg)
+            `ATOM_ADD: new_value = old_value + operand_a_reg;
+
+            `ATOM_MIN_S: new_value = (signed_old < signed_a) ? old_value : operand_a_reg;
+            `ATOM_MIN_U: new_value = (old_value < operand_a_reg) ? old_value : operand_a_reg;
+
+            `ATOM_MAX_S: new_value = (signed_old > signed_a) ? old_value : operand_a_reg;
+            `ATOM_MAX_U: new_value = (old_value > operand_a_reg) ? old_value : operand_a_reg;
+
+            // inc(r, s) = (r >= s) ? 0 : r+1
+            `ATOM_INC: new_value = (old_value >= operand_a_reg) ? 32'h0 : (old_value + 1);
+
+            // dec(r, s) = (r == 0 || r > s) ? s : r-1
+            `ATOM_DEC: new_value = (old_value == 0 || old_value > operand_a_reg) ?
+                                   operand_a_reg : (old_value - 1);
+
+            `ATOM_AND:  new_value = old_value & operand_a_reg;
+            `ATOM_OR:   new_value = old_value | operand_a_reg;
+            `ATOM_XOR:  new_value = old_value ^ operand_a_reg;
+
+            `ATOM_EXCH: new_value = operand_a_reg;
+
+            // cas(r, s, t) = (r == s) ? t : r
+            `ATOM_CAS: new_value = (old_value == operand_a_reg) ? operand_b_reg : old_value;
+
+            default: new_value = old_value;
+        endcase
+    end
+
+    //------------------------------------------------------------------------
+    // 状态机
+    //------------------------------------------------------------------------
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state        <= IDLE;
+            busy         <= 1'b0;
+            result_valid <= 1'b0;
+            result       <= 32'b0;
+            mem_req      <= 1'b0;
+            mem_write    <= 1'b0;
+            mem_addr     <= 32'b0;
+            mem_wdata    <= 32'b0;
+        end else begin
+            case (state)
+                IDLE: begin
+                    result_valid <= 1'b0;
+                    if (req_valid) begin
+                        // 保存操作参数
+                        func_reg      <= func;
+                        addr_reg      <= addr;
+                        operand_a_reg <= operand_a;
+                        operand_b_reg <= operand_b;
+                        busy          <= 1'b1;
+                        state         <= READ_REQ;
+                    end
+                end
+
+                READ_REQ: begin
+                    // 发起读请求
+                    mem_req   <= 1'b1;
+                    mem_write <= 1'b0;
+                    mem_addr  <= addr_reg;
+                    state     <= READ_WAIT;
+                end
+
+                READ_WAIT: begin
+                    if (mem_ready) begin
+                        old_value <= mem_rdata;
+                        mem_req   <= 1'b0;
+                        state     <= COMPUTE;
+                    end
+                end
+
+                COMPUTE: begin
+                    // new_value已由组合逻辑计算
+                    // 检查CAS是否需要写入
+                    if (func_reg == `ATOM_CAS && old_value != operand_a_reg) begin
+                        // CAS比较失败，不写入
+                        result <= old_value;
+                        state  <= DONE;
+                    end else begin
+                        state <= WRITE_REQ;
+                    end
+                end
+
+                WRITE_REQ: begin
+                    // 发起写请求
+                    mem_req   <= 1'b1;
+                    mem_write <= 1'b1;
+                    mem_addr  <= addr_reg;
+                    mem_wdata <= new_value;
+                    state     <= WRITE_WAIT;
+                end
+
+                WRITE_WAIT: begin
+                    if (mem_ready) begin
+                        mem_req <= 1'b0;
+                        result  <= old_value;  // 返回旧值
+                        state   <= DONE;
+                    end
+                end
+
+                DONE: begin
+                    result_valid <= 1'b1;
+                    busy         <= 1'b0;
+                    state        <= IDLE;
+                end
+
+                default: state <= IDLE;
+            endcase
+        end
+    end
+
+endmodule
+
+
+//============================================================================
+// Reduction Unit
+// 归约操作单元 (不返回旧值，只更新内存)
+//============================================================================
+module reduction_unit (
+    input  wire        clk,
+    input  wire        rst_n,
+
+    input  wire        req_valid,
+    input  wire [5:0]  func,
+    input  wire [31:0] addr,
+    input  wire [31:0] operand,
+    input  wire        mem_shared,
+
+    output reg         mem_req,
+    output reg         mem_write,
+    output reg  [31:0] mem_addr,
+    output reg  [31:0] mem_wdata,
+
+    input  wire        mem_ready,
+    input  wire [31:0] mem_rdata,
+
+    output reg         done,
+    output reg         busy
+);
+
+    // 状态机
+    localparam IDLE      = 2'd0;
+    localparam READ_REQ  = 2'd1;
+    localparam READ_WAIT = 2'd2;
+    localparam WRITE     = 2'd3;
+
+    reg [1:0] state;
+    reg [5:0]  func_reg;
+    reg [31:0] addr_reg;
+    reg [31:0] operand_reg;
+    reg [31:0] old_value;
+
+    // 归约计算
+    wire signed [31:0] signed_old = old_value;
+    wire signed [31:0] signed_op  = operand_reg;
+    reg [31:0] new_value;
+
+    always @(*) begin
+        case (func_reg)
+            `ATOM_ADD:   new_value = old_value + operand_reg;
+            `ATOM_MIN_S: new_value = (signed_old < signed_op) ? old_value : operand_reg;
+            `ATOM_MIN_U: new_value = (old_value < operand_reg) ? old_value : operand_reg;
+            `ATOM_MAX_S: new_value = (signed_old > signed_op) ? old_value : operand_reg;
+            `ATOM_MAX_U: new_value = (old_value > operand_reg) ? old_value : operand_reg;
+            `ATOM_AND:   new_value = old_value & operand_reg;
+            `ATOM_OR:    new_value = old_value | operand_reg;
+            `ATOM_XOR:   new_value = old_value ^ operand_reg;
+            default:     new_value = old_value;
+        endcase
+    end
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state     <= IDLE;
+            busy      <= 1'b0;
+            done      <= 1'b0;
+            mem_req   <= 1'b0;
+            mem_write <= 1'b0;
+        end else begin
+            case (state)
+                IDLE: begin
+                    done <= 1'b0;
+                    if (req_valid) begin
+                        func_reg    <= func;
+                        addr_reg    <= addr;
+                        operand_reg <= operand;
+                        busy        <= 1'b1;
+                        mem_req     <= 1'b1;
+                        mem_write   <= 1'b0;
+                        mem_addr    <= addr;
+                        state       <= READ_WAIT;
+                    end
+                end
+
+                READ_WAIT: begin
+                    if (mem_ready) begin
+                        old_value <= mem_rdata;
+                        mem_req   <= 1'b0;
+                        state     <= WRITE;
+                    end
+                end
+
+                WRITE: begin
+                    mem_req   <= 1'b1;
+                    mem_write <= 1'b1;
+                    mem_addr  <= addr_reg;
+                    mem_wdata <= new_value;
+                    if (mem_ready) begin
+                        mem_req <= 1'b0;
+                        done    <= 1'b1;
+                        busy    <= 1'b0;
+                        state   <= IDLE;
+                    end
+                end
+
+                default: state <= IDLE;
+            endcase
+        end
+    end
+
+endmodule
+
+
+//============================================================================
+// Memory Barrier Unit
+// 内存屏障单元
+//============================================================================
+module membar_unit (
+    input  wire        clk,
+    input  wire        rst_n,
+
+    input  wire        req_valid,
+    input  wire [1:0]  scope,         // 00=CTA, 01=GL, 10=SYS
+    input  wire        all_stores_complete,
+    input  wire        all_loads_complete,
+
+    output reg         done,
+    output reg         stall_pipeline
+);
+
+    localparam IDLE     = 2'd0;
+    localparam WAIT_ST  = 2'd1;
+    localparam WAIT_LD  = 2'd2;
+    localparam COMPLETE = 2'd3;
+
+    reg [1:0] state;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state          <= IDLE;
+            done           <= 1'b0;
+            stall_pipeline <= 1'b0;
+        end else begin
+            case (state)
+                IDLE: begin
+                    done <= 1'b0;
+                    if (req_valid) begin
+                        stall_pipeline <= 1'b1;
+                        state          <= WAIT_ST;
+                    end
+                end
+
+                WAIT_ST: begin
+                    if (all_stores_complete) begin
+                        state <= WAIT_LD;
+                    end
+                end
+
+                WAIT_LD: begin
+                    if (all_loads_complete) begin
+                        state <= COMPLETE;
+                    end
+                end
+
+                COMPLETE: begin
+                    stall_pipeline <= 1'b0;
+                    done           <= 1'b1;
+                    state          <= IDLE;
+                end
+
+                default: state <= IDLE;
+            endcase
+        end
+    end
+
+endmodule

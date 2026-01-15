@@ -121,7 +121,7 @@ module warp_state #(
     output reg  [NUM_WARPS-1:0]     warp_valid,
     output reg  [NUM_WARPS-1:0]     warp_ready,
     output reg  [NUM_WARPS-1:0]     warp_waiting,
-    output wire [PC_WIDTH-1:0]      warp_pc [0:NUM_WARPS-1]
+    output wire [NUM_WARPS*PC_WIDTH-1:0] warp_pc_flat  // Packed array output
 );
 
     //------------------------------------------------------------------------
@@ -133,7 +133,7 @@ module warp_state #(
     genvar w;
     generate
         for (w = 0; w < NUM_WARPS; w = w + 1) begin : pc_out
-            assign warp_pc[w] = pc_regs[w];
+            assign warp_pc_flat[w*PC_WIDTH +: PC_WIDTH] = pc_regs[w];
         end
     endgenerate
 

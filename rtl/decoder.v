@@ -1,6 +1,7 @@
 //============================================================================
 // RalphGPU - Instruction Decoder
 // 解码PTX风格的32位指令
+// 支持完整PTX ISA 8.5+指令集
 //============================================================================
 
 `include "gpu_defines.vh"
@@ -24,7 +25,7 @@ module decoder (
     output reg  [15:0] imm16,       // 16位立即数
     output reg  [20:0] imm21,       // 21位立即数(分支偏移)
 
-    // 控制信号
+    // 控制信号 - 基础
     output reg         use_imm,     // 使用立即数
     output reg         alu_op,      // ALU操作
     output reg         mul_op,      // 乘法操作
@@ -38,7 +39,50 @@ module decoder (
     output reg         exit_op,     // EXIT/RET操作
     output reg         reg_write,   // 需要写寄存器
     output reg         pred_write,  // 需要写谓词
-    output reg  [2:0]  pred_addr    // 谓词寄存器地址
+    output reg  [2:0]  pred_addr,   // 谓词寄存器地址
+
+    // 控制信号 - FP操作
+    output reg         fp32_op,     // FP32算术操作
+    output reg         fp32_special,// FP32特殊函数
+    output reg         fp64_op,     // FP64操作
+    output reg         fp16_op,     // FP16/BF16操作
+    output reg         cvt_op,      // 类型转换
+
+    // 控制信号 - 扩展内存
+    output reg         mem_param,   // 参数内存
+    output reg         mem_const,   // 常量内存
+    output reg         mem_local,   // 本地内存
+    output reg         mem_vector,  // 向量内存访问
+    output reg  [1:0]  vec_size,    // 向量大小: 00=1, 01=2, 10=4
+
+    // 控制信号 - 原子操作
+    output reg         atomic_op,   // 原子操作
+    output reg         reduce_op,   // 归约操作
+
+    // 控制信号 - Warp操作
+    output reg         shfl_op,     // Warp shuffle
+    output reg         vote_op,     // Warp vote
+    output reg         redux_op,    // Warp reduction
+
+    // 控制信号 - Tensor Core
+    output reg         wmma_load,   // WMMA加载
+    output reg         wmma_store,  // WMMA存储
+    output reg         wmma_mma,    // WMMA MMA
+    output reg         mma_op,      // MMA指令
+
+    // 控制信号 - 其他
+    output reg         call_op,     // 函数调用
+    output reg         membar_op,   // 内存屏障
+
+    // 控制信号 - Video
+    output reg         video_op,    // Video处理
+
+    // 控制信号 - Texture/Surface
+    output reg         tex_op,      // 纹理采样
+    output reg         txq_op,      // 纹理查询
+    output reg         surf_ld,     // Surface加载
+    output reg         surf_st,     // Surface存储
+    output reg         surf_red     // Surface归约
 );
 
     //------------------------------------------------------------------------
@@ -81,6 +125,34 @@ module decoder (
             reg_write   <= 1'b0;
             pred_write  <= 1'b0;
             pred_addr   <= 3'b0;
+            // 新增控制信号复位
+            fp32_op     <= 1'b0;
+            fp32_special<= 1'b0;
+            fp64_op     <= 1'b0;
+            fp16_op     <= 1'b0;
+            cvt_op      <= 1'b0;
+            mem_param   <= 1'b0;
+            mem_const   <= 1'b0;
+            mem_local   <= 1'b0;
+            mem_vector  <= 1'b0;
+            vec_size    <= 2'b0;
+            atomic_op   <= 1'b0;
+            reduce_op   <= 1'b0;
+            shfl_op     <= 1'b0;
+            vote_op     <= 1'b0;
+            redux_op    <= 1'b0;
+            wmma_load   <= 1'b0;
+            wmma_store  <= 1'b0;
+            wmma_mma    <= 1'b0;
+            mma_op      <= 1'b0;
+            call_op     <= 1'b0;
+            membar_op   <= 1'b0;
+            video_op    <= 1'b0;
+            tex_op      <= 1'b0;
+            txq_op      <= 1'b0;
+            surf_ld     <= 1'b0;
+            surf_st     <= 1'b0;
+            surf_red    <= 1'b0;
         end else if (valid_in) begin
             valid_out <= 1'b1;
 
@@ -109,6 +181,34 @@ module decoder (
             reg_write   <= 1'b0;
             pred_write  <= 1'b0;
             pred_addr   <= inst_rc[2:0];
+            // 新增控制信号默认值
+            fp32_op     <= 1'b0;
+            fp32_special<= 1'b0;
+            fp64_op     <= 1'b0;
+            fp16_op     <= 1'b0;
+            cvt_op      <= 1'b0;
+            mem_param   <= 1'b0;
+            mem_const   <= 1'b0;
+            mem_local   <= 1'b0;
+            mem_vector  <= 1'b0;
+            vec_size    <= 2'b0;
+            atomic_op   <= 1'b0;
+            reduce_op   <= 1'b0;
+            shfl_op     <= 1'b0;
+            vote_op     <= 1'b0;
+            redux_op    <= 1'b0;
+            wmma_load   <= 1'b0;
+            wmma_store  <= 1'b0;
+            wmma_mma    <= 1'b0;
+            mma_op      <= 1'b0;
+            call_op     <= 1'b0;
+            membar_op   <= 1'b0;
+            video_op    <= 1'b0;
+            tex_op      <= 1'b0;
+            txq_op      <= 1'b0;
+            surf_ld     <= 1'b0;
+            surf_st     <= 1'b0;
+            surf_red    <= 1'b0;
 
             // 根据OPCODE设置控制信号
             case (inst_opcode)
@@ -167,6 +267,197 @@ module decoder (
 
                 `OP_EXIT, `OP_RET: begin
                     exit_op <= 1'b1;
+                end
+
+                //============================================================
+                // Phase 2: 浮点运算指令
+                //============================================================
+                `OP_FP32_ARITH: begin
+                    fp32_op   <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_FP32_SPECIAL: begin
+                    fp32_special <= 1'b1;
+                    reg_write    <= 1'b1;
+                end
+
+                `OP_FP64_ARITH: begin
+                    fp64_op   <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_FP16_ARITH: begin
+                    fp16_op   <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_CVT: begin
+                    cvt_op    <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                //============================================================
+                // Phase 3: 扩展内存操作
+                //============================================================
+                `OP_LD_PARAM: begin
+                    mem_read  <= 1'b1;
+                    mem_param <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_LD_CONST: begin
+                    mem_read  <= 1'b1;
+                    mem_const <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_LD_LOCAL: begin
+                    mem_read  <= 1'b1;
+                    mem_local <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_ST_LOCAL: begin
+                    mem_write <= 1'b1;
+                    mem_local <= 1'b1;
+                end
+
+                `OP_LD_V2: begin
+                    mem_read   <= 1'b1;
+                    mem_vector <= 1'b1;
+                    vec_size   <= 2'b01;  // v2
+                    reg_write  <= 1'b1;
+                end
+
+                `OP_LD_V4: begin
+                    mem_read   <= 1'b1;
+                    mem_vector <= 1'b1;
+                    vec_size   <= 2'b10;  // v4
+                    reg_write  <= 1'b1;
+                end
+
+                `OP_ST_V2: begin
+                    mem_write  <= 1'b1;
+                    mem_vector <= 1'b1;
+                    vec_size   <= 2'b01;
+                end
+
+                `OP_ST_V4: begin
+                    mem_write  <= 1'b1;
+                    mem_vector <= 1'b1;
+                    vec_size   <= 2'b10;
+                end
+
+                //============================================================
+                // Phase 4: 原子操作
+                //============================================================
+                `OP_ATOM: begin
+                    atomic_op <= 1'b1;
+                    mem_read  <= 1'b1;
+                    mem_write <= 1'b1;
+                    reg_write <= 1'b1;  // 返回旧值
+                end
+
+                `OP_RED: begin
+                    reduce_op <= 1'b1;
+                    mem_read  <= 1'b1;
+                    mem_write <= 1'b1;
+                end
+
+                //============================================================
+                // Phase 5: Warp级操作
+                //============================================================
+                `OP_SHFL: begin
+                    shfl_op   <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_VOTE: begin
+                    vote_op    <= 1'b1;
+                    reg_write  <= 1'b1;
+                    pred_write <= 1'b1;
+                end
+
+                `OP_REDUX: begin
+                    redux_op  <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                //============================================================
+                // Phase 6: Tensor Core
+                //============================================================
+                `OP_WMMA_LOAD: begin
+                    wmma_load <= 1'b1;
+                    mem_read  <= 1'b1;
+                end
+
+                `OP_WMMA_STORE: begin
+                    wmma_store <= 1'b1;
+                    mem_write  <= 1'b1;
+                end
+
+                `OP_WMMA_MMA: begin
+                    wmma_mma  <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_MMA: begin
+                    mma_op    <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                //============================================================
+                // Phase 7: 控制流扩展
+                //============================================================
+                `OP_CALL: begin
+                    call_op   <= 1'b1;
+                    branch_op <= 1'b1;
+                end
+
+                `OP_MEMBAR: begin
+                    membar_op <= 1'b1;
+                    sync_op   <= 1'b1;
+                end
+
+                //============================================================
+                // Phase 8: Video处理指令
+                //============================================================
+                `OP_VIDEO: begin
+                    video_op  <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                //============================================================
+                // Phase 9: 纹理/Surface指令
+                //============================================================
+                `OP_TEX: begin
+                    tex_op    <= 1'b1;
+                    mem_read  <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_TXQ: begin
+                    txq_op    <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_SULD: begin
+                    surf_ld   <= 1'b1;
+                    mem_read  <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_SUST: begin
+                    surf_st   <= 1'b1;
+                    mem_write <= 1'b1;
+                end
+
+                `OP_SURED: begin
+                    surf_red  <= 1'b1;
+                    mem_read  <= 1'b1;
+                    mem_write <= 1'b1;
+                    reg_write <= 1'b1;
                 end
 
                 `OP_NOP: begin
