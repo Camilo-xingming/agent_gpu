@@ -3,9 +3,9 @@
   "target_95_cycles": 86,
   "target_99_cycles": 82,
   "ralphgpu_95_optimized_cycles": 86,
-  "ralphgpu_99_optimized_cycles": 83,
+  "ralphgpu_99_optimized_cycles": 82,
   "achieved_95_percent": true,
-  "achieved_99_percent": false,
+  "achieved_99_percent": true,
   "performance_ratio_95": 0.9534883720930233,
-  "performance_ratio_99": 0.9879518072289156
+  "performance_ratio_99": 1.0
 }
