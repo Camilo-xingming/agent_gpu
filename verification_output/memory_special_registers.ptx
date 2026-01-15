@@ -1,0 +1,16 @@
+// Auto-generated test: memory_special_registers
+// Category: Data Movement
+// Description: Test special register access
+
+mov.u32 r0, %tid.x
+mov.u32 r1, %tid.y
+mov.u32 r2, %tid.z
+mov.u32 r3, %ctaid.x
+mov.u32 r4, %ctaid.y
+mov.u32 r5, %ctaid.z
+mov.u32 r6, %ntid.x
+mov.u32 r7, %nctaid.x
+mov.u32 r8, %laneid
+mov.u32 r9, %warpid
+mov.u32 r10, %smid
+exit

@@ -1,0 +1,12 @@
+// Auto-generated test: surface_operations
+// Category: Surface
+// Description: Test surface operations
+
+suld.b.1d.b32 r0, r1, r2
+suld.b.2d.b32 r3, r1, r2
+suld.b.3d.b32 r4, r1, r2
+sust.b.1d.b32 r1, r2, r3
+sust.b.2d.b32 r1, r2, r3
+sust.b.3d.b32 r1, r2, r3
+sured.b32 r1, r2, r3
+exit

@@ -1,0 +1,11 @@
+// Auto-generated test: warp_vote
+// Category: Warp Vote
+// Description: Test warp vote operations
+
+mov.u32 r0, %laneid
+setp.eq.s32 p0, r0, 0
+vote.sync.all.pred p1, p0, 0xFFFFFFFF
+vote.sync.any.pred p2, p0, 0xFFFFFFFF
+vote.sync.uni.pred p3, p0, 0xFFFFFFFF
+vote.sync.ballot.b32 r1, p0, 0xFFFFFFFF
+exit

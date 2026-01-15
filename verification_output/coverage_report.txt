@@ -1,0 +1,256 @@
+================================================================================
+RalphGPU PTX ISA Verification Report
+================================================================================
+
+Suite: RalphGPU PTX ISA 9.1 Complete Test Suite
+Timestamp: 2026-01-15T23:10:38.359144
+
+Test Summary:
+  Total Tests: 51
+  Passed: 51
+  Failed: 0
+  Pass Rate: 100.0%
+
+================================================================================
+Instruction Coverage Report
+================================================================================
+
+Overall Coverage: 100.0%
+Instructions Tested: 209/209
+
+Coverage by Category:
+------------------------------------------------------------
+Category                       Tested     Total      %         
+------------------------------------------------------------
+Integer Arithmetic             32         32         100.0%
+Logic                          9          9          100.0%
+Comparison                     6          6          100.0%
+FP32 Arithmetic                9          9          100.0%
+FP32 Special                   8          8          100.0%
+FP64 Arithmetic                12         12         100.0%
+FP16/BF16                      14         14         100.0%
+Type Conversion                12         12         100.0%
+Data Movement                  22         22         100.0%
+Control Flow                   5          5          100.0%
+Synchronization                4          4          100.0%
+Atomic                         10         10         100.0%
+Reduction                      5          5          100.0%
+Warp Shuffle                   4          4          100.0%
+Warp Vote                      4          4          100.0%
+Warp Redux                     5          5          100.0%
+WMMA (Tensor Core)             6          6          100.0%
+WGMMA (Hopper)                 9          9          100.0%
+Texture                        9          9          100.0%
+Surface                        7          7          100.0%
+Video/SIMD                     10         10         100.0%
+Async Copy                     6          6          100.0%
+Misc                           1          1          100.0%
+
+================================================================================
+Test Details
+================================================================================
+
+[PASS] integer_basic_arithmetic
+       Category: Integer Arithmetic
+       Instructions: 8
+
+[PASS] integer_extended_arithmetic
+       Category: Integer Arithmetic
+       Instructions: 10
+
+[PASS] integer_carry_operations
+       Category: Integer Arithmetic
+       Instructions: 7
+
+[PASS] integer_bit_manipulation
+       Category: Integer Arithmetic
+       Instructions: 7
+
+[PASS] integer_mad_operations
+       Category: Integer Arithmetic
+       Instructions: 7
+
+[PASS] integer_unsigned_complete
+       Category: Integer Arithmetic
+       Instructions: 15
+
+[PASS] logic_bitwise_operations
+       Category: Logic
+       Instructions: 7
+
+[PASS] logic_shift_operations
+       Category: Logic
+       Instructions: 6
+
+[PASS] logic_select_operations
+       Category: Logic
+       Instructions: 6
+
+[PASS] comparison_all_predicates
+       Category: Comparison
+       Instructions: 9
+
+[PASS] fp32_basic_arithmetic
+       Category: FP32 Arithmetic
+       Instructions: 11
+
+[PASS] fp32_fma
+       Category: FP32 Arithmetic
+       Instructions: 5
+
+[PASS] fp32_special_functions
+       Category: FP32 Special
+       Instructions: 10
+
+[PASS] fp64_basic_arithmetic
+       Category: FP64 Arithmetic
+       Instructions: 16
+
+[PASS] fp64_fma
+       Category: FP64 Arithmetic
+       Instructions: 8
+
+[PASS] fp16_basic_arithmetic
+       Category: FP16/BF16
+       Instructions: 13
+
+[PASS] bf16_arithmetic
+       Category: FP16/BF16
+       Instructions: 7
+
+[PASS] fp16x2_packed_operations
+       Category: FP16/BF16
+       Instructions: 7
+
+[PASS] cvt_int_float
+       Category: Type Conversion
+       Instructions: 7
+
+[PASS] cvt_float_precision
+       Category: Type Conversion
+       Instructions: 6
+
+[PASS] cvt_64bit
+       Category: Type Conversion
+       Instructions: 7
+
+[PASS] memory_global
+       Category: Data Movement
+       Instructions: 6
+
+[PASS] memory_shared
+       Category: Data Movement
+       Instructions: 6
+
+[PASS] memory_vector
+       Category: Data Movement
+       Instructions: 7
+
+[PASS] memory_special_spaces
+       Category: Data Movement
+       Instructions: 5
+
+[PASS] memory_special_registers
+       Category: Data Movement
+       Instructions: 12
+
+[PASS] memory_cache_hints
+       Category: Data Movement
+       Instructions: 8
+
+[PASS] memory_prefetch
+       Category: Data Movement
+       Instructions: 3
+
+[PASS] memory_prefetch_uniform
+       Category: Data Movement
+       Instructions: 2
+
+[PASS] control_flow_branch
+       Category: Control Flow
+       Instructions: 7
+
+[PASS] control_flow_call_ret
+       Category: Control Flow
+       Instructions: 6
+
+[PASS] control_flow_uniform
+       Category: Control Flow
+       Instructions: 3
+
+[PASS] sync_barrier
+       Category: Synchronization
+       Instructions: 5
+
+[PASS] sync_membar
+       Category: Synchronization
+       Instructions: 6
+
+[PASS] atomic_arithmetic
+       Category: Atomic
+       Instructions: 7
+
+[PASS] atomic_bitwise
+       Category: Atomic
+       Instructions: 5
+
+[PASS] atomic_exchange
+       Category: Atomic
+       Instructions: 5
+
+[PASS] reduction_operations
+       Category: Reduction
+       Instructions: 7
+
+[PASS] warp_shuffle
+       Category: Warp Shuffle
+       Instructions: 7
+
+[PASS] warp_vote
+       Category: Warp Vote
+       Instructions: 7
+
+[PASS] warp_redux
+       Category: Warp Redux
+       Instructions: 7
+
+[PASS] wmma_operations
+       Category: WMMA (Tensor Core)
+       Instructions: 6
+
+[PASS] mma_sync_operations
+       Category: WMMA (Tensor Core)
+       Instructions: 3
+
+[PASS] wgmma_operations
+       Category: WGMMA (Hopper)
+       Instructions: 10
+
+[PASS] texture_sampling
+       Category: Texture
+       Instructions: 6
+
+[PASS] texture_query
+       Category: Texture
+       Instructions: 5
+
+[PASS] surface_operations
+       Category: Surface
+       Instructions: 8
+
+[PASS] video_basic_operations
+       Category: Video/SIMD
+       Instructions: 11
+
+[PASS] video_simd_operations
+       Category: Video/SIMD
+       Instructions: 9
+
+[PASS] video_dp_operations
+       Category: Video/SIMD
+       Instructions: 6
+
+[PASS] async_copy_operations
+       Category: Async Copy
+       Instructions: 7
+

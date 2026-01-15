@@ -1,0 +1,12 @@
+// Auto-generated test: control_flow_call_ret
+// Category: Control Flow
+// Description: Test function call and return
+
+mov.u32 r0, 10
+call func
+bra end
+func:
+add.s32 r0, r0, 1
+ret
+end:
+exit

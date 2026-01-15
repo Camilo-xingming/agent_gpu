@@ -1,0 +1,6 @@
+// Auto-generated test: memory_prefetch_uniform
+// Category: Data Movement
+// Description: Test uniform prefetch
+
+prefetchu.L1 [r0]
+exit

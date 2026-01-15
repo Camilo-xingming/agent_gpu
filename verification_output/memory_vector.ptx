@@ -1,0 +1,11 @@
+// Auto-generated test: memory_vector
+// Category: Data Movement
+// Description: Test vector memory operations
+
+mov.u32 r0, %tid.x
+shl.b32 r1, r0, 4
+ld.v4.s32 r2, [r1]     // Load 4 elements
+ld.v2.s32 r6, [r1]     // Load 2 elements
+st.v4.s32 [r1], r2
+st.v2.s32 [r1], r6
+exit

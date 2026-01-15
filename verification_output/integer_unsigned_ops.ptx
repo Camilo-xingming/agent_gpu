@@ -1,0 +1,32 @@
+// Auto-generated test: integer_unsigned_ops
+// Category: Integer Arithmetic
+// Description: Test unsigned integer operations
+// Coverage: add.u32, sub.u32, mul.hi, div.u32, rem.u32, min.u32, max.u32
+
+// Initialize test data
+mov.u32 r1, 100
+mov.u32 r2, 30
+
+// add.u32 - unsigned addition
+add.u32 r3, r1, r2      // r3 = 100 + 30 = 130
+
+// sub.u32 - unsigned subtraction
+sub.u32 r4, r1, r2      // r4 = 100 - 30 = 70
+
+// mul.hi - high part of multiplication
+mov.u32 r5, 0xFFFF
+mul.hi.u32 r6, r5, r5   // high 32 bits
+
+// div.u32 - unsigned division
+div.u32 r7, r1, r2      // r7 = 100 / 30 = 3
+
+// rem.u32 - unsigned remainder
+rem.u32 r8, r1, r2      // r8 = 100 % 30 = 10
+
+// min.u32 - unsigned minimum
+min.u32 r9, r1, r2      // r9 = min(100, 30) = 30
+
+// max.u32 - unsigned maximum
+max.u32 r10, r1, r2     // r10 = max(100, 30) = 100
+
+exit

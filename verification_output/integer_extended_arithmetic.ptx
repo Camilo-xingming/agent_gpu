@@ -1,0 +1,14 @@
+// Auto-generated test: integer_extended_arithmetic
+// Category: Integer Arithmetic
+// Description: Test extended integer operations
+
+mov.u32 r1, 0x12345678
+mov.u32 r2, 5
+abs.s32 r3, r1
+neg.s32 r4, r1
+min.s32 r5, r1, r2
+max.s32 r6, r1, r2
+popc.b32 r7, r1
+clz.b32 r8, r1
+brev.b32 r9, r1
+exit

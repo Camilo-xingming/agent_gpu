@@ -1,0 +1,11 @@
+// Auto-generated test: integer_mad_operations
+// Category: Integer Arithmetic
+// Description: Test multiply-add operations
+
+mov.u32 r1, 5
+mov.u32 r2, 3
+mov.u32 r3, 10
+mad.lo.s32 r4, r1, r2, r3  // r4 = 5*3 + 10 = 25
+mad.hi.s32 r5, r1, r2, r3
+mul.wide.s32 r6, r1, r2    // 64-bit result
+exit

@@ -1,0 +1,14 @@
+// Auto-generated test: wgmma_operations
+// Category: WGMMA (Hopper)
+// Description: Test WGMMA Hopper tensor core operations
+
+wgmma.mma_async.m64n8k16.f32 r0, r4, r8
+wgmma.mma_async.m64n16k16.f32 r0, r4, r8
+wgmma.mma_async.m64n32k16.f32 r0, r4, r8
+wgmma.mma_async.m64n64k16.f32 r0, r4, r8
+wgmma.mma_async.m64n128k16.f32 r0, r4, r8
+wgmma.mma_async.m64n256k16.f32 r0, r4, r8
+wgmma.fence
+wgmma.commit_group
+wgmma.wait_group
+exit

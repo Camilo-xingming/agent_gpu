@@ -1,0 +1,11 @@
+// Auto-generated test: reduction_operations
+// Category: Reduction
+// Description: Test reduction operations
+
+mov.u32 r1, 10
+red.add.s32 [r0], r1
+red.min.s32 [r0], r1
+red.max.s32 [r0], r1
+red.and.b32 [r0], r1
+red.or.b32 [r0], r1
+exit

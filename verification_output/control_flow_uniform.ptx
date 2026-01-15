@@ -1,0 +1,8 @@
+// Auto-generated test: control_flow_uniform
+// Category: Control Flow
+// Description: Test uniform branch
+
+bra.uni target
+target:
+nop
+exit

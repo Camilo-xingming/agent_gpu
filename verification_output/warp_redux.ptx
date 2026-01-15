@@ -1,0 +1,11 @@
+// Auto-generated test: warp_redux
+// Category: Warp Redux
+// Description: Test warp reduction operations
+
+mov.u32 r0, %laneid
+redux.sync.add.s32 r1, r0, 0xFFFFFFFF
+redux.sync.min.s32 r2, r0, 0xFFFFFFFF
+redux.sync.max.s32 r3, r0, 0xFFFFFFFF
+redux.sync.and.b32 r4, r0, 0xFFFFFFFF
+redux.sync.or.b32 r5, r0, 0xFFFFFFFF
+exit

@@ -1,0 +1,9 @@
+// Auto-generated test: fp32_fma
+// Category: FP32 Arithmetic
+// Description: Test FP32 fused multiply-add
+
+mov.u32 r1, 0x40400000  // 3.0f
+mov.u32 r2, 0x40000000  // 2.0f
+mov.u32 r3, 0x3F800000  // 1.0f
+fma.rn.f32 r4, r1, r2, r3  // 3.0*2.0 + 1.0 = 7.0
+exit

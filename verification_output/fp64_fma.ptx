@@ -1,0 +1,12 @@
+// Auto-generated test: fp64_fma
+// Category: FP64 Arithmetic
+// Description: Test FP64 fused multiply-add
+
+mov.u32 r0, 0x00000000
+mov.u32 r1, 0x40080000  // 3.0
+mov.u32 r2, 0x00000000
+mov.u32 r3, 0x40000000  // 2.0
+mov.u32 r4, 0x00000000
+mov.u32 r5, 0x3FF00000  // 1.0
+fma.rn.f64 r6, r0, r2, r4
+exit

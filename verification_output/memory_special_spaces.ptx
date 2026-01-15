@@ -1,0 +1,9 @@
+// Auto-generated test: memory_special_spaces
+// Category: Data Movement
+// Description: Test parameter, const, local memory
+
+ld.param.s32 r0, [r1]  // Kernel parameter
+ld.const.s32 r2, [r3]  // Constant memory
+ld.local.s32 r4, [r5]  // Local memory
+st.local.s32 [r5], r4
+exit

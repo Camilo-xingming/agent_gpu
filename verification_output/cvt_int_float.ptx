@@ -1,0 +1,11 @@
+// Auto-generated test: cvt_int_float
+// Category: Type Conversion
+// Description: Test integer to float conversions
+
+mov.u32 r1, 42
+cvt.f32.s32 r2, r1   // int to float
+cvt.f32.u32 r3, r1   // uint to float
+mov.u32 r4, 0x42280000  // 42.0f
+cvt.s32.f32 r5, r4   // float to int
+cvt.u32.f32 r6, r4   // float to uint
+exit

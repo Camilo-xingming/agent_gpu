@@ -1,0 +1,9 @@
+// Auto-generated test: sync_barrier
+// Category: Synchronization
+// Description: Test barrier synchronization
+
+mov.u32 r0, %tid.x
+st.shared.s32 [r0], r0
+bar.sync 0
+ld.shared.s32 r1, [r0]
+exit

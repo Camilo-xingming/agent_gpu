@@ -1,0 +1,9 @@
+// Auto-generated test: texture_query
+// Category: Texture
+// Description: Test texture query operations
+
+txq.width.b32 r0, r1
+txq.height.b32 r2, r1
+txq.depth.b32 r3, r1
+txq.num_mipmap_levels.b32 r4, r1
+exit

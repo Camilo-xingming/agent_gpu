@@ -1,0 +1,10 @@
+// Auto-generated test: memory_shared
+// Category: Data Movement
+// Description: Test shared memory operations
+
+mov.u32 r0, %tid.x
+shl.b32 r1, r0, 2
+st.shared.s32 [r1], r0
+bar.sync 0
+ld.shared.s32 r2, [r1]
+exit

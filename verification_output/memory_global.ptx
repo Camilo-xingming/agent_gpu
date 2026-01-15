@@ -1,0 +1,10 @@
+// Auto-generated test: memory_global
+// Category: Data Movement
+// Description: Test global memory operations
+
+mov.u32 r0, %tid.x
+shl.b32 r1, r0, 2      // offset = tid * 4
+ld.global.s32 r2, [r1]
+add.s32 r3, r2, 1
+st.global.s32 [r1], r3
+exit

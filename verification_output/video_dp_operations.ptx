@@ -1,0 +1,10 @@
+// Auto-generated test: video_dp_operations
+// Category: Video/SIMD
+// Description: Test dot product operations
+
+mov.u32 r1, 0x01020304
+mov.u32 r2, 0x05060708
+mov.u32 r3, 0
+dp4a.s32.s32 r4, r1, r2, r3
+dp2a.s32.s32 r5, r1, r2, r3
+exit

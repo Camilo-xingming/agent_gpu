@@ -1,0 +1,36 @@
+// Auto-generated test: integer_bit_extended
+// Category: Integer Arithmetic
+// Description: Test extended bit operations
+// Coverage: bfind, bfe.s32, sad
+
+// Initialize test data
+mov.u32 r1, 0x00FF0000  // bit pattern for bfind
+mov.s32 r2, 0x12345678  // value for bit field extract
+mov.s32 r3, 100         // for SAD
+mov.s32 r4, 30          // for SAD
+mov.s32 r5, 0           // accumulator for SAD
+mov.u32 r20, 16         // bit position
+mov.u32 r21, 8          // bit length
+
+// bfind - find most significant bit
+bfind.u32 r6, r1        // find MSB position
+
+// bfe.s32 - bit field extract (signed) using register params
+bfe.s32 r7, r2, r20, r21   // extract bits [23:16]
+
+// sad - sum of absolute differences
+sad.s32 r8, r3, r4, r5  // |100 - 30| + 0 = 70
+
+// Additional bfind test
+mov.u32 r9, 0x80000000
+bfind.u32 r10, r9       // should find bit 31
+
+// Additional bfe.s32 test
+mov.u32 r22, 8
+bfe.s32 r11, r2, r22, r21   // extract bits [15:8]
+
+// Additional sad test with accumulator
+mov.s32 r12, 10
+sad.s32 r13, r3, r4, r12 // |100 - 30| + 10 = 80
+
+exit

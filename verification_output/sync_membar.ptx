@@ -1,0 +1,10 @@
+// Auto-generated test: sync_membar
+// Category: Synchronization
+// Description: Test memory barriers
+
+st.global.s32 [r0], r1
+membar.cta
+membar.gl
+membar.sys
+ld.global.s32 r2, [r0]
+exit

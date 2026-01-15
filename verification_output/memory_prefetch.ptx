@@ -1,0 +1,7 @@
+// Auto-generated test: memory_prefetch
+// Category: Data Movement
+// Description: Test prefetch operations
+
+prefetch.L1 [r0]
+prefetch.L2 [r0]
+exit

@@ -1,0 +1,13 @@
+// Auto-generated test: video_simd_operations
+// Category: Video/SIMD
+// Description: Test SIMD video operations
+
+mov.u32 r1, 0x01020304
+mov.u32 r2, 0x05060708
+vadd4.s8 r3, r1, r2
+vsub4.s8 r4, r1, r2
+vabsdiff4.s8 r5, r1, r2
+vadd2.s16 r6, r1, r2
+vsub2.s16 r7, r1, r2
+vmul2.s16 r8, r1, r2
+exit

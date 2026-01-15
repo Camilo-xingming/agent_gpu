@@ -1,0 +1,11 @@
+// Auto-generated test: integer_carry_operations
+// Category: Integer Arithmetic
+// Description: Test carry flag operations
+
+mov.u32 r1, 0xFFFFFFFF
+mov.u32 r2, 1
+add.cc.s32 r3, r1, r2   // Overflow, set carry
+addc.s32 r4, r0, r0     // Add with carry
+sub.cc.s32 r5, r0, r2   // Underflow, set borrow
+subc.s32 r6, r0, r0     // Sub with borrow
+exit

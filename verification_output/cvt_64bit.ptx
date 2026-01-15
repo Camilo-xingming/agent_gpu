@@ -1,0 +1,11 @@
+// Auto-generated test: cvt_64bit
+// Category: Type Conversion
+// Description: Test 64-bit conversions
+
+mov.u32 r0, 0x00000000
+mov.u32 r1, 0x40080000  // 3.0 f64
+cvt.s64.f64 r2, r0
+cvt.u64.f64 r4, r0
+cvt.f64.s64 r6, r2
+cvt.f64.u64 r8, r4
+exit

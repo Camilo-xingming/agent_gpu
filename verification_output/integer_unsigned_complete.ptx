@@ -1,0 +1,19 @@
+// Auto-generated test: integer_unsigned_complete
+// Category: Integer Arithmetic
+// Description: Test unsigned integer operations for full coverage
+
+mov.u32 r1, 100
+mov.u32 r2, 30
+mov.u32 r20, 4          // Bit position for bfe
+mov.u32 r21, 8          // Bit length for bfe
+add.u32 r3, r1, r2      // Unsigned add
+sub.u32 r4, r1, r2      // Unsigned sub
+div.u32 r5, r1, r2      // Unsigned div
+rem.u32 r6, r1, r2      // Unsigned rem
+min.u32 r7, r1, r2      // Unsigned min
+max.u32 r8, r1, r2      // Unsigned max
+mul.hi.s32 r9, r1, r2   // High multiply
+bfind.s32 r10, r1       // Bit find
+bfe.s32 r11, r1, r20, r21  // Bit field extract
+sad.s32 r12, r1, r2, r3 // Sum of absolute diff
+exit

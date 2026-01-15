@@ -1,0 +1,21 @@
+// Auto-generated test: fp64_basic_arithmetic
+// Category: FP64 Arithmetic
+// Description: Test basic FP64 operations
+
+// 3.0 in double: 0x4008000000000000
+mov.u32 r0, 0x00000000
+mov.u32 r1, 0x40080000
+mov.u32 r2, 0x00000000
+mov.u32 r3, 0x40000000  // 2.0
+add.f64 r4, r0, r2
+sub.f64 r6, r0, r2
+mul.f64 r8, r0, r2
+div.f64 r10, r0, r2
+neg.f64 r12, r0
+abs.f64 r14, r12
+min.f64 r16, r0, r2
+max.f64 r18, r0, r2
+sqrt.f64 r20, r0
+rsqrt.f64 r22, r0
+rcp.f64 r24, r0
+exit

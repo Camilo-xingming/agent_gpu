@@ -1,0 +1,13 @@
+// Auto-generated test: control_flow_branch
+// Category: Control Flow
+// Description: Test branch operations
+
+mov.u32 r0, %tid.x
+setp.eq.s32 p0, r0, 0
+@p0 bra skip
+add.s32 r1, r0, 1
+bra done
+skip:
+mov.u32 r1, 0
+done:
+exit

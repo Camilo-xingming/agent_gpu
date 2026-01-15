@@ -1,0 +1,32 @@
+// Auto-generated test: control_data_extra
+// Category: Control Flow / Data Movement
+// Description: Test uniform branch and prefetchu
+// Coverage: bra.uni, prefetchu
+
+// Initialize test data
+mov.u32 r1, 0x1000      // base address for prefetch
+mov.u32 r2, 0x2000      // another address
+
+// prefetchu - prefetch to L1 (uniform)
+prefetchu.L1 [r1]
+prefetchu.L1 [r2]
+
+// Initialize counter for loop
+mov.u32 r3, 0           // counter
+mov.u32 r4, 3           // limit
+
+LOOP_START:
+// Increment counter
+add.u32 r3, r3, 1
+
+// Compare
+setp.lt.u32 p0, r3, r4
+
+// bra.uni - uniform branch (all threads take same path)
+@p0 bra.uni LOOP_START
+
+// Another prefetchu test
+add.u32 r6, r1, 64
+prefetchu.L1 [r6]
+
+exit

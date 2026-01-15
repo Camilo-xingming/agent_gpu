@@ -1,0 +1,11 @@
+// Auto-generated test: atomic_arithmetic
+// Category: Atomic
+// Description: Test atomic arithmetic operations
+
+mov.u32 r1, 1
+atom.add.s32 r2, [r0], r1
+atom.min.s32 r3, [r0], r1
+atom.max.s32 r4, [r0], r1
+atom.inc.u32 r5, [r0], r1
+atom.dec.u32 r6, [r0], r1
+exit

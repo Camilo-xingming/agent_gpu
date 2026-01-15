@@ -1,0 +1,12 @@
+// Auto-generated test: memory_cache_hints
+// Category: Data Movement
+// Description: Test cache hint operations
+
+ld.ca.s32 r0, [r1]     // Cache all
+ld.cg.s32 r2, [r1]     // Cache global
+ld.cs.s32 r3, [r1]     // Cache streaming
+ld.lu.s32 r4, [r1]     // Last use
+ld.cv.s32 r5, [r1]     // Cache volatile
+st.wb.s32 [r1], r6     // Write-back
+st.wt.s32 [r1], r7     // Write-through
+exit

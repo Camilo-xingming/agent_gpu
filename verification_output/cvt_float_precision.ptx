@@ -1,0 +1,10 @@
+// Auto-generated test: cvt_float_precision
+// Category: Type Conversion
+// Description: Test float precision conversions
+
+mov.u32 r1, 0x40400000  // 3.0f
+cvt.f64.f32 r2, r1      // f32 to f64
+cvt.f32.f64 r4, r2      // f64 to f32
+cvt.f16.f32 r5, r1      // f32 to f16
+cvt.f32.f16 r6, r5      // f16 to f32
+exit

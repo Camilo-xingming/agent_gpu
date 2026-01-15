@@ -1,0 +1,10 @@
+// Auto-generated test: logic_select_operations
+// Category: Logic
+// Description: Test select operations
+
+mov.u32 r1, 100
+mov.u32 r2, 200
+setp.gt.s32 p0, r1, r2
+selp.b32 r3, r1, r2, p0  // Select based on predicate
+slct.f32.s32 r4, r1, r2, r1 // Select based on sign
+exit

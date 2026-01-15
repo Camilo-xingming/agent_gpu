@@ -1,0 +1,11 @@
+// Auto-generated test: fp16x2_packed_operations
+// Category: FP16/BF16
+// Description: Test packed FP16x2 operations
+
+mov.u32 r1, 0x42004000  // {3.0, 2.0} in FP16x2
+mov.u32 r2, 0x3C003C00  // {1.0, 1.0} in FP16x2
+add.f16x2 r3, r1, r2
+sub.f16x2 r4, r1, r2
+mul.f16x2 r5, r1, r2
+fma.f16x2 r6, r1, r2, r3
+exit

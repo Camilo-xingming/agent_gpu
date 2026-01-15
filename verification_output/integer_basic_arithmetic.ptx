@@ -1,0 +1,14 @@
+// Auto-generated test: integer_basic_arithmetic
+// Category: Integer Arithmetic
+// Description: Test basic integer add/sub/mul/div
+
+// Initialize test data
+mov.u32 r1, 10
+mov.u32 r2, 3
+// Basic operations
+add.s32 r3, r1, r2      // r3 = 10 + 3 = 13
+sub.s32 r4, r1, r2      // r4 = 10 - 3 = 7
+mul.lo.s32 r5, r1, r2   // r5 = 10 * 3 = 30
+div.s32 r6, r1, r2      // r6 = 10 / 3 = 3
+rem.s32 r7, r1, r2      // r7 = 10 % 3 = 1
+exit

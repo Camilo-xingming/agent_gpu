@@ -1,0 +1,17 @@
+// Auto-generated test: fp16_basic_arithmetic
+// Category: FP16/BF16
+// Description: Test basic FP16 operations
+
+mov.u32 r1, 0x4200  // 3.0 in FP16
+mov.u32 r2, 0x4000  // 2.0 in FP16
+add.f16 r3, r1, r2
+sub.f16 r4, r1, r2
+mul.f16 r5, r1, r2
+fma.f16 r6, r1, r2, r3
+neg.f16 r7, r1
+abs.f16 r8, r7
+min.f16 r9, r1, r2
+max.f16 r10, r1, r2
+tanh.f16 r11, r1
+ex2.f16 r12, r1
+exit

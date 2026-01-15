@@ -1,0 +1,11 @@
+// Auto-generated test: logic_bitwise_operations
+// Category: Logic
+// Description: Test bitwise logic operations
+
+mov.u32 r1, 0xFF00FF00
+mov.u32 r2, 0x0F0F0F0F
+and.b32 r3, r1, r2
+or.b32 r4, r1, r2
+xor.b32 r5, r1, r2
+not.b32 r6, r1
+exit

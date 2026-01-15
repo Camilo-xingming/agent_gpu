@@ -1,0 +1,13 @@
+// Auto-generated test: async_copy_operations
+// Category: Async Copy
+// Description: Test async copy operations
+
+// Async copy from global to shared
+cp.async.ca.shared.global [r0], [r1], 16
+cp.async.cg.shared.global [r2], [r3], 16
+cp.async.bulk.shared.global [r4], [r5], 128
+// Synchronize
+cp.async.commit_group
+cp.async.wait_group 0
+cp.async.wait_all
+exit

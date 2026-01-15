@@ -1,0 +1,10 @@
+// Auto-generated test: texture_sampling
+// Category: Texture
+// Description: Test texture sampling operations
+
+tex.1d.v4.f32 r0, r4, r5
+tex.2d.v4.f32 r0, r4, r5
+tex.3d.v4.f32 r0, r4, r5
+tex.cube.v4.f32 r0, r4, r5
+tex.level.2d.v4.f32 r0, r4, r5
+exit

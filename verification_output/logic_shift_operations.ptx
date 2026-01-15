@@ -1,0 +1,10 @@
+// Auto-generated test: logic_shift_operations
+// Category: Logic
+// Description: Test shift operations
+
+mov.u32 r1, 0x12345678
+mov.u32 r2, 4
+shl.b32 r3, r1, r2     // Left shift
+shr.u32 r4, r1, r2     // Logical right shift
+shr.s32 r5, r1, r2     // Arithmetic right shift
+exit

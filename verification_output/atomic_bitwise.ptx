@@ -1,0 +1,9 @@
+// Auto-generated test: atomic_bitwise
+// Category: Atomic
+// Description: Test atomic bitwise operations
+
+mov.u32 r1, 0xFF
+atom.and.b32 r2, [r0], r1
+atom.or.b32 r3, [r0], r1
+atom.xor.b32 r4, [r0], r1
+exit

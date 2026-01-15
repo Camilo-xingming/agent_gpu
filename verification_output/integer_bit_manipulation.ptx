@@ -1,0 +1,11 @@
+// Auto-generated test: integer_bit_manipulation
+// Category: Integer Arithmetic
+// Description: Test bit field operations
+
+mov.u32 r1, 0xABCD1234
+mov.u32 r2, 8
+mov.u32 r3, 16
+bfe.u32 r4, r1, r2, r3   // Extract bits
+bfi.b32 r5, r1, r2, r3, 8 // Insert bits
+prmt.b32 r6, r1, r2, 0x3210 // Permute bytes
+exit

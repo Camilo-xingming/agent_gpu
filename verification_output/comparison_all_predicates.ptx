@@ -1,0 +1,13 @@
+// Auto-generated test: comparison_all_predicates
+// Category: Comparison
+// Description: Test all comparison predicates
+
+mov.u32 r1, 10
+mov.u32 r2, 20
+setp.eq.s32 p0, r1, r2  // Equal
+setp.ne.s32 p1, r1, r2  // Not equal
+setp.lt.s32 p2, r1, r2  // Less than
+setp.le.s32 p3, r1, r2  // Less or equal
+setp.gt.s32 p4, r1, r2  // Greater than
+setp.ge.s32 p5, r1, r2  // Greater or equal
+exit

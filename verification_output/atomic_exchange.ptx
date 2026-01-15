@@ -1,0 +1,9 @@
+// Auto-generated test: atomic_exchange
+// Category: Atomic
+// Description: Test atomic exchange operations
+
+mov.u32 r1, 100
+mov.u32 r2, 200
+atom.exch.b32 r3, [r0], r1
+atom.cas.b32 r4, [r0], r1, r2
+exit

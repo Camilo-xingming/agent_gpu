@@ -1,0 +1,15 @@
+// Auto-generated test: video_basic_operations
+// Category: Video/SIMD
+// Description: Test basic video operations
+
+mov.u32 r1, 0x01020304
+mov.u32 r2, 0x05060708
+vadd.s32.s32.s32 r3, r1, r2
+vsub.s32.s32.s32 r4, r1, r2
+vabsdiff.s32.s32.s32 r5, r1, r2
+vmin.s32.s32.s32 r6, r1, r2
+vmax.s32.s32.s32 r7, r1, r2
+vshl.u32 r8, r1, r2
+vshr.u32 r9, r1, r2
+vmad.s32.s32.s32 r10, r1, r2, r3
+exit

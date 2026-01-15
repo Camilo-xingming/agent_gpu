@@ -1,0 +1,13 @@
+// Auto-generated test: wmma_operations
+// Category: WMMA (Tensor Core)
+// Description: Test WMMA tensor core operations
+
+// Load matrix fragments
+wmma.load.a.sync.m16n16k16.f16 r0, [r16]
+wmma.load.b.sync.m16n16k16.f16 r4, [r17]
+wmma.load.c.sync.m16n16k16.f32 r8, [r18]
+// Matrix multiply-accumulate
+wmma.mma.sync.m16n16k16.f32.f16 r8, r0, r4, r8
+// Store result
+wmma.store.d.sync.m16n16k16.f32 [r19], r8
+exit

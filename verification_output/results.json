@@ -1,0 +1,564 @@
+{
+  "suite_name": "RalphGPU PTX ISA 9.1 Complete Test Suite",
+  "timestamp": "2026-01-15T23:10:38.359144",
+  "tests": [
+    {
+      "name": "integer_basic_arithmetic",
+      "category": "Integer Arithmetic",
+      "description": "Test basic integer add/sub/mul/div",
+      "status": "passed",
+      "assembled_count": 8,
+      "errors": []
+    },
+    {
+      "name": "integer_extended_arithmetic",
+      "category": "Integer Arithmetic",
+      "description": "Test extended integer operations",
+      "status": "passed",
+      "assembled_count": 10,
+      "errors": []
+    },
+    {
+      "name": "integer_carry_operations",
+      "category": "Integer Arithmetic",
+      "description": "Test carry flag operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "integer_bit_manipulation",
+      "category": "Integer Arithmetic",
+      "description": "Test bit field operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "integer_mad_operations",
+      "category": "Integer Arithmetic",
+      "description": "Test multiply-add operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "integer_unsigned_complete",
+      "category": "Integer Arithmetic",
+      "description": "Test unsigned integer operations for full coverage",
+      "status": "passed",
+      "assembled_count": 15,
+      "errors": []
+    },
+    {
+      "name": "logic_bitwise_operations",
+      "category": "Logic",
+      "description": "Test bitwise logic operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "logic_shift_operations",
+      "category": "Logic",
+      "description": "Test shift operations",
+      "status": "passed",
+      "assembled_count": 6,
+      "errors": []
+    },
+    {
+      "name": "logic_select_operations",
+      "category": "Logic",
+      "description": "Test select operations",
+      "status": "passed",
+      "assembled_count": 6,
+      "errors": []
+    },
+    {
+      "name": "comparison_all_predicates",
+      "category": "Comparison",
+      "description": "Test all comparison predicates",
+      "status": "passed",
+      "assembled_count": 9,
+      "errors": []
+    },
+    {
+      "name": "fp32_basic_arithmetic",
+      "category": "FP32 Arithmetic",
+      "description": "Test basic FP32 operations",
+      "status": "passed",
+      "assembled_count": 11,
+      "errors": []
+    },
+    {
+      "name": "fp32_fma",
+      "category": "FP32 Arithmetic",
+      "description": "Test FP32 fused multiply-add",
+      "status": "passed",
+      "assembled_count": 5,
+      "errors": []
+    },
+    {
+      "name": "fp32_special_functions",
+      "category": "FP32 Special",
+      "description": "Test FP32 special functions",
+      "status": "passed",
+      "assembled_count": 10,
+      "errors": []
+    },
+    {
+      "name": "fp64_basic_arithmetic",
+      "category": "FP64 Arithmetic",
+      "description": "Test basic FP64 operations",
+      "status": "passed",
+      "assembled_count": 16,
+      "errors": []
+    },
+    {
+      "name": "fp64_fma",
+      "category": "FP64 Arithmetic",
+      "description": "Test FP64 fused multiply-add",
+      "status": "passed",
+      "assembled_count": 8,
+      "errors": []
+    },
+    {
+      "name": "fp16_basic_arithmetic",
+      "category": "FP16/BF16",
+      "description": "Test basic FP16 operations",
+      "status": "passed",
+      "assembled_count": 13,
+      "errors": []
+    },
+    {
+      "name": "bf16_arithmetic",
+      "category": "FP16/BF16",
+      "description": "Test BF16 operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "fp16x2_packed_operations",
+      "category": "FP16/BF16",
+      "description": "Test packed FP16x2 operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "cvt_int_float",
+      "category": "Type Conversion",
+      "description": "Test integer to float conversions",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "cvt_float_precision",
+      "category": "Type Conversion",
+      "description": "Test float precision conversions",
+      "status": "passed",
+      "assembled_count": 6,
+      "errors": []
+    },
+    {
+      "name": "cvt_64bit",
+      "category": "Type Conversion",
+      "description": "Test 64-bit conversions",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "memory_global",
+      "category": "Data Movement",
+      "description": "Test global memory operations",
+      "status": "passed",
+      "assembled_count": 6,
+      "errors": []
+    },
+    {
+      "name": "memory_shared",
+      "category": "Data Movement",
+      "description": "Test shared memory operations",
+      "status": "passed",
+      "assembled_count": 6,
+      "errors": []
+    },
+    {
+      "name": "memory_vector",
+      "category": "Data Movement",
+      "description": "Test vector memory operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "memory_special_spaces",
+      "category": "Data Movement",
+      "description": "Test parameter, const, local memory",
+      "status": "passed",
+      "assembled_count": 5,
+      "errors": []
+    },
+    {
+      "name": "memory_special_registers",
+      "category": "Data Movement",
+      "description": "Test special register access",
+      "status": "passed",
+      "assembled_count": 12,
+      "errors": []
+    },
+    {
+      "name": "memory_cache_hints",
+      "category": "Data Movement",
+      "description": "Test cache hint operations",
+      "status": "passed",
+      "assembled_count": 8,
+      "errors": []
+    },
+    {
+      "name": "memory_prefetch",
+      "category": "Data Movement",
+      "description": "Test prefetch operations",
+      "status": "passed",
+      "assembled_count": 3,
+      "errors": []
+    },
+    {
+      "name": "memory_prefetch_uniform",
+      "category": "Data Movement",
+      "description": "Test uniform prefetch",
+      "status": "passed",
+      "assembled_count": 2,
+      "errors": []
+    },
+    {
+      "name": "control_flow_branch",
+      "category": "Control Flow",
+      "description": "Test branch operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "control_flow_call_ret",
+      "category": "Control Flow",
+      "description": "Test function call and return",
+      "status": "passed",
+      "assembled_count": 6,
+      "errors": []
+    },
+    {
+      "name": "control_flow_uniform",
+      "category": "Control Flow",
+      "description": "Test uniform branch",
+      "status": "passed",
+      "assembled_count": 3,
+      "errors": []
+    },
+    {
+      "name": "sync_barrier",
+      "category": "Synchronization",
+      "description": "Test barrier synchronization",
+      "status": "passed",
+      "assembled_count": 5,
+      "errors": []
+    },
+    {
+      "name": "sync_membar",
+      "category": "Synchronization",
+      "description": "Test memory barriers",
+      "status": "passed",
+      "assembled_count": 6,
+      "errors": []
+    },
+    {
+      "name": "atomic_arithmetic",
+      "category": "Atomic",
+      "description": "Test atomic arithmetic operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "atomic_bitwise",
+      "category": "Atomic",
+      "description": "Test atomic bitwise operations",
+      "status": "passed",
+      "assembled_count": 5,
+      "errors": []
+    },
+    {
+      "name": "atomic_exchange",
+      "category": "Atomic",
+      "description": "Test atomic exchange operations",
+      "status": "passed",
+      "assembled_count": 5,
+      "errors": []
+    },
+    {
+      "name": "reduction_operations",
+      "category": "Reduction",
+      "description": "Test reduction operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "warp_shuffle",
+      "category": "Warp Shuffle",
+      "description": "Test warp shuffle operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "warp_vote",
+      "category": "Warp Vote",
+      "description": "Test warp vote operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "warp_redux",
+      "category": "Warp Redux",
+      "description": "Test warp reduction operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    },
+    {
+      "name": "wmma_operations",
+      "category": "WMMA (Tensor Core)",
+      "description": "Test WMMA tensor core operations",
+      "status": "passed",
+      "assembled_count": 6,
+      "errors": []
+    },
+    {
+      "name": "mma_sync_operations",
+      "category": "WMMA (Tensor Core)",
+      "description": "Test MMA sync operations",
+      "status": "passed",
+      "assembled_count": 3,
+      "errors": []
+    },
+    {
+      "name": "wgmma_operations",
+      "category": "WGMMA (Hopper)",
+      "description": "Test WGMMA Hopper tensor core operations",
+      "status": "passed",
+      "assembled_count": 10,
+      "errors": []
+    },
+    {
+      "name": "texture_sampling",
+      "category": "Texture",
+      "description": "Test texture sampling operations",
+      "status": "passed",
+      "assembled_count": 6,
+      "errors": []
+    },
+    {
+      "name": "texture_query",
+      "category": "Texture",
+      "description": "Test texture query operations",
+      "status": "passed",
+      "assembled_count": 5,
+      "errors": []
+    },
+    {
+      "name": "surface_operations",
+      "category": "Surface",
+      "description": "Test surface operations",
+      "status": "passed",
+      "assembled_count": 8,
+      "errors": []
+    },
+    {
+      "name": "video_basic_operations",
+      "category": "Video/SIMD",
+      "description": "Test basic video operations",
+      "status": "passed",
+      "assembled_count": 11,
+      "errors": []
+    },
+    {
+      "name": "video_simd_operations",
+      "category": "Video/SIMD",
+      "description": "Test SIMD video operations",
+      "status": "passed",
+      "assembled_count": 9,
+      "errors": []
+    },
+    {
+      "name": "video_dp_operations",
+      "category": "Video/SIMD",
+      "description": "Test dot product operations",
+      "status": "passed",
+      "assembled_count": 6,
+      "errors": []
+    },
+    {
+      "name": "async_copy_operations",
+      "category": "Async Copy",
+      "description": "Test async copy operations",
+      "status": "passed",
+      "assembled_count": 7,
+      "errors": []
+    }
+  ],
+  "summary": {
+    "passed": 51,
+    "failed": 0,
+    "total": 51
+  },
+  "coverage": {
+    "total_tested": 209,
+    "total_instructions": 209,
+    "overall_percentage": 100.0,
+    "categories": {
+      "Integer Arithmetic": {
+        "tested": 32,
+        "total": 32,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Logic": {
+        "tested": 9,
+        "total": 9,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Comparison": {
+        "tested": 6,
+        "total": 6,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "FP32 Arithmetic": {
+        "tested": 9,
+        "total": 9,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "FP32 Special": {
+        "tested": 8,
+        "total": 8,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "FP64 Arithmetic": {
+        "tested": 12,
+        "total": 12,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "FP16/BF16": {
+        "tested": 14,
+        "total": 14,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Type Conversion": {
+        "tested": 12,
+        "total": 12,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Data Movement": {
+        "tested": 22,
+        "total": 22,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Control Flow": {
+        "tested": 5,
+        "total": 5,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Synchronization": {
+        "tested": 4,
+        "total": 4,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Atomic": {
+        "tested": 10,
+        "total": 10,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Reduction": {
+        "tested": 5,
+        "total": 5,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Warp Shuffle": {
+        "tested": 4,
+        "total": 4,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Warp Vote": {
+        "tested": 4,
+        "total": 4,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Warp Redux": {
+        "tested": 5,
+        "total": 5,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "WMMA (Tensor Core)": {
+        "tested": 6,
+        "total": 6,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "WGMMA (Hopper)": {
+        "tested": 9,
+        "total": 9,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Texture": {
+        "tested": 9,
+        "total": 9,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Surface": {
+        "tested": 7,
+        "total": 7,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Video/SIMD": {
+        "tested": 10,
+        "total": 10,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Async Copy": {
+        "tested": 6,
+        "total": 6,
+        "percentage": 100.0,
+        "missing": []
+      },
+      "Misc": {
+        "tested": 1,
+        "total": 1,
+        "percentage": 100.0,
+        "missing": []
+      }
+    }
+  }
+}

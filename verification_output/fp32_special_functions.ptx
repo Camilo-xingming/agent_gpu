@@ -1,0 +1,14 @@
+// Auto-generated test: fp32_special_functions
+// Category: FP32 Special
+// Description: Test FP32 special functions
+
+mov.u32 r1, 0x40000000  // 2.0f
+rcp.f32 r2, r1          // 1/2 = 0.5
+sqrt.f32 r3, r1         // sqrt(2)
+rsqrt.f32 r4, r1        // 1/sqrt(2)
+sin.f32 r5, r1
+cos.f32 r6, r1
+lg2.f32 r7, r1          // log2(2) = 1
+ex2.f32 r8, r1          // 2^2 = 4
+tanh.f32 r9, r1
+exit

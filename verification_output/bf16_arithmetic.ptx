@@ -1,0 +1,11 @@
+// Auto-generated test: bf16_arithmetic
+// Category: FP16/BF16
+// Description: Test BF16 operations
+
+mov.u32 r1, 0x4040  // ~3.0 in BF16
+mov.u32 r2, 0x4000  // ~2.0 in BF16
+add.bf16 r3, r1, r2
+sub.bf16 r4, r1, r2
+mul.bf16 r5, r1, r2
+fma.bf16 r6, r1, r2, r3
+exit

@@ -1,0 +1,7 @@
+// Auto-generated test: mma_sync_operations
+// Category: WMMA (Tensor Core)
+// Description: Test MMA sync operations
+
+mma.sync.m8n8k4.f32.f16 r0, r4, r8, r12
+mma.sync.m16n8k8.f32.f16 r0, r4, r8, r12
+exit
