@@ -1,0 +1,16 @@
+# Build artifacts
+build/
+*.vvp
+*.vcd
+
+# Editor files
+*.swp
+*~
+.DS_Store
+
+# Claude local files
+.claude/
+
+# Python cache
+__pycache__/
+*.pyc

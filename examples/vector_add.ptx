@@ -1,0 +1,31 @@
+// RalphGPU Example: Vector Addition
+// C[i] = A[i] + B[i]
+//
+// 假设:
+// - A数组起始地址: 0x0000
+// - B数组起始地址: 0x1000
+// - C数组起始地址: 0x2000
+
+.entry vector_add:
+    // 获取线程ID
+    mov.u32 r0, %tid.x          // r0 = threadIdx.x
+
+    // 计算字节偏移 (每个元素4字节)
+    shl.b32 r1, r0, 2           // r1 = r0 * 4
+
+    // 加载 A[i]
+    ld.global.s32 r2, [r1]      // r2 = A[i]
+
+    // 加载 B[i] (偏移 0x1000)
+    add.s32 r3, r1, r10         // r3 = r1 + 0x1000 (假设r10=0x1000)
+    ld.global.s32 r4, [r3]      // r4 = B[i]
+
+    // 计算 C[i] = A[i] + B[i]
+    add.s32 r5, r2, r4          // r5 = r2 + r4
+
+    // 存储结果到 C[i]
+    add.s32 r6, r1, r11         // r6 = r1 + 0x2000 (假设r11=0x2000)
+    st.global.s32 [r6], r5      // C[i] = r5
+
+    // 返回 (NOP结束)
+    nop
