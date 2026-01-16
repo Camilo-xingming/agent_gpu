@@ -34,7 +34,19 @@ RTL_SRCS = \
     $(RTL_DIR)/warp_shuffle.v \
     $(RTL_DIR)/atomic_unit.v \
     $(RTL_DIR)/streaming_multiprocessor_v2.v \
-    $(RTL_DIR)/ralph_gpu_top.v
+    $(RTL_DIR)/ralph_gpu_top.v \
+    $(RTL_DIR)/memory_controller_hbm.v \
+    $(RTL_DIR)/memory_interface_wide.v \
+    $(RTL_DIR)/memory_qos.v \
+    $(RTL_DIR)/tlb_enhanced.v \
+    $(RTL_DIR)/branch_predictor.v \
+    $(RTL_DIR)/icache.v \
+    $(RTL_DIR)/reconvergence_stack.v \
+    $(RTL_DIR)/register_file_banked.v \
+    $(RTL_DIR)/advanced_scheduler.v \
+    $(RTL_DIR)/wgmma_tile_engine.v \
+    $(RTL_DIR)/l2_interconnect.v \
+    $(RTL_DIR)/performance_counters.v
 
 # Testbench文件
 TB_SRCS = $(TB_DIR)/tb_ralph_gpu.v

@@ -1,29 +1,29 @@
 {
   "summary": {
     "total_checks": 62,
-    "passed": 62,
-    "failed": 0,
+    "passed": 29,
+    "failed": 33,
     "excluded": 5,
-    "pass_rate": 100.0,
-    "ptx_coverage": 100.0,
-    "performance_ratio": 100.0,
-    "rtl_modules": 31,
-    "commercial_ready": true
+    "pass_rate": 46.774193548387096,
+    "ptx_coverage": 0,
+    "performance_ratio": 0,
+    "rtl_modules": 0,
+    "commercial_ready": false
   },
   "by_category": {
     "PTX ISA": {
-      "pass": 1,
-      "fail": 0,
+      "pass": 0,
+      "fail": 1,
       "excluded": 0
     },
     "RTL Modules": {
-      "pass": 31,
-      "fail": 0,
+      "pass": 0,
+      "fail": 31,
       "excluded": 0
     },
     "Performance": {
-      "pass": 1,
-      "fail": 0,
+      "pass": 0,
+      "fail": 1,
       "excluded": 0
     },
     "Functional Units": {
@@ -56,200 +56,200 @@
     {
       "category": "PTX ISA",
       "item": "Instruction Coverage",
-      "status": "PASS",
-      "details": "227/227 instructions supported"
+      "status": "FAIL",
+      "details": "Only 0% coverage"
     },
     {
       "category": "RTL Modules",
       "item": "Integer ALU",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "alu.v"
     },
     {
       "category": "RTL Modules",
       "item": "Multiplier",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "mul_unit.v"
     },
     {
       "category": "RTL Modules",
       "item": "FP32 Unit",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "fpu.v"
     },
     {
       "category": "RTL Modules",
       "item": "FP64 Unit",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "fpu64.v"
     },
     {
       "category": "RTL Modules",
       "item": "FP16/BF16 Unit",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "fp16_unit.v"
     },
     {
       "category": "RTL Modules",
       "item": "Special Functions",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "sfu.v"
     },
     {
       "category": "RTL Modules",
       "item": "Tensor Core",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "tensor_core.v"
     },
     {
       "category": "RTL Modules",
       "item": "WGMMA (Hopper)",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "wgmma.v"
     },
     {
       "category": "RTL Modules",
       "item": "FMA Integer",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "fma_int32.v"
     },
     {
       "category": "RTL Modules",
       "item": "Type Conversion",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "cvt_unit.v"
     },
     {
       "category": "RTL Modules",
       "item": "L1 Data Cache",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "l1_data_cache.v"
     },
     {
       "category": "RTL Modules",
       "item": "L1 Optimized",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "l1_data_cache_optimized.v"
     },
     {
       "category": "RTL Modules",
       "item": "L2 Cache",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "l2_cache.v"
     },
     {
       "category": "RTL Modules",
       "item": "Shared Memory",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "shared_memory.v"
     },
     {
       "category": "RTL Modules",
       "item": "Register File",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "register_file.v"
     },
     {
       "category": "RTL Modules",
       "item": "TLB",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "tlb.v"
     },
     {
       "category": "RTL Modules",
       "item": "Memory Controller",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "memory_controller.v"
     },
     {
       "category": "RTL Modules",
       "item": "Memory Interface",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "memory_interface.v"
     },
     {
       "category": "RTL Modules",
       "item": "Coalescing Unit",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "memory_coalescing_unit.v"
     },
     {
       "category": "RTL Modules",
       "item": "SM",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "streaming_multiprocessor_v2.v"
     },
     {
       "category": "RTL Modules",
       "item": "Warp Scheduler",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "warp_scheduler.v"
     },
     {
       "category": "RTL Modules",
       "item": "Dual-Issue Scheduler",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "dual_issue_scheduler.v"
     },
     {
       "category": "RTL Modules",
       "item": "Decoder",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "decoder.v"
     },
     {
       "category": "RTL Modules",
       "item": "Control Flow",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "control_flow_unit.v"
     },
     {
       "category": "RTL Modules",
       "item": "Forwarding Unit",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "forwarding_unit.v"
     },
     {
       "category": "RTL Modules",
       "item": "Atomic Unit",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "atomic_unit.v"
     },
     {
       "category": "RTL Modules",
       "item": "Warp Shuffle",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "warp_shuffle.v"
     },
     {
       "category": "RTL Modules",
       "item": "Async Copy",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "async_copy_engine.v"
     },
     {
       "category": "RTL Modules",
       "item": "Texture Unit",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "texture_unit.v"
     },
     {
       "category": "RTL Modules",
       "item": "Video/SIMD",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "video_unit.v"
     },
     {
       "category": "RTL Modules",
       "item": "GPU Top",
-      "status": "PASS",
+      "status": "FAIL",
       "details": "ralph_gpu_top.v"
     },
     {
       "category": "Performance",
       "item": "NVIDIA Parity",
-      "status": "PASS",
-      "details": "100% parity achieved"
+      "status": "FAIL",
+      "details": "Test did not complete successfully"
     },
     {
       "category": "Functional Units",

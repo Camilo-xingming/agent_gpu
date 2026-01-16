@@ -141,20 +141,33 @@ module branch_predictor #(
     reg [1:0] tage_useful [0:TAGE_TABLES-1][0:TAGE_ENTRIES-1];
     reg [TAGE_TABLES-1:0] tage_valid [0:TAGE_ENTRIES-1];
 
+    // TAGE history lengths (compile-time constants)
+    localparam [7:0] TAGE_HIST_LEN_0 = 8'd4;
+    localparam [7:0] TAGE_HIST_LEN_1 = 8'd8;
+    localparam [7:0] TAGE_HIST_LEN_2 = 8'd16;
+    localparam [7:0] TAGE_HIST_LEN_3 = 8'd32;
+
     // TAGE index/tag generation using folded history
     function [TAGE_IDX_WIDTH-1:0] tage_index;
         input [ADDR_WIDTH-1:0] pc;
         input [15:0] history;
-        input [7:0] hist_len;
+        input [1:0] table_id;
+        reg [7:0] hist_len;
         begin
-            tage_index = pc[2 +: TAGE_IDX_WIDTH] ^ history[hist_len-1:0];
+            case (table_id)
+                2'd0: hist_len = TAGE_HIST_LEN_0;
+                2'd1: hist_len = TAGE_HIST_LEN_1;
+                2'd2: hist_len = TAGE_HIST_LEN_2;
+                2'd3: hist_len = TAGE_HIST_LEN_3;
+            endcase
+            tage_index = pc[2 +: TAGE_IDX_WIDTH] ^ history[7:0];  // Use lower bits
         end
     endfunction
 
     function [7:0] tage_compute_tag;
         input [ADDR_WIDTH-1:0] pc;
         input [15:0] history;
-        input [7:0] hist_len;
+        input [1:0] table_id;
         begin
             tage_compute_tag = pc[10:3] ^ history[7:0] ^ {history[15:8]};
         end
@@ -166,17 +179,32 @@ module branch_predictor #(
     reg [TAGE_IDX_WIDTH-1:0] tage_idx [0:TAGE_TABLES-1];
     reg [7:0] tage_lookup_tag [0:TAGE_TABLES-1];
 
-    integer tage_t;
+    // TAGE lookup - unrolled for synthesis
     always @(*) begin
-        for (tage_t = 0; tage_t < TAGE_TABLES; tage_t = tage_t + 1) begin
-            tage_idx[tage_t] = tage_index(pred_pc, branch_history[pred_warp_id],
-                                          TAGE_HIST_LEN[tage_t]);
-            tage_lookup_tag[tage_t] = tage_compute_tag(pred_pc, branch_history[pred_warp_id],
-                                                       TAGE_HIST_LEN[tage_t]);
-            tage_hit[tage_t] = tage_valid[tage_idx[tage_t]][tage_t] &&
-                              (tage_tag[tage_t][tage_idx[tage_t]] == tage_lookup_tag[tage_t]);
-            tage_pred[tage_t] = tage_counter[tage_t][tage_idx[tage_t]];
-        end
+        // Table 0
+        tage_idx[0] = tage_index(pred_pc, branch_history[pred_warp_id], 2'd0);
+        tage_lookup_tag[0] = tage_compute_tag(pred_pc, branch_history[pred_warp_id], 2'd0);
+        tage_hit[0] = tage_valid[tage_idx[0]][0] &&
+                      (tage_tag[0][tage_idx[0]] == tage_lookup_tag[0]);
+        tage_pred[0] = tage_counter[0][tage_idx[0]];
+        // Table 1
+        tage_idx[1] = tage_index(pred_pc, branch_history[pred_warp_id], 2'd1);
+        tage_lookup_tag[1] = tage_compute_tag(pred_pc, branch_history[pred_warp_id], 2'd1);
+        tage_hit[1] = tage_valid[tage_idx[1]][1] &&
+                      (tage_tag[1][tage_idx[1]] == tage_lookup_tag[1]);
+        tage_pred[1] = tage_counter[1][tage_idx[1]];
+        // Table 2
+        tage_idx[2] = tage_index(pred_pc, branch_history[pred_warp_id], 2'd2);
+        tage_lookup_tag[2] = tage_compute_tag(pred_pc, branch_history[pred_warp_id], 2'd2);
+        tage_hit[2] = tage_valid[tage_idx[2]][2] &&
+                      (tage_tag[2][tage_idx[2]] == tage_lookup_tag[2]);
+        tage_pred[2] = tage_counter[2][tage_idx[2]];
+        // Table 3
+        tage_idx[3] = tage_index(pred_pc, branch_history[pred_warp_id], 2'd3);
+        tage_lookup_tag[3] = tage_compute_tag(pred_pc, branch_history[pred_warp_id], 2'd3);
+        tage_hit[3] = tage_valid[tage_idx[3]][3] &&
+                      (tage_tag[3][tage_idx[3]] == tage_lookup_tag[3]);
+        tage_pred[3] = tage_counter[3][tage_idx[3]];
     end
 
     // Select provider (longest matching history)
@@ -379,25 +407,58 @@ module branch_predictor #(
                     ras_ptr[update_warp_id] <= ras_ptr[update_warp_id] - 1;
             end
 
-            // Update TAGE on misprediction
+            // Update TAGE on misprediction - unrolled
             if (update_mispredicted) begin
-                // Allocate in longer history table
-                for (upd_t = 0; upd_t < TAGE_TABLES; upd_t = upd_t + 1) begin
-                    begin
-                        reg [TAGE_IDX_WIDTH-1:0] tidx;
-                        reg [7:0] ttag;
-
-                        tidx = tage_index(update_pc, branch_history[update_warp_id],
-                                         TAGE_HIST_LEN[upd_t]);
-                        ttag = tage_compute_tag(update_pc, branch_history[update_warp_id],
-                                               TAGE_HIST_LEN[upd_t]);
-
-                        if (!tage_valid[tidx][upd_t] || tage_useful[upd_t][tidx] == 0) begin
-                            tage_valid[tidx][upd_t] <= 1;
-                            tage_tag[upd_t][tidx] <= ttag;
-                            tage_counter[upd_t][tidx] <= update_taken ? 3'b100 : 3'b011;
-                            tage_useful[upd_t][tidx] <= 0;
-                        end
+                // Allocate in longer history table - Table 0
+                begin
+                    reg [TAGE_IDX_WIDTH-1:0] tidx0;
+                    reg [7:0] ttag0;
+                    tidx0 = tage_index(update_pc, branch_history[update_warp_id], 2'd0);
+                    ttag0 = tage_compute_tag(update_pc, branch_history[update_warp_id], 2'd0);
+                    if (!tage_valid[tidx0][0] || tage_useful[0][tidx0] == 0) begin
+                        tage_valid[tidx0][0] <= 1;
+                        tage_tag[0][tidx0] <= ttag0;
+                        tage_counter[0][tidx0] <= update_taken ? 3'b100 : 3'b011;
+                        tage_useful[0][tidx0] <= 0;
+                    end
+                end
+                // Table 1
+                begin
+                    reg [TAGE_IDX_WIDTH-1:0] tidx1;
+                    reg [7:0] ttag1;
+                    tidx1 = tage_index(update_pc, branch_history[update_warp_id], 2'd1);
+                    ttag1 = tage_compute_tag(update_pc, branch_history[update_warp_id], 2'd1);
+                    if (!tage_valid[tidx1][1] || tage_useful[1][tidx1] == 0) begin
+                        tage_valid[tidx1][1] <= 1;
+                        tage_tag[1][tidx1] <= ttag1;
+                        tage_counter[1][tidx1] <= update_taken ? 3'b100 : 3'b011;
+                        tage_useful[1][tidx1] <= 0;
+                    end
+                end
+                // Table 2
+                begin
+                    reg [TAGE_IDX_WIDTH-1:0] tidx2;
+                    reg [7:0] ttag2;
+                    tidx2 = tage_index(update_pc, branch_history[update_warp_id], 2'd2);
+                    ttag2 = tage_compute_tag(update_pc, branch_history[update_warp_id], 2'd2);
+                    if (!tage_valid[tidx2][2] || tage_useful[2][tidx2] == 0) begin
+                        tage_valid[tidx2][2] <= 1;
+                        tage_tag[2][tidx2] <= ttag2;
+                        tage_counter[2][tidx2] <= update_taken ? 3'b100 : 3'b011;
+                        tage_useful[2][tidx2] <= 0;
+                    end
+                end
+                // Table 3
+                begin
+                    reg [TAGE_IDX_WIDTH-1:0] tidx3;
+                    reg [7:0] ttag3;
+                    tidx3 = tage_index(update_pc, branch_history[update_warp_id], 2'd3);
+                    ttag3 = tage_compute_tag(update_pc, branch_history[update_warp_id], 2'd3);
+                    if (!tage_valid[tidx3][3] || tage_useful[3][tidx3] == 0) begin
+                        tage_valid[tidx3][3] <= 1;
+                        tage_tag[3][tidx3] <= ttag3;
+                        tage_counter[3][tidx3] <= update_taken ? 3'b100 : 3'b011;
+                        tage_useful[3][tidx3] <= 0;
                     end
                 end
             end

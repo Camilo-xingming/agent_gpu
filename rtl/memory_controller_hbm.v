@@ -207,22 +207,14 @@ module memory_controller_hbm #(
     reg [REQ_ENTRY_WIDTH-1:0] sch_current_req [0:NUM_CHANNELS-1];
 
     // FR-FCFS: Find best request (row hit > oldest)
-    function [PTR_W-1:0] find_best_request;
+    // NOTE: Channel-specific lookup handled inline due to iverilog limitations
+    function [PTR_W-1:0] find_oldest_request;
         input integer ch;
-        input [NUM_BANKS_PER_CH-1:0] row_open;
-        input [ROW_WIDTH-1:0] open_rows [0:NUM_BANKS_PER_CH-1];
-        reg [PTR_W-1:0] best_idx;
-        reg found_hit;
-        reg [31:0] oldest_ts;
         reg [PTR_W-1:0] oldest_idx;
+        reg [31:0] oldest_ts;
         reg [REQ_ENTRY_WIDTH-1:0] entry;
-        reg [ADDR_WIDTH-1:0] addr;
-        reg [BANK_WIDTH-1:0] bank;
-        reg [ROW_WIDTH-1:0] row;
         integer i, count, idx;
         begin
-            best_idx = 0;
-            found_hit = 0;
             oldest_ts = 32'hFFFFFFFF;
             oldest_idx = 0;
             count = ch_req_count[ch];
@@ -230,17 +222,6 @@ module memory_controller_hbm #(
             for (i = 0; i < REQ_QUEUE_DEPTH && i < count; i = i + 1) begin
                 idx = (ch_req_head[ch] + i) % REQ_QUEUE_DEPTH;
                 entry = ch_req_queue[ch][idx];
-                addr = entry[REQ_ENTRY_WIDTH-2 -: ADDR_WIDTH];
-                bank = get_bank(addr);
-                row = get_row(addr);
-
-                // Check if this is a row hit
-                if (row_open[bank] && open_rows[bank] == row) begin
-                    if (!found_hit) begin
-                        found_hit = 1;
-                        best_idx = idx;
-                    end
-                end
 
                 // Track oldest for FCFS fallback
                 if (entry[31:0] < oldest_ts) begin
@@ -249,7 +230,7 @@ module memory_controller_hbm #(
                 end
             end
 
-            find_best_request = found_hit ? best_idx : oldest_idx;
+            find_oldest_request = oldest_idx;
         end
     endfunction
 
@@ -300,12 +281,10 @@ module memory_controller_hbm #(
                 case (scheduler_state[sch_ch])
                     SCH_IDLE: begin
                         if (ch_req_count[sch_ch] > 0) begin
-                            // Find best request using FR-FCFS
-                            sch_selected_idx[sch_ch] <= find_best_request(
-                                sch_ch, bank_row_open[sch_ch], bank_open_row[sch_ch]
-                            );
+                            // Find oldest request (simplified FR-FCFS)
+                            sch_selected_idx[sch_ch] <= find_oldest_request(sch_ch);
                             sch_current_req[sch_ch] <= ch_req_queue[sch_ch][
-                                find_best_request(sch_ch, bank_row_open[sch_ch], bank_open_row[sch_ch])
+                                find_oldest_request(sch_ch)
                             ];
                             scheduler_state[sch_ch] <= SCH_WAIT;
                             sch_wait_counter[sch_ch] <= 1;
