@@ -685,7 +685,7 @@ module ralph_gpu_top #(
         .NUM_LANES      (4),
         .LANE_WIDTH     (128),
         .NUM_WARPS      (8),
-        .MSHR_ENTRIES   (16)
+        .MSHR_ENTRIES   (32)    // Increased for NVIDIA-comparable MLP
     ) u_mem_interface_wide (
         .clk            (clk),
         .rst_n          (rst_n),
@@ -722,6 +722,48 @@ module ralph_gpu_top #(
     wire wgmma_gmem_req_valid;
     wire [31:0] wgmma_gmem_req_addr;
 
+    // WGMMA SMEM staging buffer (16KB wide interface)
+    wire        wgmma_smem_wr_en;
+    wire [13:0] wgmma_smem_wr_addr;
+    wire [511:0] wgmma_smem_wr_data;
+    wire [63:0] wgmma_smem_wr_mask;
+    wire        wgmma_smem_rd_en;
+    wire [13:0] wgmma_smem_rd_addr;
+    reg  [511:0] wgmma_smem_rd_data;
+    reg         wgmma_smem_rd_valid;
+
+    // Simple 16KB SMEM buffer for WGMMA staging (256 x 512-bit = 16KB)
+    reg [511:0] wgmma_smem_buffer [0:255];
+
+    always @(posedge clk) begin
+        if (wgmma_smem_wr_en) begin
+            wgmma_smem_buffer[wgmma_smem_wr_addr[13:6]] <= wgmma_smem_wr_data;
+        end
+        wgmma_smem_rd_data <= wgmma_smem_buffer[wgmma_smem_rd_addr[13:6]];
+        wgmma_smem_rd_valid <= wgmma_smem_rd_en;
+    end
+
+    // WGMMA MMA interface signals
+    wire        wgmma_mma_valid;
+    wire [511:0] wgmma_mma_frag_a;
+    wire [511:0] wgmma_mma_frag_b;
+    wire [1023:0] wgmma_mma_accum_in;
+    reg  [1023:0] wgmma_mma_accum_out;
+    reg         wgmma_mma_done;
+
+    // Simple MMA accumulator (placeholder for tensor core connection)
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            wgmma_mma_accum_out <= 1024'b0;
+            wgmma_mma_done <= 1'b0;
+        end else if (wgmma_mma_valid) begin
+            wgmma_mma_accum_out <= wgmma_mma_accum_in;  // Pass-through for now
+            wgmma_mma_done <= 1'b1;
+        end else begin
+            wgmma_mma_done <= 1'b0;
+        end
+    end
+
     wgmma_tile_engine #(
         .TILE_M         (64),
         .TILE_N         (64),
@@ -746,23 +788,23 @@ module ralph_gpu_top #(
         .gmem_req_ready (1'b1),
         .gmem_resp_data (512'b0),
         .gmem_resp_valid(1'b0),
-        // Shared memory interface
-        .smem_wr_en     (),
-        .smem_wr_addr   (),
-        .smem_wr_data   (),
-        .smem_wr_mask   (),
-        .smem_rd_en     (),
-        .smem_rd_addr   (),
-        .smem_rd_data   (512'b0),
-        .smem_rd_valid  (1'b0),
-        // MMA interface
-        .mma_valid      (),
-        .mma_frag_a     (),
-        .mma_frag_b     (),
-        .mma_accum_in   (),
+        // Shared memory interface - now wired to staging buffer
+        .smem_wr_en     (wgmma_smem_wr_en),
+        .smem_wr_addr   (wgmma_smem_wr_addr),
+        .smem_wr_data   (wgmma_smem_wr_data),
+        .smem_wr_mask   (wgmma_smem_wr_mask),
+        .smem_rd_en     (wgmma_smem_rd_en),
+        .smem_rd_addr   (wgmma_smem_rd_addr),
+        .smem_rd_data   (wgmma_smem_rd_data),
+        .smem_rd_valid  (wgmma_smem_rd_valid),
+        // MMA interface - wired to accumulator
+        .mma_valid      (wgmma_mma_valid),
+        .mma_frag_a     (wgmma_mma_frag_a),
+        .mma_frag_b     (wgmma_mma_frag_b),
+        .mma_accum_in   (wgmma_mma_accum_in),
         .mma_ready      (1'b1),
-        .mma_accum_out  (1024'b0),
-        .mma_done       (1'b0),
+        .mma_accum_out  (wgmma_mma_accum_out),
+        .mma_done       (wgmma_mma_done),
         // Statistics
         .stat_tiles_computed(),
         .stat_smem_stalls   (),

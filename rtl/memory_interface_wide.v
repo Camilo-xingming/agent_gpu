@@ -18,7 +18,7 @@ module memory_interface_wide #(
     parameter THREADS_PER_WARP  = 32,
     parameter ADDR_WIDTH        = 32,
     parameter DATA_WIDTH        = 32,
-    parameter MSHR_ENTRIES      = 16,           // Miss Status Holding Registers
+    parameter MSHR_ENTRIES      = 32,           // Miss Status Holding Registers (NVIDIA-comparable)
     parameter MAX_OUTSTANDING   = 64,           // Max in-flight requests
     parameter COALESCE_WINDOW   = 4             // Cycles to coalesce
 )(
