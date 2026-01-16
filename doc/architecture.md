@@ -495,7 +495,7 @@ mov.u64 rd, %clock64  // 时钟计数器 (NEW)
 | rtl/warp_scheduler.v | Warp调度器 | ~300 |
 | rtl/shared_memory.v | 共享内存 | ~150 |
 | rtl/memory_interface.v | 内存接口 | ~250 |
-| rtl/streaming_multiprocessor.v | SM核心 | ~500 |
+| rtl/streaming_multiprocessor_v2.v | SM核心 | ~500 |
 | rtl/ralph_gpu_top.v | 顶层模块 | ~400 |
 
 ## 9. 测试套件

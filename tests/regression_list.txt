@@ -1,0 +1,17 @@
+# RalphGPU regression list
+# One command per line. Lines starting with # are ignored.
+
+make test_alu
+make test_mul
+make test_decoder
+make test_regfile
+make test_smem
+make test_warp
+make test_vector_add
+make test_multi_sm
+make test_sm_v2_full
+make test_sm_v2_perf
+make test_sm_v2_perf_gemm16_ptx
+make test_sm_v2_perf_tensor
+make test_sm_v2_perf_tensor_multiwarp
+make test_tensor_core_fp4

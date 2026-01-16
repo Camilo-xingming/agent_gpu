@@ -19,6 +19,7 @@ BUILD_DIR = build
 # RTL源文件
 RTL_SRCS = \
     $(RTL_DIR)/gpu_defines.vh \
+    $(RTL_DIR)/memory_config.vh \
     $(RTL_DIR)/alu.v \
     $(RTL_DIR)/mul_unit.v \
     $(RTL_DIR)/register_file.v \
@@ -26,7 +27,13 @@ RTL_SRCS = \
     $(RTL_DIR)/warp_scheduler.v \
     $(RTL_DIR)/shared_memory.v \
     $(RTL_DIR)/memory_interface.v \
-    $(RTL_DIR)/streaming_multiprocessor.v \
+    $(RTL_DIR)/fpu.v \
+    $(RTL_DIR)/sfu.v \
+    $(RTL_DIR)/tensor_core.v \
+    $(RTL_DIR)/control_flow_unit.v \
+    $(RTL_DIR)/warp_shuffle.v \
+    $(RTL_DIR)/atomic_unit.v \
+    $(RTL_DIR)/streaming_multiprocessor_v2.v \
     $(RTL_DIR)/ralph_gpu_top.v
 
 # Testbench文件
@@ -54,6 +61,7 @@ MEMSYS_SRCS = \
 
 # Include路径
 INCLUDES = -I$(RTL_DIR)
+RTL_DEFINES = -DSM_V2
 
 #============================================================================
 # 目标
@@ -76,7 +84,7 @@ sim: $(BUILD_DIR)/tb_ralph_gpu.vvp
 	cd $(BUILD_DIR) && $(VVP) tb_ralph_gpu.vvp
 
 $(BUILD_DIR)/tb_ralph_gpu.vvp: $(RTL_SRCS) $(TB_SRCS) | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_SRCS) \
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_SRCS) \
 		$(filter %.v,$(RTL_SRCS))
 
 #----------------------------------------------------------------------------
@@ -158,7 +166,7 @@ test_vector_add: $(BUILD_DIR)/tb_vector_add.vvp
 	cd $(BUILD_DIR) && $(VVP) tb_vector_add.vvp
 
 $(BUILD_DIR)/tb_vector_add.vvp: $(RTL_SRCS) $(TB_VADD) | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_VADD) $(filter %.v,$(RTL_SRCS))
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_VADD) $(filter %.v,$(RTL_SRCS))
 
 test_multi_sm: $(BUILD_DIR)/tb_multi_sm.vvp
 	@echo "========================================"
@@ -167,7 +175,7 @@ test_multi_sm: $(BUILD_DIR)/tb_multi_sm.vvp
 	cd $(BUILD_DIR) && $(VVP) tb_multi_sm.vvp
 
 $(BUILD_DIR)/tb_multi_sm.vvp: $(RTL_SRCS) $(TB_MULTI) | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_MULTI) $(filter %.v,$(RTL_SRCS))
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_MULTI) $(filter %.v,$(RTL_SRCS))
 
 #----------------------------------------------------------------------------
 # Phase 2 Memory Subsystem Tests

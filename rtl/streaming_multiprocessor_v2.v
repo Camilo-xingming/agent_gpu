@@ -49,6 +49,7 @@ module streaming_multiprocessor_v2 #(
     // Instruction Memory Interface
     output wire                     imem_req,
     output wire [31:0]              imem_addr,
+    input  wire                     imem_ready,
     input  wire [31:0]              imem_data,
     input  wire                     imem_valid,
 
@@ -226,6 +227,7 @@ module streaming_multiprocessor_v2 #(
     //========================================================================
 
     // Fetch Stage
+    wire                 fetch_req;
     wire                 fetch_fire;
 
     // Instruction fetch queue (decouples fetch from decode)
@@ -659,12 +661,19 @@ module streaming_multiprocessor_v2 #(
     //========================================================================
     // STAGE 1: FETCH
     //========================================================================
-    assign fetch_fire = warp_selected && !frontend_flush && !frq_full &&
-                        (fetch_slots_used < {1'b0, IFQ_DEPTH_VAL}) &&
-                        (frq_drop_count == 0);
+    assign fetch_req = warp_selected && !frontend_flush && !frq_full &&
+                       (fetch_slots_used < {1'b0, IFQ_DEPTH_VAL}) &&
+                       (frq_drop_count == 0);
+    assign fetch_fire = fetch_req && imem_ready;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
+            frq_head <= {IFQ_PTR_W{1'b0}};
+            frq_tail <= {IFQ_PTR_W{1'b0}};
+            frq_count <= {IFQ_COUNT_W{1'b0}};
+            frq_drop_count <= {IFQ_COUNT_W{1'b0}};
+            last_issued_warp <= 0;
+        end else if (kernel_start) begin
             frq_head <= {IFQ_PTR_W{1'b0}};
             frq_tail <= {IFQ_PTR_W{1'b0}};
             frq_count <= {IFQ_COUNT_W{1'b0}};
@@ -701,7 +710,7 @@ module streaming_multiprocessor_v2 #(
         end
     end
 
-    assign imem_req = fetch_fire;
+    assign imem_req = fetch_req;
     assign imem_addr = warp_fetch_pc[selected_warp];
 
     //========================================================================
@@ -735,6 +744,10 @@ module streaming_multiprocessor_v2 #(
                 ifq_warp_id[ifq_i] <= {WARP_ID_W{1'b0}};
                 ifq_pc[ifq_i] <= 32'b0;
             end
+        end else if (kernel_start) begin
+            ifq_head <= {IFQ_PTR_W{1'b0}};
+            ifq_tail <= {IFQ_PTR_W{1'b0}};
+            ifq_count <= {IFQ_COUNT_W{1'b0}};
         end else if (frontend_flush) begin
             ifq_head <= {IFQ_PTR_W{1'b0}};
             ifq_tail <= {IFQ_PTR_W{1'b0}};
@@ -767,7 +780,7 @@ module streaming_multiprocessor_v2 #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             decode_valid <= 1'b0;
-        end else if (frontend_flush) begin
+        end else if (kernel_start || frontend_flush) begin
             decode_valid <= 1'b0;
         end else begin
             if (ifq_head_drop) begin
@@ -844,7 +857,7 @@ module streaming_multiprocessor_v2 #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             dec_out_valid <= 1'b0;
-        end else if (frontend_flush) begin
+        end else if (kernel_start || frontend_flush) begin
             dec_out_valid <= 1'b0;
         end else if (decode_accept) begin
             dec_out_valid <= 1'b1;

@@ -102,7 +102,7 @@
 ### 1. EXIT指令实现
 - `gpu_defines.vh`: 添加 `OP_EXIT` (6'b001011) 和 `OP_RET` (6'b001100)
 - `decoder.v`: 添加 `exit_op` 输出信号，解码EXIT/RET指令
-- `streaming_multiprocessor.v`:
+- `streaming_multiprocessor_v2.v`:
   - 添加 `dec_exit_op` 信号
   - 实现 `warp_exit_en = dec_exit_op && (pipe_state == PIPE_EXEC)`
   - 修改 `dealloc_en` 连接到 `warp_exit_en`

@@ -94,7 +94,6 @@ module l2_cache #(
     //------------------------------------------------------------------------
     // Round-robin arbiter per bank
     reg [NUM_PORTS-1:0] bank_grant [0:NUM_BANKS-1];
-    reg [$clog2(NUM_PORTS)-1:0] bank_rr_ptr [0:NUM_BANKS-1];
 
     // Determine which port requests which bank
     wire [BANK_BITS-1:0] port_bank [0:NUM_PORTS-1];
@@ -115,23 +114,14 @@ module l2_cache #(
         end
     endgenerate
 
-    // Round-robin arbitration per bank
+    // Simple priority arbitration per bank (lowest port wins)
     integer i, j;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            for (i = 0; i < NUM_BANKS; i = i + 1) begin
-                bank_grant[i] <= 0;
-                bank_rr_ptr[i] <= 0;
-            end
-        end else begin
-            for (i = 0; i < NUM_BANKS; i = i + 1) begin
-                bank_grant[i] <= 0;
-                // Round-robin selection
-                for (j = 0; j < NUM_PORTS; j = j + 1) begin
-                    if (bank_req[i][(bank_rr_ptr[i] + j) % NUM_PORTS] && !bank_grant[i]) begin
-                        bank_grant[i][(bank_rr_ptr[i] + j) % NUM_PORTS] <= 1'b1;
-                        bank_rr_ptr[i] <= (bank_rr_ptr[i] + j + 1) % NUM_PORTS;
-                    end
+    always @(*) begin
+        for (i = 0; i < NUM_BANKS; i = i + 1) begin
+            bank_grant[i] = 0;
+            for (j = 0; j < NUM_PORTS; j = j + 1) begin
+                if (bank_req[i][j] && !(|bank_grant[i])) begin
+                    bank_grant[i][j] = 1'b1;
                 end
             end
         end
@@ -152,6 +142,14 @@ module l2_cache #(
     wire [NUM_BANKS-1:0] bank_req_write;
     wire [ADDR_WIDTH-1:0] bank_req_addr [0:NUM_BANKS-1];
     wire [LINE_BITS-1:0] bank_req_wdata [0:NUM_BANKS-1];
+    wire [LINE_SIZE-1:0] bank_req_wmask [0:NUM_BANKS-1];
+    wire [NUM_BANKS-1:0] bank_ready;
+    wire [NUM_BANKS-1:0] bank_mem_req_valid;
+    wire [NUM_BANKS-1:0] bank_mem_req_write;
+    wire [ADDR_WIDTH-1:0] bank_mem_req_addr [0:NUM_BANKS-1];
+    wire [LINE_BITS-1:0] bank_mem_req_wdata [0:NUM_BANKS-1];
+    reg  [NUM_BANKS-1:0] bank_mem_req_ready;
+    reg  [NUM_BANKS-1:0] bank_mem_fill_valid;
 
     generate
         for (b = 0; b < NUM_BANKS; b = b + 1) begin : gen_bank
@@ -169,6 +167,7 @@ module l2_cache #(
             assign bank_req_write[b] = l1_req_write[winning_port];
             assign bank_req_addr[b]  = l1_req_addr[winning_port*ADDR_WIDTH +: ADDR_WIDTH];
             assign bank_req_wdata[b] = l1_req_wdata[winning_port*LINE_BITS +: LINE_BITS];
+            assign bank_req_wmask[b] = l1_req_wmask[winning_port*LINE_SIZE +: LINE_SIZE];
 
             // Cache bank instance
             l2_cache_bank #(
@@ -184,11 +183,20 @@ module l2_cache #(
                 .req_write      (bank_req_write[b]),
                 .req_addr       (bank_req_addr[b]),
                 .req_wdata      (bank_req_wdata[b]),
+                .req_wmask      (bank_req_wmask[b]),
+                .req_ready      (bank_ready[b]),
                 .resp_valid     (bank_resp_valid[b]),
                 .resp_rdata     (bank_rdata[b]),
                 .hit            (bank_hit[b]),
                 .miss           (bank_miss[b]),
-                .writeback      (bank_writeback[b])
+                .writeback      (bank_writeback[b]),
+                .mem_req_valid  (bank_mem_req_valid[b]),
+                .mem_req_write  (bank_mem_req_write[b]),
+                .mem_req_addr   (bank_mem_req_addr[b]),
+                .mem_req_wdata  (bank_mem_req_wdata[b]),
+                .mem_req_ready  (bank_mem_req_ready[b]),
+                .mem_fill_valid (bank_mem_fill_valid[b]),
+                .mem_fill_data  (mem_resp_rdata)
             );
         end
     endgenerate
@@ -224,9 +232,9 @@ module l2_cache #(
     // Generate ready and response signals
     generate
         for (p = 0; p < NUM_PORTS; p = p + 1) begin : gen_port_resp
-            // Ready when not pending and bank grants access
-            assign l1_req_ready[p] = !port_pending[p] &&
-                                     bank_grant[port_bank[p]][p];
+            // Ready when the target bank is available and grants access
+            assign l1_req_ready[p] = bank_grant[port_bank[p]][p] &&
+                                     bank_ready[port_bank[p]];
 
             // Response valid when pending and bank responds
             assign l1_resp_valid[p] = port_pending[p] &&
@@ -239,23 +247,81 @@ module l2_cache #(
     endgenerate
 
     //------------------------------------------------------------------------
-    // Memory Controller Interface (unified for all banks)
+    // Memory Controller Interface (single outstanding, round-robin banks)
     //------------------------------------------------------------------------
-    // Simple FIFO for memory requests from banks
-    // In full implementation, this would be more sophisticated
+    localparam BANK_SEL_W = (NUM_BANKS > 1) ? $clog2(NUM_BANKS) : 1;
 
     reg mem_req_pending;
-    reg [ADDR_WIDTH-1:0] mem_req_addr_reg;
-    reg [LINE_BITS-1:0] mem_req_wdata_reg;
-    reg mem_req_write_reg;
+    reg mem_outstanding;
+    reg [BANK_SEL_W-1:0] mem_req_sel;
+    reg [BANK_SEL_W-1:0] mem_out_bank;
+    reg [BANK_SEL_W-1:0] mem_rr_ptr;
+    reg mem_req_has;
+    reg [BANK_SEL_W-1:0] mem_req_sel_next;
+    integer mem_i;
+    integer mem_idx;
+
+    always @(*) begin
+        mem_req_has = 1'b0;
+        mem_req_sel_next = mem_rr_ptr;
+        for (mem_i = 0; mem_i < NUM_BANKS; mem_i = mem_i + 1) begin
+            mem_idx = mem_rr_ptr + mem_i;
+            if (mem_idx >= NUM_BANKS) begin
+                mem_idx = mem_idx - NUM_BANKS;
+            end
+            if (!mem_req_has && bank_mem_req_valid[mem_idx]) begin
+                mem_req_has = 1'b1;
+                mem_req_sel_next = mem_idx[BANK_SEL_W-1:0];
+            end
+        end
+    end
 
     assign mem_req_valid = mem_req_pending;
-    assign mem_req_addr = mem_req_addr_reg;
-    assign mem_req_wdata = mem_req_wdata_reg;
-    assign mem_req_write = mem_req_write_reg;
+    assign mem_req_write = bank_mem_req_write[mem_req_sel];
+    assign mem_req_addr  = bank_mem_req_addr[mem_req_sel];
+    assign mem_req_wdata = bank_mem_req_wdata[mem_req_sel];
 
-    // Simplified: Banks would queue their miss requests
-    // Full implementation needs per-bank MSHR and memory arbiter
+    always @(*) begin
+        bank_mem_req_ready = {NUM_BANKS{1'b0}};
+        if (mem_req_pending) begin
+            bank_mem_req_ready[mem_req_sel] = mem_req_ready;
+        end
+    end
+
+    always @(*) begin
+        bank_mem_fill_valid = {NUM_BANKS{1'b0}};
+        if (mem_resp_valid) begin
+            bank_mem_fill_valid[mem_out_bank] = 1'b1;
+        end
+    end
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            mem_req_pending <= 1'b0;
+            mem_outstanding <= 1'b0;
+            mem_req_sel <= {BANK_SEL_W{1'b0}};
+            mem_out_bank <= {BANK_SEL_W{1'b0}};
+            mem_rr_ptr <= {BANK_SEL_W{1'b0}};
+        end else begin
+            if (!mem_req_pending && !mem_outstanding && mem_req_has) begin
+                mem_req_pending <= 1'b1;
+                mem_req_sel <= mem_req_sel_next;
+            end
+
+            if (mem_req_pending && mem_req_ready) begin
+                mem_req_pending <= 1'b0;
+                mem_rr_ptr <= mem_req_sel + 1'b1;
+                if (!bank_mem_req_write[mem_req_sel]) begin
+                    mem_outstanding <= 1'b1;
+                    mem_out_bank <= mem_req_sel;
+                end
+            end
+
+            if (mem_outstanding && mem_resp_valid) begin
+                mem_outstanding <= 1'b0;
+            end
+        end
+    end
 
     //------------------------------------------------------------------------
     // Statistics
@@ -298,13 +364,23 @@ module l2_cache_bank #(
     input  wire                         req_write,
     input  wire [ADDR_WIDTH-1:0]        req_addr,
     input  wire [LINE_SIZE*8-1:0]       req_wdata,
+    input  wire [LINE_SIZE-1:0]         req_wmask,
+    output wire                         req_ready,
 
     output reg                          resp_valid,
     output reg  [LINE_SIZE*8-1:0]       resp_rdata,
 
     output reg                          hit,
     output reg                          miss,
-    output reg                          writeback
+    output reg                          writeback,
+
+    output reg                          mem_req_valid,
+    output reg                          mem_req_write,
+    output reg  [ADDR_WIDTH-1:0]        mem_req_addr,
+    output reg  [LINE_SIZE*8-1:0]       mem_req_wdata,
+    input  wire                         mem_req_ready,
+    input  wire                         mem_fill_valid,
+    input  wire [LINE_SIZE*8-1:0]       mem_fill_data
 );
 
     localparam NUM_SETS     = SIZE_BYTES / (NUM_WAYS * LINE_SIZE);
@@ -329,11 +405,11 @@ module l2_cache_bank #(
     reg [NUM_WAYS-2:0]      lru_state   [0:NUM_SETS-1];
 
     //------------------------------------------------------------------------
-    // Address Parsing
+    // Address Parsing (latched)
     //------------------------------------------------------------------------
-    wire [OFFSET_BITS-1:0]  req_offset  = req_addr[OFFSET_BITS-1:0];
-    wire [INDEX_BITS-1:0]   req_index   = req_addr[OFFSET_BITS +: INDEX_BITS];
-    wire [TAG_BITS-1:0]     req_tag     = req_addr[ADDR_WIDTH-1 -: TAG_BITS];
+    wire [OFFSET_BITS-1:0]  req_offset  = addr_reg[OFFSET_BITS-1:0];
+    wire [INDEX_BITS-1:0]   req_index   = addr_reg[OFFSET_BITS +: INDEX_BITS];
+    wire [TAG_BITS-1:0]     req_tag     = addr_reg[ADDR_WIDTH-1 -: TAG_BITS];
 
     //------------------------------------------------------------------------
     // Tag Comparison
@@ -383,19 +459,42 @@ module l2_cache_bank #(
     //------------------------------------------------------------------------
     // Cache State Machine
     //------------------------------------------------------------------------
-    localparam S_IDLE       = 3'd0;
-    localparam S_TAG_CHECK  = 3'd1;
-    localparam S_HIT        = 3'd2;
-    localparam S_MISS       = 3'd3;
-    localparam S_WRITEBACK  = 3'd4;
-    localparam S_FILL       = 3'd5;
-    localparam S_RESP       = 3'd6;
+    localparam S_IDLE        = 3'd0;
+    localparam S_TAG_CHECK   = 3'd1;
+    localparam S_HIT         = 3'd2;
+    localparam S_WRITEBACK   = 3'd3;
+    localparam S_FILL_REQ    = 3'd4;
+    localparam S_WAIT_FILL   = 3'd5;
+    localparam S_WRITE_ALLOC = 3'd6;
 
     reg [2:0] state;
     reg [ADDR_WIDTH-1:0] addr_reg;
     reg [LINE_BITS-1:0] wdata_reg;
+    reg [LINE_SIZE-1:0] wmask_reg;
     reg write_reg;
     reg [WAY_BITS-1:0] way_reg;
+
+    assign req_ready = (state == S_IDLE);
+
+    wire [ADDR_WIDTH-1:0] victim_addr =
+        {tag_array[req_index][way_reg], req_index, {OFFSET_BITS{1'b0}}};
+
+    reg [LINE_BITS-1:0] merged_hit_line;
+    reg [LINE_BITS-1:0] merged_fill_line;
+    reg [LINE_BITS-1:0] write_alloc_line;
+    integer b;
+    always @(*) begin
+        merged_hit_line = data_array[req_index][way_reg];
+        merged_fill_line = mem_fill_data;
+        write_alloc_line = {LINE_BITS{1'b0}};
+        for (b = 0; b < LINE_SIZE; b = b + 1) begin
+            if (wmask_reg[b]) begin
+                merged_hit_line[b*8 +: 8] = wdata_reg[b*8 +: 8];
+                merged_fill_line[b*8 +: 8] = wdata_reg[b*8 +: 8];
+                write_alloc_line[b*8 +: 8] = wdata_reg[b*8 +: 8];
+            end
+        end
+    end
 
     integer i;
     always @(posedge clk or negedge rst_n) begin
@@ -406,8 +505,13 @@ module l2_cache_bank #(
             hit <= 0;
             miss <= 0;
             writeback <= 0;
+            mem_req_valid <= 0;
+            mem_req_write <= 0;
+            mem_req_addr <= 0;
+            mem_req_wdata <= 0;
             addr_reg <= 0;
             wdata_reg <= 0;
+            wmask_reg <= 0;
             write_reg <= 0;
             way_reg <= 0;
 
@@ -423,12 +527,17 @@ module l2_cache_bank #(
             hit <= 0;
             miss <= 0;
             writeback <= 0;
+            mem_req_valid <= 0;
+            mem_req_write <= 0;
+            mem_req_addr <= 0;
+            mem_req_wdata <= 0;
 
             case (state)
                 S_IDLE: begin
                     if (req_valid) begin
                         addr_reg <= req_addr;
                         wdata_reg <= req_wdata;
+                        wmask_reg <= req_wmask;
                         write_reg <= req_write;
                         state <= S_TAG_CHECK;
                     end
@@ -448,7 +557,11 @@ module l2_cache_bank #(
                             writeback <= 1'b1;
                             state <= S_WRITEBACK;
                         end else begin
-                            state <= S_FILL;
+                            if (write_reg) begin
+                                state <= S_WRITE_ALLOC;
+                            end else begin
+                                state <= S_FILL_REQ;
+                            end
                         end
                     end
                 end
@@ -456,8 +569,9 @@ module l2_cache_bank #(
                 S_HIT: begin
                     // Read or write hit
                     if (write_reg) begin
-                        data_array[req_index][way_reg] <= wdata_reg;
+                        data_array[req_index][way_reg] <= merged_hit_line;
                         dirty_array[req_index][way_reg] <= 1'b1;
+                        resp_rdata <= merged_hit_line;
                     end else begin
                         resp_rdata <= data_array[req_index][way_reg];
                     end
@@ -468,26 +582,58 @@ module l2_cache_bank #(
                 end
 
                 S_WRITEBACK: begin
-                    // In real implementation: send writeback to memory
-                    // Simplified: just move to fill state
-                    state <= S_FILL;
+                    mem_req_valid <= 1'b1;
+                    mem_req_write <= 1'b1;
+                    mem_req_addr  <= victim_addr;
+                    mem_req_wdata <= data_array[req_index][way_reg];
+                    if (write_reg) begin
+                        state <= S_WRITE_ALLOC;
+                    end else begin
+                        state <= S_FILL_REQ;
+                    end
                 end
 
-                S_FILL: begin
-                    // In real implementation: wait for memory response
-                    // Simplified: immediate fill with write data or zeros
-                    if (write_reg) begin
-                        data_array[req_index][way_reg] <= wdata_reg;
-                        dirty_array[req_index][way_reg] <= 1'b1;
-                    end else begin
-                        data_array[req_index][way_reg] <= 0; // Would come from memory
-                        dirty_array[req_index][way_reg] <= 1'b0;
-                    end
+                S_FILL_REQ: begin
+                    mem_req_valid <= 1'b1;
+                    mem_req_write <= 1'b0;
+                    mem_req_addr  <= {req_tag, req_index, {OFFSET_BITS{1'b0}}};
+                    data_array[req_index][way_reg] <= mem_fill_valid ?
+                        mem_fill_data : {LINE_BITS{1'b0}};
+                    dirty_array[req_index][way_reg] <= 1'b0;
                     tag_array[req_index][way_reg] <= req_tag;
                     valid_array[req_index][way_reg] <= 1'b1;
                     lru_state[req_index] <= lru_state[req_index] ^ (1 << way_reg);
+                    resp_rdata <= mem_fill_valid ? mem_fill_data : {LINE_BITS{1'b0}};
+                    resp_valid <= 1'b1;
+                    state <= S_IDLE;
+                end
 
-                    resp_rdata <= write_reg ? wdata_reg : 0;
+                S_WAIT_FILL: begin
+                    if (mem_fill_valid) begin
+                        if (write_reg) begin
+                            data_array[req_index][way_reg] <= merged_fill_line;
+                            dirty_array[req_index][way_reg] <= 1'b1;
+                            resp_rdata <= merged_fill_line;
+                        end else begin
+                            data_array[req_index][way_reg] <= mem_fill_data;
+                            dirty_array[req_index][way_reg] <= 1'b0;
+                            resp_rdata <= mem_fill_data;
+                        end
+                        tag_array[req_index][way_reg] <= req_tag;
+                        valid_array[req_index][way_reg] <= 1'b1;
+                        lru_state[req_index] <= lru_state[req_index] ^ (1 << way_reg);
+                        resp_valid <= 1'b1;
+                        state <= S_IDLE;
+                    end
+                end
+
+                S_WRITE_ALLOC: begin
+                    data_array[req_index][way_reg] <= write_alloc_line;
+                    dirty_array[req_index][way_reg] <= 1'b1;
+                    tag_array[req_index][way_reg] <= req_tag;
+                    valid_array[req_index][way_reg] <= 1'b1;
+                    lru_state[req_index] <= lru_state[req_index] ^ (1 << way_reg);
+                    resp_rdata <= write_alloc_line;
                     resp_valid <= 1'b1;
                     state <= S_IDLE;
                 end

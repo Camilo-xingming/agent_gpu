@@ -48,6 +48,7 @@ module tb_sm_v2_perf_tensor_multiwarp;
 
     wire        imem_req;
     wire [31:0] imem_addr;
+    wire        imem_ready;
     reg  [31:0] imem_data;
     reg         imem_valid;
 
@@ -160,6 +161,7 @@ module tb_sm_v2_perf_tensor_multiwarp;
         .kernel_done   (kernel_done),
         .imem_req      (imem_req),
         .imem_addr     (imem_addr),
+        .imem_ready    (imem_ready),
         .imem_data     (imem_data),
         .imem_valid    (imem_valid),
         .l1d_req_valid (l1d_req_valid),
@@ -200,6 +202,8 @@ module tb_sm_v2_perf_tensor_multiwarp;
         .m_axi_rvalid  (m_axi_rvalid),
         .m_axi_rready  (m_axi_rready)
     );
+
+    assign imem_ready = 1'b1;
 
     //------------------------------------------------------------------------
     // Memory Interfaces (Idle)

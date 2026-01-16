@@ -83,6 +83,9 @@ module ralph_gpu_top #(
     output wire                         m_axi_rready
 );
 
+    localparam NUM_LANES = `THREADS_PER_WARP;
+    localparam SM_ID_W = (NUM_SM > 1) ? $clog2(NUM_SM) : 1;
+
     //========================================================================
     // CSR 寄存器定义
     //========================================================================
@@ -121,17 +124,20 @@ module ralph_gpu_top #(
     //------------------------------------------------------------------------
     // Block分配器状态
     //------------------------------------------------------------------------
-    reg [31:0]  current_block_id;
+    reg [31:0]  sm_block_id_x [0:NUM_SM-1];
     reg [NUM_SM-1:0] sm_busy;
     wire [NUM_SM-1:0] sm_done;
+    reg [NUM_SM-1:0] sm_kernel_start;
 
     //------------------------------------------------------------------------
     // SM实例化
     //------------------------------------------------------------------------
     // SM接口信号
-    wire [NUM_SM-1:0] sm_kernel_start;
     wire [NUM_SM-1:0] sm_imem_req;
     wire [31:0] sm_imem_addr [0:NUM_SM-1];
+    reg  [NUM_SM-1:0] sm_imem_ready;
+    reg  [NUM_SM-1:0] sm_imem_valids;
+    reg  [31:0] sm_imem_datas [0:NUM_SM-1];
 
     // AXI仲裁 (简化：轮询)
     wire [3:0]  sm_axi_awid    [0:NUM_SM-1];
@@ -154,9 +160,22 @@ module ralph_gpu_top #(
     wire        sm_axi_rready  [0:NUM_SM-1];
 
     genvar sm;
+    genvar lane;
     generate
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_gen
-            streaming_multiprocessor #(
+            wire        sm_l1d_req_valid;
+            wire        sm_l1d_req_write;
+            wire [31:0] sm_l1d_req_addr [0:NUM_LANES-1];
+            wire [31:0] sm_l1d_req_wdata [0:NUM_LANES-1];
+            wire [NUM_LANES-1:0] sm_l1d_req_mask;
+            wire [31:0] sm_l1d_resp_rdata [0:NUM_LANES-1];
+            wire        sm_l1d_resp_valid;
+            wire        sm_l1d_resp_hit;
+
+            assign sm_l1d_resp_valid = 1'b0;
+            assign sm_l1d_resp_hit = 1'b0;
+
+            streaming_multiprocessor_v2 #(
                 .SM_ID (sm)
             ) u_sm (
                 .clk           (clk),
@@ -164,15 +183,31 @@ module ralph_gpu_top #(
 
                 .kernel_start  (sm_kernel_start[sm]),
                 .kernel_pc     (kernel_pc_reg),
-                .block_id_x    (current_block_id + sm),
+                .block_id_x    (sm_block_id_x[sm]),
+                .block_id_y    (32'b0),
+                .block_id_z    (32'b0),
                 .block_dim_x   (block_dim_x),
+                .block_dim_y   (block_dim_y),
+                .block_dim_z   (block_dim_z),
                 .grid_dim_x    (grid_dim_x),
+                .grid_dim_y    (grid_dim_y),
+                .grid_dim_z    (grid_dim_z),
                 .kernel_done   (sm_done[sm]),
 
                 .imem_req      (sm_imem_req[sm]),
                 .imem_addr     (sm_imem_addr[sm]),
-                .imem_data     (imem_data),
-                .imem_valid    (imem_valid),
+                .imem_ready    (sm_imem_ready[sm]),
+                .imem_data     (sm_imem_datas[sm]),
+                .imem_valid    (sm_imem_valids[sm]),
+
+                .l1d_req_valid (sm_l1d_req_valid),
+                .l1d_req_write (sm_l1d_req_write),
+                .l1d_req_addr  (sm_l1d_req_addr),
+                .l1d_req_wdata (sm_l1d_req_wdata),
+                .l1d_req_mask  (sm_l1d_req_mask),
+                .l1d_resp_rdata(sm_l1d_resp_rdata),
+                .l1d_resp_valid(sm_l1d_resp_valid),
+                .l1d_resp_hit  (sm_l1d_resp_hit),
 
                 // AXI接口
                 .m_axi_awid    (sm_axi_awid[sm]),
@@ -205,26 +240,96 @@ module ralph_gpu_top #(
                 .m_axi_rvalid  (m_axi_rvalid),
                 .m_axi_rready  (sm_axi_rready[sm])
             );
+
+            for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : sm_l1d_lane_tieoff
+                assign sm_l1d_resp_rdata[lane] = 32'b0;
+            end
         end
     endgenerate
 
     //------------------------------------------------------------------------
-    // 指令内存仲裁 (轮询)
+    // 指令内存仲裁 (单端口 + SM请求队列)
     //------------------------------------------------------------------------
-    reg [$clog2(NUM_SM)-1:0] imem_arb_sel;
+    localparam IMEM_Q_DEPTH = 8;
+    localparam IMEM_Q_PTR_W = (IMEM_Q_DEPTH > 1) ? $clog2(IMEM_Q_DEPTH) : 1;
+    localparam IMEM_Q_COUNT_W = $clog2(IMEM_Q_DEPTH + 1);
+    localparam [IMEM_Q_COUNT_W-1:0] IMEM_Q_DEPTH_VAL =
+        IMEM_Q_DEPTH[IMEM_Q_COUNT_W-1:0];
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            imem_arb_sel <= 0;
-        end else begin
-            if (|sm_imem_req) begin
-                imem_arb_sel <= (imem_arb_sel + 1) % NUM_SM;
+    reg [SM_ID_W-1:0] imem_q [0:IMEM_Q_DEPTH-1];
+    reg [IMEM_Q_PTR_W-1:0] imem_q_head;
+    reg [IMEM_Q_PTR_W-1:0] imem_q_tail;
+    reg [IMEM_Q_COUNT_W-1:0] imem_q_count;
+    wire imem_q_full = (imem_q_count == IMEM_Q_DEPTH_VAL);
+    wire imem_q_empty = (imem_q_count == 0);
+
+    reg [SM_ID_W-1:0] imem_rr_ptr;
+    reg [SM_ID_W-1:0] imem_arb_sel;
+    reg imem_arb_valid;
+    integer imem_i;
+    integer imem_idx;
+
+    always @(*) begin
+        imem_arb_sel = imem_rr_ptr;
+        imem_arb_valid = 1'b0;
+        for (imem_i = 0; imem_i < NUM_SM; imem_i = imem_i + 1) begin
+            imem_idx = imem_rr_ptr + imem_i + 1;
+            if (imem_idx >= NUM_SM) begin
+                imem_idx = imem_idx - NUM_SM;
+            end
+            if (!imem_arb_valid && sm_imem_req[imem_idx]) begin
+                imem_arb_sel = imem_idx[SM_ID_W-1:0];
+                imem_arb_valid = 1'b1;
             end
         end
     end
 
-    assign imem_req  = sm_imem_req[imem_arb_sel];
-    assign imem_addr = sm_imem_addr[imem_arb_sel];
+    wire imem_accept = imem_arb_valid && !imem_q_full;
+
+    assign imem_req  = imem_accept;
+    assign imem_addr = imem_accept ? sm_imem_addr[imem_arb_sel] : 32'b0;
+
+    integer sm_i;
+    always @(*) begin
+        sm_imem_ready = {NUM_SM{1'b0}};
+        for (sm_i = 0; sm_i < NUM_SM; sm_i = sm_i + 1) begin
+            sm_imem_valids[sm_i] = 1'b0;
+            sm_imem_datas[sm_i] = 32'b0;
+        end
+        if (imem_accept) begin
+            sm_imem_ready[imem_arb_sel] = 1'b1;
+        end
+        if (imem_valid && !imem_q_empty) begin
+            sm_imem_valids[imem_q[imem_q_head]] = 1'b1;
+            sm_imem_datas[imem_q[imem_q_head]] = imem_data;
+        end
+    end
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            imem_q_head <= {IMEM_Q_PTR_W{1'b0}};
+            imem_q_tail <= {IMEM_Q_PTR_W{1'b0}};
+            imem_q_count <= {IMEM_Q_COUNT_W{1'b0}};
+            imem_rr_ptr <= {SM_ID_W{1'b0}};
+        end else begin
+            if (imem_accept) begin
+                imem_q[imem_q_tail] <= imem_arb_sel;
+                imem_q_tail <= (imem_q_tail == IMEM_Q_DEPTH-1) ?
+                               {IMEM_Q_PTR_W{1'b0}} : imem_q_tail + 1'b1;
+                imem_rr_ptr <= imem_arb_sel;
+            end
+            if (imem_valid && !imem_q_empty) begin
+                imem_q_head <= (imem_q_head == IMEM_Q_DEPTH-1) ?
+                               {IMEM_Q_PTR_W{1'b0}} : imem_q_head + 1'b1;
+            end
+
+            case ({imem_accept, (imem_valid && !imem_q_empty)})
+                2'b10: imem_q_count <= imem_q_count + 1'b1;
+                2'b01: imem_q_count <= imem_q_count - 1'b1;
+                default: imem_q_count <= imem_q_count;
+            endcase
+        end
+    end
 
     //------------------------------------------------------------------------
     // AXI仲裁 (简化：选择第一个活跃SM)
@@ -275,43 +380,48 @@ module ralph_gpu_top #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             sched_state       <= SCHED_IDLE;
-            current_block_id  <= 0;
             dispatched_blocks <= 0;
             total_blocks      <= 0;
             gpu_busy          <= 0;
             sm_busy           <= 0;
+            sm_kernel_start   <= 0;
+            for (i = 0; i < NUM_SM; i = i + 1) begin
+                sm_block_id_x[i] <= 32'b0;
+            end
         end else begin
+            sm_kernel_start <= 0;
             case (sched_state)
                 SCHED_IDLE: begin
                     if (kernel_start_reg) begin
                         sched_state       <= SCHED_DISPATCH;
                         total_blocks      <= grid_dim_x * grid_dim_y * grid_dim_z;
-                        current_block_id  <= 0;
                         dispatched_blocks <= 0;
                         gpu_busy          <= 1;
+                        sm_busy           <= 0;
                     end
                 end
 
                 SCHED_DISPATCH: begin
                     // 为空闲SM分配Block
+                    integer next_block;
+                    next_block = dispatched_blocks;
                     for (i = 0; i < NUM_SM; i = i + 1) begin
-                        if (!sm_busy[i] && dispatched_blocks < total_blocks) begin
-                            sm_busy[i] <= 1;
-                            dispatched_blocks <= dispatched_blocks + 1;
+                        if (!sm_busy[i] && (next_block < total_blocks)) begin
+                            sm_busy[i] <= 1'b1;
+                            sm_kernel_start[i] <= 1'b1;
+                            sm_block_id_x[i] <= next_block;
+                            next_block = next_block + 1;
                         end
                     end
-
-                    if (dispatched_blocks >= total_blocks) begin
-                        sched_state <= SCHED_WAIT;
-                    end
+                    dispatched_blocks <= next_block;
+                    sched_state <= SCHED_WAIT;
                 end
 
                 SCHED_WAIT: begin
                     // 更新SM完成状态
                     for (i = 0; i < NUM_SM; i = i + 1) begin
-                        if (sm_done[i]) begin
+                        if (sm_busy[i] && sm_done[i]) begin
                             sm_busy[i] <= 0;
-                            current_block_id <= current_block_id + 1;
                         end
                     end
 
@@ -330,15 +440,6 @@ module ralph_gpu_top #(
             endcase
         end
     end
-
-    // SM启动信号
-    generate
-        for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_start
-            assign sm_kernel_start[sm] = (sched_state == SCHED_DISPATCH) &&
-                                          !sm_busy[sm] &&
-                                          (dispatched_blocks < total_blocks);
-        end
-    endgenerate
 
     //------------------------------------------------------------------------
     // CSR读写

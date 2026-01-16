@@ -95,6 +95,7 @@ module memory_interface #(
     // 当前处理的lane
     reg [5:0] current_lane;
     reg [5:0] lane_count;
+    reg [5:0] processed_count;
 
     // 响应数据缓存
     reg [NUM_LANES*DATA_WIDTH-1:0] rdata_buf;
@@ -122,7 +123,7 @@ module memory_interface #(
         case (state)
             IDLE: begin
                 if (req_valid && |req_mask) begin
-                    next_state = is_write_buf ? WRITE_ADDR : READ_ADDR;
+                    next_state = req_write ? WRITE_ADDR : READ_ADDR;
                 end
             end
 
@@ -134,7 +135,7 @@ module memory_interface #(
 
             READ_DATA: begin
                 if (m_axi_rvalid && m_axi_rready) begin
-                    if (current_lane >= lane_count - 1) begin
+                    if ((processed_count + 1'b1) >= lane_count) begin
                         next_state = IDLE;
                     end else begin
                         next_state = READ_ADDR;
@@ -156,7 +157,7 @@ module memory_interface #(
 
             WRITE_RESP: begin
                 if (m_axi_bvalid && m_axi_bready) begin
-                    if (current_lane >= lane_count - 1) begin
+                    if ((processed_count + 1'b1) >= lane_count) begin
                         next_state = IDLE;
                     end else begin
                         next_state = WRITE_ADDR;
@@ -174,11 +175,11 @@ module memory_interface #(
     integer i;
 
     // 计算活跃lane数量
-    reg [5:0] active_count;
+    reg [5:0] active_count_req;
     always @(*) begin
-        active_count = 0;
+        active_count_req = 0;
         for (i = 0; i < NUM_LANES; i = i + 1) begin
-            if (mask_buf[i]) active_count = active_count + 1;
+            if (req_mask[i]) active_count_req = active_count_req + 1;
         end
     end
 
@@ -208,6 +209,7 @@ module memory_interface #(
             is_write_buf  <= 0;
             current_lane  <= 0;
             lane_count    <= 0;
+            processed_count <= 0;
             rdata_buf     <= 0;
             resp_valid_reg <= 0;
 
@@ -232,6 +234,11 @@ module memory_interface #(
 
         end else begin
             resp_valid_reg <= 1'b0;
+            m_axi_awvalid <= 1'b0;
+            m_axi_wvalid  <= 1'b0;
+            m_axi_bready  <= 1'b0;
+            m_axi_arvalid <= 1'b0;
+            m_axi_rready  <= 1'b0;
 
             case (state)
                 IDLE: begin
@@ -241,7 +248,8 @@ module memory_interface #(
                         mask_buf     <= req_mask;
                         is_write_buf <= req_write;
                         current_lane <= find_next_lane(0, req_mask);
-                        lane_count   <= active_count;
+                        lane_count   <= active_count_req;
+                        processed_count <= 0;
                     end
                 end
 
@@ -250,21 +258,17 @@ module memory_interface #(
                     m_axi_araddr  <= addr_buf[current_lane*ADDR_WIDTH +: ADDR_WIDTH];
                     m_axi_arlen   <= 8'd0;  // 单次传输
                     m_axi_arvalid <= 1'b1;
-
-                    if (m_axi_arready) begin
-                        m_axi_arvalid <= 1'b0;
-                    end
                 end
 
                 READ_DATA: begin
                     m_axi_rready <= 1'b1;
                     if (m_axi_rvalid) begin
                         rdata_buf[current_lane*DATA_WIDTH +: DATA_WIDTH] <= m_axi_rdata;
-                        m_axi_rready <= 1'b0;
-                        current_lane <= find_next_lane(current_lane + 1, mask_buf);
-
-                        if (current_lane >= lane_count - 1) begin
+                        processed_count <= processed_count + 1'b1;
+                        if ((processed_count + 1'b1) >= lane_count) begin
                             resp_valid_reg <= 1'b1;
+                        end else begin
+                            current_lane <= find_next_lane(current_lane + 1, mask_buf);
                         end
                     end
                 end
@@ -274,27 +278,21 @@ module memory_interface #(
                     m_axi_awaddr  <= addr_buf[current_lane*ADDR_WIDTH +: ADDR_WIDTH];
                     m_axi_awlen   <= 8'd0;
                     m_axi_awvalid <= 1'b1;
-
-                    if (m_axi_awready) begin
-                        m_axi_awvalid <= 1'b0;
-                    end
                 end
 
                 WRITE_DATA: begin
                     m_axi_wdata  <= wdata_buf[current_lane*DATA_WIDTH +: DATA_WIDTH];
                     m_axi_wvalid <= 1'b1;
                     m_axi_wlast  <= 1'b1;
-
-                    if (m_axi_wready) begin
-                        m_axi_wvalid <= 1'b0;
-                    end
                 end
 
                 WRITE_RESP: begin
                     m_axi_bready <= 1'b1;
                     if (m_axi_bvalid) begin
-                        m_axi_bready <= 1'b0;
-                        current_lane <= find_next_lane(current_lane + 1, mask_buf);
+                        processed_count <= processed_count + 1'b1;
+                        if ((processed_count + 1'b1) < lane_count) begin
+                            current_lane <= find_next_lane(current_lane + 1, mask_buf);
+                        end
                     end
                 end
             endcase

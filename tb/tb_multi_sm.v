@@ -201,6 +201,15 @@ module tb_multi_sm;
         end
     endfunction
 
+    //------------------------------------------------------------------------
+    // 测试变量
+    //------------------------------------------------------------------------
+    integer i;
+    integer k;          // 用于连续kernel测试
+    integer passed = 0;
+    integer failed = 0;
+    reg     all_ok;     // 用于连续kernel测试
+
     task csr_write;
         input [11:0] addr;
         input [31:0] data;
@@ -214,14 +223,26 @@ module tb_multi_sm;
         end
     endtask
 
-    //------------------------------------------------------------------------
-    // 测试变量
-    //------------------------------------------------------------------------
-    integer i;
-    integer k;          // 用于连续kernel测试
-    integer passed = 0;
-    integer failed = 0;
-    reg     all_ok;     // 用于连续kernel测试
+    task wait_gpu_idle;
+        integer wait_i;
+        begin : wait_idle
+            for (wait_i = 0; wait_i < 1000; wait_i = wait_i + 1) begin
+                @(posedge clk);
+                if (!dut.gpu_busy) begin
+                    disable wait_idle;
+                end
+            end
+            $display("[FAIL] GPU idle wait timeout");
+            failed = failed + 1;
+        end
+    endtask
+
+    task prepare_kernel;
+        begin
+            csr_write(12'h000, 32'h0000_0000);
+            wait_gpu_idle();
+        end
+    endtask
 
     //------------------------------------------------------------------------
     // 测试程序
@@ -268,6 +289,7 @@ module tb_multi_sm;
         $display("  Launching kernel with 4 blocks on %0d SMs", NUM_SM);
         $display("  Expected: Each SM handles ~%0d blocks", 4/NUM_SM);
 
+        prepare_kernel();
         csr_write(12'h004, 32'h0000_0001);   // Start
 
         // 等待完成
@@ -314,6 +336,7 @@ module tb_multi_sm;
         $display("\n--- Instruction Fetch Arbitration Test ---");
 
         // 重新启动测试
+        prepare_kernel();
         csr_write(12'h004, 32'h0000_0001);
 
         // 监控指令获取
@@ -345,6 +368,7 @@ module tb_multi_sm;
         //====================================================================
         $display("\n--- Single Block Test ---");
 
+        prepare_kernel();
         csr_write(12'h00C, 32'h0000_0001);   // GRID_DIM_X = 1 (1个Block)
         csr_write(12'h004, 32'h0000_0001);   // Start
 
@@ -372,6 +396,7 @@ module tb_multi_sm;
         //====================================================================
         $display("\n--- Large Grid Test ---");
 
+        prepare_kernel();
         csr_write(12'h00C, 32'h0000_0008);   // GRID_DIM_X = 8
         csr_write(12'h004, 32'h0000_0001);   // Start
 
@@ -405,6 +430,7 @@ module tb_multi_sm;
             csr_write(12'h00C, 32'h0000_0002);   // GRID_DIM_X = 2
 
             for (k = 0; k < 3; k = k + 1) begin
+                prepare_kernel();
                 csr_write(12'h004, 32'h0000_0001);   // Start
 
                 fork: wait_back2back
@@ -468,6 +494,33 @@ module tb_multi_sm;
         $dumpfile("tb_multi_sm.vcd");
         $dumpvars(0, tb_multi_sm);
     end
+
+`ifdef DEBUG_MULTI_SM
+    reg [1:0] dbg_state;
+    reg [NUM_SM-1:0] dbg_sm_start;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            dbg_state <= 0;
+            dbg_sm_start <= 0;
+        end else begin
+            if (dut.sched_state != dbg_state) begin
+                $display("[DBG] t=%0t state=%0d->%0d busy=%b disp=%0d total=%0d",
+                         $time, dbg_state, dut.sched_state, dut.sm_busy,
+                         dut.dispatched_blocks, dut.total_blocks);
+                dbg_state <= dut.sched_state;
+            end
+            if (dut.sm_kernel_start != 0 && dbg_sm_start != dut.sm_kernel_start) begin
+                $display("[DBG] t=%0t sm_kernel_start=%b block_id0=%0d block_id1=%0d",
+                         $time, dut.sm_kernel_start, dut.sm_block_id_x[0],
+                         dut.sm_block_id_x[1]);
+            end
+            if (irq_kernel_done) begin
+                $display("[DBG] t=%0t irq_kernel_done=1", $time);
+            end
+            dbg_sm_start <= dut.sm_kernel_start;
+        end
+    end
+`endif
 
     // 超时保护
     initial begin

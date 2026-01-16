@@ -45,7 +45,7 @@ GPU/
 │   ├── warp_scheduler.v    # Warp调度器
 │   ├── shared_memory.v     # 共享内存
 │   ├── memory_interface.v  # 全局内存接口
-│   ├── streaming_multiprocessor.v  # SM模块
+│   ├── streaming_multiprocessor_v2.v  # SM模块
 │   └── ralph_gpu_top.v     # 顶层模块
 ├── tb/                     # Testbench
 │   └── tb_ralph_gpu.v      # 主测试文件

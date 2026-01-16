@@ -56,25 +56,28 @@ module memory_coalescing_unit #(
     //------------------------------------------------------------------------
     localparam OFFSET_BITS = $clog2(CACHE_LINE_SIZE);  // 7 bits for 128B
 
-    // 计算每个线程的cache line地址
+    // 计算每个线程的cache line地址 (使用锁存请求)
     wire [ADDR_WIDTH-OFFSET_BITS-1:0] line_addr [0:THREADS-1];
     wire [OFFSET_BITS-1:0]            line_offset [0:THREADS-1];
 
     generate
         genvar t;
         for (t = 0; t < THREADS; t = t + 1) begin : gen_addr
-            assign line_addr[t]   = req_addr[t][ADDR_WIDTH-1:OFFSET_BITS];
-            assign line_offset[t] = req_addr[t][OFFSET_BITS-1:0];
+            assign line_addr[t]   = saved_addr[t][ADDR_WIDTH-1:OFFSET_BITS];
+            assign line_offset[t] = saved_addr[t][OFFSET_BITS-1:0];
         end
     endgenerate
 
     //------------------------------------------------------------------------
     // 合并分析 - 找出不同的cache line
     //------------------------------------------------------------------------
+    localparam LINE_IDX_W = (MAX_COALESCED > 1) ? $clog2(MAX_COALESCED) : 1;
+    localparam UNIQUE_COUNT_W = $clog2(MAX_COALESCED + 1);
+
     reg [ADDR_WIDTH-OFFSET_BITS-1:0] unique_lines [0:MAX_COALESCED-1];
     reg [MAX_COALESCED-1:0]          line_valid;
-    reg [1:0]                        num_unique_lines;
-    reg [1:0]                        thread_to_line [0:THREADS-1];
+    reg [UNIQUE_COUNT_W-1:0]         num_unique_lines;
+    reg [LINE_IDX_W-1:0]             thread_to_line [0:THREADS-1];
 
     integer i, j;
     reg found;
@@ -93,14 +96,14 @@ module memory_coalescing_unit #(
 
         // 扫描所有活跃线程，找出不同的cache line
         for (i = 0; i < THREADS; i = i + 1) begin
-            if (req_mask[i]) begin
+            if (saved_mask[i]) begin
                 found = 0;
 
                 // 检查是否已经在列表中
                 for (j = 0; j < MAX_COALESCED; j = j + 1) begin
                     if (line_valid[j] && unique_lines[j] == line_addr[i]) begin
                         found = 1;
-                        thread_to_line[i] = j[1:0];
+                        thread_to_line[i] = j[LINE_IDX_W-1:0];
                     end
                 end
 
@@ -126,7 +129,7 @@ module memory_coalescing_unit #(
     localparam ST_DONE      = 3'd5;
 
     reg [2:0] state;
-    reg [1:0] current_line;
+    reg [LINE_IDX_W-1:0] current_line;
 
     // 保存的请求
     reg                 saved_write;
@@ -196,10 +199,11 @@ module memory_coalescing_unit #(
                         mem_req_valid <= 1;
                         mem_req_write <= saved_write;
                         mem_req_addr <= {unique_lines[current_line], {OFFSET_BITS{1'b0}}};
+                        mem_req_wdata <= 0;
+                        mem_req_wmask <= 0;
 
                         // 构建写数据和掩码
                         if (saved_write) begin
-                            mem_req_wmask <= 0;
                             for (i = 0; i < THREADS; i = i + 1) begin
                                 if (saved_mask[i] && thread_to_line[i] == current_line) begin
                                     // 设置对应位置的数据和掩码

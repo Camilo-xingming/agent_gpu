@@ -104,11 +104,14 @@ module l1_data_cache #(
 
     // 找第一个活跃线程
     integer first_active;
+    reg found;
     always @(*) begin
         first_active = 0;
+        found = 1'b0;
         for (integer i = 0; i < THREADS; i = i + 1) begin
-            if (saved_mask[i] && first_active == 0) begin
+            if (!found && saved_mask[i]) begin
                 first_active = i;
+                found = 1'b1;
             end
         end
     end

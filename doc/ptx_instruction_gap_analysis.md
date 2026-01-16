@@ -445,7 +445,7 @@
 | warp_scheduler.v | ~300 | Warp scheduling |
 | shared_memory.v | ~150 | Shared memory |
 | memory_interface.v | ~250 | AXI4 memory interface |
-| streaming_multiprocessor.v | ~500 | SM core |
+| streaming_multiprocessor_v2.v | ~500 | SM core |
 | ralph_gpu_top.v | ~400 | Top-level module |
 | **Total** | **~8,700** | |
 

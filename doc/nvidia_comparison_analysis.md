@@ -325,7 +325,7 @@ parameter REG_FILE_SIZE = 64; // KB, 从16KB增加
 // 需要修改:
 // 1. register_file.v - 增加容量
 // 2. warp_scheduler.v - 支持更多warp
-// 3. streaming_multiprocessor.v - 状态管理
+// 3. streaming_multiprocessor_v2.v - 状态管理
 ```
 
 **预期效果:**

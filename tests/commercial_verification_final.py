@@ -160,7 +160,7 @@ class CommercialVerification:
             'memory_coalescing_unit.v': 'Coalescing Unit',
 
             # Control
-            'streaming_multiprocessor.v': 'SM',
+            'streaming_multiprocessor_v2.v': 'SM',
             'warp_scheduler.v': 'Warp Scheduler',
             'dual_issue_scheduler.v': 'Dual-Issue Scheduler',
             'decoder.v': 'Decoder',

@@ -17,13 +17,11 @@ Scope: Core RTL modules (scheduler, memory, caches, execution units) and top-lev
 - `rtl/memory_coalescing_unit.v:60`, `rtl/memory_coalescing_unit.v:94` Coalescing uses live `req_*` signals instead of latched request data, so coalescing can change mid-transaction.
 - `rtl/l2_cache.v:247`, `rtl/l2_cache.v:476` L2 never drives `mem_req_pending` and fills misses with zeros, so miss handling is non-functional.
 - `rtl/l2_cache.v:224` Response routing clears all ports pending on a bank in one cycle, so multiple ports targeting the same bank can be dropped or mis-served.
-- `rtl/streaming_multiprocessor.v:426` Ignores `gmem_req_ready`, so backpressure can drop or reorder global memory requests.
 
 ### Medium
 - `rtl/memory_coalescing_unit.v:76` `num_unique_lines` is 2 bits with `MAX_COALESCED=4`, so a fourth unique line overflows and is dropped.
 - `rtl/l1_data_cache.v:106` `first_active` uses `0` as a sentinel, so lane 0 can be overwritten by later lanes; empty masks still use `saved_addr[0]` for tag lookup.
 - `rtl/async_copy_engine.v:31`, `rtl/async_copy_engine.v:62`, `rtl/async_copy_engine.v:256` `pending_count`/`req_count` can overflow at default depth; wait-group logic checks `func` live instead of a latched operation.
-- `rtl/streaming_multiprocessor.v:153` `alloc_warp_id` is hardwired to 0; other warps never run.
 - `rtl/warp_scheduler.v:110` `pc_is_branch` is unused, so branch PC updates are ignored.
 - `rtl/l2_cache.v:168` Byte write mask `l1_req_wmask` is never applied; partial stores overwrite entire lines.
 - `rtl/l1_data_cache_optimized.v:497` WCB allocation loops allocate into every invalid entry (no early exit), duplicating the same write.
