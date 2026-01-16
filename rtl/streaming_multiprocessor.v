@@ -224,6 +224,7 @@ module streaming_multiprocessor #(
     register_file u_regfile (
         .clk       (clk),
         .rst_n     (rst_n),
+        .warp_id   (active_warp_id),
         .rd_addr_a (dec_ra),
         .rd_data_a (rf_rd_data_a),
         .rd_addr_b (dec_rb),
@@ -231,6 +232,7 @@ module streaming_multiprocessor #(
         .rd_addr_c (dec_rc),
         .rd_data_c (rf_rd_data_c),
         .wr_en     (rf_wr_en),
+        .wr_warp   (active_warp_id),
         .wr_addr   (dec_rd),
         .wr_data   (rf_wr_data),
         .wr_mask   (rf_wr_mask)

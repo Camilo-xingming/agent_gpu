@@ -336,6 +336,19 @@ class WmmaFunc(IntEnum):
     M32N8K16  = 0b000010
 
 #============================================================================
+# Tensor Core Data Types (matches gpu_defines.vh)
+#============================================================================
+class TensorDataType(IntEnum):
+    FP16     = 0b000
+    BF16     = 0b001
+    INT8     = 0b010
+    INT4     = 0b011
+    FP8_E4M3 = 0b100
+    FP8_E5M2 = 0b101
+    FP4_E2M1 = 0b110
+    FP4_E3M0 = 0b111
+
+#============================================================================
 # WGMMA Function Codes
 #============================================================================
 class WgmmaFunc(IntEnum):
@@ -910,15 +923,15 @@ class PTXAssembler:
         # WMMA (Tensor Core)
         #================================================================
         if mnemonic.startswith('wmma.load.a'):
-            return self._parse_wmma_load(operands, 0)
+            return self._parse_wmma_load(mnemonic, operands, 0)
         if mnemonic.startswith('wmma.load.b'):
-            return self._parse_wmma_load(operands, 1)
+            return self._parse_wmma_load(mnemonic, operands, 1)
         if mnemonic.startswith('wmma.load.c'):
-            return self._parse_wmma_load(operands, 2)
+            return self._parse_wmma_load(mnemonic, operands, 2)
         if mnemonic.startswith('wmma.store.d'):
-            return self._parse_wmma_store(operands)
+            return self._parse_wmma_store(mnemonic, operands)
         if mnemonic.startswith('wmma.mma'):
-            return self._parse_wmma_mma(operands)
+            return self._parse_wmma_mma(mnemonic, operands)
         if mnemonic.startswith('mma.sync'):
             return self._parse_mma_sync(mnemonic, operands)
 
@@ -1409,28 +1422,83 @@ class PTXAssembler:
             inst.rb = parse_immediate(operands[2]) & 0x1F
         return inst
 
-    def _parse_wmma_load(self, operands: List[str], matrix: int) -> Instruction:
+    def _parse_tensor_dtype(self, mnemonic: str) -> int:
+        """Parse WMMA/MMA data type from mnemonic"""
+        tokens = mnemonic.lower().split('.')
+        has_fp4 = any(tok in ('f4',) for tok in tokens)
+        has_fp8 = any(tok in ('f8',) for tok in tokens)
+        has_fp4_e2m1 = 'e2m1' in tokens
+        has_fp4_e3m0 = 'e3m0' in tokens
+        has_fp8_e4m3 = 'e4m3' in tokens
+        has_fp8_e5m2 = 'e5m2' in tokens
+        has_int4 = any(tok in ('s4', 'u4', 'int4', 's4x8', 'u4x8') for tok in tokens)
+        has_int8 = any(tok in ('s8', 'u8', 'int8', 's8x4', 'u8x4') for tok in tokens)
+        has_bf16 = any(tok in ('bf16',) for tok in tokens)
+        has_fp16 = any(tok in ('f16',) for tok in tokens)
+
+        if has_fp4_e3m0:
+            return TensorDataType.FP4_E3M0
+        if has_fp4_e2m1 or has_fp4:
+            return TensorDataType.FP4_E2M1
+        if has_fp8_e5m2:
+            return TensorDataType.FP8_E5M2
+        if has_fp8_e4m3 or has_fp8:
+            return TensorDataType.FP8_E4M3
+        if has_int4:
+            return TensorDataType.INT4
+        if has_int8:
+            return TensorDataType.INT8
+        if has_bf16:
+            return TensorDataType.BF16
+        if has_fp16:
+            return TensorDataType.FP16
+        return TensorDataType.FP16
+
+    def _parse_wmma_shape(self, mnemonic: str) -> int:
+        """Parse WMMA/MMA shape from mnemonic"""
+        shape_map = {
+            'm16n16k16': WmmaFunc.M16N16K16,
+            'm8n8k4': WmmaFunc.M8N8K4,
+            'm32n8k16': WmmaFunc.M32N8K16,
+            'm16n8k8': WmmaFunc.M16N16K16,
+        }
+        for shape, func in shape_map.items():
+            if shape in mnemonic:
+                return func
+        return WmmaFunc.M16N16K16
+
+    def _encode_wmma_func(self, shape: int, dtype: int) -> int:
+        """Encode WMMA/MMA func field: shape[5:3] + dtype[2:0]"""
+        return ((shape & 0x7) << 3) | (dtype & 0x7)
+
+    def _parse_wmma_load(self, mnemonic: str, operands: List[str], matrix: int) -> Instruction:
         """Parse WMMA load"""
         inst = Instruction(opcode=Opcode.WMMA_LOAD)
         inst.rd = parse_register(operands[0])
         inst.ra = parse_register(operands[1].strip('[]'))
-        inst.func = matrix  # 0=A, 1=B, 2=C
+        dtype = self._parse_tensor_dtype(mnemonic)
+        inst.func = self._encode_wmma_func(matrix, dtype)  # matrix in [5:3], dtype in [2:0]
         return inst
 
-    def _parse_wmma_store(self, operands: List[str]) -> Instruction:
+    def _parse_wmma_store(self, mnemonic: str, operands: List[str]) -> Instruction:
         """Parse WMMA store"""
         inst = Instruction(opcode=Opcode.WMMA_STORE)
         inst.ra = parse_register(operands[0].strip('[]'))
         inst.rb = parse_register(operands[1])
+        dtype = self._parse_tensor_dtype(mnemonic)
+        inst.func = self._encode_wmma_func(3, dtype)  # D matrix id = 3
         return inst
 
-    def _parse_wmma_mma(self, operands: List[str]) -> Instruction:
+    def _parse_wmma_mma(self, mnemonic: str, operands: List[str]) -> Instruction:
         """Parse WMMA MMA"""
         inst = Instruction(opcode=Opcode.WMMA_MMA)
         inst.rd = parse_register(operands[0])
         inst.ra = parse_register(operands[1])
         inst.rb = parse_register(operands[2])
         inst.rc = parse_register(operands[3])
+        shape = self._parse_wmma_shape(mnemonic)
+        dtype = self._parse_tensor_dtype(mnemonic)
+        inst.func = self._encode_wmma_func(shape, dtype)
         return inst
 
     def _parse_mma_sync(self, mnemonic: str, operands: List[str]) -> Instruction:
@@ -1441,11 +1509,9 @@ class PTXAssembler:
         inst.rb = parse_register(operands[2])
         inst.rc = parse_register(operands[3])
 
-        # Determine shape from mnemonic
-        if 'm8n8k4' in mnemonic:
-            inst.func = WmmaFunc.M8N8K4
-        elif 'm16n8k8' in mnemonic:
-            inst.func = WmmaFunc.M16N16K16
+        shape = self._parse_wmma_shape(mnemonic)
+        dtype = self._parse_tensor_dtype(mnemonic)
+        inst.func = self._encode_wmma_func(shape, dtype)
         return inst
 
     def _parse_wgmma_mma(self, mnemonic: str, operands: List[str]) -> Instruction:
@@ -1810,6 +1876,11 @@ def run_coverage_test() -> Tuple[int, int, float]:
         "wmma.load.c.sync.m16n16k16.f32 r0, [r1]",
         "wmma.store.d.sync.m16n16k16.f32 [r0], r1",
         "wmma.mma.sync.m16n16k16.f32.f16 r0, r1, r2, r3",
+        "wmma.mma.sync.m16n16k16.f32.bf16.bf16.f32 r0, r1, r2, r3",
+        "wmma.mma.sync.m16n16k16.f32.s8.s8.s32 r0, r1, r2, r3",
+        "wmma.mma.sync.m16n16k16.f32.f4.f4.f32 r0, r1, r2, r3",
+        "wmma.mma.sync.m16n16k16.f32.e5m2.e5m2.f32 r0, r1, r2, r3",
+        "wmma.mma.sync.m16n16k16.f32.e3m0.e3m0.f32 r0, r1, r2, r3",
         "mma.sync.m8n8k4.f32.f16 r0, r1, r2, r3",
         "mma.sync.m16n8k8.f32.f16 r0, r1, r2, r3",
 

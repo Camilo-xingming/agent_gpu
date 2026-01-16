@@ -138,3 +138,27 @@
 | 集成测试超时 | 1 | 分析发现dealloc_en=0导致warp不释放 |
 | kernel无法完成 | 2 | 添加EXIT指令，修复warp释放逻辑 ✅ |
 | Multi-SM测试失败 | 3 | 待调查：调度状态机时序问题 |
+
+---
+
+## 近期进展 (SM V2 前端/写回)
+- `rtl/streaming_multiprocessor_v2.v`: 增加IFQ取指队列与warp_fetch_pc解耦；修复EXIT后warp回收等待流水线清空。
+- `rtl/streaming_multiprocessor_v2.v`: 添加写回结果队列(WB queue)与每FU的inflight反压，避免多FU同周期完成时丢结果。
+- `tb/tb_sm_v2_integration.v`: WB仲裁/多周期FPU测试通过 (修复TIMEOUT)。
+
+## 差距收敛计划 (文件级, 当前迭代)
+1. **前端吞吐 (IPC)**  
+   - 目标: 单warp IPC 从 ~0.25 提升至 ~1.0。  
+   - 文件: `rtl/streaming_multiprocessor_v2.v`, `tb/tb_sm_v2_perf_gemm16.v`, `tb/tb_sm_v2_perf_tensor.v`。
+2. **写回仲裁与结果排队**  
+   - 目标: 多FU完成不丢结果，确保正确性并解除IPC瓶颈。  
+   - 文件: `rtl/streaming_multiprocessor_v2.v`, `tb/tb_sm_v2_integration.v`。
+3. **Tensor Core 数据格式 (FP4/FP8)**  
+   - 目标: WMMA/MMA运行时支持FP4/FP8格式与FP32累加。  
+   - 文件: `rtl/tensor_core.v`, `rtl/gpu_defines.vh`, `tools/ptx_assembler.py`, `tb/tb_tensor_core_fp4.v`。
+4. **多Warp并发/调度**  
+   - 目标: 提升吞吐与延迟隐藏能力。  
+   - 文件: `rtl/warp_scheduler.v`, `rtl/streaming_multiprocessor_v2.v`。
+5. **内存系统与回压**  
+   - 目标: 降低访存延迟并增加命中率。  
+   - 文件: `rtl/l1_data_cache.v`, `rtl/l2_cache.v`, `rtl/memory_interface.v`, `rtl/memory_controller.v`。

@@ -71,7 +71,16 @@ module tb_warp_scheduler;
     wire [NUM_WARPS-1:0] ws_warp_valid;
     wire [NUM_WARPS-1:0] ws_warp_ready;
     wire [NUM_WARPS-1:0] ws_warp_waiting;
+    wire [NUM_WARPS*32-1:0] ws_warp_pc_flat;
+
+    // Unpack the PC array for easier access in testbench
     wire [31:0] ws_warp_pc [0:NUM_WARPS-1];
+    genvar gi;
+    generate
+        for (gi = 0; gi < NUM_WARPS; gi = gi + 1) begin : unpack_pc
+            assign ws_warp_pc[gi] = ws_warp_pc_flat[gi*32 +: 32];
+        end
+    endgenerate
 
     //------------------------------------------------------------------------
     // Warp State DUT 实例化
@@ -96,7 +105,7 @@ module tb_warp_scheduler;
         .warp_valid       (ws_warp_valid),
         .warp_ready       (ws_warp_ready),
         .warp_waiting     (ws_warp_waiting),
-        .warp_pc          (ws_warp_pc)
+        .warp_pc_flat     (ws_warp_pc_flat)
     );
 
     //------------------------------------------------------------------------

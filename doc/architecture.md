@@ -56,6 +56,20 @@ RalphGPU是一个完整的CUDA/PTX兼容GPU IP核，支持NVIDIA PTX ISA 8.5+指
 | NUM_REGS | 32 | 32-256 | 每线程寄存器数 |
 | SHARED_MEM_KB | 16 | 16-96 | 每SM共享内存大小 |
 | DATA_WIDTH | 32 | 32/64 | 数据位宽 |
+| TC_NUM_CORES | 4 | 1-8 | 每SM Tensor Core 数量 (并发WMMA/MMA) |
+| TC_LATENCY | 8 | 2-32 | Tensor Core 操作固定延迟 |
+| TC_DATA_DEFAULT | FP16 | FP16/BF16/INT8/INT4/FP8/FP4 | Tensor Core 默认数据类型 |
+| TC_FP4_FORMAT | E2M1 | E2M1/E3M0 | FP4 格式 (训练/推理) |
+| TC_FP8_FORMAT | E4M3 | E4M3/E5M2 | FP8 格式 (训练/推理) |
+
+## 2.1 Tensor Core 可配置范围 (WMMA/PTX兼容)
+
+- 外部编程模型: WMMA/MMA (PTX) 指令集兼容，保证CUDA生态可用。
+- 内部实现可配置: tile尺寸、数据类型、并发Tensor Core数量与流水线深度。
+- FP4: 提供训练/推理支持，默认E2M1格式，FP32累加。
+- Tensor Core数据类型选择: 默认使用`op_type[2:0]`映射到`TC_DATA_*`编码 (可由`TC_USE_OP_TYPE`关闭)。
+- WMMA/MMA编码: `func[5:3]=shape`，`func[2:0]=TC_DATA_*`，用于运行时选择数据类型。
+- 运行时格式选择: FP8/FP4 使用`TC_DATA_FP8_E4M3`/`TC_DATA_FP8_E5M2`与`TC_DATA_FP4_E2M1`/`TC_DATA_FP4_E3M0`编码。
 
 ## 3. PTX 指令集支持 (完整PTX ISA 8.5+)
 

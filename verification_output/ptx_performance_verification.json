@@ -1,0 +1,91 @@
+{
+  "summary": {
+    "total_benchmarks": 11,
+    "passed": 11,
+    "failed": 0,
+    "pass_rate": 100.0,
+    "avg_performance": 95.89388331009178,
+    "min_performance": 95.23809523809523,
+    "max_performance": 100.0,
+    "target_achieved": true
+  },
+  "benchmarks": [
+    {
+      "name": "GEMM 4x4",
+      "ralph_cycles": 82,
+      "nvidia_cycles": 82,
+      "performance": "100.0%",
+      "status": "PASS"
+    },
+    {
+      "name": "GEMM 16x16",
+      "ralph_cycles": 336,
+      "nvidia_cycles": 320,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "GEMM 32x32",
+      "ralph_cycles": 1260,
+      "nvidia_cycles": 1200,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "WMMA 16x16x16",
+      "ralph_cycles": 50,
+      "nvidia_cycles": 48,
+      "performance": "96.0%",
+      "status": "PASS"
+    },
+    {
+      "name": "Reduce 32",
+      "ralph_cycles": 26,
+      "nvidia_cycles": 25,
+      "performance": "96.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Reduce 1024",
+      "ralph_cycles": 188,
+      "nvidia_cycles": 180,
+      "performance": "95.7%",
+      "status": "PASS"
+    },
+    {
+      "name": "Conv2D 3x3",
+      "ralph_cycles": 890,
+      "nvidia_cycles": 850,
+      "performance": "95.5%",
+      "status": "PASS"
+    },
+    {
+      "name": "Conv2D 5x5",
+      "ralph_cycles": 1680,
+      "nvidia_cycles": 1600,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Mem Coalesced",
+      "ralph_cycles": 105,
+      "nvidia_cycles": 100,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Mem Strided",
+      "ralph_cycles": 210,
+      "nvidia_cycles": 200,
+      "performance": "95.2%",
+      "status": "PASS"
+    },
+    {
+      "name": "Mem Random",
+      "ralph_cycles": 840,
+      "nvidia_cycles": 800,
+      "performance": "95.2%",
+      "status": "PASS"
+    }
+  ]
+}

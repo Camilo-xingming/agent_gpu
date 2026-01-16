@@ -1,18 +1,22 @@
 //============================================================================
-// RalphGPU - Register File
+// RalphGPU - Register File (Multi-Warp Support)
 // 每个Warp拥有独立的寄存器文件
-// 32个线程 × 32个寄存器 × 32位 = 4KB per Warp
+// NUM_WARPS × 32个线程 × 32个寄存器 × 32位
 //============================================================================
 
 `include "gpu_defines.vh"
 
 module register_file #(
-    parameter NUM_REGS   = `NUM_REGS,        // 32 registers per thread
+    parameter NUM_WARPS  = `WARPS_PER_SM,     // Number of warps (default 4)
+    parameter NUM_REGS   = `NUM_REGS,         // 32 registers per thread
     parameter NUM_LANES  = `THREADS_PER_WARP, // 32 threads per warp
     parameter DATA_WIDTH = `DATA_WIDTH        // 32-bit data
 )(
     input  wire                         clk,
     input  wire                         rst_n,
+
+    // Warp selection for read
+    input  wire [$clog2(NUM_WARPS)-1:0] warp_id,
 
     // 读端口 A (所有线程并行读)
     input  wire [4:0]                   rd_addr_a,
@@ -28,46 +32,49 @@ module register_file #(
 
     // 写端口
     input  wire                         wr_en,
+    input  wire [$clog2(NUM_WARPS)-1:0] wr_warp,  // Warp to write to
     input  wire [4:0]                   wr_addr,
     input  wire [NUM_LANES*DATA_WIDTH-1:0] wr_data,
-    input  wire [NUM_LANES-1:0]         wr_mask  // 写掩码，只写活跃线程
+    input  wire [NUM_LANES-1:0]         wr_mask   // 写掩码，只写活跃线程
 );
 
     //------------------------------------------------------------------------
     // 寄存器存储
-    // 使用二维数组: [线程][寄存器]
+    // 使用三维数组: [warp][线程][寄存器]
     //------------------------------------------------------------------------
-    reg [DATA_WIDTH-1:0] regs [0:NUM_LANES-1][0:NUM_REGS-1];
+    reg [DATA_WIDTH-1:0] regs [0:NUM_WARPS-1][0:NUM_LANES-1][0:NUM_REGS-1];
 
     //------------------------------------------------------------------------
-    // 读操作 (组合逻辑)
+    // 读操作 (组合逻辑) - reads from selected warp
     //------------------------------------------------------------------------
     genvar lane;
     generate
         for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : read_lanes
-            assign rd_data_a[lane*DATA_WIDTH +: DATA_WIDTH] = regs[lane][rd_addr_a];
-            assign rd_data_b[lane*DATA_WIDTH +: DATA_WIDTH] = regs[lane][rd_addr_b];
-            assign rd_data_c[lane*DATA_WIDTH +: DATA_WIDTH] = regs[lane][rd_addr_c];
+            assign rd_data_a[lane*DATA_WIDTH +: DATA_WIDTH] = regs[warp_id][lane][rd_addr_a];
+            assign rd_data_b[lane*DATA_WIDTH +: DATA_WIDTH] = regs[warp_id][lane][rd_addr_b];
+            assign rd_data_c[lane*DATA_WIDTH +: DATA_WIDTH] = regs[warp_id][lane][rd_addr_c];
         end
     endgenerate
 
     //------------------------------------------------------------------------
-    // 写操作 (时序逻辑)
+    // 写操作 (时序逻辑) - writes to specified warp
     //------------------------------------------------------------------------
-    integer i, j;
+    integer w, i, j;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             // 复位时清零所有寄存器
-            for (i = 0; i < NUM_LANES; i = i + 1) begin
-                for (j = 0; j < NUM_REGS; j = j + 1) begin
-                    regs[i][j] <= {DATA_WIDTH{1'b0}};
+            for (w = 0; w < NUM_WARPS; w = w + 1) begin
+                for (i = 0; i < NUM_LANES; i = i + 1) begin
+                    for (j = 0; j < NUM_REGS; j = j + 1) begin
+                        regs[w][i][j] <= {DATA_WIDTH{1'b0}};
+                    end
                 end
             end
         end else if (wr_en) begin
             // 只写被掩码选中的线程
             for (i = 0; i < NUM_LANES; i = i + 1) begin
                 if (wr_mask[i]) begin
-                    regs[i][wr_addr] <= wr_data[i*DATA_WIDTH +: DATA_WIDTH];
+                    regs[wr_warp][i][wr_addr] <= wr_data[i*DATA_WIDTH +: DATA_WIDTH];
                 end
             end
         end

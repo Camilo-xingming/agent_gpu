@@ -267,6 +267,28 @@
 `define WMMA_M32N8K16   6'b000010   // 32x8x16 配置
 
 //============================================================================
+// Tensor Core 数据类型 (用于WMMA/MMA配置)
+//============================================================================
+`define TC_DATA_FP16        3'd0
+`define TC_DATA_BF16        3'd1
+`define TC_DATA_INT8        3'd2
+`define TC_DATA_INT4        3'd3
+`define TC_DATA_FP8_E4M3    3'd4
+`define TC_DATA_FP8_E5M2    3'd5
+`define TC_DATA_FP4_E2M1    3'd6
+`define TC_DATA_FP4_E3M0    3'd7
+`define TC_DATA_FP8         `TC_DATA_FP8_E4M3
+`define TC_DATA_FP4         `TC_DATA_FP4_E2M1
+
+// FP4 格式选择 (默认E2M1)
+`define TC_FP4_E2M1     2'd0
+`define TC_FP4_E3M0     2'd1
+
+// FP8 格式选择 (默认E4M3)
+`define TC_FP8_E4M3     2'd0
+`define TC_FP8_E5M2     2'd1
+
+//============================================================================
 // Texture功能码
 //============================================================================
 `define TEX_1D          6'b000000   // tex.1d

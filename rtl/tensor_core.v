@@ -218,6 +218,58 @@ module fp32_add (
 
 endmodule
 
+//============================================================================
+// FP32 Multiplier (简化版 - 自包含实现)
+//============================================================================
+module fp32_mul_simple (
+    input  wire [31:0] a,
+    input  wire [31:0] b,
+    output wire [31:0] result
+);
+
+    function [31:0] fp32_mul_func;
+        input [31:0] a_in;
+        input [31:0] b_in;
+        reg         r_sign;
+        reg [8:0]   r_exp;
+        reg [23:0]  a_mant;
+        reg [23:0]  b_mant;
+        reg [47:0]  r_mant_full;
+        reg [22:0]  r_mant;
+        begin
+            r_sign = a_in[31] ^ b_in[31];
+
+            if (a_in[30:23] == 8'b0 || b_in[30:23] == 8'b0) begin
+                fp32_mul_func = {r_sign, 31'b0};
+            end else begin
+                a_mant = {1'b1, a_in[22:0]};
+                b_mant = {1'b1, b_in[22:0]};
+
+                r_mant_full = a_mant * b_mant;
+                r_exp = a_in[30:23] + b_in[30:23] - 8'd127;
+
+                if (r_mant_full[47]) begin
+                    r_mant = r_mant_full[46:24];
+                    r_exp = r_exp + 1;
+                end else begin
+                    r_mant = r_mant_full[45:23];
+                end
+
+                if (r_exp >= 9'd255) begin
+                    fp32_mul_func = {r_sign, 8'hFF, 23'b0};
+                end else if (r_exp[8]) begin
+                    fp32_mul_func = {r_sign, 31'b0};
+                end else begin
+                    fp32_mul_func = {r_sign, r_exp[7:0], r_mant};
+                end
+            end
+        end
+    endfunction
+
+    assign result = fp32_mul_func(a, b);
+
+endmodule
+
 
 //============================================================================
 // WMMA MMA Core - 16x16x16 FP16 配置
@@ -509,5 +561,476 @@ module tensor_core_top (
 
     assign store_d_row = load_c_row;  // 简化
     assign store_d_valid = done;
+
+endmodule
+
+
+//============================================================================
+// Tensor Core Wrapper for SM V2 Integration
+// Provides simplified interface for pipeline integration
+//============================================================================
+module tensor_core #(
+    parameter NUM_LANES = 32,
+    parameter DATA_WIDTH = 32,
+    parameter TC_NUM_CORES = 4,
+    parameter TC_LATENCY = 8,
+    parameter [2:0] TC_DATA_DEFAULT = `TC_DATA_FP16,
+    parameter TC_USE_OP_TYPE = 1,
+    parameter [1:0] TC_FP4_FORMAT = `TC_FP4_E2M1,
+    parameter [1:0] TC_FP8_FORMAT = `TC_FP8_E4M3
+)(
+    input  wire        clk,
+    input  wire        rst_n,
+
+    // Pipeline interface
+    input  wire        op_valid,
+    output wire        op_ready,
+    input  wire [2:0]  op_type,     // Operation type
+
+    // Fragment inputs (from register file)
+    input  wire [NUM_LANES*DATA_WIDTH-1:0] frag_a,
+    input  wire [NUM_LANES*DATA_WIDTH-1:0] frag_b,
+    input  wire [NUM_LANES*DATA_WIDTH-1:0] frag_c,
+
+    // Result output
+    output reg         result_valid,
+    output reg  [NUM_LANES*DATA_WIDTH-1:0] result_data
+);
+
+    localparam integer TC_LATENCY_P = (TC_LATENCY < 1) ? 1 : TC_LATENCY;
+    localparam integer TC_COUNT_W = (TC_LATENCY_P > 1) ? $clog2(TC_LATENCY_P + 1) : 1;
+    localparam integer TC_CORE_W = (TC_NUM_CORES > 1) ? $clog2(TC_NUM_CORES) : 1;
+
+    function [15:0] fp4_to_fp16;
+        input [3:0] fp4;
+        input [1:0] format;
+        reg        sign;
+        reg [2:0]  exp3;
+        reg [1:0]  exp2;
+        reg        man;
+        reg [4:0]  exp16;
+        reg [9:0]  man16;
+        begin
+            sign = fp4[3];
+
+            if (format == `TC_FP4_E3M0) begin
+                exp3 = fp4[2:0];
+                man16 = 10'b0;
+                if (exp3 == 3'b000) begin
+                    fp4_to_fp16 = {sign, 15'b0};
+                end else if (exp3 == 3'b111) begin
+                    fp4_to_fp16 = {sign, 5'h1F, 10'h000};
+                end else begin
+                    exp16 = (exp3 - 3'd3) + 5'd15;
+                    fp4_to_fp16 = {sign, exp16, man16};
+                end
+            end else begin
+                exp2 = fp4[2:1];
+                man = fp4[0];
+
+                // Default: FP4 E2M1 with bias=1
+                if (exp2 == 2'b00) begin
+                    if (man == 1'b0) begin
+                        fp4_to_fp16 = {sign, 15'b0};
+                    end else begin
+                        fp4_to_fp16 = {sign, 5'b00000, {man, 9'b0}};
+                    end
+                end else if (exp2 == 2'b11) begin
+                    fp4_to_fp16 = {sign, 5'h1F, man ? 10'h200 : 10'h000};
+                end else begin
+                    exp16 = (exp2 - 2'd1) + 5'd15;
+                    man16 = {man, 9'b0};
+                    fp4_to_fp16 = {sign, exp16, man16};
+                end
+            end
+        end
+    endfunction
+
+    function signed [7:0] int4_to_s8;
+        input [3:0] val;
+        begin
+            int4_to_s8 = { {4{val[3]}}, val };
+        end
+    endfunction
+
+    function [31:0] bf16_to_fp32;
+        input [15:0] bf16;
+        begin
+            bf16_to_fp32 = {bf16, 16'b0};
+        end
+    endfunction
+
+    function [15:0] fp8_to_fp16;
+        input [7:0] fp8;
+        input [1:0] format;
+        reg        sign;
+        reg [4:0]  exp5;
+        reg [3:0]  exp4;
+        reg [2:0]  man3;
+        reg [1:0]  man2;
+        reg [4:0]  exp16;
+        reg [9:0]  man16;
+        begin
+            sign = fp8[7];
+
+            if (format == `TC_FP8_E5M2) begin
+                exp5 = fp8[6:2];
+                man2 = fp8[1:0];
+                if (exp5 == 5'b00000) begin
+                    if (man2 == 2'b00) begin
+                        fp8_to_fp16 = {sign, 15'b0};
+                    end else begin
+                        fp8_to_fp16 = {sign, 5'b00000, {man2, 8'b0}};
+                    end
+                end else if (exp5 == 5'b11111) begin
+                    fp8_to_fp16 = {sign, 5'h1F, (man2 != 0) ? 10'h200 : 10'h000};
+                end else begin
+                    exp16 = (exp5 - 5'd15) + 5'd15;
+                    man16 = {man2, 8'b0};
+                    fp8_to_fp16 = {sign, exp16, man16};
+                end
+            end else begin
+                exp4 = fp8[6:3];
+                man3 = fp8[2:0];
+                if (exp4 == 4'b0000) begin
+                    if (man3 == 3'b000) begin
+                        fp8_to_fp16 = {sign, 15'b0};
+                    end else begin
+                        fp8_to_fp16 = {sign, 5'b00000, {man3, 7'b0}};
+                    end
+                end else if (exp4 == 4'b1111) begin
+                    fp8_to_fp16 = {sign, 5'h1F, (man3 != 0) ? 10'h200 : 10'h000};
+                end else begin
+                    exp16 = (exp4 - 4'd7) + 5'd15;
+                    man16 = {man3, 7'b0};
+                    fp8_to_fp16 = {sign, exp16, man16};
+                end
+            end
+        end
+    endfunction
+
+    reg [NUM_LANES*DATA_WIDTH-1:0] slot_a [0:TC_NUM_CORES-1];
+    reg [NUM_LANES*DATA_WIDTH-1:0] slot_b [0:TC_NUM_CORES-1];
+    reg [NUM_LANES*DATA_WIDTH-1:0] slot_c [0:TC_NUM_CORES-1];
+    reg [2:0]                      slot_type [0:TC_NUM_CORES-1];
+    reg [TC_COUNT_W-1:0]           slot_count [0:TC_NUM_CORES-1];
+    reg                            slot_valid [0:TC_NUM_CORES-1];
+
+    reg                            slot_free;
+    reg  [TC_CORE_W-1:0]           slot_free_idx;
+    reg                            done_sel_valid;
+    reg  [TC_CORE_W-1:0]           done_sel_idx;
+
+    wire [2:0] op_data_type = (TC_USE_OP_TYPE != 0) ? op_type : TC_DATA_DEFAULT;
+
+    wire [TC_NUM_CORES-1:0] slot_done;
+
+    genvar sd;
+    generate
+        for (sd = 0; sd < TC_NUM_CORES; sd = sd + 1) begin : done_flags
+            assign slot_done[sd] = slot_valid[sd] && (slot_count[sd] == 1);
+        end
+    endgenerate
+
+    integer ds;
+    always @(*) begin
+        done_sel_valid = 1'b0;
+        done_sel_idx = {TC_CORE_W{1'b0}};
+        for (ds = 0; ds < TC_NUM_CORES; ds = ds + 1) begin
+            if (!done_sel_valid && slot_done[ds]) begin
+                done_sel_valid = 1'b1;
+                done_sel_idx = ds[TC_CORE_W-1:0];
+            end
+        end
+    end
+
+    integer sf;
+    always @(*) begin
+        slot_free = 1'b0;
+        slot_free_idx = {TC_CORE_W{1'b0}};
+        for (sf = 0; sf < TC_NUM_CORES; sf = sf + 1) begin
+            if (!slot_free && !slot_valid[sf]) begin
+                slot_free = 1'b1;
+                slot_free_idx = sf[TC_CORE_W-1:0];
+            end
+        end
+        if (!slot_free && done_sel_valid) begin
+            slot_free = 1'b1;
+            slot_free_idx = done_sel_idx;
+        end
+    end
+
+    assign op_ready = slot_free;
+
+    reg [NUM_LANES*DATA_WIDTH-1:0] frag_a_sel;
+    reg [NUM_LANES*DATA_WIDTH-1:0] frag_b_sel;
+    reg [NUM_LANES*DATA_WIDTH-1:0] frag_c_sel;
+    reg [2:0]                      sel_type;
+
+    always @(*) begin
+        frag_a_sel = 0;
+        frag_b_sel = 0;
+        frag_c_sel = 0;
+        sel_type = TC_DATA_DEFAULT;
+        if (done_sel_valid) begin
+            frag_a_sel = slot_a[done_sel_idx];
+            frag_b_sel = slot_b[done_sel_idx];
+            frag_c_sel = slot_c[done_sel_idx];
+            sel_type = slot_type[done_sel_idx];
+        end
+    end
+
+    wire [1:0] fp4_format_sel = (sel_type == `TC_DATA_FP4_E3M0) ? `TC_FP4_E3M0 :
+                                (sel_type == `TC_DATA_FP4_E2M1) ? `TC_FP4_E2M1 :
+                                TC_FP4_FORMAT;
+    wire [1:0] fp8_format_sel = (sel_type == `TC_DATA_FP8_E5M2) ? `TC_FP8_E5M2 :
+                                (sel_type == `TC_DATA_FP8_E4M3) ? `TC_FP8_E4M3 :
+                                TC_FP8_FORMAT;
+
+    // Default integer MAC path (placeholder for FP16/BF16/FP8)
+    wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_int;
+    wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_int8;
+    wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_int4;
+    wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_fp16;
+    wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_bf16;
+    wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_fp8;
+    wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_fp4;
+
+    genvar i;
+    generate
+        for (i = 0; i < NUM_LANES; i = i + 1) begin : mma_lanes
+            wire [31:0] a32 = frag_a_sel[i*32 +: 32];
+            wire [31:0] b32 = frag_b_sel[i*32 +: 32];
+            wire [31:0] c32 = frag_c_sel[i*32 +: 32];
+            wire [63:0] product = a32 * b32;
+            assign mma_result_int[i*32 +: 32] = product[31:0] + c32;
+
+            // INT8 dot4
+            wire signed [7:0] a0 = a32[7:0];
+            wire signed [7:0] a1 = a32[15:8];
+            wire signed [7:0] a2 = a32[23:16];
+            wire signed [7:0] a3 = a32[31:24];
+            wire signed [7:0] b0 = b32[7:0];
+            wire signed [7:0] b1 = b32[15:8];
+            wire signed [7:0] b2 = b32[23:16];
+            wire signed [7:0] b3 = b32[31:24];
+            wire signed [31:0] int8_sum = a0*b0 + a1*b1 + a2*b2 + a3*b3;
+            assign mma_result_int8[i*32 +: 32] = int8_sum + $signed(c32);
+
+            // INT4 dot8
+            wire signed [7:0] a4_0 = int4_to_s8(a32[3:0]);
+            wire signed [7:0] a4_1 = int4_to_s8(a32[7:4]);
+            wire signed [7:0] a4_2 = int4_to_s8(a32[11:8]);
+            wire signed [7:0] a4_3 = int4_to_s8(a32[15:12]);
+            wire signed [7:0] a4_4 = int4_to_s8(a32[19:16]);
+            wire signed [7:0] a4_5 = int4_to_s8(a32[23:20]);
+            wire signed [7:0] a4_6 = int4_to_s8(a32[27:24]);
+            wire signed [7:0] a4_7 = int4_to_s8(a32[31:28]);
+            wire signed [7:0] b4_0 = int4_to_s8(b32[3:0]);
+            wire signed [7:0] b4_1 = int4_to_s8(b32[7:4]);
+            wire signed [7:0] b4_2 = int4_to_s8(b32[11:8]);
+            wire signed [7:0] b4_3 = int4_to_s8(b32[15:12]);
+            wire signed [7:0] b4_4 = int4_to_s8(b32[19:16]);
+            wire signed [7:0] b4_5 = int4_to_s8(b32[23:20]);
+            wire signed [7:0] b4_6 = int4_to_s8(b32[27:24]);
+            wire signed [7:0] b4_7 = int4_to_s8(b32[31:28]);
+            wire signed [31:0] int4_sum = a4_0*b4_0 + a4_1*b4_1 + a4_2*b4_2 +
+                                           a4_3*b4_3 + a4_4*b4_4 + a4_5*b4_5 +
+                                           a4_6*b4_6 + a4_7*b4_7;
+            assign mma_result_int4[i*32 +: 32] = int4_sum + $signed(c32);
+
+            // FP16 dot2
+            wire [15:0] a16_0 = a32[15:0];
+            wire [15:0] a16_1 = a32[31:16];
+            wire [15:0] b16_0 = b32[15:0];
+            wire [15:0] b16_1 = b32[31:16];
+            wire [31:0] fp16_prod0;
+            wire [31:0] fp16_prod1;
+            wire [31:0] fp16_sum01;
+            wire [31:0] fp16_out;
+
+            fp16_mul u_fp16_mul0 (.a(a16_0), .b(b16_0), .result(fp16_prod0));
+            fp16_mul u_fp16_mul1 (.a(a16_1), .b(b16_1), .result(fp16_prod1));
+            fp32_add u_fp16_add01 (.a(fp16_prod0), .b(fp16_prod1), .result(fp16_sum01));
+            fp32_add u_fp16_add_c (.a(fp16_sum01), .b(c32), .result(fp16_out));
+
+            assign mma_result_fp16[i*32 +: 32] = fp16_out;
+
+            // BF16 dot2 (FP32 accumulate)
+            wire [31:0] bf32_a0 = bf16_to_fp32(a32[15:0]);
+            wire [31:0] bf32_a1 = bf16_to_fp32(a32[31:16]);
+            wire [31:0] bf32_b0 = bf16_to_fp32(b32[15:0]);
+            wire [31:0] bf32_b1 = bf16_to_fp32(b32[31:16]);
+            wire [31:0] bf_prod0;
+            wire [31:0] bf_prod1;
+            wire [31:0] bf_sum01;
+            wire [31:0] bf_out;
+
+            fp32_mul_simple u_bf_mul0 (.a(bf32_a0), .b(bf32_b0), .result(bf_prod0));
+            fp32_mul_simple u_bf_mul1 (.a(bf32_a1), .b(bf32_b1), .result(bf_prod1));
+            fp32_add u_bf_add01 (.a(bf_prod0), .b(bf_prod1), .result(bf_sum01));
+            fp32_add u_bf_add_c (.a(bf_sum01), .b(c32), .result(bf_out));
+
+            assign mma_result_bf16[i*32 +: 32] = bf_out;
+
+            // FP8 dot4 (FP16 multiply, FP32 accumulate)
+            wire [7:0] fp8_a0 = a32[7:0];
+            wire [7:0] fp8_a1 = a32[15:8];
+            wire [7:0] fp8_a2 = a32[23:16];
+            wire [7:0] fp8_a3 = a32[31:24];
+            wire [7:0] fp8_b0 = b32[7:0];
+            wire [7:0] fp8_b1 = b32[15:8];
+            wire [7:0] fp8_b2 = b32[23:16];
+            wire [7:0] fp8_b3 = b32[31:24];
+
+            wire [15:0] fp8_a16_0 = fp8_to_fp16(fp8_a0, fp8_format_sel);
+            wire [15:0] fp8_a16_1 = fp8_to_fp16(fp8_a1, fp8_format_sel);
+            wire [15:0] fp8_a16_2 = fp8_to_fp16(fp8_a2, fp8_format_sel);
+            wire [15:0] fp8_a16_3 = fp8_to_fp16(fp8_a3, fp8_format_sel);
+            wire [15:0] fp8_b16_0 = fp8_to_fp16(fp8_b0, fp8_format_sel);
+            wire [15:0] fp8_b16_1 = fp8_to_fp16(fp8_b1, fp8_format_sel);
+            wire [15:0] fp8_b16_2 = fp8_to_fp16(fp8_b2, fp8_format_sel);
+            wire [15:0] fp8_b16_3 = fp8_to_fp16(fp8_b3, fp8_format_sel);
+
+            wire [31:0] fp8_prod0;
+            wire [31:0] fp8_prod1;
+            wire [31:0] fp8_prod2;
+            wire [31:0] fp8_prod3;
+            wire [31:0] fp8_sum01;
+            wire [31:0] fp8_sum23;
+            wire [31:0] fp8_sum0123;
+            wire [31:0] fp8_out;
+
+            fp16_mul u_fp8_mul0 (.a(fp8_a16_0), .b(fp8_b16_0), .result(fp8_prod0));
+            fp16_mul u_fp8_mul1 (.a(fp8_a16_1), .b(fp8_b16_1), .result(fp8_prod1));
+            fp16_mul u_fp8_mul2 (.a(fp8_a16_2), .b(fp8_b16_2), .result(fp8_prod2));
+            fp16_mul u_fp8_mul3 (.a(fp8_a16_3), .b(fp8_b16_3), .result(fp8_prod3));
+            fp32_add u_fp8_add01 (.a(fp8_prod0), .b(fp8_prod1), .result(fp8_sum01));
+            fp32_add u_fp8_add23 (.a(fp8_prod2), .b(fp8_prod3), .result(fp8_sum23));
+            fp32_add u_fp8_add0123 (.a(fp8_sum01), .b(fp8_sum23), .result(fp8_sum0123));
+            fp32_add u_fp8_add_c (.a(fp8_sum0123), .b(c32), .result(fp8_out));
+
+            assign mma_result_fp8[i*32 +: 32] = fp8_out;
+        end
+    endgenerate
+
+    genvar j;
+    generate
+        for (j = 0; j < NUM_LANES; j = j + 1) begin : fp4_lanes
+            wire [31:0] a32 = frag_a_sel[j*32 +: 32];
+            wire [31:0] b32 = frag_b_sel[j*32 +: 32];
+            wire [31:0] c32 = frag_c_sel[j*32 +: 32];
+
+            wire [15:0] a_fp4_0 = fp4_to_fp16(a32[3:0], fp4_format_sel);
+            wire [15:0] a_fp4_1 = fp4_to_fp16(a32[7:4], fp4_format_sel);
+            wire [15:0] a_fp4_2 = fp4_to_fp16(a32[11:8], fp4_format_sel);
+            wire [15:0] a_fp4_3 = fp4_to_fp16(a32[15:12], fp4_format_sel);
+            wire [15:0] a_fp4_4 = fp4_to_fp16(a32[19:16], fp4_format_sel);
+            wire [15:0] a_fp4_5 = fp4_to_fp16(a32[23:20], fp4_format_sel);
+            wire [15:0] a_fp4_6 = fp4_to_fp16(a32[27:24], fp4_format_sel);
+            wire [15:0] a_fp4_7 = fp4_to_fp16(a32[31:28], fp4_format_sel);
+
+            wire [15:0] b_fp4_0 = fp4_to_fp16(b32[3:0], fp4_format_sel);
+            wire [15:0] b_fp4_1 = fp4_to_fp16(b32[7:4], fp4_format_sel);
+            wire [15:0] b_fp4_2 = fp4_to_fp16(b32[11:8], fp4_format_sel);
+            wire [15:0] b_fp4_3 = fp4_to_fp16(b32[15:12], fp4_format_sel);
+            wire [15:0] b_fp4_4 = fp4_to_fp16(b32[19:16], fp4_format_sel);
+            wire [15:0] b_fp4_5 = fp4_to_fp16(b32[23:20], fp4_format_sel);
+            wire [15:0] b_fp4_6 = fp4_to_fp16(b32[27:24], fp4_format_sel);
+            wire [15:0] b_fp4_7 = fp4_to_fp16(b32[31:28], fp4_format_sel);
+
+            wire [31:0] prod0;
+            wire [31:0] prod1;
+            wire [31:0] prod2;
+            wire [31:0] prod3;
+            wire [31:0] prod4;
+            wire [31:0] prod5;
+            wire [31:0] prod6;
+            wire [31:0] prod7;
+
+            fp16_mul u_fp4_mul0 (.a(a_fp4_0), .b(b_fp4_0), .result(prod0));
+            fp16_mul u_fp4_mul1 (.a(a_fp4_1), .b(b_fp4_1), .result(prod1));
+            fp16_mul u_fp4_mul2 (.a(a_fp4_2), .b(b_fp4_2), .result(prod2));
+            fp16_mul u_fp4_mul3 (.a(a_fp4_3), .b(b_fp4_3), .result(prod3));
+            fp16_mul u_fp4_mul4 (.a(a_fp4_4), .b(b_fp4_4), .result(prod4));
+            fp16_mul u_fp4_mul5 (.a(a_fp4_5), .b(b_fp4_5), .result(prod5));
+            fp16_mul u_fp4_mul6 (.a(a_fp4_6), .b(b_fp4_6), .result(prod6));
+            fp16_mul u_fp4_mul7 (.a(a_fp4_7), .b(b_fp4_7), .result(prod7));
+
+            wire [31:0] sum01;
+            wire [31:0] sum23;
+            wire [31:0] sum45;
+            wire [31:0] sum67;
+            wire [31:0] sum0123;
+            wire [31:0] sum4567;
+            wire [31:0] sum_all;
+            wire [31:0] fp4_result;
+
+            fp32_add u_fp4_add01   (.a(prod0),   .b(prod1),   .result(sum01));
+            fp32_add u_fp4_add23   (.a(prod2),   .b(prod3),   .result(sum23));
+            fp32_add u_fp4_add45   (.a(prod4),   .b(prod5),   .result(sum45));
+            fp32_add u_fp4_add67   (.a(prod6),   .b(prod7),   .result(sum67));
+            fp32_add u_fp4_add0123 (.a(sum01),   .b(sum23),   .result(sum0123));
+            fp32_add u_fp4_add4567 (.a(sum45),   .b(sum67),   .result(sum4567));
+            fp32_add u_fp4_add_all (.a(sum0123), .b(sum4567), .result(sum_all));
+            fp32_add u_fp4_add_c   (.a(sum_all), .b(c32),     .result(fp4_result));
+
+            assign mma_result_fp4[j*32 +: 32] = fp4_result;
+        end
+    endgenerate
+
+    wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_sel =
+        (sel_type == `TC_DATA_FP4_E2M1 || sel_type == `TC_DATA_FP4_E3M0) ? mma_result_fp4 :
+        (sel_type == `TC_DATA_FP8_E4M3 || sel_type == `TC_DATA_FP8_E5M2) ? mma_result_fp8 :
+        (sel_type == `TC_DATA_BF16) ? mma_result_bf16 :
+        (sel_type == `TC_DATA_FP16) ? mma_result_fp16 :
+        (sel_type == `TC_DATA_INT4) ? mma_result_int4 :
+        (sel_type == `TC_DATA_INT8) ? mma_result_int8 :
+                                      mma_result_int;
+
+    integer s;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            result_valid <= 1'b0;
+            result_data <= 0;
+            for (s = 0; s < TC_NUM_CORES; s = s + 1) begin
+                slot_valid[s] <= 1'b0;
+                slot_count[s] <= {TC_COUNT_W{1'b0}};
+                slot_a[s] <= {NUM_LANES*DATA_WIDTH{1'b0}};
+                slot_b[s] <= {NUM_LANES*DATA_WIDTH{1'b0}};
+                slot_c[s] <= {NUM_LANES*DATA_WIDTH{1'b0}};
+                slot_type[s] <= 3'b0;
+            end
+        end else begin
+            result_valid <= 1'b0;
+
+            for (s = 0; s < TC_NUM_CORES; s = s + 1) begin
+                if (slot_valid[s]) begin
+                    if (slot_count[s] > 1) begin
+                        slot_count[s] <= slot_count[s] - 1'b1;
+                    end else if (slot_count[s] == 1) begin
+                        if (done_sel_valid && (done_sel_idx == s[TC_CORE_W-1:0])) begin
+                            slot_valid[s] <= 1'b0;
+                            slot_count[s] <= {TC_COUNT_W{1'b0}};
+                        end
+                    end
+                end
+            end
+
+            if (op_valid && slot_free) begin
+                slot_valid[slot_free_idx] <= 1'b1;
+                slot_count[slot_free_idx] <= TC_LATENCY_P[TC_COUNT_W-1:0];
+                slot_a[slot_free_idx] <= frag_a;
+                slot_b[slot_free_idx] <= frag_b;
+                slot_c[slot_free_idx] <= frag_c;
+                slot_type[slot_free_idx] <= op_data_type;
+            end
+
+            if (done_sel_valid) begin
+                result_valid <= 1'b1;
+                result_data <= mma_result_sel;
+            end
+        end
+    end
 
 endmodule

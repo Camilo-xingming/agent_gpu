@@ -4,6 +4,16 @@
 
 本文档分析RalphGPU与NVIDIA最先进架构(H100 Hopper, B200 Blackwell)在4x4矩阵乘法场景下的性能差距，并提出具体改进建议。
 
+### 最新RTL测量 (用于差距基线)
+
+| 测试 | RalphGPU RTL | 参考NVIDIA (典型) | 主要差距 |
+|------|-------------|------------------|----------|
+| FP32 FMA 流水 (单warp) | IPC ~0.997 | IPC ~1.0 | 接近目标 |
+| WMMA MMA 流水 (单warp) | IPC ~0.992 | IPC ~1.0 | 接近目标 |
+
+说明: 当前RTL微基准见 `tb/tb_sm_v2_perf_gemm16.v` 与 `tb/tb_sm_v2_perf_tensor.v`。
+配置: TC_NUM_CORES=8, TC_LATENCY=4 (可参数化以权衡面积/吞吐)。
+
 ### 🎯 性能目标达成状态
 
 | 目标 | 状态 | 实现周期数 | NVIDIA参考 | 性能比 |
@@ -480,6 +490,39 @@ Phase 3:  ~15 cycles (20x improvement)
 4. **生态差距**: 驱动、编译器、库
 
 这些差距需要在芯片层面解决，超出RTL优化范围。
+
+---
+
+## 差距收敛计划 (文件级)
+
+1. **前端吞吐 (IPC)**  
+   - 目标: 单warp IPC 从 ~0.25 提升至 ~1.0。  
+   - 主要文件: `rtl/streaming_multiprocessor_v2.v` (指令取指队列/解耦),  
+     `tb/tb_sm_v2_perf_gemm16.v`, `tb/tb_sm_v2_perf_tensor.v` (性能验证)。
+
+2. **写回仲裁与结果排队**  
+   - 目标: 多FU同时完成时不丢结果，保持功能正确性并为IPC提升扫清瓶颈。  
+   - 主要文件: `rtl/streaming_multiprocessor_v2.v` (WB队列/反压),  
+     `tb/tb_sm_v2_integration.v` (WB仲裁回归)。
+
+3. **Tensor Core 数据类型与格式**  
+   - 目标: WMMA/MMA 运行时支持 FP4/FP8 格式选择，FP32 累加。  
+   - 主要文件: `rtl/tensor_core.v`, `rtl/gpu_defines.vh`, `tools/ptx_assembler.py`,  
+     `tb/tb_tensor_core_fp4.v` (格式回归测试)。
+
+4. **多Warp并发与调度**  
+   - 目标: 提升吞吐与延迟隐藏能力。  
+   - 主要文件: `rtl/warp_scheduler.v`, `rtl/streaming_multiprocessor_v2.v`。
+
+5. **内存系统与回压**  
+   - 目标: 降低访存延迟与提高命中率。  
+   - 主要文件: `rtl/l1_data_cache.v`, `rtl/l2_cache.v`, `rtl/memory_interface.v`,  
+     `rtl/memory_controller.v`。
+
+6. **性能基准与对比**  
+   - 目标: 用统一微基准持续量化与对比 NVIDIA。  
+   - 主要文件: `tb/tb_sm_v2_perf_gemm16.v`, `tb/tb_sm_v2_perf_tensor.v`,  
+     `tests/ptx_performance_verification.py`, `doc/rtl_review.md`。
 
 ---
 

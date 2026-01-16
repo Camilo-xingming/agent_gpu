@@ -409,7 +409,9 @@ endmodule
 
 //============================================================================
 // SIMD FPU - 32个并行FPU用于Warp执行
+// Note: Excluded when SM_V2 is defined (V2 has its own wrapper)
 //============================================================================
+`ifndef SM_V2
 module simd_fpu #(
     parameter LANES = 32
 )(
@@ -474,3 +476,4 @@ module simd_fpu #(
     assign invalid_flags = lane_inv;
 
 endmodule
+`endif  // SM_V2

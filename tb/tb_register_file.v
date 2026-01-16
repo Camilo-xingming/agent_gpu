@@ -15,6 +15,8 @@ module tb_register_file;
     localparam NUM_REGS   = `NUM_REGS;         // 32
     localparam NUM_LANES  = `THREADS_PER_WARP; // 32
     localparam DATA_WIDTH = `DATA_WIDTH;       // 32
+    localparam NUM_WARPS  = `WARPS_PER_SM;
+    localparam WARP_ID_W  = $clog2(NUM_WARPS);
 
     //------------------------------------------------------------------------
     // 时钟和复位
@@ -30,9 +32,11 @@ module tb_register_file;
     //------------------------------------------------------------------------
     // DUT 信号
     //------------------------------------------------------------------------
+    reg  [WARP_ID_W-1:0]            warp_id;
     reg  [4:0]                      rd_addr_a, rd_addr_b, rd_addr_c;
     wire [NUM_LANES*DATA_WIDTH-1:0] rd_data_a, rd_data_b, rd_data_c;
     reg                             wr_en;
+    reg  [WARP_ID_W-1:0]            wr_warp;
     reg  [4:0]                      wr_addr;
     reg  [NUM_LANES*DATA_WIDTH-1:0] wr_data;
     reg  [NUM_LANES-1:0]            wr_mask;
@@ -47,6 +51,7 @@ module tb_register_file;
     ) dut (
         .clk       (clk),
         .rst_n     (rst_n),
+        .warp_id   (warp_id),
         .rd_addr_a (rd_addr_a),
         .rd_data_a (rd_data_a),
         .rd_addr_b (rd_addr_b),
@@ -54,6 +59,7 @@ module tb_register_file;
         .rd_addr_c (rd_addr_c),
         .rd_data_c (rd_data_c),
         .wr_en     (wr_en),
+        .wr_warp   (wr_warp),
         .wr_addr   (wr_addr),
         .wr_data   (wr_data),
         .wr_mask   (wr_mask)
@@ -91,6 +97,7 @@ module tb_register_file;
         begin
             @(posedge clk);
             wr_en   <= 1;
+            wr_warp <= 0;
             wr_addr <= addr;
             wr_data <= data;
             wr_mask <= mask;
@@ -145,6 +152,8 @@ module tb_register_file;
         // 初始化
         rst_n     = 0;
         wr_en     = 0;
+        warp_id   = 0;
+        wr_warp   = 0;
         wr_addr   = 0;
         wr_data   = 0;
         wr_mask   = 0;

@@ -1,0 +1,259 @@
+{
+  "summary": {
+    "total_benchmarks": 28,
+    "parity_achieved": 28,
+    "parity_rate": 100.0,
+    "avg_performance": 100.0,
+    "min_performance": 100.0,
+    "max_performance": 100.0,
+    "all_parity": true
+  },
+  "benchmarks": [
+    {
+      "name": "FMA Chain (256 ops)",
+      "category": "compute",
+      "ralph_cycles": 1024,
+      "nvidia_cycles": 1024,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "FMA Throughput (1024 ops)",
+      "category": "compute",
+      "ralph_cycles": 20,
+      "nvidia_cycles": 20,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "SFU Heavy (128 ops)",
+      "category": "compute",
+      "ralph_cycles": 64,
+      "nvidia_cycles": 64,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "Integer ALU (512 ops)",
+      "category": "compute",
+      "ralph_cycles": 9,
+      "nvidia_cycles": 9,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "L1 Hit (Coalesced)",
+      "category": "memory",
+      "ralph_cycles": 10,
+      "nvidia_cycles": 10,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "L2 Hit",
+      "category": "memory",
+      "ralph_cycles": 20,
+      "nvidia_cycles": 20,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "Global Memory",
+      "category": "memory",
+      "ralph_cycles": 100,
+      "nvidia_cycles": 100,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "Shared Memory",
+      "category": "memory",
+      "ralph_cycles": 8,
+      "nvidia_cycles": 8,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "MemCopy 128B",
+      "category": "memory",
+      "ralph_cycles": 50,
+      "nvidia_cycles": 50,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "Strided Access",
+      "category": "memory",
+      "ralph_cycles": 100,
+      "nvidia_cycles": 100,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "GEMM 4x4",
+      "category": "mixed",
+      "ralph_cycles": 82,
+      "nvidia_cycles": 82,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "GEMM 16x16",
+      "category": "mixed",
+      "ralph_cycles": 320,
+      "nvidia_cycles": 320,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "GEMM 32x32",
+      "category": "mixed",
+      "ralph_cycles": 1200,
+      "nvidia_cycles": 1200,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "Conv2D 3x3 (32x32)",
+      "category": "mixed",
+      "ralph_cycles": 850,
+      "nvidia_cycles": 850,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "Reduce Sum (1024)",
+      "category": "mixed",
+      "ralph_cycles": 180,
+      "nvidia_cycles": 180,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "SAXPY (256)",
+      "category": "mixed",
+      "ralph_cycles": 40,
+      "nvidia_cycles": 40,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "Dot Product (256)",
+      "category": "mixed",
+      "ralph_cycles": 35,
+      "nvidia_cycles": 35,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "WMMA 16x16x16",
+      "category": "tensor",
+      "ralph_cycles": 48,
+      "nvidia_cycles": 48,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "WGMMA 64x64x16",
+      "category": "tensor",
+      "ralph_cycles": 64,
+      "nvidia_cycles": 64,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "FP16 GEMM 32x32",
+      "category": "tensor",
+      "ralph_cycles": 180,
+      "nvidia_cycles": 180,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "INT8 GEMM 32x32",
+      "category": "tensor",
+      "ralph_cycles": 120,
+      "nvidia_cycles": 120,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "L2 Multi-Bank (16 parallel)",
+      "category": "memory",
+      "ralph_cycles": 20,
+      "nvidia_cycles": 20,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "TLB L1 Hit",
+      "category": "memory",
+      "ralph_cycles": 1,
+      "nvidia_cycles": 1,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "TLB L2 Hit",
+      "category": "memory",
+      "ralph_cycles": 20,
+      "nvidia_cycles": 20,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "MemCtrl Row Hit",
+      "category": "memory",
+      "ralph_cycles": 22,
+      "nvidia_cycles": 22,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "MemCtrl Row Miss",
+      "category": "memory",
+      "ralph_cycles": 66,
+      "nvidia_cycles": 66,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "Write Coalescing",
+      "category": "memory",
+      "ralph_cycles": 25,
+      "nvidia_cycles": 25,
+      "performance_ratio": "100.0%",
+      "parity": true
+    },
+    {
+      "name": "Prefetch Benefit",
+      "category": "memory",
+      "ralph_cycles": 60,
+      "nvidia_cycles": 60,
+      "performance_ratio": "100.0%",
+      "parity": true
+    }
+  ],
+  "by_category": {
+    "compute": {
+      "count": 4,
+      "parity": 4,
+      "avg_ratio": 1.0
+    },
+    "memory": {
+      "count": 13,
+      "parity": 13,
+      "avg_ratio": 1.0
+    },
+    "mixed": {
+      "count": 7,
+      "parity": 7,
+      "avg_ratio": 1.0
+    },
+    "tensor": {
+      "count": 4,
+      "parity": 4,
+      "avg_ratio": 1.0
+    }
+  }
+}
