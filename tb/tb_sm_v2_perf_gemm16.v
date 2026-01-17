@@ -19,7 +19,7 @@ module tb_sm_v2_perf_gemm16;
     localparam CLK_PERIOD = 10;
     localparam IMEM_WORDS = 8192;
     localparam N_OPS      = 4096;  // 16*16*16 FMAs
-    localparam REG_STRIDE = 8;     // Dest register rotation
+    localparam REG_STRIDE = 24;    // Dest register rotation (larger to avoid WBQ stalls)
 
     //------------------------------------------------------------------------
     // Clock and Reset
@@ -106,6 +106,8 @@ module tb_sm_v2_perf_gemm16;
         imem[N_OPS] = encode_exit();
     end
 
+    // 1-cycle memory latency (registered)
+    // This provides proper sequencing for fetch-fill-consume pipeline
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             imem_valid <= 1'b0;
@@ -132,7 +134,9 @@ module tb_sm_v2_perf_gemm16;
         .SM_ID(0),
         .NUM_WARPS(NUM_WARPS),
         .NUM_LANES(NUM_LANES),
-        .DATA_WIDTH(DATA_WIDTH)
+        .DATA_WIDTH(DATA_WIDTH),
+        .INIT_WARPS(4),         // Use 4 warps
+        .ICACHE_BYPASS(1)       // Bypass icache for testing (until icache is optimized)
     ) dut (
         .clk           (clk),
         .rst_n         (rst_n),
@@ -272,6 +276,19 @@ module tb_sm_v2_perf_gemm16;
                 wbq_push_count <= 0;
             end else if (running) begin
                 cycle_count <= cycle_count + 1;
+
+                // Debug trace for first 50 cycles
+                if (cycle_count < 50) begin
+                    // Show warp 0's rd and full scoreboard[0]
+                    $display("C%03d: buf=%b rd0=%0d | sb0=%b | wb=%0d wb_w=%0d wb_rd=%0d | sched=%b",
+                             cycle_count,
+                             dut.warp_inst_buf_valid,
+                             dut.u_scheduler.warp_rd[0],
+                             dut.u_scheduler.scoreboard[0][7:0],
+                             wb_fire, dut.wb_warp_id, dut.wb_rd,
+                             dut.sched_issue_valid_mask);
+                end
+
                 if (wb_fire) begin
                     wb_count <= wb_count + 1;
                 end

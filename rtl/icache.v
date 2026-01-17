@@ -277,55 +277,41 @@ module icache #(
                         state <= ST_INVALIDATE;
                         fetch_ready_r <= 1'b0;
                     end else if (fetch_req) begin
-                        state <= ST_TAG_CHECK;
-                        fetch_ready_r <= 1'b0;
+                        // Single-cycle hit path: check hit combinatorially
+                        if (cache_hit) begin
+                            // Cache hit - combinatorial output handles valid/data
+                            // Just update LRU and stats, don't set fetch_valid_r
+                            // (combo_hit output provides instant response)
+                            hit_count <= hit_count + 1;
+                            update_lru(req_index, hit_way);
+                            // Stay in IDLE, ready for next request
+                        end else if (prefetch_buffer_hit) begin
+                            // Prefetch hit - combinatorial output handles valid/data
+                            prefetch_hit_count <= prefetch_hit_count + 1;
+                            // Write prefetch data to cache
+                            tag_array[req_index][victim_way] <= req_tag;
+                            data_array[req_index][victim_way] <= prefetch_data[prefetch_hit_idx];
+                            valid_array[req_index][victim_way] <= 1'b1;
+                            update_lru(req_index, victim_way);
+                            prefetch_valid[prefetch_hit_idx] <= 1'b0;
+                            // Stay in IDLE
+                        end else begin
+                            // Cache miss - go to TAG_CHECK to handle miss path
+                            state <= ST_TAG_CHECK;
+                            fetch_ready_r <= 1'b0;
+                        end
                     end
                 end
 
                 ST_TAG_CHECK: begin
-                    if (cache_hit) begin
-                        // Cache hit
-                        fetch_data_r <= hit_data;
-                        fetch_valid_r <= 1'b1;
-                        hit_count <= hit_count + 1;
-                        update_lru(req_index, hit_way);
-
-                        // Check for prefetch opportunity
-                        if (need_prefetch) begin
-                            state <= ST_PREFETCH;
-                            miss_addr <= next_line_addr;
-                            is_prefetch_miss <= 1'b1;
-                        end else begin
-                            state <= ST_IDLE;
-                            fetch_ready_r <= 1'b1;  // Ready for next request immediately
-                        end
-                    end else if (prefetch_buffer_hit) begin
-                        // Prefetch buffer hit - promote to cache
-                        fetch_data_r <= prefetch_hit_data;
-                        fetch_valid_r <= 1'b1;
-                        prefetch_hit_count <= prefetch_hit_count + 1;
-
-                        // Write prefetch data to cache
-                        replace_way <= victim_way;
-                        tag_array[req_index][victim_way] <= req_tag;
-                        data_array[req_index][victim_way] <= prefetch_data[prefetch_hit_idx];
-                        valid_array[req_index][victim_way] <= 1'b1;
-                        update_lru(req_index, victim_way);
-
-                        // Invalidate prefetch entry
-                        prefetch_valid[prefetch_hit_idx] <= 1'b0;
-
-                        state <= ST_IDLE;
-                        fetch_ready_r <= 1'b1;  // Ready for next request immediately
-                    end else begin
-                        // Cache miss
-                        miss_count <= miss_count + 1;
-                        miss_addr <= {fetch_addr[ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
-                        miss_word <= req_word;  // Latch word offset for fill
-                        replace_way <= victim_way;
-                        is_prefetch_miss <= 1'b0;
-                        state <= ST_MISS_REQ;
-                    end
+                    // This state is now only entered on cache miss from IDLE
+                    // Start the miss handling
+                    miss_count <= miss_count + 1;
+                    miss_addr <= {fetch_addr[ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
+                    miss_word <= req_word;  // Latch word offset for fill
+                    replace_way <= victim_way;
+                    is_prefetch_miss <= 1'b0;
+                    state <= ST_MISS_REQ;
                 end
 
                 ST_MISS_REQ: begin
@@ -421,9 +407,17 @@ module icache #(
     //------------------------------------------------------------------------
     // Output Assignments
     //------------------------------------------------------------------------
+    // Combinatorial hit bypass: return data in same cycle as request
+    wire combo_hit = (state == ST_IDLE) && fetch_req && cache_hit;
+    wire combo_prefetch_hit = (state == ST_IDLE) && fetch_req && !cache_hit && prefetch_buffer_hit;
+
     assign fetch_ready     = fetch_ready_r;
-    assign fetch_data      = fetch_data_r;
-    assign fetch_valid     = fetch_valid_r;
+    // Combinatorial data path for zero-latency cache hit
+    assign fetch_data      = combo_hit ? hit_data :
+                            combo_prefetch_hit ? prefetch_hit_data :
+                            fetch_data_r;
+    // Combinatorial valid for zero-latency cache hit
+    assign fetch_valid     = combo_hit || combo_prefetch_hit || fetch_valid_r;
     assign mem_req_valid   = mem_req_valid_r;
     assign mem_req_addr    = mem_req_addr_r;
     assign invalidate_done = invalidate_done_r;

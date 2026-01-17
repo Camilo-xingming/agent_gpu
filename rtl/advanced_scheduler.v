@@ -228,6 +228,7 @@ module advanced_warp_scheduler #(
     reg [WARP_W-1:0]    issue_warp_r [0:NUM_ISSUE-1];
     reg [INST_WIDTH-1:0] issue_inst_r [0:NUM_ISSUE-1];
     reg [2:0]           issue_pipe_r [0:NUM_ISSUE-1];
+    reg [NUM_ISSUE-1:0] issue_writes_reg_r;  // Capture whether issued instruction writes register
 
     // Check for inter-issue dependencies
     function check_issue_conflict;
@@ -252,6 +253,7 @@ module advanced_warp_scheduler #(
         issue_inst_r[1] = 0;
         issue_pipe_r[0] = PIPE_COMPUTE0;
         issue_pipe_r[1] = PIPE_COMPUTE0;
+        issue_writes_reg_r = 0;
 
         // Slot 0 selection (highest priority first)
         if (found_branch && branch_unit_ready) begin
@@ -259,21 +261,25 @@ module advanced_warp_scheduler #(
             issue_warp_r[0] = selected_branch;
             issue_inst_r[0] = warp_inst[selected_branch];
             issue_pipe_r[0] = PIPE_BRANCH;
+            issue_writes_reg_r[0] = warp_writes_reg[selected_branch];
         end else if (found_memory && memory_pipe_ready) begin
             issue_valid_r[0] = 1'b1;
             issue_warp_r[0] = selected_memory;
             issue_inst_r[0] = warp_inst[selected_memory];
             issue_pipe_r[0] = PIPE_MEMORY;
+            issue_writes_reg_r[0] = warp_writes_reg[selected_memory];
         end else if (found_tensor && tensor_pipe_ready) begin
             issue_valid_r[0] = 1'b1;
             issue_warp_r[0] = selected_tensor;
             issue_inst_r[0] = warp_inst[selected_tensor];
             issue_pipe_r[0] = PIPE_TENSOR;
+            issue_writes_reg_r[0] = warp_writes_reg[selected_tensor];
         end else if (found_compute0 && compute_pipe0_ready) begin
             issue_valid_r[0] = 1'b1;
             issue_warp_r[0] = selected_compute0;
             issue_inst_r[0] = warp_inst[selected_compute0];
             issue_pipe_r[0] = PIPE_COMPUTE0;
+            issue_writes_reg_r[0] = warp_writes_reg[selected_compute0];
         end
 
         // Slot 1 selection (dual-issue if possible)
@@ -286,6 +292,7 @@ module advanced_warp_scheduler #(
                 issue_warp_r[1] = selected_compute0;
                 issue_inst_r[1] = warp_inst[selected_compute0];
                 issue_pipe_r[1] = PIPE_COMPUTE0;
+                issue_writes_reg_r[1] = warp_writes_reg[selected_compute0];
             end else if (issue_pipe_r[0] != PIPE_COMPUTE1 && found_compute1 && compute_pipe1_ready &&
                         !check_issue_conflict(issue_warp_r[0], selected_compute1, warp_rd[issue_warp_r[0]],
                                              warp_rs1[selected_compute1], warp_rs2[selected_compute1], warp_rs3[selected_compute1])) begin
@@ -293,6 +300,7 @@ module advanced_warp_scheduler #(
                 issue_warp_r[1] = selected_compute1;
                 issue_inst_r[1] = warp_inst[selected_compute1];
                 issue_pipe_r[1] = PIPE_COMPUTE1;
+                issue_writes_reg_r[1] = warp_writes_reg[selected_compute1];
             end else if (issue_pipe_r[0] != PIPE_TENSOR && found_tensor && tensor_pipe_ready &&
                         !check_issue_conflict(issue_warp_r[0], selected_tensor, warp_rd[issue_warp_r[0]],
                                              warp_rs1[selected_tensor], warp_rs2[selected_tensor], warp_rs3[selected_tensor])) begin
@@ -300,6 +308,7 @@ module advanced_warp_scheduler #(
                 issue_warp_r[1] = selected_tensor;
                 issue_inst_r[1] = warp_inst[selected_tensor];
                 issue_pipe_r[1] = PIPE_TENSOR;
+                issue_writes_reg_r[1] = warp_writes_reg[selected_tensor];
             end else if (issue_pipe_r[0] != PIPE_MEMORY && found_memory && memory_pipe_ready &&
                         !check_issue_conflict(issue_warp_r[0], selected_memory, warp_rd[issue_warp_r[0]],
                                              warp_rs1[selected_memory], warp_rs2[selected_memory], warp_rs3[selected_memory])) begin
@@ -307,6 +316,7 @@ module advanced_warp_scheduler #(
                 issue_warp_r[1] = selected_memory;
                 issue_inst_r[1] = warp_inst[selected_memory];
                 issue_pipe_r[1] = PIPE_MEMORY;
+                issue_writes_reg_r[1] = warp_writes_reg[selected_memory];
             end
         end
     end
@@ -341,9 +351,13 @@ module advanced_warp_scheduler #(
             memory_rr_ptr <= 0;
         end else begin
             // Set scoreboard bits on issue
+            // IMPORTANT: Use captured instruction (issue_inst_r) to extract rd and
+            // captured writes_reg flag (issue_writes_reg_r), NOT warp_rd/warp_writes_reg
+            // which point to the current buffer contents (may differ if consumed same cycle)
             for (sb_w = 0; sb_w < NUM_ISSUE; sb_w = sb_w + 1) begin
-                if (issue_valid_r[sb_w] && warp_writes_reg[issue_warp_r[sb_w]]) begin
-                    scoreboard[issue_warp_r[sb_w]][warp_rd[issue_warp_r[sb_w]]] <= 1'b1;
+                if (issue_valid_r[sb_w] && issue_writes_reg_r[sb_w]) begin
+                    // Extract rd from the captured instruction (bits 25:21 for R-type)
+                    scoreboard[issue_warp_r[sb_w]][issue_inst_r[sb_w][25:21]] <= 1'b1;
                 end
             end
 

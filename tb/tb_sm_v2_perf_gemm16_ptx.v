@@ -118,7 +118,8 @@ module tb_sm_v2_perf_gemm16_ptx;
         .SM_ID(0),
         .NUM_WARPS(NUM_WARPS),
         .NUM_LANES(NUM_LANES),
-        .DATA_WIDTH(DATA_WIDTH)
+        .DATA_WIDTH(DATA_WIDTH),
+        .INIT_WARPS(4)  // Use 4 warps to hide latency
     ) dut (
         .clk           (clk),
         .rst_n         (rst_n),

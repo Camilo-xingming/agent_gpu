@@ -1,6 +1,5 @@
 //============================================================================
-// RalphGPU - SM V2 Tensor Core Performance Test (WMMA stream)
-// Streams WMMA MMA ops to measure sustained throughput.
+// Debug test to analyze SM V2 pipeline timing
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -8,22 +7,16 @@
 `include "../rtl/gpu_defines.vh"
 `include "../rtl/memory_config.vh"
 
-module tb_sm_v2_perf_tensor;
+module tb_sm_v2_debug2;
 
-    //------------------------------------------------------------------------
-    // Parameters
-    //------------------------------------------------------------------------
     localparam NUM_WARPS  = `WARPS_PER_SM;
     localparam NUM_LANES  = `THREADS_PER_WARP;
     localparam DATA_WIDTH = `DATA_WIDTH;
     localparam CLK_PERIOD = 10;
     localparam IMEM_WORDS = 8192;
-    localparam N_OPS      = 2048;
-    localparam REG_STRIDE = 16;
+    localparam N_OPS      = 20;  // Very small number to trace
+    localparam REG_STRIDE = 8;
 
-    //------------------------------------------------------------------------
-    // Clock and Reset
-    //------------------------------------------------------------------------
     reg clk;
     reg rst_n;
 
@@ -32,9 +25,6 @@ module tb_sm_v2_perf_tensor;
         forever #(CLK_PERIOD/2) clk = ~clk;
     end
 
-    //------------------------------------------------------------------------
-    // DUT Signals
-    //------------------------------------------------------------------------
     reg         kernel_start;
     reg  [31:0] kernel_pc;
     reg  [31:0] block_id_x, block_id_y, block_id_z;
@@ -75,21 +65,14 @@ module tb_sm_v2_perf_tensor;
     reg  [31:0] m_axi_rdata;
     reg         m_axi_rlast;
 
-    //------------------------------------------------------------------------
-    // Instruction Memory
-    //------------------------------------------------------------------------
     reg [31:0] imem [0:IMEM_WORDS-1];
     reg        imem_req_q;
     reg [31:0] imem_addr_q;
 
-    function [31:0] encode_wmma_mma;
+    function [31:0] encode_fma;
         input [4:0] rd, ra, rb, rc;
-        input [2:0] dtype;
-        input [2:0] shape;
-        reg [5:0] func;
         begin
-            func = {shape, dtype};
-            encode_wmma_mma = {`OP_WMMA_MMA, rd, ra, rb, rc, func};
+            encode_fma = {`OP_FP32_ARITH, rd, ra, rb, rc, `FP_FMA};
         end
     endfunction
 
@@ -105,8 +88,7 @@ module tb_sm_v2_perf_tensor;
             imem[i] = {`OP_NOP, 26'b0};
         end
         for (i = 0; i < N_OPS; i = i + 1) begin
-            imem[i] = encode_wmma_mma((i % REG_STRIDE) + 1, 5'd0, 5'd0, 5'd0,
-                                     `TC_DATA_FP16, `WMMA_M16N16K16);
+            imem[i] = encode_fma((i % REG_STRIDE) + 1, 5'd0, 5'd0, 5'd0);
         end
         imem[N_OPS] = encode_exit();
     end
@@ -129,16 +111,11 @@ module tb_sm_v2_perf_tensor;
         end
     end
 
-    //------------------------------------------------------------------------
-    // DUT Instantiation
-    //------------------------------------------------------------------------
     streaming_multiprocessor_v2 #(
         .SM_ID(0),
         .NUM_WARPS(NUM_WARPS),
         .NUM_LANES(NUM_LANES),
-        .DATA_WIDTH(DATA_WIDTH),
-        .INIT_WARPS(4),  // Use 4 warps to hide latency
-        .ICACHE_BYPASS(1)  // Bypass icache for testing
+        .DATA_WIDTH(DATA_WIDTH)
     ) dut (
         .clk           (clk),
         .rst_n         (rst_n),
@@ -200,9 +177,6 @@ module tb_sm_v2_perf_tensor;
 
     assign imem_ready = 1'b1;
 
-    //------------------------------------------------------------------------
-    // Memory Interfaces (Idle)
-    //------------------------------------------------------------------------
     initial begin
         l1d_resp_valid = 1'b0;
         l1d_resp_hit = 1'b0;
@@ -212,151 +186,72 @@ module tb_sm_v2_perf_tensor;
         m_axi_awready = 1'b1;
         m_axi_wready  = 1'b1;
         m_axi_bvalid  = 1'b0;
-        m_axi_bresp   = 2'b00;
-        m_axi_bid     = 4'b0;
         m_axi_arready = 1'b1;
         m_axi_rvalid  = 1'b0;
-        m_axi_rresp   = 2'b00;
-        m_axi_rid     = 4'b0;
-        m_axi_rdata   = 32'b0;
         m_axi_rlast   = 1'b1;
     end
 
-    //------------------------------------------------------------------------
-    // Performance Counters
-    //------------------------------------------------------------------------
     integer cycle_count;
     integer wb_count;
-    integer fetch_count;
-    integer issue_count;
-    integer stall_raw;
-    integer stall_fu;
-    integer stall_mem;
-    integer stall_atomic;
-    integer stall_tensor;
-    integer stall_wbq;
-    integer timeout_cycles;
-    integer timeout_left;
     reg running;
-    reg done;
-    real ipc;
     wire wb_fire = dut.wb_valid && (dut.wb_rd != 0);
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             running <= 1'b0;
-            done <= 1'b0;
             cycle_count <= 0;
             wb_count <= 0;
-            fetch_count <= 0;
-            issue_count <= 0;
-            stall_raw <= 0;
-            stall_fu <= 0;
-            stall_mem <= 0;
-            stall_atomic <= 0;
-            stall_tensor <= 0;
-            stall_wbq <= 0;
-        end else begin
-            if (kernel_start) begin
-                running <= 1'b1;
-                done <= 1'b0;
-                cycle_count <= 0;
-                wb_count <= 0;
-                fetch_count <= 0;
-                issue_count <= 0;
-                stall_raw <= 0;
-                stall_fu <= 0;
-                stall_mem <= 0;
-                stall_atomic <= 0;
-                stall_tensor <= 0;
-                stall_wbq <= 0;
-            end else if (running) begin
-                cycle_count <= cycle_count + 1;
-                if (wb_fire) begin
-                    wb_count <= wb_count + 1;
-                end
-                if (imem_req) begin
-                    fetch_count <= fetch_count + 1;
-                end
-                if (dut.issue_valid) begin
-                    issue_count <= issue_count + 1;
-                end
-                if (dut.lane0_stall_raw) begin
-                    stall_raw <= stall_raw + 1;
-                end
-                if (dut.lane0_stall_fu) begin
-                    stall_fu <= stall_fu + 1;
-                end
-                if (dut.lane0_stall_mem) begin
-                    stall_mem <= stall_mem + 1;
-                end
-                if (dut.lane0_stall_atomic) begin
-                    stall_atomic <= stall_atomic + 1;
-                end
-                if (dut.lane0_stall_tensor) begin
-                    stall_tensor <= stall_tensor + 1;
-                end
-                if (dut.lane0_stall_wbq) begin
-                    stall_wbq <= stall_wbq + 1;
-                end
-                if (wb_count + (wb_fire ? 1 : 0) >= N_OPS) begin
-                    running <= 1'b0;
-                    done <= 1'b1;
-                end
+        end else if (kernel_start) begin
+            running <= 1'b1;
+        end else if (running) begin
+            cycle_count <= cycle_count + 1;
+            if (wb_fire) begin
+                wb_count <= wb_count + 1;
+            end
+            
+            // Print detailed trace for first 200 cycles
+            if (cycle_count < 200 && cycle_count > 0) begin
+                $display("C%03d: fetch_req=%0d icache_rdy=%0d inflight=%0d icache_valid=%0d | buf_valid=%b | issue=%0d dec0_valid=%0d | wb=%0d",
+                         cycle_count, dut.fetch_req, dut.u_icache.fetch_ready, dut.fetch_inflight_valid,
+                         dut.u_icache.fetch_valid, dut.warp_inst_buf_valid[0], 
+                         dut.issue_valid, dut.dec0_valid, wb_fire);
+            end
+            
+            if (wb_count >= N_OPS) begin
+                running <= 1'b0;
+            end
+            if (cycle_count >= 500) begin
+                running <= 1'b0;
             end
         end
     end
 
-    //------------------------------------------------------------------------
-    // Test Sequence
-    //------------------------------------------------------------------------
     initial begin
-        $display("============================================================");
-        $display("RalphGPU SM V2 Tensor Core Performance Test");
-        $display("Kernel: WMMA MMA stream (m16n16k16, FP16)");
-        $display("Ops: %0d MMA", N_OPS);
-        $display("============================================================");
-
         rst_n = 0;
         kernel_start = 0;
         kernel_pc = 0;
         block_id_x = 0; block_id_y = 0; block_id_z = 0;
-        block_dim_x = 16; block_dim_y = 16; block_dim_z = 1;
+        block_dim_x = 1; block_dim_y = 1; block_dim_z = 1;
         grid_dim_x = 1; grid_dim_y = 1; grid_dim_z = 1;
 
-        repeat(10) @(posedge clk);
+        #100;
         rst_n = 1;
-        repeat(5) @(posedge clk);
+        #100;
 
-        @(posedge clk);
+        $display("============================================================");
+        $display("SM V2 Pipeline Trace");
+        $display("============================================================");
+
         kernel_start = 1;
-        kernel_pc = 32'h0000_0000;
-        @(posedge clk);
+        #CLK_PERIOD;
         kernel_start = 0;
 
-        timeout_cycles = (N_OPS * 8) + 2000;
-        timeout_left = timeout_cycles;
-        while (!done && (timeout_left > 0)) begin
-            @(posedge clk);
-            timeout_left = timeout_left - 1;
-        end
+        wait(running == 0);
+        #100;
 
-        ipc = (cycle_count > 0) ? (1.0 * wb_count / cycle_count) : 0.0;
-        $display("Cycles: %0d", cycle_count);
-        $display("Writebacks: %0d", wb_count);
-        $display("Fetches: %0d", fetch_count);
-        $display("Issues: %0d", issue_count);
-        $display("Stalls: raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d",
-                 stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq);
-        $display("IPC: %0.3f", ipc);
-
-        if (!done) begin
-            $display("FAIL: timeout before completing all MMAs");
-        end else if (wb_count != N_OPS) begin
-            $display("FAIL: expected %0d writebacks, got %0d", N_OPS, wb_count);
-        end else begin
-            $display("PASS: completed WMMA stream");
-        end
+        $display("============================================================");
+        $display("Final: cycles=%0d wb=%0d", cycle_count, wb_count);
+        $display("============================================================");
 
         $finish;
     end
