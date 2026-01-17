@@ -45,11 +45,11 @@ module ralph_gpu_top #(
     output wire                         irq_kernel_done,
 
     //------------------------------------------------------------------------
-    // 指令内存接口 (只读)
+    // 指令内存接口 (只读, 64位用于8字节缓存行)
     //------------------------------------------------------------------------
     output wire                         imem_req,
     output wire [31:0]                  imem_addr,
-    input  wire [31:0]                  imem_data,
+    input  wire [63:0]                  imem_data,
     input  wire                         imem_valid,
 
     //------------------------------------------------------------------------
@@ -149,7 +149,7 @@ module ralph_gpu_top #(
     wire [31:0] sm_imem_addr [0:NUM_SM-1];
     reg  [NUM_SM-1:0] sm_imem_ready;
     reg  [NUM_SM-1:0] sm_imem_valids;
-    reg  [31:0] sm_imem_datas [0:NUM_SM-1];
+    reg  [63:0] sm_imem_datas [0:NUM_SM-1];
 
     // AXI仲裁 (简化：轮询)
     wire [3:0]  sm_axi_awid    [0:NUM_SM-1];
@@ -306,7 +306,7 @@ module ralph_gpu_top #(
         sm_imem_ready = {NUM_SM{1'b0}};
         for (sm_i = 0; sm_i < NUM_SM; sm_i = sm_i + 1) begin
             sm_imem_valids[sm_i] = 1'b0;
-            sm_imem_datas[sm_i] = 32'b0;
+            sm_imem_datas[sm_i] = 64'b0;
         end
         if (imem_accept) begin
             sm_imem_ready[imem_arb_sel] = 1'b1;

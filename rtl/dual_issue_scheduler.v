@@ -10,7 +10,8 @@ module dual_issue_scheduler #(
     parameter NUM_WARPS    = 4,
     parameter THREADS      = 32,
     parameter INST_WIDTH   = 32,
-    parameter DATA_WIDTH   = 32
+    parameter DATA_WIDTH   = 32,
+    parameter WARP_ID_W    = (NUM_WARPS > 1) ? $clog2(NUM_WARPS) : 1
 )(
     input  wire                 clk,
     input  wire                 rst_n,
@@ -44,12 +45,12 @@ module dual_issue_scheduler #(
     // 双发射输出 (Slot 0 和 Slot 1)
     //------------------------------------------------------------------------
     output reg                  issue0_valid,
-    output reg  [1:0]           issue0_warp_id,
+    output reg  [WARP_ID_W-1:0] issue0_warp_id,
     output reg  [INST_WIDTH-1:0] issue0_inst,
     output reg  [2:0]           issue0_unit,     // 0=ALU, 1=FMA, 2=MEM, 3=BRANCH
 
     output reg                  issue1_valid,
-    output reg  [1:0]           issue1_warp_id,
+    output reg  [WARP_ID_W-1:0] issue1_warp_id,
     output reg  [INST_WIDTH-1:0] issue1_inst,
     output reg  [2:0]           issue1_unit,
 
@@ -104,8 +105,8 @@ module dual_issue_scheduler #(
     // 依赖检查
     //------------------------------------------------------------------------
     function check_dependency;
-        input [1:0] warp_a;
-        input [1:0] warp_b;
+        input [WARP_ID_W-1:0] warp_a;
+        input [WARP_ID_W-1:0] warp_b;
         begin
             // RAW: warp_a写的寄存器被warp_b读
             // WAW: 两个warp写同一寄存器
@@ -151,8 +152,8 @@ module dual_issue_scheduler #(
     //------------------------------------------------------------------------
     // 调度逻辑
     //------------------------------------------------------------------------
-    reg [1:0] selected_warp0;
-    reg [1:0] selected_warp1;
+    reg [WARP_ID_W-1:0] selected_warp0;
+    reg [WARP_ID_W-1:0] selected_warp1;
     reg       found_warp0;
     reg       found_warp1;
     reg [2:0] unit0;
@@ -175,11 +176,11 @@ module dual_issue_scheduler #(
 
                 // 检查执行单元是否可用
                 case (unit0)
-                    OP_ALU:    if (alu_ready)    begin found_warp0 = 1; selected_warp0 = i[1:0]; end
-                    OP_FMA:    if (fma_ready)    begin found_warp0 = 1; selected_warp0 = i[1:0]; end
-                    OP_LOAD:   if (mem_ready)    begin found_warp0 = 1; selected_warp0 = i[1:0]; end
-                    OP_STORE:  if (mem_ready)    begin found_warp0 = 1; selected_warp0 = i[1:0]; end
-                    OP_BRANCH: if (branch_ready) begin found_warp0 = 1; selected_warp0 = i[1:0]; end
+                    OP_ALU:    if (alu_ready)    begin found_warp0 = 1; selected_warp0 = i[WARP_ID_W-1:0]; end
+                    OP_FMA:    if (fma_ready)    begin found_warp0 = 1; selected_warp0 = i[WARP_ID_W-1:0]; end
+                    OP_LOAD:   if (mem_ready)    begin found_warp0 = 1; selected_warp0 = i[WARP_ID_W-1:0]; end
+                    OP_STORE:  if (mem_ready)    begin found_warp0 = 1; selected_warp0 = i[WARP_ID_W-1:0]; end
+                    OP_BRANCH: if (branch_ready) begin found_warp0 = 1; selected_warp0 = i[WARP_ID_W-1:0]; end
                 endcase
             end
         end
@@ -187,22 +188,22 @@ module dual_issue_scheduler #(
         // 第二遍: 找第二个可调度的warp (双发射)
         if (found_warp0) begin
             for (j = 0; j < NUM_WARPS; j = j + 1) begin
-                if (warp_valid[j] && warp_ready[j] && !found_warp1 && j[1:0] != selected_warp0) begin
+                if (warp_valid[j] && warp_ready[j] && !found_warp1 && j[WARP_ID_W-1:0] != selected_warp0) begin
                     unit1 = decode_unit(warp_inst[j]);
 
                     // 检查执行单元冲突
                     if (!check_unit_conflict(unit0, unit1)) begin
                         // 检查依赖
-                        if (!check_dependency(selected_warp0, j[1:0]) &&
-                            !check_dependency(j[1:0], selected_warp0)) begin
+                        if (!check_dependency(selected_warp0, j[WARP_ID_W-1:0]) &&
+                            !check_dependency(j[WARP_ID_W-1:0], selected_warp0)) begin
 
                             // 检查执行单元可用
                             case (unit1)
-                                OP_ALU:    if (alu_ready)    begin found_warp1 = 1; selected_warp1 = j[1:0]; end
-                                OP_FMA:    if (fma_ready)    begin found_warp1 = 1; selected_warp1 = j[1:0]; end
-                                OP_LOAD:   if (mem_ready)    begin found_warp1 = 1; selected_warp1 = j[1:0]; end
-                                OP_STORE:  if (mem_ready)    begin found_warp1 = 1; selected_warp1 = j[1:0]; end
-                                OP_BRANCH: if (branch_ready) begin found_warp1 = 1; selected_warp1 = j[1:0]; end
+                                OP_ALU:    if (alu_ready)    begin found_warp1 = 1; selected_warp1 = j[WARP_ID_W-1:0]; end
+                                OP_FMA:    if (fma_ready)    begin found_warp1 = 1; selected_warp1 = j[WARP_ID_W-1:0]; end
+                                OP_LOAD:   if (mem_ready)    begin found_warp1 = 1; selected_warp1 = j[WARP_ID_W-1:0]; end
+                                OP_STORE:  if (mem_ready)    begin found_warp1 = 1; selected_warp1 = j[WARP_ID_W-1:0]; end
+                                OP_BRANCH: if (branch_ready) begin found_warp1 = 1; selected_warp1 = j[WARP_ID_W-1:0]; end
                             endcase
                         end
                     end

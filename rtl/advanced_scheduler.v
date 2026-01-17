@@ -133,14 +133,18 @@ module advanced_warp_scheduler #(
     //------------------------------------------------------------------------
     wire [NUM_WARPS-1:0] warp_schedulable = warp_valid & warp_ready & warp_inst_valid;
 
-    // Per-warp hazard check
+    // Per-warp hazard check - explicit without functions for correct evaluation
     wire [NUM_WARPS-1:0] warp_has_hazard;
     genvar w;
     generate
         for (w = 0; w < NUM_WARPS; w = w + 1) begin : gen_hazard
-            assign warp_has_hazard[w] =
-                check_raw_hazard(w[WARP_W-1:0], warp_rs1[w], warp_rs2[w], warp_rs3[w]) ||
-                (warp_writes_reg[w] && check_waw_hazard(w[WARP_W-1:0], warp_rd[w]));
+            // RAW hazard: any source register has pending write
+            wire raw_hazard = scoreboard[w][warp_rs1[w]] ||
+                             scoreboard[w][warp_rs2[w]] ||
+                             scoreboard[w][warp_rs3[w]];
+            // WAW hazard: destination register has pending write
+            wire waw_hazard = warp_writes_reg[w] && scoreboard[w][warp_rd[w]];
+            assign warp_has_hazard[w] = raw_hazard || waw_hazard;
         end
     endgenerate
 

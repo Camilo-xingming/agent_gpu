@@ -6,14 +6,22 @@
 `ifndef MEMORY_CONFIG_VH
 `define MEMORY_CONFIG_VH
 
+`include "gpu_config.vh"
+
 //============================================================================
 // GPU Configuration Profiles
 // Select one profile or define custom parameters
 //============================================================================
-// `define GPU_CONFIG_EDGE        // Edge AI: 4 SMs, minimal memory
-// `define GPU_CONFIG_MOBILE      // Mobile: 8 SMs, balanced
-// `define GPU_CONFIG_DESKTOP     // Desktop: 16-32 SMs, high performance
-`define GPU_CONFIG_DATACENTER  // Datacenter: 64+ SMs, maximum throughput
+// `define GPU_PROFILE_LITE      // Low area / low power
+// `define GPU_PROFILE_BALANCED  // Mid-range
+// `define GPU_PROFILE_HPC       // High performance
+// Legacy (still supported):
+// `define GPU_CONFIG_EDGE
+// `define GPU_CONFIG_MOBILE
+// `define GPU_CONFIG_DESKTOP
+// `define GPU_CONFIG_DATACENTER
+
+// If nothing is selected, the default branch below maps to HPC-like values.
 
 //============================================================================
 // L1 Data Cache Configuration (Per SM)
@@ -21,7 +29,11 @@
 // Best Practice: 32-128KB per SM, 4-8 way set associative
 // NVIDIA: 128KB L1 (configurable with shared memory)
 
-`ifdef GPU_CONFIG_EDGE
+`ifdef GPU_PROFILE_LITE
+    `define L1D_SIZE_KB         16      // 16KB L1 Data Cache
+    `define L1D_WAYS            4       // 4-way set associative
+    `define L1D_LINE_SIZE       32      // 32 bytes per cache line
+`elsif GPU_CONFIG_EDGE
     `define L1D_SIZE_KB         16      // 16KB L1 Data Cache
     `define L1D_WAYS            4       // 4-way set associative
     `define L1D_LINE_SIZE       32      // 32 bytes per cache line
@@ -29,11 +41,15 @@
     `define L1D_SIZE_KB         32      // 32KB L1 Data Cache
     `define L1D_WAYS            4       // 4-way set associative
     `define L1D_LINE_SIZE       64      // 64 bytes per cache line
+`elsif GPU_PROFILE_BALANCED
+    `define L1D_SIZE_KB         64      // 64KB L1 Data Cache
+    `define L1D_WAYS            8       // 8-way set associative
+    `define L1D_LINE_SIZE       128     // 128 bytes per cache line
 `elsif GPU_CONFIG_DESKTOP
     `define L1D_SIZE_KB         64      // 64KB L1 Data Cache
     `define L1D_WAYS            8       // 8-way set associative
     `define L1D_LINE_SIZE       128     // 128 bytes per cache line
-`else // DATACENTER
+`else // HPC / DATACENTER
     `define L1D_SIZE_KB         128     // 128KB L1 Data Cache
     `define L1D_WAYS            8       // 8-way set associative
     `define L1D_LINE_SIZE       128     // 128 bytes per cache line
@@ -67,7 +83,11 @@
 //============================================================================
 // Best Practice: 32-64KB per SM, high hit rate for loops
 
-`ifdef GPU_CONFIG_EDGE
+`ifdef GPU_PROFILE_LITE
+    `define L1I_SIZE_KB         8       // 8KB Instruction Cache
+    `define L1I_WAYS            2       // 2-way set associative
+    `define L1I_LINE_SIZE       64      // 64 bytes (16 instructions)
+`elsif GPU_CONFIG_EDGE
     `define L1I_SIZE_KB         8       // 8KB Instruction Cache
     `define L1I_WAYS            2       // 2-way set associative
     `define L1I_LINE_SIZE       64      // 64 bytes (16 instructions)
@@ -75,7 +95,7 @@
     `define L1I_SIZE_KB         16      // 16KB Instruction Cache
     `define L1I_WAYS            4       // 4-way set associative
     `define L1I_LINE_SIZE       64      // 64 bytes
-`else
+`else // BALANCED / HPC / DESKTOP / DATACENTER
     `define L1I_SIZE_KB         32      // 32KB Instruction Cache
     `define L1I_WAYS            4       // 4-way set associative
     `define L1I_LINE_SIZE       64      // 64 bytes
@@ -94,7 +114,12 @@
 // Best Practice: 256KB - 8MB total, 8-16 way, banked
 // NVIDIA H100: 50MB L2
 
-`ifdef GPU_CONFIG_EDGE
+`ifdef GPU_PROFILE_LITE
+    `define L2_SIZE_KB          256     // 256KB total L2
+    `define L2_NUM_BANKS        2       // 2 banks
+    `define L2_WAYS             8       // 8-way set associative
+    `define L2_LINE_SIZE        128     // 128 bytes per line
+`elsif GPU_CONFIG_EDGE
     `define L2_SIZE_KB          256     // 256KB total L2
     `define L2_NUM_BANKS        2       // 2 banks
     `define L2_WAYS             8       // 8-way set associative
@@ -104,12 +129,17 @@
     `define L2_NUM_BANKS        4       // 4 banks
     `define L2_WAYS             8       // 8-way set associative
     `define L2_LINE_SIZE        128     // 128 bytes per line
+`elsif GPU_PROFILE_BALANCED
+    `define L2_SIZE_KB          2048    // 2MB total L2
+    `define L2_NUM_BANKS        8       // 8 banks
+    `define L2_WAYS             16      // 16-way set associative
+    `define L2_LINE_SIZE        128     // 128 bytes per line
 `elsif GPU_CONFIG_DESKTOP
     `define L2_SIZE_KB          2048    // 2MB total L2
     `define L2_NUM_BANKS        8       // 8 banks
     `define L2_WAYS             16      // 16-way set associative
     `define L2_LINE_SIZE        128     // 128 bytes per line
-`else // DATACENTER
+`else // HPC / DATACENTER
     `define L2_SIZE_KB          4096    // 4MB total L2
     `define L2_NUM_BANKS        16      // 16 banks
     `define L2_WAYS             16      // 16-way set associative
@@ -143,7 +173,11 @@
 // Best Practice: 16-96KB configurable, 32 banks, conflict detection
 // NVIDIA: 0-164KB configurable (combined with L1)
 
-`ifdef GPU_CONFIG_EDGE
+`ifdef GPU_PROFILE_LITE
+    `define SMEM_SIZE_KB        16      // 16KB Shared Memory
+    `define SMEM_NUM_BANKS      16      // 16 banks
+    `define SMEM_BANK_WIDTH     32      // 32 bits per bank
+`elsif GPU_CONFIG_EDGE
     `define SMEM_SIZE_KB        16      // 16KB Shared Memory
     `define SMEM_NUM_BANKS      16      // 16 banks
     `define SMEM_BANK_WIDTH     32      // 32 bits per bank
@@ -151,11 +185,15 @@
     `define SMEM_SIZE_KB        32      // 32KB Shared Memory
     `define SMEM_NUM_BANKS      32      // 32 banks
     `define SMEM_BANK_WIDTH     32      // 32 bits per bank
+`elsif GPU_PROFILE_BALANCED
+    `define SMEM_SIZE_KB        64      // 64KB Shared Memory
+    `define SMEM_NUM_BANKS      32      // 32 banks
+    `define SMEM_BANK_WIDTH     32      // 32 bits per bank
 `elsif GPU_CONFIG_DESKTOP
     `define SMEM_SIZE_KB        64      // 64KB Shared Memory
     `define SMEM_NUM_BANKS      32      // 32 banks
     `define SMEM_BANK_WIDTH     32      // 32 bits per bank
-`else // DATACENTER
+`else // HPC / DATACENTER
     `define SMEM_SIZE_KB        96      // 96KB Shared Memory
     `define SMEM_NUM_BANKS      32      // 32 banks
     `define SMEM_BANK_WIDTH     32      // 32 bits per bank
@@ -177,7 +215,12 @@
 // Best Practice: 64KB-256KB per SM, multi-banked for parallel access
 // NVIDIA: 256KB per SM
 
-`ifdef GPU_CONFIG_EDGE
+`ifdef GPU_PROFILE_LITE
+    `define RF_SIZE_KB          32      // 32KB Register File per SM
+    `define RF_NUM_BANKS        4       // 4 banks
+    `define RF_PORTS_READ       4       // 4 read ports (A, B, C, Pred)
+    `define RF_PORTS_WRITE      2       // 2 write ports
+`elsif GPU_CONFIG_EDGE
     `define RF_SIZE_KB          32      // 32KB Register File per SM
     `define RF_NUM_BANKS        4       // 4 banks
     `define RF_PORTS_READ       4       // 4 read ports (A, B, C, Pred)
@@ -187,7 +230,7 @@
     `define RF_NUM_BANKS        8       // 8 banks
     `define RF_PORTS_READ       4       // 4 read ports
     `define RF_PORTS_WRITE      2       // 2 write ports
-`else
+`else // BALANCED / HPC / DESKTOP / DATACENTER
     `define RF_SIZE_KB          128     // 128KB Register File per SM
     `define RF_NUM_BANKS        16      // 16 banks
     `define RF_PORTS_READ       6       // 6 read ports (for dual-issue)
@@ -268,7 +311,11 @@
 //============================================================================
 // Best Practice: Wide interface, multiple channels
 
-`ifdef GPU_CONFIG_EDGE
+`ifdef GPU_PROFILE_LITE
+    `define MEM_DATA_WIDTH      128     // 128-bit memory interface
+    `define MEM_NUM_CHANNELS    1       // 1 memory channel
+    `define MEM_BURST_LENGTH    8       // 8-beat burst
+`elsif GPU_CONFIG_EDGE
     `define MEM_DATA_WIDTH      128     // 128-bit memory interface
     `define MEM_NUM_CHANNELS    1       // 1 memory channel
     `define MEM_BURST_LENGTH    8       // 8-beat burst
@@ -276,11 +323,15 @@
     `define MEM_DATA_WIDTH      256     // 256-bit memory interface
     `define MEM_NUM_CHANNELS    2       // 2 memory channels
     `define MEM_BURST_LENGTH    8       // 8-beat burst
+`elsif GPU_PROFILE_BALANCED
+    `define MEM_DATA_WIDTH      256     // 256-bit per channel
+    `define MEM_NUM_CHANNELS    4       // 4 memory channels
+    `define MEM_BURST_LENGTH    8       // 8-beat burst
 `elsif GPU_CONFIG_DESKTOP
     `define MEM_DATA_WIDTH      256     // 256-bit per channel
     `define MEM_NUM_CHANNELS    4       // 4 memory channels
     `define MEM_BURST_LENGTH    8       // 8-beat burst
-`else // DATACENTER
+`else // HPC / DATACENTER
     `define MEM_DATA_WIDTH      512     // 512-bit per channel
     `define MEM_NUM_CHANNELS    8       // 8 memory channels (HBM)
     `define MEM_BURST_LENGTH    4       // 4-beat burst (HBM style)
@@ -293,8 +344,12 @@
 `define MEM_TYPE_HBM2       3
 `define MEM_TYPE_HBM3       4
 
-`ifdef GPU_CONFIG_DATACENTER
+`ifdef GPU_PROFILE_HPC
     `define MEM_TYPE            `MEM_TYPE_HBM3
+`elsif GPU_CONFIG_DATACENTER
+    `define MEM_TYPE            `MEM_TYPE_HBM3
+`elsif GPU_PROFILE_BALANCED
+    `define MEM_TYPE            `MEM_TYPE_DDR5
 `elsif GPU_CONFIG_DESKTOP
     `define MEM_TYPE            `MEM_TYPE_DDR5
 `else
@@ -334,6 +389,11 @@
 //============================================================================
 // Profile      | L1D  | L1I  | L2    | SMEM | RF   | Channels
 // -------------|------|------|-------|------|------|----------
+// Lite         | 16KB | 8KB  | 256KB | 16KB | 32KB | 1x128b
+// Balanced     | 64KB | 32KB | 2MB   | 64KB | 128KB| 4x256b
+// HPC          | 128KB| 32KB | 4MB   | 96KB | 128KB| 8x512b
+//
+// Legacy Profiles:
 // Edge         | 16KB | 8KB  | 256KB | 16KB | 32KB | 1x128b
 // Mobile       | 32KB | 16KB | 512KB | 32KB | 64KB | 2x256b
 // Desktop      | 64KB | 32KB | 2MB   | 64KB | 128KB| 4x256b

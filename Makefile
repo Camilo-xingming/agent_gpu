@@ -16,6 +16,9 @@ TOOLS_DIR = tools
 EXAMPLES_DIR = examples
 BUILD_DIR = build
 
+# Profile selection (LITE/BALANCED/HPC)
+GPU_PROFILE ?=
+
 # RTL源文件
 RTL_SRCS = \
     $(RTL_DIR)/gpu_defines.vh \
@@ -74,6 +77,9 @@ MEMSYS_SRCS = \
 # Include路径
 INCLUDES = -I$(RTL_DIR)
 RTL_DEFINES = -DSM_V2
+ifneq ($(GPU_PROFILE),)
+RTL_DEFINES += -DGPU_PROFILE_$(GPU_PROFILE)
+endif
 
 #============================================================================
 # 目标
@@ -227,6 +233,9 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/decoder.v \
 	$(RTL_DIR)/register_file_banked.v \
 	$(RTL_DIR)/branch_predictor.v \
+	$(RTL_DIR)/icache.v \
+	$(RTL_DIR)/advanced_scheduler.v \
+	$(RTL_DIR)/reconvergence_stack.v \
 	$(RTL_DIR)/alu.v \
 	$(RTL_DIR)/mul_unit.v \
 	$(RTL_DIR)/fpu.v \
@@ -236,9 +245,11 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/shared_memory.v \
 	$(RTL_DIR)/memory_interface.v \
 	$(RTL_DIR)/warp_shuffle.v \
-	$(RTL_DIR)/atomic_unit.v
+	$(RTL_DIR)/atomic_unit.v \
+	$(RTL_DIR)/wgmma.v \
+	$(RTL_DIR)/wgmma_tile_engine.v
 
-SM_V2_DEFINES = -DSM_V2
+SM_V2_DEFINES = -DSM_V2 -DDEBUG_SM_V2
 
 test_sm_v2: test_sm_v2_core
 	@echo "SM V2 Architecture Tests Complete"

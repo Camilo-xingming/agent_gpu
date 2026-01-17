@@ -104,6 +104,19 @@ make clean
 配置3 (大型): NUM_SM=16 → 16×4×32 = 2048 线程
 ```
 
+### Profile 选择 (Lite / Balanced / HPC)
+
+可在构建时通过编译宏选择配置档位:
+
+```bash
+make GPU_PROFILE=LITE
+make GPU_PROFILE=BALANCED
+make GPU_PROFILE=HPC
+```
+
+Profile 由 `rtl/gpu_config.vh`、`rtl/gpu_defines.vh`、`rtl/memory_config.vh` 控制。
+注意: 当前实现默认 `WARPS_PER_SM=4`，扩展到更高 warp 数需同步修改调度器与控制流逻辑。
+
 ## PTX指令集
 
 ### 支持的指令

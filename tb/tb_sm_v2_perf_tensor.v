@@ -45,7 +45,7 @@ module tb_sm_v2_perf_tensor;
     wire        imem_req;
     wire [31:0] imem_addr;
     wire        imem_ready;
-    reg  [31:0] imem_data;
+    reg  [63:0] imem_data;
     reg         imem_valid;
 
     wire        l1d_req_valid;
@@ -116,11 +116,11 @@ module tb_sm_v2_perf_tensor;
             imem_valid <= 1'b0;
             imem_req_q <= 1'b0;
             imem_addr_q <= 0;
-            imem_data <= 32'b0;
+            imem_data <= 64'b0;
         end else begin
             imem_valid <= imem_req_q;
             if (imem_req_q) begin
-                imem_data <= imem[imem_addr_q[14:2]];
+                imem_data <= {imem[imem_addr_q[14:2] + 1], imem[imem_addr_q[14:2]]};
             end
             imem_req_q <= imem_req;
             if (imem_req) begin
@@ -276,25 +276,25 @@ module tb_sm_v2_perf_tensor;
                 if (imem_req) begin
                     fetch_count <= fetch_count + 1;
                 end
-                if (dut.issue_accept) begin
+                if (dut.issue_valid) begin
                     issue_count <= issue_count + 1;
                 end
-                if (dut.issue_stall_raw) begin
+                if (dut.lane0_stall_raw) begin
                     stall_raw <= stall_raw + 1;
                 end
-                if (dut.issue_stall_fu) begin
+                if (dut.lane0_stall_fu) begin
                     stall_fu <= stall_fu + 1;
                 end
-                if (dut.issue_stall_mem) begin
+                if (dut.lane0_stall_mem) begin
                     stall_mem <= stall_mem + 1;
                 end
-                if (dut.issue_stall_atomic) begin
+                if (dut.lane0_stall_atomic) begin
                     stall_atomic <= stall_atomic + 1;
                 end
-                if (dut.issue_stall_tensor) begin
+                if (dut.lane0_stall_tensor) begin
                     stall_tensor <= stall_tensor + 1;
                 end
-                if (dut.issue_stall_wbq) begin
+                if (dut.lane0_stall_wbq) begin
                     stall_wbq <= stall_wbq + 1;
                 end
                 if (wb_count + (wb_fire ? 1 : 0) >= N_OPS) begin

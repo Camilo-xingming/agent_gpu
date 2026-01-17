@@ -57,7 +57,7 @@ module streaming_multiprocessor_v2 #(
     output wire                     imem_req,
     output wire [31:0]              imem_addr,
     input  wire                     imem_ready,
-    input  wire [31:0]              imem_data,
+    input  wire [63:0]              imem_data,    // 64-bit for 8-byte cache line
     input  wire                     imem_valid,
 
     // L1 Data Cache Interface
@@ -111,6 +111,7 @@ module streaming_multiprocessor_v2 #(
     localparam IFQ_PTR_W = (IFQ_DEPTH > 1) ? $clog2(IFQ_DEPTH) : 1;
     localparam IFQ_COUNT_W = $clog2(IFQ_DEPTH + 1);
     localparam [IFQ_COUNT_W-1:0] IFQ_DEPTH_VAL = IFQ_DEPTH[IFQ_COUNT_W-1:0];
+    localparam ISSUE_WIDTH = (`SM_ISSUE_WIDTH < 1) ? 1 : `SM_ISSUE_WIDTH;
     localparam ALU_WBQ_DEPTH = 4;
     localparam MUL_WBQ_DEPTH = 4;
     localparam FPU32_WBQ_DEPTH = 8;
@@ -261,16 +262,17 @@ module streaming_multiprocessor_v2 #(
     wire                frq_pop;
     wire [IFQ_COUNT_W:0] fetch_slots_used = {1'b0, ifq_count} + {1'b0, frq_count};
 
-    // Decode Stage
-    reg                  decode_valid;
-    reg  [WARP_ID_W-1:0] decode_warp_id;
-    reg  [31:0]          decode_pc;
-    reg  [31:0]          decode_instruction;
-    reg  [WARP_ID_W-1:0] dec_warp_id;
-    reg  [31:0]          dec_pc;
-    reg                  dec_out_valid;
+    // Decode Stage (2 lanes)
+    reg                  dec0_valid;
+    reg                  dec1_valid;  // Pipeline register for lane 1
+    reg  [WARP_ID_W-1:0] dec0_warp_id;
+    reg  [WARP_ID_W-1:0] dec1_warp_id;
+    reg  [31:0]          dec0_pc;
+    reg  [31:0]          dec1_pc;
+    reg  [31:0]          dec0_instruction;
+    reg  [31:0]          dec1_instruction;
 
-    // Issue Stage
+    // Issue Stage (slot 0)
     reg                  issue_valid;
     reg  [WARP_ID_W-1:0] issue_warp_id;
     reg  [31:0]          issue_pc;
@@ -288,6 +290,25 @@ module streaming_multiprocessor_v2 #(
     reg                  issue_branch_op, issue_sync_op, issue_special_reg;
     reg                  issue_exit_op, issue_atomic_op, issue_shuffle_op;
     reg                  issue_reg_write;
+
+    // Issue Stage (slot 1)
+    reg                  issue1_valid;
+    reg  [WARP_ID_W-1:0] issue1_warp_id;
+    reg  [31:0]          issue1_pc;
+    reg  [5:0]           issue1_opcode;
+    reg  [4:0]           issue1_rd, issue1_ra, issue1_rb, issue1_rc;
+    reg  [5:0]           issue1_func;
+    reg  [15:0]          issue1_imm16;
+    reg  [20:0]          issue1_imm21;
+    reg                  issue1_use_imm;
+    reg  [NUM_LANES-1:0] issue1_mask;
+    reg                  issue1_alu_op, issue1_mul_op, issue1_div_op;
+    reg                  issue1_fp32_op, issue1_fp64_op, issue1_fp16_op;
+    reg                  issue1_sfu_op, issue1_tensor_op;
+    reg                  issue1_mem_read, issue1_mem_write, issue1_mem_shared;
+    reg                  issue1_branch_op, issue1_sync_op, issue1_special_reg;
+    reg                  issue1_exit_op, issue1_atomic_op, issue1_shuffle_op;
+    reg                  issue1_reg_write;
 
     // Execute Stage (per functional unit)
     reg                  exec_alu_valid;
@@ -326,12 +347,29 @@ module streaming_multiprocessor_v2 #(
     wire                 dec_atomic_op, dec_shuffle_op;
     wire                 dec_reg_write;
 
+    // dec1_valid is a reg declared above, so decoder output uses dec1_dec_valid
+    wire [5:0]           dec1_opcode;
+    wire [4:0]           dec1_rd, dec1_ra, dec1_rb, dec1_rc;
+    wire [5:0]           dec1_func;
+    wire [15:0]          dec1_imm16;
+    wire [20:0]          dec1_imm21;
+    wire                 dec1_use_imm;
+    wire                 dec1_alu_op, dec1_mul_op, dec1_div_op;
+    wire                 dec1_fp32_op, dec1_fp64_op, dec1_fp16_op;
+    wire                 dec1_sfu_op, dec1_tensor_op;
+    wire                 dec1_mem_read, dec1_mem_write, dec1_mem_shared;
+    wire                 dec1_branch_op, dec1_sync_op;
+    wire                 dec1_special_reg, dec1_exit_op;
+    wire                 dec1_atomic_op, dec1_shuffle_op;
+    wire                 dec1_reg_write;
+
     //========================================================================
     // Functional Unit Signals
     //========================================================================
 
     // Register File Signals
     wire [SIMD_WIDTH-1:0] rf_rd_data_a, rf_rd_data_b, rf_rd_data_c;
+    wire [SIMD_WIDTH-1:0] rf1_rd_data_a, rf1_rd_data_b, rf1_rd_data_c;
     wire [SIMD_WIDTH-1:0] rf_wr_data;
     wire                  rf_wr_en;
     wire [NUM_LANES-1:0]  rf_wr_mask;
@@ -516,74 +554,174 @@ module streaming_multiprocessor_v2 #(
     // Per-warp pending instruction count (for FU stall tracking)
     reg [3:0] pending_fu_count [0:NUM_WARPS-1];
 
-    wire issue_stall_raw;  // RAW hazard detected
-    wire issue_stall_fu;   // FU capacity stall
-    wire issue_stall_mem;  // Global memory backpressure stall
-    wire issue_stall_atomic; // Atomic unit busy stall
-    wire issue_stall_tensor; // Tensor core backpressure stall
-    wire issue_stall_wbq; // Writeback queue backpressure stall
-    wire issue_accept;
-    wire dec_pipe_ready;
-    wire decode_accept;
     wire mem_in_flight;
     wire frontend_flush;
     wire frq_head_drop;
     wire ifq_head_drop;
 
-    // Check if source registers are busy (properly indexed: warp first, then register)
-    wire ra_busy = dec_out_valid && (dec_ra != 0) && scoreboard_busy[dec_warp_id][dec_ra];
-    wire rb_busy = dec_out_valid && (dec_rb != 0) && scoreboard_busy[dec_warp_id][dec_rb];
-    wire rc_busy = dec_out_valid && (dec_rc != 0) && scoreboard_busy[dec_warp_id][dec_rc];
-    assign issue_stall_raw = dec_out_valid && (ra_busy || rb_busy || rc_busy);
+    wire dual_issue_en = (ISSUE_WIDTH > 1);
 
-    // Stall if too many pending instructions for this warp (max 8 in flight)
-    assign issue_stall_fu = dec_out_valid && (pending_fu_count[dec_warp_id] >= 8);
+    // Lane 0 dependency checks
+    wire lane0_ra_busy = dec0_valid && (dec_ra != 0) && scoreboard_busy[dec0_warp_id][dec_ra];
+    wire lane0_rb_busy = dec0_valid && (dec_rb != 0) && scoreboard_busy[dec0_warp_id][dec_rb];
+    wire lane0_rc_busy = dec0_valid && (dec_rc != 0) && scoreboard_busy[dec0_warp_id][dec_rc];
+    wire lane0_stall_raw = dec0_valid && (lane0_ra_busy || lane0_rb_busy || lane0_rc_busy);
+    wire lane0_stall_fu = dec0_valid && (pending_fu_count[dec0_warp_id] >= 8);
+    wire lane0_stall_mem = dec0_valid && !dec_atomic_op && (
+                           ((dec_mem_read || dec_mem_write) && mem_in_flight) ||
+                           (dec_mem_write && !dec_mem_read && store_pending_valid) ||
+                           (dec_mem_shared && dec_mem_read && smem_pending_valid) ||
+                           (!dec_mem_shared && (dec_mem_read || dec_mem_write) &&
+                            (!gmem_req_ready || (dec_mem_read && mem_pending_valid)))
+                           );
+    wire lane0_stall_atomic = dec0_valid && dec_atomic_op && atomic_busy;
+    wire lane0_stall_tensor = dec0_valid && dec_tensor_op && tensor_issue_full_next;
+    wire lane0_stall_wbq = dec0_valid && (
+                           (dec_alu_op && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
+                           (dec_mul_op && (mul_inflight == MUL_WBQ_DEPTH_VAL)) ||
+                           (dec_fp32_op && (fpu32_inflight == FPU32_WBQ_DEPTH_VAL)) ||
+                           (dec_fp64_op && (fpu64_inflight == FPU64_WBQ_DEPTH_VAL)) ||
+                           (dec_fp16_op && (fp16_inflight == FP16_WBQ_DEPTH_VAL)) ||
+                           (dec_sfu_op && (sfu_inflight == SFU_WBQ_DEPTH_VAL)) ||
+                           (dec_shuffle_op && (shfl_inflight == SHFL_WBQ_DEPTH_VAL))
+                           );
+    wire lane0_ready = dec0_valid && !lane0_stall_raw && !lane0_stall_fu &&
+                       !lane0_stall_mem && !lane0_stall_atomic &&
+                       !lane0_stall_tensor && !lane0_stall_wbq;
 
-    // Global memory backpressure (allow one in-flight global read)
-    assign issue_stall_mem = dec_out_valid && !dec_atomic_op && (
-                             ((dec_mem_read || dec_mem_write) && mem_in_flight) ||
-                             (dec_mem_write && !dec_mem_read && store_pending_valid) ||
-                             (dec_mem_shared && dec_mem_read && smem_pending_valid) ||
-                             (!dec_mem_shared && (dec_mem_read || dec_mem_write) &&
-                              (!gmem_req_ready || (dec_mem_read && mem_pending_valid)))
+    // Lane 1 dependency checks (compute-only)
+    wire lane1_ra_busy = dec1_valid && (dec1_ra != 0) && scoreboard_busy[dec1_warp_id][dec1_ra];
+    wire lane1_rb_busy = dec1_valid && (dec1_rb != 0) && scoreboard_busy[dec1_warp_id][dec1_rb];
+    wire lane1_rc_busy = dec1_valid && (dec1_rc != 0) && scoreboard_busy[dec1_warp_id][dec1_rc];
+    wire lane1_stall_raw = dec1_valid && (lane1_ra_busy || lane1_rb_busy || lane1_rc_busy);
+    wire lane1_stall_fu = dec1_valid && (pending_fu_count[dec1_warp_id] >= 8);
+    wire lane1_stall_wbq = dec1_valid && (
+                           (dec1_alu_op && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
+                           (dec1_mul_op && (mul_inflight == MUL_WBQ_DEPTH_VAL)) ||
+                           (dec1_fp32_op && (fpu32_inflight == FPU32_WBQ_DEPTH_VAL)) ||
+                           (dec1_fp64_op && (fpu64_inflight == FPU64_WBQ_DEPTH_VAL)) ||
+                           (dec1_fp16_op && (fp16_inflight == FP16_WBQ_DEPTH_VAL)) ||
+                           (dec1_sfu_op && (sfu_inflight == SFU_WBQ_DEPTH_VAL)) ||
+                           (dec1_shuffle_op && (shfl_inflight == SHFL_WBQ_DEPTH_VAL))
+                           );
+    wire lane1_is_compute = dec1_alu_op || dec1_mul_op || dec1_div_op ||
+                            dec1_fp32_op || dec1_fp64_op || dec1_fp16_op ||
+                            dec1_sfu_op || dec1_shuffle_op;
+    wire lane1_blocking = dec1_mem_read || dec1_mem_write || dec1_branch_op ||
+                          dec1_sync_op || dec1_exit_op || dec1_tensor_op ||
+                          dec1_atomic_op;
+    wire lane1_ready = dec1_valid && lane1_is_compute && !lane1_blocking &&
+                       !lane1_stall_raw && !lane1_stall_fu && !lane1_stall_wbq;
+
+    // Dual-issue conflict checks
+    wire lane_warp_conflict = lane0_ready && lane1_ready &&
+                              (dec0_warp_id == dec1_warp_id);
+    wire lane_reg_conflict = lane0_ready && lane1_ready && (
+                             (dec_reg_write && (dec_rd != 0) &&
+                              ((dec_rd == dec1_ra) || (dec_rd == dec1_rb) ||
+                               (dec_rd == dec1_rc) ||
+                               (dec1_reg_write && (dec_rd == dec1_rd)))) ||
+                             (dec1_reg_write && (dec1_rd != 0) &&
+                              ((dec1_rd == dec_ra) || (dec1_rd == dec_rb) ||
+                               (dec1_rd == dec_rc)))
                              );
 
-    // Atomic unit backpressure
-    assign issue_stall_atomic = dec_out_valid && dec_atomic_op && atomic_busy;
+    wire lane0_alu = lane0_ready && (dec_alu_op || dec_branch_op);
+    wire lane0_mul = lane0_ready && (dec_mul_op || dec_div_op);
+    wire lane0_fp32 = lane0_ready && dec_fp32_op;
+    wire lane0_fp64 = lane0_ready && dec_fp64_op;
+    wire lane0_fp16 = lane0_ready && dec_fp16_op;
+    wire lane0_sfu = lane0_ready && dec_sfu_op;
+    wire lane0_shfl = lane0_ready && dec_shuffle_op;
+    wire lane1_alu = lane1_ready && dec1_alu_op;
+    wire lane1_mul = lane1_ready && (dec1_mul_op || dec1_div_op);
+    wire lane1_fp32 = lane1_ready && dec1_fp32_op;
+    wire lane1_fp64 = lane1_ready && dec1_fp64_op;
+    wire lane1_fp16 = lane1_ready && dec1_fp16_op;
+    wire lane1_sfu = lane1_ready && dec1_sfu_op;
+    wire lane1_shfl = lane1_ready && dec1_shuffle_op;
+    wire lane_unit_conflict = (lane0_alu && lane1_alu) ||
+                              (lane0_mul && lane1_mul) ||
+                              (lane0_fp32 && lane1_fp32) ||
+                              (lane0_fp64 && lane1_fp64) ||
+                              (lane0_fp16 && lane1_fp16) ||
+                              (lane0_sfu && lane1_sfu) ||
+                              (lane0_shfl && lane1_shfl);
+    wire lane0_control = lane0_ready && (dec_branch_op || dec_sync_op || dec_exit_op);
 
-    // Tensor issue queue backpressure (avoid dropping ops on queue full)
-    assign issue_stall_tensor = dec_out_valid && dec_tensor_op && tensor_issue_full_next;
+    // Forward declarations - these are driven by the advanced_warp_scheduler
+    wire issue0_fire;  // Assigned in scheduler section
+    wire issue1_fire;  // Assigned in scheduler section
 
-    // Writeback queue backpressure (limit outstanding ops per FU)
-    assign issue_stall_wbq = dec_out_valid && (
-                             (dec_alu_op && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
-                             (dec_mul_op && (mul_inflight == MUL_WBQ_DEPTH_VAL)) ||
-                             (dec_fp32_op && (fpu32_inflight == FPU32_WBQ_DEPTH_VAL)) ||
-                             (dec_fp64_op && (fpu64_inflight == FPU64_WBQ_DEPTH_VAL)) ||
-                             (dec_fp16_op && (fp16_inflight == FP16_WBQ_DEPTH_VAL)) ||
-                             (dec_sfu_op && (sfu_inflight == SFU_WBQ_DEPTH_VAL)) ||
-                             (dec_shuffle_op && (shfl_inflight == SHFL_WBQ_DEPTH_VAL))
-                             );
+    // Old dual-issue lane selection logic (superseded by advanced_warp_scheduler)
+    // These are now computed based on scheduler output
+    wire issue0_sel_lane0 = lane0_ready;
+    wire issue0_sel_lane1 = !lane0_ready && lane1_ready;
+    // issue0_fire and issue1_fire are now driven by the scheduler
+    wire old_issue0_fire = issue0_sel_lane0 || issue0_sel_lane1;  // Renamed to avoid conflict
+    wire old_issue1_fire = dual_issue_en && lane0_ready && lane1_ready &&
+                           !lane_warp_conflict && !lane_reg_conflict &&
+                           !lane_unit_conflict && !lane0_control;  // Renamed
 
-    // Issue/decoder handshakes
-    assign issue_accept = dec_out_valid && !issue_stall_raw && !issue_stall_fu &&
-                          !issue_stall_mem && !issue_stall_atomic &&
-                          !issue_stall_tensor && !issue_stall_wbq;
-    assign dec_pipe_ready = !dec_out_valid || issue_accept;
-    assign decode_accept = decode_valid && dec_pipe_ready;
+    assign lane0_issued = issue0_sel_lane0;
+    assign lane1_issued = issue0_sel_lane1 || issue1_fire;
+
+    wire [WARP_ID_W-1:0] issue0_warp_sel =
+        issue0_sel_lane0 ? dec0_warp_id : dec1_warp_id;
+    wire [4:0] issue0_rd_sel =
+        issue0_sel_lane0 ? dec_rd : dec1_rd;
+    wire issue0_reg_write_sel =
+        issue0_sel_lane0 ? dec_reg_write : dec1_reg_write;
+    wire issue0_fp32_sel =
+        issue0_sel_lane0 ? dec_fp32_op : dec1_fp32_op;
+    wire issue0_fp64_sel =
+        issue0_sel_lane0 ? dec_fp64_op : dec1_fp64_op;
+    wire issue0_fp16_sel =
+        issue0_sel_lane0 ? dec_fp16_op : dec1_fp16_op;
+    wire issue0_sfu_sel =
+        issue0_sel_lane0 ? dec_sfu_op : dec1_sfu_op;
+    wire issue0_tensor_sel =
+        issue0_sel_lane0 ? dec_tensor_op : dec1_tensor_op;
+    wire issue0_mem_read_sel =
+        issue0_sel_lane0 ? dec_mem_read : dec1_mem_read;
+    wire issue0_atomic_sel =
+        issue0_sel_lane0 ? dec_atomic_op : dec1_atomic_op;
+    wire issue0_branch_sel =
+        issue0_sel_lane0 ? dec_branch_op : dec1_branch_op;
+    wire issue0_exit_sel =
+        issue0_sel_lane0 ? dec_exit_op : dec1_exit_op;
 
     assign mem_in_flight = issue_valid && (issue_mem_read || issue_mem_write) &&
                            !issue_atomic_op;
 
+    // Aliases for compatibility with later code sections
+    wire issue_stall_mem = lane0_stall_mem;
+    wire issue_accept = issue0_fire;
+
     assign frontend_flush = (issue_valid && issue_exit_op && (INIT_WARPS == 1));
 
-    wire alu_issue = issue_accept && dec_alu_op;
-    wire mul_issue = issue_accept && dec_mul_op;
-    wire fpu32_issue = issue_accept && dec_fp32_op;
-    wire fpu64_issue = issue_accept && dec_fp64_op;
-    wire fp16_issue = issue_accept && dec_fp16_op;
-    wire sfu_issue = issue_accept && dec_sfu_op;
-    wire shfl_issue = issue_accept && dec_shuffle_op;
+    wire alu_issue0 = issue_valid && issue_alu_op;
+    wire alu_issue1 = issue1_valid && issue1_alu_op;
+    wire mul_issue0 = issue_valid && (issue_mul_op || issue_div_op);
+    wire mul_issue1 = issue1_valid && (issue1_mul_op || issue1_div_op);
+    wire fpu32_issue0 = issue_valid && issue_fp32_op;
+    wire fpu32_issue1 = issue1_valid && issue1_fp32_op;
+    wire fpu64_issue0 = issue_valid && issue_fp64_op;
+    wire fpu64_issue1 = issue1_valid && issue1_fp64_op;
+    wire fp16_issue0 = issue_valid && issue_fp16_op;
+    wire fp16_issue1 = issue1_valid && issue1_fp16_op;
+    wire sfu_issue0 = issue_valid && issue_sfu_op;
+    wire sfu_issue1 = issue1_valid && issue1_sfu_op;
+    wire shfl_issue0 = issue_valid && issue_shuffle_op;
+    wire shfl_issue1 = issue1_valid && issue1_shuffle_op;
+
+    wire alu_issue = alu_issue0 || alu_issue1;
+    wire mul_issue = mul_issue0 || mul_issue1;
+    wire fpu32_issue = fpu32_issue0 || fpu32_issue1;
+    wire fpu64_issue = fpu64_issue0 || fpu64_issue1;
+    wire fp16_issue = fp16_issue0 || fp16_issue1;
+    wire sfu_issue = sfu_issue0 || sfu_issue1;
+    wire shfl_issue = shfl_issue0 || shfl_issue1;
 
     //========================================================================
     // Multi-Cycle FU Tracking (Track which warp issued to each pipelined FU)
@@ -815,158 +953,299 @@ module streaming_multiprocessor_v2 #(
     end
 
     //========================================================================
-    // STAGE 1: FETCH
+    // Instruction Cache
     //========================================================================
-    assign fetch_req = warp_selected && !frontend_flush && !frq_full &&
-                       (fetch_slots_used < {1'b0, IFQ_DEPTH_VAL}) &&
-                       (frq_drop_count == 0);
-    assign fetch_fire = fetch_req && imem_ready;
+    wire        icache_req;
+    wire [31:0] icache_addr;
+    wire        icache_ready;
+    wire [31:0] icache_data;
+    wire        icache_valid;
+    wire        icache_fill_req;
+    wire [31:0] icache_fill_addr;
+    wire        icache_fill_ready;
+    wire [511:0] icache_fill_data;
+    wire        icache_fill_valid;
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            frq_head <= {IFQ_PTR_W{1'b0}};
-            frq_tail <= {IFQ_PTR_W{1'b0}};
-            frq_count <= {IFQ_COUNT_W{1'b0}};
-            frq_drop_count <= {IFQ_COUNT_W{1'b0}};
-            last_issued_warp <= 0;
-        end else if (kernel_start) begin
-            frq_head <= {IFQ_PTR_W{1'b0}};
-            frq_tail <= {IFQ_PTR_W{1'b0}};
-            frq_count <= {IFQ_COUNT_W{1'b0}};
-            frq_drop_count <= {IFQ_COUNT_W{1'b0}};
-            last_issued_warp <= 0;
-        end else if (frontend_flush) begin
-            frq_head <= {IFQ_PTR_W{1'b0}};
-            frq_tail <= {IFQ_PTR_W{1'b0}};
-            frq_count <= {IFQ_COUNT_W{1'b0}};
-            frq_drop_count <= frq_count;
-        end else begin
-            if (fetch_fire) begin
-                frq_warp_id[frq_tail] <= selected_warp;
-                frq_pc[frq_tail] <= warp_fetch_pc[selected_warp];
-                frq_tail <= (frq_tail == IFQ_DEPTH-1) ? {IFQ_PTR_W{1'b0}} :
-                            frq_tail + 1'b1;
-                last_issued_warp <= selected_warp;
-            end
-
-            if (frq_pop) begin
-                frq_head <= (frq_head == IFQ_DEPTH-1) ? {IFQ_PTR_W{1'b0}} :
-                            frq_head + 1'b1;
-            end
-
-            case ({fetch_fire, frq_pop})
-                2'b10: frq_count <= frq_count + 1'b1;
-                2'b01: frq_count <= frq_count - 1'b1;
-                default: frq_count <= frq_count;
-            endcase
-
-            if (imem_drop_flush && (frq_drop_count != 0)) begin
-                frq_drop_count <= frq_drop_count - 1'b1;
-            end
-        end
-    end
-
-    assign imem_req = fetch_req;
-    assign imem_addr = warp_fetch_pc[selected_warp];
+    // Use small cache line (8 bytes = 2 instructions) for simpler testing
+    // TODO: Implement proper burst fill for larger cache lines
+    icache #(
+        .SIZE_KB(4),
+        .LINE_SIZE(8),   // 2 instructions per cache line
+        .NUM_WAYS(2)
+    ) u_icache (
+        .clk(clk),
+        .rst_n(rst_n),
+        .fetch_req(fetch_req),
+        .fetch_addr(warp_fetch_pc[fetch_warp_id]),
+        .fetch_ready(icache_ready),
+        .fetch_data(icache_data),
+        .fetch_valid(icache_valid),
+        .invalidate_req(1'b0),
+        .invalidate_addr(32'b0),
+        .invalidate_all(1'b0),
+        .invalidate_done(),
+        .mem_req_valid(imem_req),
+        .mem_req_addr(imem_addr),
+        .mem_req_ready(imem_ready),
+        .mem_resp_data(imem_data),  // 64-bit data for 8-byte cache line
+        .mem_resp_valid(imem_valid),
+        .stat_hits(),
+        .stat_misses(),
+        .stat_prefetch_hits()
+    );
 
     //========================================================================
-    // Instruction Fetch Queue
+    // STAGE 1: FETCH (Updated for ICache)
     //========================================================================
-    assign frq_head_drop = !frq_empty &&
-                           (warp_exit_pending[frq_warp_id[frq_head]] ||
-                            !warp_valid[frq_warp_id[frq_head]]);
-    assign ifq_head_drop = !ifq_empty &&
-                           (warp_exit_pending[ifq_warp_id[ifq_head]] ||
-                            !warp_valid[ifq_warp_id[ifq_head]]);
+    // Per-warp Instruction Buffers
+    reg [31:0] warp_inst_buf [0:NUM_WARPS-1];
+    reg [NUM_WARPS-1:0] warp_inst_buf_valid;
+    wire [NUM_WARPS-1:0] warp_inst_consume;
 
-    wire imem_accept = imem_valid && !frq_empty && !ifq_full &&
-                       (frq_drop_count == 0) && !frq_head_drop;
-    wire imem_drop_flush = imem_valid && (frq_drop_count != 0);
-    wire imem_drop_exit = imem_valid && frq_head_drop;
-    wire imem_drop = imem_drop_flush || imem_drop_exit;
+    // Fetch Arbitration
+    // Simple round-robin to fill empty buffers
+    reg [WARP_ID_W-1:0] fetch_arb_ptr;
+    reg [WARP_ID_W-1:0] fetch_warp_id;
+    reg                 fetch_valid_arb;
 
-    assign frq_pop = imem_accept || imem_drop;
-    assign ifq_push = imem_accept;
-    assign decode_pop = ifq_head_drop || (!ifq_empty && (decode_accept || !decode_valid));
+    // Track which warp has an inflight fetch to avoid double-fetching
+    wire [NUM_WARPS-1:0] warp_fetch_inflight;
+    assign warp_fetch_inflight = fetch_inflight_valid ? (1 << fetch_inflight_warp) : {NUM_WARPS{1'b0}};
 
-    integer ifq_i;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            ifq_head <= {IFQ_PTR_W{1'b0}};
-            ifq_tail <= {IFQ_PTR_W{1'b0}};
-            ifq_count <= {IFQ_COUNT_W{1'b0}};
-            for (ifq_i = 0; ifq_i < IFQ_DEPTH; ifq_i = ifq_i + 1) begin
-                ifq_inst[ifq_i] <= 32'b0;
-                ifq_warp_id[ifq_i] <= {WARP_ID_W{1'b0}};
-                ifq_pc[ifq_i] <= 32'b0;
-            end
-        end else if (kernel_start) begin
-            ifq_head <= {IFQ_PTR_W{1'b0}};
-            ifq_tail <= {IFQ_PTR_W{1'b0}};
-            ifq_count <= {IFQ_COUNT_W{1'b0}};
-        end else if (frontend_flush) begin
-            ifq_head <= {IFQ_PTR_W{1'b0}};
-            ifq_tail <= {IFQ_PTR_W{1'b0}};
-            ifq_count <= {IFQ_COUNT_W{1'b0}};
-        end else begin
-            if (ifq_push) begin
-                ifq_inst[ifq_tail] <= imem_data;
-                ifq_warp_id[ifq_tail] <= frq_warp_id[frq_head];
-                ifq_pc[ifq_tail] <= frq_pc[frq_head];
-                ifq_tail <= (ifq_tail == IFQ_DEPTH-1) ? {IFQ_PTR_W{1'b0}} :
-                            ifq_tail + 1'b1;
-            end
-
-            if (decode_pop) begin
-                ifq_head <= (ifq_head == IFQ_DEPTH-1) ? {IFQ_PTR_W{1'b0}} :
-                            ifq_head + 1'b1;
-            end
-
-            case ({ifq_push, decode_pop})
-                2'b10: ifq_count <= ifq_count + 1'b1;
-                2'b01: ifq_count <= ifq_count - 1'b1;
-                default: ifq_count <= ifq_count;
-            endcase
-        end
-    end
-
-    //========================================================================
-    // STAGE 2: DECODE
-    //========================================================================
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            decode_valid <= 1'b0;
-        end else if (kernel_start || frontend_flush) begin
-            decode_valid <= 1'b0;
-        end else begin
-            if (ifq_head_drop) begin
-                if (decode_accept) begin
-                    decode_valid <= 1'b0;
+    integer f_i;
+    always @(*) begin
+        fetch_valid_arb = 0;
+        fetch_warp_id = 0;
+        for (f_i = 0; f_i < NUM_WARPS; f_i = f_i + 1) begin
+            if (!fetch_valid_arb) begin
+                // Check if warp needs instruction and isn't stalled or already fetching
+                if (warp_valid[(fetch_arb_ptr + f_i) % NUM_WARPS] &&
+                    !warp_inst_buf_valid[(fetch_arb_ptr + f_i) % NUM_WARPS] &&
+                    !warp_fetch_inflight[(fetch_arb_ptr + f_i) % NUM_WARPS] &&
+                    !warp_exit_pending[(fetch_arb_ptr + f_i) % NUM_WARPS]) begin
+                    fetch_valid_arb = 1;
+                    fetch_warp_id = (fetch_arb_ptr + f_i) % NUM_WARPS;
                 end
-            end else if (decode_pop) begin
-                decode_valid <= 1'b1;
-                decode_warp_id <= ifq_warp_id[ifq_head];
-                decode_pc <= ifq_pc[ifq_head];
-                decode_instruction <= ifq_inst[ifq_head];
-            end else if (decode_accept) begin
-                decode_valid <= 1'b0;
             end
         end
     end
+
+    // Fetch Request Logic
+    assign fetch_req = fetch_valid_arb;
+    assign fetch_fire = fetch_req && icache_ready;  // Fetch handshake completed
+    // icache address connection handled in u_icache instantiation: warp_fetch_pc[fetch_warp_id] (need to update u_icache connection)
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            fetch_arb_ptr <= 0;
+            warp_inst_buf_valid <= 0;
+        end else begin
+            // Round-robin update
+            if (fetch_req && icache_ready) begin
+                fetch_arb_ptr <= (fetch_warp_id + 1) % NUM_WARPS;
+            end
+
+            // Fill buffer on cache hit
+            // Note: In a real design, we need to track *which* warp requested
+            // Here assuming 1-cycle hit or stall. For multi-cycle miss, need MSHR.
+            // Simplified: We assume icache_valid corresponds to the current request if we stall on miss
+            // To properly handle hits, we need to latch the requesting warp ID
+        end
+    end
+
+    // Fetch Response Handling (Simplified for Latency)
+    reg [WARP_ID_W-1:0] fetch_inflight_warp;
+    reg                 fetch_inflight_valid;
+
+    // Block new fetch when icache is returning data to prevent double-fill race
+    wire fetch_blocked_by_fill = icache_valid && fetch_inflight_valid;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            fetch_inflight_valid <= 0;
+            fetch_inflight_warp <= 0;
+        end else begin
+            // Priority: Complete current transaction before starting new one
+            if (icache_valid && fetch_inflight_valid) begin
+                // Current fetch completing - clear inflight
+                fetch_inflight_valid <= 0;
+            end else if (fetch_req && icache_ready && !fetch_blocked_by_fill) begin
+                // Only start new fetch if not blocked by fill
+                fetch_inflight_valid <= 1;
+                fetch_inflight_warp <= fetch_warp_id;
+            end
+        end
+    end
+
+    // Write to buffer
+    integer w_buf;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+             for (w_buf = 0; w_buf < NUM_WARPS; w_buf = w_buf + 1) begin
+                 warp_inst_buf[w_buf] <= 0;
+             end
+             warp_inst_buf_valid <= 0;
+        end else begin
+            // Fill
+            if (icache_valid && fetch_inflight_valid) begin
+                warp_inst_buf[fetch_inflight_warp] <= icache_data;
+                warp_inst_buf_valid[fetch_inflight_warp] <= 1'b1;
+                // Update PC only on successful fetch
+                warp_fetch_pc[fetch_inflight_warp] <= warp_fetch_pc[fetch_inflight_warp] + 4;
+            end
+
+            // Consume (from Scheduler)
+            for (w_buf = 0; w_buf < NUM_WARPS; w_buf = w_buf + 1) begin
+                if (warp_inst_consume[w_buf]) begin
+                    warp_inst_buf_valid[w_buf] <= 1'b0;
+                end
+            end
+        end
+    end
+
+
+    //========================================================================
+    // STAGE 2: PRE-DECODE & SCHEDULING (Replaces old Decode)
+    //========================================================================
+
+    // Pre-decode signals for scheduler
+    wire [4:0]               pd_rd [0:NUM_WARPS-1];
+    wire [4:0]               pd_rs1 [0:NUM_WARPS-1];
+    wire [4:0]               pd_rs2 [0:NUM_WARPS-1];
+    wire [4:0]               pd_rs3 [0:NUM_WARPS-1];
+    wire [NUM_WARPS-1:0]     pd_is_compute;
+    wire [NUM_WARPS-1:0]     pd_is_tensor;
+    wire [NUM_WARPS-1:0]     pd_is_memory;
+    wire [NUM_WARPS-1:0]     pd_is_branch;
+    wire [NUM_WARPS-1:0]     pd_writes_reg;
+
+    genvar pd_i;
+    generate
+        for (pd_i = 0; pd_i < NUM_WARPS; pd_i = pd_i + 1) begin : gen_predecode
+            wire [31:0] inst = warp_inst_buf[pd_i];
+            // Simple extraction (assuming R-type/I-type consistency)
+            // Real implementation needs fuller opcode check
+            assign pd_rd[pd_i] = inst[25:21];
+            assign pd_rs1[pd_i] = inst[20:16];
+            assign pd_rs2[pd_i] = inst[15:11];
+            assign pd_rs3[pd_i] = inst[10:6]; // Approximation
+
+            wire [5:0] op = inst[31:26];
+            assign pd_is_compute[pd_i] = (op == `OP_ALU) || (op == `OP_MUL) ||
+                                         (op == `OP_FP32_ARITH) || (op == `OP_FP16_ARITH) ||
+                                         (op == `OP_SFU);
+            assign pd_is_tensor[pd_i]  = (op == `OP_WMMA_MMA);
+            assign pd_is_memory[pd_i]  = (op == `OP_LD_GLOBAL) || (op == `OP_ST_GLOBAL) ||
+                                         (op == `OP_LD_SHARED) || (op == `OP_ST_SHARED);
+            assign pd_is_branch[pd_i]  = (op == `OP_BRANCH) || (op == `OP_EXIT);
+            assign pd_writes_reg[pd_i] = (op != `OP_ST_GLOBAL) && (op != `OP_ST_SHARED) &&
+                                         (op != `OP_BRANCH) && (op != `OP_EXIT);
+        end
+    endgenerate
+
+    // Scheduler Instantiation
+    wire [1:0] sched_issue_valid_mask;
+    wire [WARP_ID_W-1:0] sched_issue_warp_id [0:1];
+    wire [31:0] sched_issue_inst [0:1];
+    wire [2:0] sched_issue_pipe [0:1];
+
+    // Pipeline readiness signals (simplified)
+    wire pipe_compute0_ready = 1'b1; // Pipeline always accepts unless stall logic says otherwise
+    wire pipe_compute1_ready = 1'b1;
+    wire pipe_tensor_ready   = !tensor_issue_full;
+    wire pipe_memory_ready   = !issue_stall_mem; // Reuse stall logic
+    wire pipe_branch_ready   = 1'b1;
+
+    advanced_warp_scheduler #(
+        .NUM_WARPS(NUM_WARPS),
+        .NUM_ISSUE(2)
+    ) u_scheduler (
+        .clk(clk),
+        .rst_n(rst_n),
+        .warp_valid(warp_valid),
+        .warp_ready(warp_ready),
+        .warp_diverged(32'b0), // Todo: connect to CFU
+        .warp_at_barrier(warp_stalled_sync),
+        .warp_inst(warp_inst_buf),
+        .warp_inst_valid(warp_inst_buf_valid),
+        .warp_inst_consume(warp_inst_consume),
+        .warp_rd(pd_rd),
+        .warp_rs1(pd_rs1),
+        .warp_rs2(pd_rs2),
+        .warp_rs3(pd_rs3),
+        .warp_is_compute(pd_is_compute),
+        .warp_is_tensor(pd_is_tensor),
+        .warp_is_memory(pd_is_memory),
+        .warp_is_branch(pd_is_branch),
+        .warp_writes_reg(pd_writes_reg),
+        .compute_pipe0_ready(pipe_compute0_ready),
+        .compute_pipe1_ready(pipe_compute1_ready),
+        .tensor_pipe_ready(pipe_tensor_ready),
+        .memory_pipe_ready(pipe_memory_ready),
+        .branch_unit_ready(pipe_branch_ready),
+        .issue_valid(sched_issue_valid_mask),
+        .issue_warp_id(sched_issue_warp_id),
+        .issue_inst(sched_issue_inst),
+        .issue_pipe(sched_issue_pipe),
+        .wb_valid(wb_valid),
+        .wb_warp_id(wb_warp_id),
+        .wb_rd(wb_rd),
+        .stat_cycles(),
+        .stat_single_issue(),
+        .stat_dual_issue(),
+        .stat_stalls()
+    );
+
+    // Map Scheduler Output to Pipeline Signals
+    // Replaces dec0_fire / dec1_fire logic
+    assign issue0_fire = sched_issue_valid_mask[0];
+    assign issue1_fire = sched_issue_valid_mask[1];
+
+    // We reuse the 'dec0' pipeline registers to hold the scheduled instructions
+    // effectively merging Decode/Issue stages into one logical flow handled by scheduler+decoder
+    // Note: This overrides the previous 'dec0_warp_id <= ifq_warp_head' logic
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            dec0_valid <= 0;
+            dec1_valid <= 0;
+        end else begin
+            dec0_valid <= issue0_fire;
+            if (issue0_fire) begin
+                dec0_warp_id <= sched_issue_warp_id[0];
+                dec0_instruction <= sched_issue_inst[0];
+                dec0_pc <= warp_pc[sched_issue_warp_id[0]]; // Arch PC
+            end
+
+            dec1_valid <= issue1_fire;
+            if (issue1_fire) begin
+                dec1_warp_id <= sched_issue_warp_id[1];
+                dec1_instruction <= sched_issue_inst[1];
+                dec1_pc <= warp_pc[sched_issue_warp_id[1]];
+            end
+        end
+    end
+
+    // REMOVE OLD DECODE LOGIC (This block replaces it)
+    // We effectively bypass the 'dec0_fire' internal logic and drive valid signals directly
+    // from the scheduler's decision.
+
+    // dec0_fire triggers the decoder when we have a valid instruction in decode stage
+    wire dec0_fire = dec0_valid;
+    wire dec1_fire = dec1_valid;
 
     //------------------------------------------------------------------------
-    // Instruction Decoder
+    // Instruction Decoder (lane 0)
     //------------------------------------------------------------------------
     // Internal signals for decoder output mapping
     wire dec_fp32_special;
     wire dec_wmma_mma;
     wire dec_shfl_op;
 
-    decoder u_decoder (
+    decoder u_decoder0 (
         .clk         (clk),
         .rst_n       (rst_n),
-        .instruction (decode_instruction),
-        .valid_in    (decode_accept),
+        .instruction (dec0_instruction),
+        .valid_in    (dec0_fire),
         .valid_out   (dec_valid),
         .opcode      (dec_opcode),
         .rd          (dec_rd),
@@ -999,33 +1278,58 @@ module streaming_multiprocessor_v2 #(
         .pred_addr   ()
     );
 
-    // Align warp/pc metadata with decoder output
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            dec_warp_id <= 0;
-            dec_pc <= 0;
-        end else if (decode_accept) begin
-            dec_warp_id <= decode_warp_id;
-            dec_pc <= decode_pc;
-        end
-    end
+    //------------------------------------------------------------------------
+    // Instruction Decoder (lane 1)
+    //------------------------------------------------------------------------
+    wire dec1_fp32_special;
+    wire dec1_wmma_mma;
+    wire dec1_shfl_op;
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            dec_out_valid <= 1'b0;
-        end else if (kernel_start || frontend_flush) begin
-            dec_out_valid <= 1'b0;
-        end else if (decode_accept) begin
-            dec_out_valid <= 1'b1;
-        end else if (issue_accept) begin
-            dec_out_valid <= 1'b0;
-        end
-    end
+    wire dec1_dec_valid;
+    decoder u_decoder1 (
+        .clk         (clk),
+        .rst_n       (rst_n),
+        .instruction (dec1_instruction),
+        .valid_in    (dec1_fire),
+        .valid_out   (dec1_dec_valid),
+        .opcode      (dec1_opcode),
+        .rd          (dec1_rd),
+        .ra          (dec1_ra),
+        .rb          (dec1_rb),
+        .rc          (dec1_rc),
+        .func        (dec1_func),
+        .imm16       (dec1_imm16),
+        .imm21       (dec1_imm21),
+        .use_imm     (dec1_use_imm),
+        .alu_op      (dec1_alu_op),
+        .mul_op      (dec1_mul_op),
+        .div_op      (dec1_div_op),
+        .fp32_op     (dec1_fp32_op),
+        .fp64_op     (dec1_fp64_op),
+        .fp16_op     (dec1_fp16_op),
+        .fp32_special(dec1_fp32_special),
+        .wmma_mma    (dec1_wmma_mma),
+        .mem_read    (dec1_mem_read),
+        .mem_write   (dec1_mem_write),
+        .mem_shared  (dec1_mem_shared),
+        .branch_op   (dec1_branch_op),
+        .sync_op     (dec1_sync_op),
+        .special_reg (dec1_special_reg),
+        .exit_op     (dec1_exit_op),
+        .atomic_op   (dec1_atomic_op),
+        .shfl_op     (dec1_shfl_op),
+        .reg_write   (dec1_reg_write),
+        .pred_write  (),
+        .pred_addr   ()
+    );
 
     // Map decoder outputs to V2 signal names
     assign dec_sfu_op = dec_fp32_special;
     assign dec_tensor_op = dec_wmma_mma;
     assign dec_shuffle_op = dec_shfl_op;
+    assign dec1_sfu_op = dec1_fp32_special;
+    assign dec1_tensor_op = dec1_wmma_mma;
+    assign dec1_shuffle_op = dec1_shfl_op;
 
     //========================================================================
     // STAGE 3: ISSUE (Scoreboard Check + Register Read)
@@ -1034,6 +1338,7 @@ module streaming_multiprocessor_v2 #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             issue_valid <= 1'b0;
+            issue1_valid <= 1'b0;
             issue_warp_id <= 0;
             issue_pc <= 0;
             issue_opcode <= 0;
@@ -1064,39 +1369,109 @@ module streaming_multiprocessor_v2 #(
             issue_atomic_op <= 1'b0;
             issue_shuffle_op <= 1'b0;
             issue_reg_write <= 1'b0;
+            issue1_warp_id <= 0;
+            issue1_pc <= 0;
+            issue1_opcode <= 0;
+            issue1_rd <= 0;
+            issue1_ra <= 0;
+            issue1_rb <= 0;
+            issue1_rc <= 0;
+            issue1_func <= 0;
+            issue1_imm16 <= 0;
+            issue1_imm21 <= 0;
+            issue1_use_imm <= 1'b0;
+            issue1_mask <= 0;
+            issue1_alu_op <= 1'b0;
+            issue1_mul_op <= 1'b0;
+            issue1_div_op <= 1'b0;
+            issue1_fp32_op <= 1'b0;
+            issue1_fp64_op <= 1'b0;
+            issue1_fp16_op <= 1'b0;
+            issue1_sfu_op <= 1'b0;
+            issue1_tensor_op <= 1'b0;
+            issue1_mem_read <= 1'b0;
+            issue1_mem_write <= 1'b0;
+            issue1_mem_shared <= 1'b0;
+            issue1_branch_op <= 1'b0;
+            issue1_sync_op <= 1'b0;
+            issue1_special_reg <= 1'b0;
+            issue1_exit_op <= 1'b0;
+            issue1_atomic_op <= 1'b0;
+            issue1_shuffle_op <= 1'b0;
+            issue1_reg_write <= 1'b0;
         end else begin
-            issue_valid <= issue_accept;
-            if (issue_accept) begin
-                issue_warp_id <= dec_warp_id;
-                issue_pc <= dec_pc;
-                issue_opcode <= dec_opcode;
-                issue_rd <= dec_rd;
-                issue_ra <= dec_ra;
-                issue_rb <= dec_rb;
-                issue_rc <= dec_rc;
-                issue_func <= dec_func;
-                issue_imm16 <= dec_imm16;
-                issue_imm21 <= dec_imm21;
-                issue_use_imm <= dec_use_imm;
-                issue_mask <= warp_mask[dec_warp_id];
-                issue_alu_op <= dec_alu_op;
-                issue_mul_op <= dec_mul_op;
-                issue_div_op <= dec_div_op;
-                issue_fp32_op <= dec_fp32_op;
-                issue_fp64_op <= dec_fp64_op;
-                issue_fp16_op <= dec_fp16_op;
-                issue_sfu_op <= dec_sfu_op;
-                issue_tensor_op <= dec_tensor_op;
-                issue_mem_read <= dec_mem_read;
-                issue_mem_write <= dec_mem_write;
-                issue_mem_shared <= dec_mem_shared;
-                issue_branch_op <= dec_branch_op;
-                issue_sync_op <= dec_sync_op;
-                issue_special_reg <= dec_special_reg;
-                issue_exit_op <= dec_exit_op;
-                issue_atomic_op <= dec_atomic_op;
-                issue_shuffle_op <= dec_shuffle_op;
-                issue_reg_write <= dec_reg_write;
+            // Issue stage triggers when decoder output is valid (dec_valid)
+            // This ensures decoder has finished processing before we latch its outputs
+            issue_valid <= dec_valid;
+            issue1_valid <= dec1_dec_valid;  // Use decoder 1's valid output
+            if (dec_valid) begin
+                // With the new scheduler flow, always use lane 0's decoder output
+                // (the old lane0_ready-based selection doesn't apply here)
+                begin
+                    issue_warp_id <= dec0_warp_id;
+                    issue_pc <= dec0_pc;
+                    issue_opcode <= dec_opcode;
+                    issue_rd <= dec_rd;
+                    issue_ra <= dec_ra;
+                    issue_rb <= dec_rb;
+                    issue_rc <= dec_rc;
+                    issue_func <= dec_func;
+                    issue_imm16 <= dec_imm16;
+                    issue_imm21 <= dec_imm21;
+                    issue_use_imm <= dec_use_imm;
+                    issue_mask <= warp_mask[dec0_warp_id];
+                    issue_alu_op <= dec_alu_op;
+                    issue_mul_op <= dec_mul_op;
+                    issue_div_op <= dec_div_op;
+                    issue_fp32_op <= dec_fp32_op;
+                    issue_fp64_op <= dec_fp64_op;
+                    issue_fp16_op <= dec_fp16_op;
+                    issue_sfu_op <= dec_sfu_op;
+                    issue_tensor_op <= dec_tensor_op;
+                    issue_mem_read <= dec_mem_read;
+                    issue_mem_write <= dec_mem_write;
+                    issue_mem_shared <= dec_mem_shared;
+                    issue_branch_op <= dec_branch_op;
+                    issue_sync_op <= dec_sync_op;
+                    issue_special_reg <= dec_special_reg;
+                    issue_exit_op <= dec_exit_op;
+                    issue_atomic_op <= dec_atomic_op;
+                    issue_shuffle_op <= dec_shuffle_op;
+                    issue_reg_write <= dec_reg_write;
+                end
+            end
+
+            if (issue1_fire) begin
+                issue1_warp_id <= dec1_warp_id;
+                issue1_pc <= dec1_pc;
+                issue1_opcode <= dec1_opcode;
+                issue1_rd <= dec1_rd;
+                issue1_ra <= dec1_ra;
+                issue1_rb <= dec1_rb;
+                issue1_rc <= dec1_rc;
+                issue1_func <= dec1_func;
+                issue1_imm16 <= dec1_imm16;
+                issue1_imm21 <= dec1_imm21;
+                issue1_use_imm <= dec1_use_imm;
+                issue1_mask <= warp_mask[dec1_warp_id];
+                issue1_alu_op <= dec1_alu_op;
+                issue1_mul_op <= dec1_mul_op;
+                issue1_div_op <= dec1_div_op;
+                issue1_fp32_op <= dec1_fp32_op;
+                issue1_fp64_op <= dec1_fp64_op;
+                issue1_fp16_op <= dec1_fp16_op;
+                issue1_sfu_op <= dec1_sfu_op;
+                issue1_tensor_op <= dec1_tensor_op;
+                issue1_mem_read <= dec1_mem_read;
+                issue1_mem_write <= dec1_mem_write;
+                issue1_mem_shared <= dec1_mem_shared;
+                issue1_branch_op <= dec1_branch_op;
+                issue1_sync_op <= dec1_sync_op;
+                issue1_special_reg <= dec1_special_reg;
+                issue1_exit_op <= dec1_exit_op;
+                issue1_atomic_op <= dec1_atomic_op;
+                issue1_shuffle_op <= dec1_shuffle_op;
+                issue1_reg_write <= dec1_reg_write;
             end
         end
     end
@@ -1110,8 +1485,11 @@ module streaming_multiprocessor_v2 #(
             end
         end else begin
             // Mark destination register as busy on issue
-            if (issue_accept && dec_reg_write && dec_rd != 0) begin
-                scoreboard_busy[dec_warp_id][dec_rd] <= 1'b1;
+            if (issue0_fire && issue0_reg_write_sel && (issue0_rd_sel != 0)) begin
+                scoreboard_busy[issue0_warp_sel][issue0_rd_sel] <= 1'b1;
+            end
+            if (issue1_fire && dec1_reg_write && (dec1_rd != 0)) begin
+                scoreboard_busy[dec1_warp_id][dec1_rd] <= 1'b1;
             end
 
             // Clear on writeback
@@ -1120,10 +1498,15 @@ module streaming_multiprocessor_v2 #(
             end
 
             // Increment pending FU count for multi-cycle operations
-            if (issue_accept && (dec_fp32_op || dec_fp64_op || dec_fp16_op ||
-                                 dec_sfu_op || dec_tensor_op || dec_mem_read ||
-                                 dec_atomic_op)) begin
-                pending_fu_count[dec_warp_id] <= pending_fu_count[dec_warp_id] + 1;
+            if (issue0_fire && (issue0_fp32_sel || issue0_fp64_sel || issue0_fp16_sel ||
+                                issue0_sfu_sel || issue0_tensor_sel || issue0_mem_read_sel ||
+                                issue0_atomic_sel)) begin
+                pending_fu_count[issue0_warp_sel] <= pending_fu_count[issue0_warp_sel] + 1;
+            end
+            if (issue1_fire && (dec1_fp32_op || dec1_fp64_op || dec1_fp16_op ||
+                                dec1_sfu_op || dec1_tensor_op || dec1_mem_read ||
+                                dec1_atomic_op)) begin
+                pending_fu_count[dec1_warp_id] <= pending_fu_count[dec1_warp_id] + 1;
             end
 
             // Decrement pending count on writeback
@@ -1188,7 +1571,9 @@ module streaming_multiprocessor_v2 #(
     // Banked Register File (Per-Warp) - 4-bank conflict-free design
     //------------------------------------------------------------------------
     wire rf_conflict_a, rf_conflict_b, rf_conflict_c, rf_wr_conflict;
+    wire rf1_conflict_a, rf1_conflict_b, rf1_conflict_c, rf1_wr_conflict;
     wire [31:0] rf_stat_bank_conflicts, rf_stat_total_accesses;
+    wire [31:0] rf1_stat_bank_conflicts, rf1_stat_total_accesses;
 
     // Operand collector interface (unused - tie off with wires for iverilog compatibility)
     wire [4:0] oc_addr_tie [0:2];
@@ -1199,7 +1584,7 @@ module streaming_multiprocessor_v2 #(
     register_file_banked #(
         .NUM_WARPS(NUM_WARPS),
         .NUM_BANKS(4)
-    ) u_regfile (
+    ) u_regfile0 (
         .clk       (clk),
         .rst_n     (rst_n),
         // Read port - warp selection
@@ -1233,6 +1618,43 @@ module streaming_multiprocessor_v2 #(
         .stat_total_accesses(rf_stat_total_accesses)
     );
 
+    register_file_banked #(
+        .NUM_WARPS(NUM_WARPS),
+        .NUM_BANKS(4)
+    ) u_regfile1 (
+        .clk       (clk),
+        .rst_n     (rst_n),
+        // Read port - warp selection
+        .rd_warp_id(issue1_warp_id),
+        .wr_warp_id(wb_warp_id),
+        // Read ports
+        .rd_addr_a (issue1_ra),
+        .rd_addr_b (issue1_rb),
+        .rd_addr_c (issue1_rc),
+        .rd_data_a (rf1_rd_data_a),
+        .rd_data_b (rf1_rd_data_b),
+        .rd_data_c (rf1_rd_data_c),
+        .rd_conflict_a(rf1_conflict_a),
+        .rd_conflict_b(rf1_conflict_b),
+        .rd_conflict_c(rf1_conflict_c),
+        // Write port
+        .wr_en     (rf_wr_en),
+        .wr_addr   (wb_rd),
+        .wr_data   (rf_wr_data),
+        .wr_mask   (rf_wr_mask),
+        .wr_conflict(rf1_wr_conflict),
+        // Operand collector interface (unused for now - tied off)
+        .oc_valid  (1'b0),
+        .oc_warp_id({WARP_ID_W{1'b0}}),
+        .oc_addr   (oc_addr_tie),
+        .oc_data   (),
+        .oc_ready  (),
+        .oc_conflict(),
+        // Statistics
+        .stat_bank_conflicts(rf1_stat_bank_conflicts),
+        .stat_total_accesses(rf1_stat_total_accesses)
+    );
+
     //========================================================================
     // STAGE 4: EXECUTE (Multiple Functional Units)
     //========================================================================
@@ -1240,11 +1662,22 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // SIMD ALU (Integer Operations)
     //------------------------------------------------------------------------
+    wire alu_use_slot0 = alu_issue0;
+    wire alu_use_slot1 = alu_issue1;
+    wire [WARP_ID_W-1:0] alu_issue_warp = alu_use_slot0 ? issue_warp_id : issue1_warp_id;
+    wire [4:0] alu_issue_rd = alu_use_slot0 ? issue_rd : issue1_rd;
+    wire [NUM_LANES-1:0] alu_issue_mask = alu_use_slot0 ? issue_mask : issue1_mask;
+    wire [5:0] alu_issue_func = alu_use_slot0 ? issue_func : issue1_func;
+    wire [15:0] alu_issue_imm16 = alu_use_slot0 ? issue_imm16 : issue1_imm16;
+    wire alu_issue_use_imm = alu_use_slot0 ? issue_use_imm : issue1_use_imm;
+    wire [SIMD_WIDTH-1:0] alu_op_a = alu_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
+    wire [SIMD_WIDTH-1:0] alu_op_b = alu_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
+
     simd_alu u_simd_alu (
-        .func       (issue_func),
-        .operand_a  (rf_rd_data_a),
-        .operand_b  (issue_use_imm ? {NUM_LANES{16'b0, issue_imm16}} : rf_rd_data_b),
-        .lane_mask  (issue_mask),
+        .func       (alu_issue_func),
+        .operand_a  (alu_op_a),
+        .operand_b  (alu_issue_use_imm ? {NUM_LANES{16'b0, alu_issue_imm16}} : alu_op_b),
+        .lane_mask  (alu_issue_mask),
         .result     (alu_result),
         .zero_flags (alu_zero),
         .neg_flags  (alu_neg)
@@ -1259,11 +1692,11 @@ module streaming_multiprocessor_v2 #(
             alu_mask_pipe <= 0;
             alu_result_pipe <= 0;
         end else begin
-            alu_valid_pipe <= issue_valid && issue_alu_op;
-            if (issue_valid && issue_alu_op) begin
-                alu_warp_pipe <= issue_warp_id;
-                alu_rd_pipe <= issue_rd;
-                alu_mask_pipe <= issue_mask;
+            alu_valid_pipe <= alu_issue;
+            if (alu_issue) begin
+                alu_warp_pipe <= alu_issue_warp;
+                alu_rd_pipe <= alu_issue_rd;
+                alu_mask_pipe <= alu_issue_mask;
                 alu_result_pipe <= alu_result;
             end
         end
@@ -1274,15 +1707,25 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // SIMD Multiplier
     //------------------------------------------------------------------------
+    wire mul_use_slot0 = mul_issue0;
+    wire mul_use_slot1 = mul_issue1;
+    wire [WARP_ID_W-1:0] mul_issue_warp = mul_use_slot0 ? issue_warp_id : issue1_warp_id;
+    wire [4:0] mul_issue_rd = mul_use_slot0 ? issue_rd : issue1_rd;
+    wire [NUM_LANES-1:0] mul_issue_mask = mul_use_slot0 ? issue_mask : issue1_mask;
+    wire [5:0] mul_issue_func = mul_use_slot0 ? issue_func : issue1_func;
+    wire [SIMD_WIDTH-1:0] mul_op_a = mul_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
+    wire [SIMD_WIDTH-1:0] mul_op_b = mul_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
+    wire [SIMD_WIDTH-1:0] mul_op_c = mul_use_slot0 ? rf_rd_data_c : rf1_rd_data_c;
+
     simd_mul_unit u_simd_mul (
         .clk       (clk),
         .rst_n     (rst_n),
-        .valid_in  (issue_valid && issue_mul_op),
-        .func      (issue_func),
-        .operand_a (rf_rd_data_a),
-        .operand_b (rf_rd_data_b),
-        .operand_c (rf_rd_data_c),
-        .lane_mask (issue_mask),
+        .valid_in  (mul_issue),
+        .func      (mul_issue_func),
+        .operand_a (mul_op_a),
+        .operand_b (mul_op_b),
+        .operand_c (mul_op_c),
+        .lane_mask (mul_issue_mask),
         .valid_out (mul_valid_out),
         .result    (mul_result)
     );
@@ -1292,28 +1735,38 @@ module streaming_multiprocessor_v2 #(
             mul_warp_pipe <= 0;
             mul_rd_pipe <= 0;
             mul_mask_pipe <= 0;
-        end else if (issue_valid && issue_mul_op) begin
-            mul_warp_pipe <= issue_warp_id;
-            mul_rd_pipe <= issue_rd;
-            mul_mask_pipe <= issue_mask;
+        end else if (mul_issue) begin
+            mul_warp_pipe <= mul_issue_warp;
+            mul_rd_pipe <= mul_issue_rd;
+            mul_mask_pipe <= mul_issue_mask;
         end
     end
 
     //------------------------------------------------------------------------
     // SIMD FPU (FP32) - 4-cycle pipeline
     //------------------------------------------------------------------------
-    assign fpu32_valid_in = issue_valid && issue_fp32_op;
+    wire fpu32_use_slot0 = fpu32_issue0;
+    wire fpu32_use_slot1 = fpu32_issue1;
+    wire [WARP_ID_W-1:0] fpu32_issue_warp = fpu32_use_slot0 ? issue_warp_id : issue1_warp_id;
+    wire [4:0] fpu32_issue_rd = fpu32_use_slot0 ? issue_rd : issue1_rd;
+    wire [NUM_LANES-1:0] fpu32_issue_mask = fpu32_use_slot0 ? issue_mask : issue1_mask;
+    wire [5:0] fpu32_issue_func = fpu32_use_slot0 ? issue_func : issue1_func;
+    wire [SIMD_WIDTH-1:0] fpu32_op_a = fpu32_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
+    wire [SIMD_WIDTH-1:0] fpu32_op_b = fpu32_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
+    wire [SIMD_WIDTH-1:0] fpu32_op_c = fpu32_use_slot0 ? rf_rd_data_c : rf1_rd_data_c;
+
+    assign fpu32_valid_in = fpu32_issue;
 
     simd_fpu u_simd_fpu (
         .clk       (clk),
         .rst_n     (rst_n),
         .valid_in  (fpu32_valid_in),
         .ready     (fpu32_ready),
-        .func      (issue_func),
-        .operand_a (rf_rd_data_a),
-        .operand_b (rf_rd_data_b),
-        .operand_c (rf_rd_data_c),
-        .lane_mask (issue_mask),
+        .func      (fpu32_issue_func),
+        .operand_a (fpu32_op_a),
+        .operand_b (fpu32_op_b),
+        .operand_c (fpu32_op_c),
+        .lane_mask (fpu32_issue_mask),
         .valid_out (fpu32_valid_out),
         .result    (fpu32_result)
     );
@@ -1328,9 +1781,9 @@ module streaming_multiprocessor_v2 #(
                 fpu32_mask_pipe[fpu32_i] <= 0;
             end
         end else begin
-            fpu32_warp_pipe[0] <= fpu32_valid_in ? issue_warp_id : {WARP_ID_W{1'b0}};
-            fpu32_rd_pipe[0] <= fpu32_valid_in ? issue_rd : 5'b0;
-            fpu32_mask_pipe[0] <= fpu32_valid_in ? issue_mask : {NUM_LANES{1'b0}};
+            fpu32_warp_pipe[0] <= fpu32_valid_in ? fpu32_issue_warp : {WARP_ID_W{1'b0}};
+            fpu32_rd_pipe[0] <= fpu32_valid_in ? fpu32_issue_rd : 5'b0;
+            fpu32_mask_pipe[0] <= fpu32_valid_in ? fpu32_issue_mask : {NUM_LANES{1'b0}};
             for (fpu32_i = 1; fpu32_i < 5; fpu32_i = fpu32_i + 1) begin
                 fpu32_warp_pipe[fpu32_i] <= fpu32_warp_pipe[fpu32_i-1];
                 fpu32_rd_pipe[fpu32_i] <= fpu32_rd_pipe[fpu32_i-1];
@@ -1342,18 +1795,28 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // FP64 Unit
     //------------------------------------------------------------------------
-    assign fpu64_valid_in = issue_valid && issue_fp64_op;
+    wire fpu64_use_slot0 = fpu64_issue0;
+    wire fpu64_use_slot1 = fpu64_issue1;
+    wire [WARP_ID_W-1:0] fpu64_issue_warp = fpu64_use_slot0 ? issue_warp_id : issue1_warp_id;
+    wire [4:0] fpu64_issue_rd = fpu64_use_slot0 ? issue_rd : issue1_rd;
+    wire [NUM_LANES-1:0] fpu64_issue_mask = fpu64_use_slot0 ? issue_mask : issue1_mask;
+    wire [5:0] fpu64_issue_func = fpu64_use_slot0 ? issue_func : issue1_func;
+    wire [SIMD_WIDTH-1:0] fpu64_op_a = fpu64_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
+    wire [SIMD_WIDTH-1:0] fpu64_op_b = fpu64_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
+    wire [SIMD_WIDTH-1:0] fpu64_op_c = fpu64_use_slot0 ? rf_rd_data_c : rf1_rd_data_c;
+
+    assign fpu64_valid_in = fpu64_issue;
 
     simd_fpu64 u_simd_fpu64 (
         .clk       (clk),
         .rst_n     (rst_n),
         .valid_in  (fpu64_valid_in),
         .ready     (fpu64_ready),
-        .func      (issue_func),
-        .operand_a (rf_rd_data_a),
-        .operand_b (rf_rd_data_b),
-        .operand_c (rf_rd_data_c),
-        .lane_mask (issue_mask),
+        .func      (fpu64_issue_func),
+        .operand_a (fpu64_op_a),
+        .operand_b (fpu64_op_b),
+        .operand_c (fpu64_op_c),
+        .lane_mask (fpu64_issue_mask),
         .valid_out (fpu64_valid_out),
         .result    (fpu64_result)
     );
@@ -1367,9 +1830,9 @@ module streaming_multiprocessor_v2 #(
                 fpu64_mask_pipe[fpu64_i] <= 0;
             end
         end else begin
-            fpu64_warp_pipe[0] <= fpu64_valid_in ? issue_warp_id : {WARP_ID_W{1'b0}};
-            fpu64_rd_pipe[0] <= fpu64_valid_in ? issue_rd : 5'b0;
-            fpu64_mask_pipe[0] <= fpu64_valid_in ? issue_mask : {NUM_LANES{1'b0}};
+            fpu64_warp_pipe[0] <= fpu64_valid_in ? fpu64_issue_warp : {WARP_ID_W{1'b0}};
+            fpu64_rd_pipe[0] <= fpu64_valid_in ? fpu64_issue_rd : 5'b0;
+            fpu64_mask_pipe[0] <= fpu64_valid_in ? fpu64_issue_mask : {NUM_LANES{1'b0}};
             for (fpu64_i = 1; fpu64_i < 5; fpu64_i = fpu64_i + 1) begin
                 fpu64_warp_pipe[fpu64_i] <= fpu64_warp_pipe[fpu64_i-1];
                 fpu64_rd_pipe[fpu64_i] <= fpu64_rd_pipe[fpu64_i-1];
@@ -1389,17 +1852,26 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // FP16/BF16 Unit
     //------------------------------------------------------------------------
-    assign fp16_valid_in = issue_valid && issue_fp16_op;
+    wire fp16_use_slot0 = fp16_issue0;
+    wire fp16_use_slot1 = fp16_issue1;
+    wire [WARP_ID_W-1:0] fp16_issue_warp = fp16_use_slot0 ? issue_warp_id : issue1_warp_id;
+    wire [4:0] fp16_issue_rd = fp16_use_slot0 ? issue_rd : issue1_rd;
+    wire [NUM_LANES-1:0] fp16_issue_mask = fp16_use_slot0 ? issue_mask : issue1_mask;
+    wire [5:0] fp16_issue_func = fp16_use_slot0 ? issue_func : issue1_func;
+    wire [SIMD_WIDTH-1:0] fp16_op_a = fp16_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
+    wire [SIMD_WIDTH-1:0] fp16_op_b = fp16_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
+
+    assign fp16_valid_in = fp16_issue;
 
     simd_fp16 u_simd_fp16 (
         .clk       (clk),
         .rst_n     (rst_n),
         .valid_in  (fp16_valid_in),
         .ready     (fp16_ready),
-        .func      (issue_func),
-        .operand_a (rf_rd_data_a),
-        .operand_b (rf_rd_data_b),
-        .lane_mask (issue_mask),
+        .func      (fp16_issue_func),
+        .operand_a (fp16_op_a),
+        .operand_b (fp16_op_b),
+        .lane_mask (fp16_issue_mask),
         .valid_out (fp16_valid_out),
         .result    (fp16_result)
     );
@@ -1413,9 +1885,9 @@ module streaming_multiprocessor_v2 #(
                 fp16_mask_pipe[fp16_i] <= 0;
             end
         end else begin
-            fp16_warp_pipe[0] <= fp16_valid_in ? issue_warp_id : {WARP_ID_W{1'b0}};
-            fp16_rd_pipe[0] <= fp16_valid_in ? issue_rd : 5'b0;
-            fp16_mask_pipe[0] <= fp16_valid_in ? issue_mask : {NUM_LANES{1'b0}};
+            fp16_warp_pipe[0] <= fp16_valid_in ? fp16_issue_warp : {WARP_ID_W{1'b0}};
+            fp16_rd_pipe[0] <= fp16_valid_in ? fp16_issue_rd : 5'b0;
+            fp16_mask_pipe[0] <= fp16_valid_in ? fp16_issue_mask : {NUM_LANES{1'b0}};
             fp16_warp_pipe[1] <= fp16_warp_pipe[0];
             fp16_rd_pipe[1] <= fp16_rd_pipe[0];
             fp16_mask_pipe[1] <= fp16_mask_pipe[0];
@@ -1425,16 +1897,24 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // Special Function Unit (sin, cos, sqrt, exp, log)
     //------------------------------------------------------------------------
-    assign sfu_valid_in = issue_valid && issue_sfu_op;
+    wire sfu_use_slot0 = sfu_issue0;
+    wire sfu_use_slot1 = sfu_issue1;
+    wire [WARP_ID_W-1:0] sfu_issue_warp = sfu_use_slot0 ? issue_warp_id : issue1_warp_id;
+    wire [4:0] sfu_issue_rd = sfu_use_slot0 ? issue_rd : issue1_rd;
+    wire [NUM_LANES-1:0] sfu_issue_mask = sfu_use_slot0 ? issue_mask : issue1_mask;
+    wire [5:0] sfu_issue_func = sfu_use_slot0 ? issue_func : issue1_func;
+    wire [SIMD_WIDTH-1:0] sfu_op = sfu_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
+
+    assign sfu_valid_in = sfu_issue;
 
     simd_sfu u_simd_sfu (
         .clk       (clk),
         .rst_n     (rst_n),
         .valid_in  (sfu_valid_in),
         .ready     (sfu_ready),
-        .func      (issue_func),
-        .operand   (rf_rd_data_a),
-        .lane_mask (issue_mask),
+        .func      (sfu_issue_func),
+        .operand   (sfu_op),
+        .lane_mask (sfu_issue_mask),
         .valid_out (sfu_valid_out),
         .result    (sfu_result)
     );
@@ -1449,9 +1929,9 @@ module streaming_multiprocessor_v2 #(
                 sfu_mask_pipe[sfu_i] <= 0;
             end
         end else begin
-            sfu_warp_pipe[0] <= sfu_valid_in ? issue_warp_id : {WARP_ID_W{1'b0}};
-            sfu_rd_pipe[0] <= sfu_valid_in ? issue_rd : 5'b0;
-            sfu_mask_pipe[0] <= sfu_valid_in ? issue_mask : {NUM_LANES{1'b0}};
+            sfu_warp_pipe[0] <= sfu_valid_in ? sfu_issue_warp : {WARP_ID_W{1'b0}};
+            sfu_rd_pipe[0] <= sfu_valid_in ? sfu_issue_rd : 5'b0;
+            sfu_mask_pipe[0] <= sfu_valid_in ? sfu_issue_mask : {NUM_LANES{1'b0}};
             for (sfu_i = 1; sfu_i < 8; sfu_i = sfu_i + 1) begin
                 sfu_warp_pipe[sfu_i] <= sfu_warp_pipe[sfu_i-1];
                 sfu_rd_pipe[sfu_i] <= sfu_rd_pipe[sfu_i-1];
@@ -1565,6 +2045,9 @@ module streaming_multiprocessor_v2 #(
 
     assign tensor_valid_in = tensor_issue_pop;
 
+    //------------------------------------------------------------------------
+    // Tensor Core (WMMA Operations)
+    //------------------------------------------------------------------------
     tensor_core #(
         .NUM_LANES       (NUM_LANES),
         .DATA_WIDTH      (DATA_WIDTH),
@@ -1586,6 +2069,7 @@ module streaming_multiprocessor_v2 #(
         .result_valid(tensor_valid_out),
         .result_data (tensor_result)
     );
+
 
     assign tensor_meta_push_data = pack_tensor_meta(tensor_issue_warp,
                                                     tensor_issue_rd,
@@ -1640,25 +2124,35 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // Warp Shuffle Unit
     //------------------------------------------------------------------------
-    assign shuffle_valid_in = issue_valid && issue_shuffle_op;
+    wire shfl_use_slot0 = shfl_issue0;
+    wire shfl_use_slot1 = shfl_issue1;
+    wire [WARP_ID_W-1:0] shfl_issue_warp = shfl_use_slot0 ? issue_warp_id : issue1_warp_id;
+    wire [4:0] shfl_issue_rd = shfl_use_slot0 ? issue_rd : issue1_rd;
+    wire [NUM_LANES-1:0] shfl_issue_mask = shfl_use_slot0 ? issue_mask : issue1_mask;
+    wire [5:0] shfl_issue_func = shfl_use_slot0 ? issue_func : issue1_func;
+    wire [15:0] shfl_issue_imm16 = shfl_use_slot0 ? issue_imm16 : issue1_imm16;
+    wire [SIMD_WIDTH-1:0] shfl_src_data = shfl_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
+    wire [SIMD_WIDTH-1:0] shfl_src_b = shfl_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
+
+    assign shuffle_valid_in = shfl_issue;
 
     genvar sh_i;
     generate
         for (sh_i = 0; sh_i < NUM_LANES; sh_i = sh_i + 1) begin : shuffle_lanes
-            assign shuffle_src_lane[sh_i*5 +: 5] = rf_rd_data_b[sh_i*32 +: 5];
+            assign shuffle_src_lane[sh_i*5 +: 5] = shfl_src_b[sh_i*32 +: 5];
         end
     endgenerate
 
-    assign shuffle_offset = {NUM_LANES{issue_imm16[4:0]}};
+    assign shuffle_offset = {NUM_LANES{shfl_issue_imm16[4:0]}};
 
     warp_shuffle u_warp_shuffle (
-        .func       (issue_func),
-        .src_data   (rf_rd_data_a),
+        .func       (shfl_issue_func),
+        .src_data   (shfl_src_data),
         .src_lane   (shuffle_src_lane),
         .offset     (shuffle_offset),
-        .lane_mask  (issue_mask),
-        .width      (issue_imm16[4:0]),
-        .membermask (issue_mask),
+        .lane_mask  (shfl_issue_mask),
+        .width      (shfl_issue_imm16[4:0]),
+        .membermask (shfl_issue_mask),
         .result     (shuffle_result),
         .valid_out  (shuffle_valid_mask)
     );
@@ -1674,9 +2168,9 @@ module streaming_multiprocessor_v2 #(
         end else begin
             shuffle_valid_pipe <= shuffle_valid_in;
             if (shuffle_valid_in) begin
-                shuffle_warp_pipe <= issue_warp_id;
-                shuffle_rd_pipe <= issue_rd;
-                shuffle_mask_pipe <= issue_mask;
+                shuffle_warp_pipe <= shfl_issue_warp;
+                shuffle_rd_pipe <= shfl_issue_rd;
+                shuffle_mask_pipe <= shfl_issue_mask;
                 shuffle_result_pipe <= shuffle_result;
             end
         end
@@ -1951,7 +2445,7 @@ module streaming_multiprocessor_v2 #(
         .clk             (clk),
         .rst_n           (rst_n),
         .pc_current      (issue_pc),
-        .warp_id         (issue_warp_id[1:0]),
+        .warp_id         (issue_warp_id),
         .active_mask     (issue_mask),
         .branch_valid    (issue_valid && issue_branch_op),
         .branch_type     (issue_func),
@@ -2161,14 +2655,13 @@ module streaming_multiprocessor_v2 #(
                 end
             end
 
-            // Advance fetch PC when issuing a new fetch
-            if (fetch_fire) begin
-                warp_fetch_pc[selected_warp] <= warp_fetch_pc[selected_warp] + 4;
-            end
+            // NOTE: Fetch PC is advanced in the instruction buffer fill logic (line 1083)
+            // when icache returns valid data. Don't advance here on fetch_fire to avoid
+            // double-counting. The fetch_fire signal is used for other purposes (arbitration).
 
             // Update architectural PC when instruction is issued (in-order)
             if (issue_accept && !dec_branch_op && !dec_exit_op) begin
-                warp_pc[dec_warp_id] <= warp_pc[dec_warp_id] + 4;
+                warp_pc[dec0_warp_id] <= warp_pc[dec0_warp_id] + 4;
             end
 
             // Branch handling

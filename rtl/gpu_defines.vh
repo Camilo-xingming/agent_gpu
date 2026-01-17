@@ -6,15 +6,67 @@
 `ifndef GPU_DEFINES_VH
 `define GPU_DEFINES_VH
 
+`include "gpu_config.vh"
+
 //============================================================================
 // 可配置参数 - 修改这些参数来扩展算力
 //============================================================================
-`define NUM_SM              2       // SM数量 (2, 4, 8, 16...)
+`ifndef NUM_SM
+`ifdef GPU_PROFILE_LITE
+`define NUM_SM              2       // LITE: 2 SM
+`elsif GPU_PROFILE_BALANCED
+`define NUM_SM              8       // BALANCED: 8 SM
+`elsif GPU_PROFILE_HPC
+`define NUM_SM              16      // HPC: 16 SM (scale-up option)
+`else
+`define NUM_SM              2       // 默认: 保持现有配置
+`endif
+`endif
+
+`ifndef THREADS_PER_WARP
 `define THREADS_PER_WARP    32      // 每Warp线程数
-`define WARPS_PER_SM        4       // 每SM的Warp数
+`endif
+
+`ifndef WARPS_PER_SM
+`ifdef GPU_PROFILE_LITE
+`define WARPS_PER_SM        4       // LITE: 4 warps/SM
+`elsif GPU_PROFILE_BALANCED
+`define WARPS_PER_SM        8       // BALANCED: 8 warps/SM
+`elsif GPU_PROFILE_HPC
+`define WARPS_PER_SM        16      // HPC: 16 warps/SM
+`else
+`define WARPS_PER_SM        4       // 默认: 4 warps/SM
+`endif
+`endif
+
+`ifndef NUM_REGS
 `define NUM_REGS            32      // 每线程寄存器数
-`define SHARED_MEM_KB       16      // 共享内存大小(KB)
+`endif
+
+`ifndef SHARED_MEM_KB
+`ifdef GPU_PROFILE_LITE
+`define SHARED_MEM_KB       16      // LITE: 16KB
+`elsif GPU_PROFILE_BALANCED
+`define SHARED_MEM_KB       64      // BALANCED: 64KB
+`elsif GPU_PROFILE_HPC
+`define SHARED_MEM_KB       96      // HPC: 96KB
+`else
+`define SHARED_MEM_KB       16      // 默认: 16KB
+`endif
+`endif
+
+`ifndef DATA_WIDTH
 `define DATA_WIDTH          32      // 数据位宽
+`endif
+
+// 调度/发射宽度
+`ifndef SM_ISSUE_WIDTH
+`ifdef GPU_PROFILE_HPC
+`define SM_ISSUE_WIDTH      2
+`else
+`define SM_ISSUE_WIDTH      1
+`endif
+`endif
 
 //============================================================================
 // 派生参数 (自动计算)
@@ -22,11 +74,11 @@
 `define THREADS_PER_SM      (`THREADS_PER_WARP * `WARPS_PER_SM)
 `define TOTAL_THREADS       (`THREADS_PER_SM * `NUM_SM)
 `define REG_ADDR_WIDTH      5       // log2(32) = 5
-`define WARP_ID_WIDTH       2       // log2(4) = 2
-`define SM_ID_WIDTH         1       // log2(2) = 1
-`define THREAD_ID_WIDTH     5       // log2(32) = 5
+`define WARP_ID_WIDTH       ((`WARPS_PER_SM > 1) ? $clog2(`WARPS_PER_SM) : 1)
+`define SM_ID_WIDTH         ((`NUM_SM > 1) ? $clog2(`NUM_SM) : 1)
+`define THREAD_ID_WIDTH     $clog2(`THREADS_PER_WARP)
 `define SHARED_MEM_SIZE     (`SHARED_MEM_KB * 1024)
-`define SHARED_MEM_ADDR_W   14      // log2(16K) = 14
+`define SHARED_MEM_ADDR_W   $clog2(`SHARED_MEM_SIZE)
 
 //============================================================================
 // 指令编码 - OPCODE (6-bit)
@@ -48,6 +100,7 @@
 // Phase 2: 浮点运算指令
 `define OP_FP32_ARITH   6'b001101   // FP32算术 (add/sub/mul/div/fma)
 `define OP_FP32_SPECIAL 6'b001110   // FP32特殊函数 (rcp/sqrt/rsqrt/sin/cos/lg2/ex2)
+`define OP_SFU          6'b001110   // SFU alias for special functions
 `define OP_FP64_ARITH   6'b001111   // FP64算术
 `define OP_FP16_ARITH   6'b010000   // FP16/BF16算术
 `define OP_CVT          6'b010001   // 类型转换

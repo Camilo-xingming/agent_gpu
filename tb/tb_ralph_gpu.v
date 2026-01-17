@@ -36,7 +36,7 @@ module tb_ralph_gpu;
 
     wire        imem_req;
     wire [31:0] imem_addr;
-    reg  [31:0] imem_data;
+    reg  [63:0] imem_data;
     reg         imem_valid;
 
     // AXI4 接口
@@ -124,7 +124,8 @@ module tb_ralph_gpu;
     always @(posedge clk) begin
         imem_valid <= imem_req;
         if (imem_req) begin
-            imem_data <= instruction_mem[imem_addr[11:2]];
+            // Return 2 words for 8-byte cache line (64-bit response)
+            imem_data <= {instruction_mem[imem_addr[11:2] + 1], instruction_mem[imem_addr[11:2]]};
         end
     end
 

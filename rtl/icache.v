@@ -163,6 +163,7 @@ module icache #(
 
     reg [2:0] state;
     reg [ADDR_WIDTH-1:0] miss_addr;
+    reg [WORD_BITS-1:0] miss_word;  // Word offset within line for miss handling
     reg [WAY_BITS-1:0] replace_way;
     reg is_prefetch_miss;
 
@@ -234,7 +235,9 @@ module icache #(
     endgenerate
 
     wire next_line_prefetched = |next_prefetch_hit_vec;
-    wire need_prefetch = should_prefetch && !next_line_cached && !next_line_prefetched;
+    // Disable prefetch for now - it blocks subsequent hits from same cache line
+    // TODO: Implement non-blocking prefetch that allows concurrent hits
+    wire need_prefetch = 1'b0;  // was: should_prefetch && !next_line_cached && !next_line_prefetched;
 
     integer rst_i, rst_j;
     always @(posedge clk or negedge rst_n) begin
@@ -250,6 +253,7 @@ module icache #(
             miss_count <= 0;
             prefetch_hit_count <= 0;
             miss_addr <= 0;
+            miss_word <= 0;
             replace_way <= 0;
             is_prefetch_miss <= 1'b0;
             prefetch_valid <= 0;
@@ -293,6 +297,7 @@ module icache #(
                             is_prefetch_miss <= 1'b1;
                         end else begin
                             state <= ST_IDLE;
+                            fetch_ready_r <= 1'b1;  // Ready for next request immediately
                         end
                     end else if (prefetch_buffer_hit) begin
                         // Prefetch buffer hit - promote to cache
@@ -311,10 +316,12 @@ module icache #(
                         prefetch_valid[prefetch_hit_idx] <= 1'b0;
 
                         state <= ST_IDLE;
+                        fetch_ready_r <= 1'b1;  // Ready for next request immediately
                     end else begin
                         // Cache miss
                         miss_count <= miss_count + 1;
                         miss_addr <= {fetch_addr[ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
+                        miss_word <= req_word;  // Latch word offset for fill
                         replace_way <= victim_way;
                         is_prefetch_miss <= 1'b0;
                         state <= ST_MISS_REQ;
@@ -325,7 +332,7 @@ module icache #(
                     mem_req_valid_r <= 1'b1;
                     mem_req_addr_r <= miss_addr;
 
-                    if (mem_req_ready) begin
+                    if (mem_req_valid_r && mem_req_ready) begin
                         mem_req_valid_r <= 1'b0;
                         state <= ST_MISS_WAIT;
                     end
@@ -339,14 +346,15 @@ module icache #(
 
                 ST_FILL: begin
                     if (!is_prefetch_miss) begin
-                        // Fill cache line
-                        tag_array[req_index][replace_way] <= req_tag;
-                        data_array[req_index][replace_way] <= mem_resp_data;
-                        valid_array[req_index][replace_way] <= 1'b1;
-                        update_lru(req_index, replace_way);
+                        // Fill cache line - use latched miss_addr for index/tag
+                        // miss_addr is line-aligned, extract index from it
+                        tag_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= miss_addr[ADDR_WIDTH-1 -: TAG_BITS];
+                        data_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= mem_resp_data;
+                        valid_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= 1'b1;
+                        update_lru(miss_addr[OFFSET_BITS +: INDEX_BITS], replace_way);
 
-                        // Return data
-                        fetch_data_r <= mem_resp_data[req_word * DATA_WIDTH +: DATA_WIDTH];
+                        // Return data - use latched miss_word for word selection
+                        fetch_data_r <= mem_resp_data[miss_word * DATA_WIDTH +: DATA_WIDTH];
                         fetch_valid_r <= 1'b1;
 
                         // Trigger prefetch if possible
@@ -356,6 +364,7 @@ module icache #(
                             is_prefetch_miss <= 1'b1;
                         end else begin
                             state <= ST_IDLE;
+                            fetch_ready_r <= 1'b1;  // Ready for next request immediately
                         end
                     end else begin
                         // Fill prefetch buffer
@@ -365,6 +374,7 @@ module icache #(
                         prefetch_head <= (prefetch_head + 1) % PREFETCH_DEPTH;
 
                         state <= ST_IDLE;
+                        fetch_ready_r <= 1'b1;  // Ready for next request immediately
                     end
                 end
 
@@ -397,9 +407,13 @@ module icache #(
                     end
                     invalidate_done_r <= 1'b1;
                     state <= ST_IDLE;
+                    fetch_ready_r <= 1'b1;  // Ready for next request immediately
                 end
 
-                default: state <= ST_IDLE;
+                default: begin
+                    state <= ST_IDLE;
+                    fetch_ready_r <= 1'b1;  // Ready for next request immediately
+                end
             endcase
         end
     end

@@ -7,15 +7,16 @@
 `include "gpu_defines.vh"
 
 module control_flow_unit #(
-    parameter STACK_DEPTH = 8,     // Call stack depth per warp
-    parameter NUM_WARPS   = 4      // Number of warps
+    parameter STACK_DEPTH = 8,                              // Call stack depth per warp
+    parameter NUM_WARPS   = `WARPS_PER_SM,                  // Number of warps
+    parameter WARP_ID_W   = (NUM_WARPS > 1) ? $clog2(NUM_WARPS) : 1
 )(
     input  wire        clk,
     input  wire        rst_n,
 
     // Current state
     input  wire [31:0] pc_current,
-    input  wire [1:0]  warp_id,
+    input  wire [WARP_ID_W-1:0] warp_id,
     input  wire [31:0] active_mask,     // Currently active threads
 
     // Branch control

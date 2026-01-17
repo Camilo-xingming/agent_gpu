@@ -44,7 +44,7 @@ module tb_sm_v2_integration;
     wire        imem_req;
     wire [31:0] imem_addr;
     wire        imem_ready;
-    reg  [31:0] imem_data;
+    wire [63:0] imem_data;  // 64-bit for 8-byte cache line
     reg         imem_valid;
 
     // AXI memory interface (simplified for test)
@@ -94,22 +94,39 @@ module tb_sm_v2_integration;
             dbg_cycle <= 0;
         end else begin
             dbg_cycle <= dbg_cycle + 1;
-            if (dut.issue_valid) begin
-                $display("[DBG] C%0d issue op=0x%02X func=0x%02X rd=%0d ra=%0d exit=%0b",
-                         dbg_cycle, dut.issue_opcode, dut.issue_func,
-                         dut.issue_rd, dut.issue_ra, dut.issue_exit_op);
+            // Trace fetch/scheduler pipeline
+            if (dbg_cycle < 50) begin
+                $display("[DBG] C%0d: warp_valid=%b fetch_req=%b icache_state=%0d icache_ready=%b icache_valid=%b",
+                         dbg_cycle, dut.warp_valid, dut.fetch_req, dut.u_icache.state, dut.icache_ready, dut.icache_valid);
+                $display("[DBG] C%0d:   fetch_inflight_valid=%b inst_buf_valid=%b sched_issue=%b dec0_valid=%b warp_consume=%b",
+                         dbg_cycle, dut.fetch_inflight_valid, dut.warp_inst_buf_valid, dut.sched_issue_valid_mask, dut.dec0_valid, dut.warp_inst_consume);
+                $display("[DBG] C%0d:   dec_valid=%b alu_issue=%b alu_valid_pipe=%b wb_valid=%b sb[0]=%h sched_sb[0]=%h",
+                         dbg_cycle, dut.dec_valid, dut.alu_issue, dut.alu_valid_pipe, dut.wb_valid, dut.scoreboard_busy[0], dut.u_scheduler.scoreboard[0]);
+                // Show pre-decode info for warp 0 when buffer is valid
+                if (dut.warp_inst_buf_valid[0]) begin
+                    $display("[DBG] C%0d:   pd[0] inst=%h rd=%0d rs1=%0d rs2=%0d rs3=%0d is_compute=%b",
+                             dbg_cycle, dut.warp_inst_buf[0], dut.pd_rd[0], dut.pd_rs1[0], dut.pd_rs2[0], dut.pd_rs3[0],
+                             dut.pd_is_compute[0]);
+                    $display("[DBG] C%0d:   sched: schedulable=%b has_hazard=%b warp_eligible=%b compute_elig=%b",
+                             dbg_cycle, dut.u_scheduler.warp_schedulable[0], dut.u_scheduler.warp_has_hazard[0],
+                             dut.u_scheduler.warp_eligible[0], dut.u_scheduler.compute_eligible[0]);
+                    $display("[DBG] C%0d:   warp_ready=%b warp_valid=%b warp_at_barrier=%b",
+                             dbg_cycle, dut.warp_ready[0], dut.warp_valid[0], dut.warp_stalled_sync[0]);
+                    $display("[DBG] C%0d:   sb_full[0]=%h warp_rs1[0]=%0d warp_rs2[0]=%0d warp_rs3[0]=%0d warp_rd[0]=%0d",
+                             dbg_cycle, dut.u_scheduler.scoreboard[0],
+                             dut.u_scheduler.warp_rs1[0], dut.u_scheduler.warp_rs2[0],
+                             dut.u_scheduler.warp_rs3[0], dut.u_scheduler.warp_rd[0]);
+                end
             end
-            if (dut.fpu32_valid_in) begin
-                $display("[DBG] C%0d fpu32_in", dbg_cycle);
+            if (dut.issue_valid) begin
+                $display("[DBG] C%0d ISSUE op=0x%02X rd=%0d ra=%0d rb=%0d exit=%0b alu=%b",
+                         dbg_cycle, dut.issue_opcode, dut.issue_rd, dut.issue_ra, dut.issue_rb, dut.issue_exit_op, dut.issue_alu_op);
             end
             if (dut.wb_valid) begin
-                $display("[DBG] C%0d wb warp=%0d rd=%0d", dbg_cycle, dut.wb_warp_id, dut.wb_rd);
+                $display("[DBG] C%0d WB warp=%0d rd=%0d", dbg_cycle, dut.wb_warp_id, dut.wb_rd);
             end
-            if (dut.fpu32_valid_out) begin
-                $display("[DBG] C%0d fpu32_out rd_pipe=%0d", dbg_cycle, dut.fpu32_rd_pipe[4]);
-            end
-            if (kernel_done) begin
-                $display("[DBG] C%0d kernel_done", dbg_cycle);
+            if (kernel_done && dbg_cycle > 10) begin
+                $display("[DBG] C%0d kernel_done warp_valid=%b", dbg_cycle, dut.warp_valid);
             end
         end
     end
@@ -136,12 +153,18 @@ module tb_sm_v2_integration;
         end
     end
 
+    // Return 2 words (64 bits) for 8-byte cache line fills
+    // Cache line address is 8-byte aligned, so bits [2:0] = 0
+    // Words at offset 0 and 4 within the line
+    reg [63:0] imem_data_wide;
     always @(posedge clk) begin
         imem_valid <= imem_valid_pipe[1];
         if (imem_valid_pipe[1]) begin
-            imem_data <= imem[imem_addr_pipe[1][11:2]];
+            // imem_addr is cache-line aligned (8-byte), return both words
+            imem_data_wide <= {imem[imem_addr_pipe[1][11:2] + 1], imem[imem_addr_pipe[1][11:2]]};
         end
     end
+    assign imem_data = imem_data_wide;  // Full 64-bit data for 8-byte cache line
 
     //------------------------------------------------------------------------
     // DUT Instantiation
