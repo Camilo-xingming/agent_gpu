@@ -225,7 +225,8 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/memory_config.vh \
 	$(RTL_DIR)/streaming_multiprocessor_v2.v \
 	$(RTL_DIR)/decoder.v \
-	$(RTL_DIR)/register_file.v \
+	$(RTL_DIR)/register_file_banked.v \
+	$(RTL_DIR)/branch_predictor.v \
 	$(RTL_DIR)/alu.v \
 	$(RTL_DIR)/mul_unit.v \
 	$(RTL_DIR)/fpu.v \

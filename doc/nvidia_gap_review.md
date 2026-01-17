@@ -8,7 +8,7 @@ Summary of how RalphGPU RTL compares to modern NVIDIA Hopper/Ada GPUs. All major
 |-----|----------------|-------|
 | **Memory hierarchy & DRAM realism** | **Addressed** | `rtl/memory_controller_hbm.v` implements FR-FCFS scheduling with HBM2e timing (tCL=14, tRCD=14, tRP=14, tRAS=32). 8 channels x 16 banks matches modern HBM. |
 | **Global memory interface / coalescing** | **Addressed** | `rtl/memory_interface_wide.v` provides 4 lanes x 128-bit with **32 MSHR entries** for deep MLP. Request coalescing aggregates warp requests. |
-| **Front-end & divergence** | **Addressed** | `rtl/branch_predictor.v` implements TAGE with BTB (256 entries, 4-way), per-warp BHT, and RAS. `rtl/icache.v` adds instruction caching. `rtl/reconvergence_stack.v` handles SIMT divergence. |
+| **Front-end & divergence** | **Addressed** | `rtl/branch_predictor.v` **integrated into SM V2 fetch stage** with TAGE, BTB (256 entries, 4-way), per-warp BHT, and RAS. `rtl/icache.v` adds instruction caching. `rtl/reconvergence_stack.v` handles SIMT divergence. |
 | **Warp scheduling / register file** | **Addressed** | GTO (Greedy-Then-Oldest) scheduling in SM V2. `rtl/register_file_banked.v` provides 4-bank RF. `rtl/advanced_scheduler.v` supports dual-issue. |
 | **Tensor core dataflow** | **Addressed** | `rtl/tensor_core.v` supports FP16/FP4. `rtl/wgmma_tile_engine.v` fully wired with 16KB SMEM staging buffer and MMA accumulator. |
 | **System integration & bandwidth scaling** | **Addressed** | `rtl/memory_qos.v` for per-SM bandwidth allocation. `rtl/l2_interconnect.v` provides multi-channel crossbar. |
@@ -47,8 +47,9 @@ Summary of how RalphGPU RTL compares to modern NVIDIA Hopper/Ada GPUs. All major
 - `reconvergence_stack.v`: SIMT divergence
 
 ### Execution
-- `streaming_multiprocessor_v2.v`: GTO scheduler, scoreboard
+- `streaming_multiprocessor_v2.v`: GTO scheduler, scoreboard, branch predictor
 - `register_file_banked.v`: 4-bank RF
+- `branch_predictor.v`: TAGE + BTB + RAS (integrated in SM V2)
 - `tensor_core.v`: FP16/FP4 operations
 - `wgmma_tile_engine.v`: Hopper-style WGMMA with SMEM staging
 

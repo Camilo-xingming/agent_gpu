@@ -446,6 +446,68 @@ module streaming_multiprocessor_v2 #(
     wire                  cfu_at_reconverge;
 
     //========================================================================
+    // Branch Predictor (TAGE + BTB + RAS)
+    //========================================================================
+    wire                  bp_pred_valid;
+    wire                  bp_pred_taken;
+    wire [31:0]           bp_pred_target;
+    wire [1:0]            bp_pred_confidence;
+    wire [31:0]           bp_stat_predictions;
+    wire [31:0]           bp_stat_mispredictions;
+    wire [31:0]           bp_stat_btb_hits;
+    wire [31:0]           bp_stat_ras_hits;
+
+    // Branch update signals from execute stage
+    reg                   bp_update_valid;
+    reg  [WARP_ID_W-1:0]  bp_update_warp_id;
+    reg  [31:0]           bp_update_pc;
+    reg                   bp_update_taken;
+    reg  [31:0]           bp_update_target;
+    reg                   bp_update_is_call;
+    reg                   bp_update_is_return;
+    reg                   bp_update_mispredicted;
+
+    branch_predictor #(
+        .NUM_WARPS      (NUM_WARPS),
+        .ADDR_WIDTH     (32),
+        .BTB_ENTRIES    (256),
+        .BTB_WAYS       (4),
+        .BHT_ENTRIES    (1024),
+        .TAGE_TABLES    (4),
+        .TAGE_ENTRIES   (256),
+        .RAS_DEPTH      (8)
+    ) u_branch_predictor (
+        .clk                (clk),
+        .rst_n              (rst_n),
+        // Prediction request (from fetch)
+        .pred_req           (fetch_req),
+        .pred_warp_id       (selected_warp),
+        .pred_pc            (warp_fetch_pc[selected_warp]),
+        .pred_is_branch     (1'b1),  // Assume all fetches might be branches
+        .pred_is_call       (1'b0),  // Will be updated based on decode
+        .pred_is_return     (1'b0),
+        // Prediction output
+        .pred_valid         (bp_pred_valid),
+        .pred_taken         (bp_pred_taken),
+        .pred_target        (bp_pred_target),
+        .pred_confidence    (bp_pred_confidence),
+        // Update from execute
+        .update_valid       (bp_update_valid),
+        .update_warp_id     (bp_update_warp_id),
+        .update_pc          (bp_update_pc),
+        .update_taken       (bp_update_taken),
+        .update_target      (bp_update_target),
+        .update_is_call     (bp_update_is_call),
+        .update_is_return   (bp_update_is_return),
+        .update_mispredicted(bp_update_mispredicted),
+        // Statistics
+        .stat_predictions   (bp_stat_predictions),
+        .stat_mispredictions(bp_stat_mispredictions),
+        .stat_btb_hits      (bp_stat_btb_hits),
+        .stat_ras_hits      (bp_stat_ras_hits)
+    );
+
+    //========================================================================
     // Scoreboard for Dependency Tracking (Per-warp register busy bits)
     //========================================================================
     // Each warp has a 32-bit mask indicating which registers have pending writes
@@ -1123,25 +1185,52 @@ module streaming_multiprocessor_v2 #(
     end
 
     //------------------------------------------------------------------------
-    // Register File (Per-Warp)
+    // Banked Register File (Per-Warp) - 4-bank conflict-free design
     //------------------------------------------------------------------------
-    register_file #(
-        .NUM_WARPS(NUM_WARPS)
+    wire rf_conflict_a, rf_conflict_b, rf_conflict_c, rf_wr_conflict;
+    wire [31:0] rf_stat_bank_conflicts, rf_stat_total_accesses;
+
+    // Operand collector interface (unused - tie off with wires for iverilog compatibility)
+    wire [4:0] oc_addr_tie [0:2];
+    assign oc_addr_tie[0] = 5'b0;
+    assign oc_addr_tie[1] = 5'b0;
+    assign oc_addr_tie[2] = 5'b0;
+
+    register_file_banked #(
+        .NUM_WARPS(NUM_WARPS),
+        .NUM_BANKS(4)
     ) u_regfile (
         .clk       (clk),
         .rst_n     (rst_n),
-        .warp_id   (issue_warp_id),
+        // Read port - warp selection
+        .rd_warp_id(issue_warp_id),
+        .wr_warp_id(wb_warp_id),
+        // Read ports
         .rd_addr_a (issue_ra),
-        .rd_data_a (rf_rd_data_a),
         .rd_addr_b (issue_rb),
-        .rd_data_b (rf_rd_data_b),
         .rd_addr_c (issue_rc),
+        .rd_data_a (rf_rd_data_a),
+        .rd_data_b (rf_rd_data_b),
         .rd_data_c (rf_rd_data_c),
+        .rd_conflict_a(rf_conflict_a),
+        .rd_conflict_b(rf_conflict_b),
+        .rd_conflict_c(rf_conflict_c),
+        // Write port
         .wr_en     (rf_wr_en),
-        .wr_warp   (wb_warp_id),
         .wr_addr   (wb_rd),
         .wr_data   (rf_wr_data),
-        .wr_mask   (rf_wr_mask)
+        .wr_mask   (rf_wr_mask),
+        .wr_conflict(rf_wr_conflict),
+        // Operand collector interface (unused for now - tied off)
+        .oc_valid  (1'b0),
+        .oc_warp_id({WARP_ID_W{1'b0}}),
+        .oc_addr   (oc_addr_tie),
+        .oc_data   (),
+        .oc_ready  (),
+        .oc_conflict(),
+        // Statistics
+        .stat_bank_conflicts(rf_stat_bank_conflicts),
+        .stat_total_accesses(rf_stat_total_accesses)
     );
 
     //========================================================================
@@ -2041,6 +2130,15 @@ module streaming_multiprocessor_v2 #(
                 warp_fetch_pc[w] <= 32'b0;
                 warp_mask[w] <= {NUM_LANES{1'b1}};
             end
+            // Branch predictor update state
+            bp_update_valid <= 1'b0;
+            bp_update_warp_id <= {WARP_ID_W{1'b0}};
+            bp_update_pc <= 32'b0;
+            bp_update_taken <= 1'b0;
+            bp_update_target <= 32'b0;
+            bp_update_is_call <= 1'b0;
+            bp_update_is_return <= 1'b0;
+            bp_update_mispredicted <= 1'b0;
         end else begin
             // Kernel start - allocate initial warps
             if (kernel_start) begin
@@ -2078,6 +2176,20 @@ module streaming_multiprocessor_v2 #(
                 warp_pc[issue_warp_id] <= cfu_branch_target;
                 warp_fetch_pc[issue_warp_id] <= cfu_branch_target;
                 warp_mask[issue_warp_id] <= cfu_active_mask;
+            end
+
+            // Branch predictor update (when branch resolves)
+            if (issue_valid && issue_branch_op) begin
+                bp_update_valid <= 1'b1;
+                bp_update_warp_id <= issue_warp_id;
+                bp_update_pc <= issue_pc;
+                bp_update_taken <= cfu_branch_taken;
+                bp_update_target <= cfu_branch_target;
+                bp_update_is_call <= (issue_func == 6'h01);  // JAL-like
+                bp_update_is_return <= (issue_func == 6'h02); // RET-like
+                bp_update_mispredicted <= 1'b0;  // TODO: Compare with prediction
+            end else begin
+                bp_update_valid <= 1'b0;
             end
 
             // Memory stall handling
