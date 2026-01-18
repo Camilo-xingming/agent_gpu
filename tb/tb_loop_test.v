@@ -2,6 +2,7 @@
 // RalphGPU - Loop Test
 // Tests conditional branching for loop execution
 // Simple test: sum = 0; for(i=N; i>0; i--) sum += 2; expect sum = 2*N
+// Loads program from loop_test.hex
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -133,109 +134,24 @@ module tb_loop_test;
     );
 
     //------------------------------------------------------------------------
-    // Instruction Memory
+    // Instruction Memory - Load from hex file
     //------------------------------------------------------------------------
     reg [31:0] imem [0:255];
-    integer pc;
+    integer instr_count;
 
-    // Instruction encoding functions
-
-    // MOV_IMM: rd = imm16
-    function [31:0] encode_mov_imm;
-        input [4:0] rd;
-        input [15:0] imm;
-        encode_mov_imm = {`OP_MOV_IMM, rd, 5'b0, imm};
-    endfunction
-
-    // ALU_IMM: rd = ra op imm
-    // Format: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:10]=func, [9:0]=imm10
-    function [31:0] encode_alu_imm;
-        input [4:0] rd, ra;
-        input [5:0] func;
-        input [9:0] imm;
-        encode_alu_imm = {`OP_ALU_IMM, rd, ra, func, imm};
-    endfunction
-
-    // ST_GLOBAL: mem[ra] = rb
-    function [31:0] encode_st_global;
-        input [4:0] rs, ra;
-        encode_st_global = {`OP_ST_GLOBAL, 5'b0, ra, rs, 5'b0, 6'b0};
-    endfunction
-
-    // EXIT: terminate warp
-    function [31:0] encode_exit;
-        encode_exit = {`OP_EXIT, 26'b0};
-    endfunction
-
-    // BRANCH: conditional/unconditional branch
-    // branch_type: 00=unconditional, 01=if_zero, 10=if_not_zero, 11=uniform
-    // offset: signed 16-bit byte offset from current PC
-    function [31:0] encode_branch;
-        input [1:0] branch_type;
-        input [4:0] ra;              // condition register
-        input signed [15:0] offset;  // signed byte offset
-        begin
-            // Format: {opcode[31:26], type[25:24], unused[23:21], ra[20:16], offset[15:0]}
-            encode_branch = {`OP_BRANCH, branch_type, 3'b0, ra, offset};
-        end
-    endfunction
-
-    // Branch type constants
-    localparam BR_UNCOND     = 2'b00;  // Always branch
-    localparam BR_IF_ZERO    = 2'b01;  // Branch if ra == 0
-    localparam BR_IF_NOTZERO = 2'b10;  // Branch if ra != 0
-    localparam BR_UNIFORM    = 2'b11;  // Uniform branch
-
-    //------------------------------------------------------------------------
-    // Program: Loop to accumulate values
-    //------------------------------------------------------------------------
-    // R1 = loop counter (initialized to LOOP_COUNT)
-    // R2 = accumulator (initialized to 0)
-    // R3 = output address
-    //
-    // Program:
-    //   0x00: MOV R1, LOOP_COUNT     ; counter = 5
-    //   0x04: MOV R2, 0              ; sum = 0
-    //   0x08: MOV R3, 0x1000         ; output address
-    // loop_start (0x0C):
-    //   0x0C: ADD R2, R2, ADD_VALUE  ; sum += 2
-    //   0x10: SUB R1, R1, 1          ; counter--
-    //   0x14: BRANCH loop_start if R1 != 0  ; offset = -12 (0xFFF4)
-    //   0x18: ST [R3], R2            ; store result
-    //   0x1C: EXIT
-    //------------------------------------------------------------------------
     initial begin
-        pc = 0;
-
-        // Initialize counter and accumulator
-        imem[pc] = encode_mov_imm(5'd1, LOOP_COUNT);  // R1 = 5 (counter)
-        pc = pc + 1;
-        imem[pc] = encode_mov_imm(5'd2, 16'd0);       // R2 = 0 (accumulator)
-        pc = pc + 1;
-        imem[pc] = encode_mov_imm(5'd3, 16'h1000);    // R3 = 0x1000 (output addr)
-        pc = pc + 1;
-
-        // Loop body (starts at PC = 0x0C = 12)
-        // loop_start:
-        imem[pc] = encode_alu_imm(5'd2, 5'd2, `FUNC_ADD, ADD_VALUE);  // R2 = R2 + 2
-        pc = pc + 1;
-        imem[pc] = encode_alu_imm(5'd1, 5'd1, `FUNC_SUB, 10'd1);      // R1 = R1 - 1
-        pc = pc + 1;
-        // Branch back to loop_start (PC=0x0C) if R1 != 0
-        // Current PC = 0x14, target = 0x0C
-        // Offset = target - current_pc = 0x0C - 0x14 = -8 (0xFFF8)
-        imem[pc] = encode_branch(BR_IF_NOTZERO, 5'd1, -16'd8);
-        pc = pc + 1;
-
-        // After loop: store result
-        imem[pc] = encode_st_global(5'd2, 5'd3);  // mem[R3] = R2
-        pc = pc + 1;
-
-        // Exit
-        imem[pc] = encode_exit();
-        pc = pc + 1;
-
-        $display("Program loaded: %0d instructions", pc);
+        // Initialize with NOPs
+        for (integer i = 0; i < 256; i = i + 1) begin
+            imem[i] = 32'hFC000000;  // NOP/EXIT opcode
+        end
+        // Load program from hex file
+        $readmemh("loop_test.hex", imem);
+        // Count instructions
+        instr_count = 0;
+        for (integer i = 0; i < 256; i = i + 1) begin
+            if (imem[i] != 32'hFC000000) instr_count = instr_count + 1;
+        end
+        $display("Loaded %0d instructions from loop_test.hex", instr_count);
         $display("Expected result: %0d (loop_count=%0d * add_value=%0d)",
                  EXPECTED_RESULT, LOOP_COUNT, ADD_VALUE);
     end
@@ -247,8 +163,6 @@ module tb_loop_test;
         if (imem_req) begin
             imem_data <= {imem[imem_addr[9:2] + 1], imem[imem_addr[9:2]]};
             imem_valid <= 1'b1;
-            $display("[IMEM] PC=0x%04x inst0=0x%08x inst1=0x%08x",
-                     imem_addr, imem[imem_addr[9:2]], imem[imem_addr[9:2] + 1]);
         end else begin
             imem_valid <= 1'b0;
         end
@@ -259,16 +173,12 @@ module tb_loop_test;
     //------------------------------------------------------------------------
     reg [31:0] gmem [0:4095];
     reg [31:0] pending_write_addr;
-    reg [31:0] stored_result;
-    reg        result_written;
 
     // Initialize memory
     initial begin
-        integer i;
-        for (i = 0; i < 4096; i = i + 1) begin
-            gmem[i] = 32'h0;
+        for (integer i = 0; i < 4096; i = i + 1) begin
+            gmem[i] = 32'hDEADBEEF;  // Pattern to detect unwritten locations
         end
-        result_written = 0;
     end
 
     // AXI Write handling
@@ -287,9 +197,7 @@ module tb_loop_test;
             // Data phase
             if (m_axi_wvalid && m_axi_wready) begin
                 gmem[pending_write_addr[13:2]] <= m_axi_wdata;
-                stored_result <= m_axi_wdata;
-                result_written <= 1'b1;
-                $display("[AXI-WR] addr=0x%08x data=0x%08x (%0d)",
+                $display("[AXI-WR] addr=0x%08x data=%0d (0x%08x)",
                          pending_write_addr, m_axi_wdata, m_axi_wdata);
                 m_axi_bvalid <= 1'b1;
             end else if (m_axi_bready && m_axi_bvalid) begin
@@ -298,7 +206,7 @@ module tb_loop_test;
         end
     end
 
-    // AXI Read handling (not used in this test)
+    // AXI Read handling
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             m_axi_arready <= 1'b1;
@@ -322,11 +230,12 @@ module tb_loop_test;
     // Test Sequence
     //------------------------------------------------------------------------
     integer cycle_count;
+    reg [31:0] result;
 
     initial begin
         $display("\n============================================================");
         $display("RalphGPU Loop Test");
-        $display("Testing: for(i=%0d; i>0; i--) sum += %0d", LOOP_COUNT, ADD_VALUE);
+        $display("Testing: sum = 0; for(i=%0d; i>0; i--) sum += %0d;", LOOP_COUNT, ADD_VALUE);
         $display("Expected result: %0d", EXPECTED_RESULT);
         $display("============================================================\n");
 
@@ -342,9 +251,7 @@ module tb_loop_test;
         rst_n = 1;
         repeat(10) @(posedge clk);
 
-        // Configure kernel: 1 thread (scalar execution)
-        // CSR addresses: BLOCK_DIM_X=0x018, BLOCK_DIM_Y=0x01C, BLOCK_DIM_Z=0x020
-        //                KERNEL_PC=0x008, GPU_CONTROL=0x004
+        // Configure kernel: 1 thread (simplest case for loop test)
         csr_addr = 12'h018;  // Block dim X
         csr_wr_data = 1;
         csr_wr_en = 1;
@@ -367,7 +274,7 @@ module tb_loop_test;
         @(posedge clk);
 
         // Set kernel PC = 0
-        csr_addr = 12'h008;  // Kernel PC
+        csr_addr = 12'h008;
         csr_wr_data = 0;
         csr_wr_en = 1;
         @(posedge clk);
@@ -376,7 +283,7 @@ module tb_loop_test;
 
         // Start kernel
         $display("Starting kernel...\n");
-        csr_addr = 12'h004;  // Kernel launch (GPU_CONTROL)
+        csr_addr = 12'h004;
         csr_wr_data = 1;
         csr_wr_en = 1;
         @(posedge clk);
@@ -388,33 +295,28 @@ module tb_loop_test;
             cycle_count = cycle_count + 1;
         end
 
-        repeat(10) @(posedge clk);
+        // Wait for memory operations
+        repeat(100) @(posedge clk);
 
         // Check result
+        result = gmem[32'h1000 >> 2];  // Read from address 0x1000
+
         $display("\n============================================================");
         $display("Test Results");
         $display("============================================================");
         $display("Kernel completed in %0d cycles", cycle_count);
+        $display("Result at 0x1000: %0d (expected: %0d)", result, EXPECTED_RESULT);
+        $display("");
 
-        if (result_written) begin
-            $display("Stored result: %0d (expected: %0d)", stored_result, EXPECTED_RESULT);
-            if (stored_result == EXPECTED_RESULT) begin
-                $display("\nTEST PASSED: Loop executed correctly!");
-            end else begin
-                $display("\nTEST FAILED: Result mismatch!");
-            end
+        if (result == EXPECTED_RESULT) begin
+            $display("TEST PASSED: Loop executed correctly!");
+            $display("Loop iterated %0d times, adding %0d each time = %0d",
+                     LOOP_COUNT, ADD_VALUE, EXPECTED_RESULT);
         end else begin
-            $display("\nTEST FAILED: No result written to memory!");
+            $display("TEST FAILED: Expected %0d, got %0d", EXPECTED_RESULT, result);
         end
         $display("============================================================\n");
 
-        $finish;
-    end
-
-    // Timeout
-    initial begin
-        #200000;
-        $display("TIMEOUT: Test exceeded maximum time");
         $finish;
     end
 

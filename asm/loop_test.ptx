@@ -1,0 +1,25 @@
+// Loop Test - Accumulate values in a loop
+// All threads execute the same loop: sum = 0; for (i=5; i>0; i--) sum += 2;
+// Expected result: 10 (5 * 2)
+// Output: mem[0x1000] = 10
+
+.entry loop_test:
+    // Initialize registers
+    mov.u32 r1, 5           // r1 = loop counter (5)
+    mov.u32 r2, 0           // r2 = accumulator (0)
+    mov.u32 r3, 0x1000      // r3 = output address
+
+loop_start:
+    // Loop body: sum += 2
+    add.s32 r2, r2, 2       // r2 = r2 + 2
+
+    // Decrement counter
+    sub.s32 r1, r1, 1       // r1 = r1 - 1
+
+    // Branch back if r1 != 0
+    bra.nz r1, loop_start
+
+    // Store result
+    st.global.u32 [r3], r2
+
+    exit

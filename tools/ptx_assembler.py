@@ -441,6 +441,18 @@ class Instruction:
                     (self.rd & 0x1F) << 21 |
                     (self.ra & 0x1F) << 16 |
                     (self.imm16 & 0xFFFF))
+        elif self.opcode == Opcode.BRANCH:
+            # BRANCH format: {opcode[31:26], type[25:24], unused[23:21], ra[20:16], offset[15:0]}
+            # rd contains branch_type in bits [4:3]
+            # ra contains condition register
+            # rb, rc, func combined form offset[15:0]
+            offset = ((self.rb & 0x1F) << 11 |
+                      (self.rc & 0x1F) << 6 |
+                      (self.func & 0x3F))
+            return ((self.opcode & 0x3F) << 26 |
+                    (self.rd & 0x1F) << 21 |
+                    (self.ra & 0x1F) << 16 |
+                    (offset & 0xFFFF))
         else:
             return ((self.opcode & 0x3F) << 26 |
                     (self.rd & 0x1F) << 21 |
@@ -675,7 +687,7 @@ class PTXAssembler:
         # Branch/Call
         #================================================================
         if mnemonic == 'bra' or mnemonic.startswith('bra.'):
-            return self._parse_branch(operands)
+            return self._parse_branch(mnemonic, operands)
         if mnemonic == 'call':
             return self._parse_call(operands)
 
@@ -1163,17 +1175,48 @@ class PTXAssembler:
             inst.rb = parse_immediate(operands[2]) & 0x1F
         return inst
 
-    def _parse_branch(self, operands: List[str]) -> Instruction:
-        """Parse branch: bra target"""
-        inst = Instruction(opcode=Opcode.BRANCH)
-        target = operands[0]
+    def _parse_branch(self, mnemonic: str, operands: List[str]) -> Instruction:
+        """Parse branch: bra target, bra.z ra target, bra.nz ra target, bra.uni target
 
+        Encoding: {opcode[31:26], type[25:24], unused[23:21], ra[20:16], offset[15:0]}
+        Types: 00=unconditional, 01=if_zero, 10=if_not_zero, 11=uniform
+        """
+        inst = Instruction(opcode=Opcode.BRANCH)
+
+        # Determine branch type from mnemonic
+        branch_type = 0b00  # Default: unconditional
+        if '.z' in mnemonic or '.eq' in mnemonic:
+            branch_type = 0b01  # Branch if zero
+        elif '.nz' in mnemonic or '.ne' in mnemonic:
+            branch_type = 0b10  # Branch if not zero
+        elif '.uni' in mnemonic:
+            branch_type = 0b11  # Uniform branch
+
+        # Parse operands based on branch type
+        if branch_type in [0b01, 0b10]:  # Conditional branch
+            # Format: bra.z ra, target OR bra.nz ra, target
+            if len(operands) >= 2:
+                cond_reg = parse_register(operands[0])
+                target = operands[1]
+            else:
+                raise ValueError(f"Conditional branch requires register and target: {operands}")
+        else:
+            # Unconditional or uniform: bra target
+            cond_reg = 0
+            target = operands[0]
+
+        # Calculate offset
         if target in self.labels:
-            offset = (self.labels[target] - self.current_addr - 4) // 4
+            # Offset is in bytes from current instruction
+            offset = self.labels[target] - self.current_addr
         else:
             offset = parse_immediate(target)
 
-        inst.ra = (offset >> 16) & 0x1F
+        # Encode: rd[4:3]=branch_type, ra=condition register, imm16=offset
+        # In hardware: issue_rd[4:3] is branch_type, issue_ra is condition reg
+        inst.rd = (branch_type << 3)  # Put branch_type in bits [4:3] of rd field
+        inst.ra = cond_reg
+        # Offset goes in imm16 (bits [15:0])
         inst.rb = (offset >> 11) & 0x1F
         inst.rc = (offset >> 6) & 0x1F
         inst.func = offset & 0x3F

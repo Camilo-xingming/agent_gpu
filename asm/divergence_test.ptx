@@ -1,0 +1,36 @@
+// Divergence Test - Tests SIMT divergence and reconvergence
+// Program: if (tid & 1) { result = 200; } else { result = 100; }
+// Expected: even threads (0,2,4,...) -> 100, odd threads (1,3,5,...) -> 200
+// Output: mem[0x1000 + tid*4] = result
+
+.entry divergence_test:
+    // Get thread ID
+    mov.u32 r0, %tid.x          // r0 = thread_id (0-31)
+
+    // Check parity: r1 = tid & 1
+    and.b32 r1, r0, 1           // r1 = 0 for even, 1 for odd
+
+    // Default value for even threads
+    mov.u32 r2, 100             // r2 = 100 (default result)
+
+    // Branch to skip if even (r1 == 0)
+    bra.z r1, skip              // if r1 == 0, skip odd path
+
+    // Odd path: set result = 200
+    mov.u32 r2, 200             // r2 = 200 (odd thread result)
+
+skip:
+    // Common path after divergence reconverges
+    // Load base address
+    mov.u32 r3, 0x1000          // r3 = base address
+
+    // Compute store address: r4 = tid * 4
+    shl.b32 r4, r0, 2           // r4 = r0 << 2 = tid * 4
+
+    // r4 = base + offset
+    add.s32 r4, r4, r3          // r4 = 0x1000 + tid * 4
+
+    // Store result to per-thread location
+    st.global.u32 [r4], r2      // mem[r4] = r2
+
+    exit

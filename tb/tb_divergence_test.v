@@ -1,8 +1,9 @@
 //============================================================================
 // RalphGPU - Divergence Test
-// Tests SIMT branch divergence and reconvergence
-// Program: if (tid & 1) { result = 200; } else { result = 100; }
-// Expected: even threads store 100, odd threads store 200
+// Tests SIMT divergence and reconvergence
+// Program: if (tid & 1) result = 200; else result = 100;
+// Expected: even threads -> 100, odd threads -> 200
+// Loads program from divergence_test.hex
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -18,8 +19,8 @@ module tb_divergence_test;
     parameter AXI_DATA_WIDTH = 32;
     parameter AXI_ADDR_WIDTH = 32;
     parameter AXI_ID_WIDTH = 4;
-    parameter NUM_THREADS = 32;          // Full warp
-    parameter BASE_ADDR = 32'h1000;      // Output base address
+    parameter NUM_THREADS = 32;
+    parameter BASE_ADDR = 32'h0000_1000;
 
     //------------------------------------------------------------------------
     // Clock and Reset
@@ -133,143 +134,24 @@ module tb_divergence_test;
     );
 
     //------------------------------------------------------------------------
-    // Instruction Memory
+    // Instruction Memory - Load from hex file
     //------------------------------------------------------------------------
     reg [31:0] imem [0:255];
-    integer pc;
+    integer instr_count;
 
-    // Instruction encoding functions
-
-    // MOV_IMM: rd = imm16
-    function [31:0] encode_mov_imm;
-        input [4:0] rd;
-        input [15:0] imm;
-        encode_mov_imm = {`OP_MOV_IMM, rd, 5'b0, imm};
-    endfunction
-
-    // MOV_SPECIAL: rd = special_register[ra]
-    // Format: {opcode[31:26], rd[25:21], ra[20:16], unused[15:0]}
-    function [31:0] encode_mov_special;
-        input [4:0] rd;
-        input [4:0] sreg;  // Special register code (0=tid.x, etc.)
-        encode_mov_special = {`OP_MOV_SPECIAL, rd, sreg, 16'b0};
-    endfunction
-
-    // ALU_IMM: rd = ra op imm
-    // Format: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:10]=func, [9:0]=imm10
-    function [31:0] encode_alu_imm;
-        input [4:0] rd, ra;
-        input [5:0] func;
-        input [9:0] imm;
-        encode_alu_imm = {`OP_ALU_IMM, rd, ra, func, imm};
-    endfunction
-
-    // ALU_REG: rd = ra op rb
-    // Format: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:11]=rb, [10:5]=func, [4:0]=rc
-    function [31:0] encode_alu_reg;
-        input [4:0] rd, ra, rb;
-        input [5:0] func;
-        encode_alu_reg = {`OP_ALU, rd, ra, rb, func, 5'b0};
-    endfunction
-
-    // ST_GLOBAL: mem[ra + offset] = rs
-    // For per-thread stores, we'll compute address in register
-    function [31:0] encode_st_global;
-        input [4:0] rs, ra;
-        encode_st_global = {`OP_ST_GLOBAL, 5'b0, ra, rs, 5'b0, 6'b0};
-    endfunction
-
-    // EXIT: terminate warp
-    function [31:0] encode_exit;
-        encode_exit = {`OP_EXIT, 26'b0};
-    endfunction
-
-    // BRANCH: conditional/unconditional branch
-    function [31:0] encode_branch;
-        input [1:0] branch_type;
-        input [4:0] ra;
-        input signed [15:0] offset;
-        encode_branch = {`OP_BRANCH, branch_type, 3'b0, ra, offset};
-    endfunction
-
-    // Branch type constants
-    localparam BR_UNCOND     = 2'b00;
-    localparam BR_IF_ZERO    = 2'b01;
-    localparam BR_IF_NOTZERO = 2'b10;
-    localparam BR_UNIFORM    = 2'b11;
-
-    // Special register codes
-    localparam SREG_TID_X = 5'd0;
-
-    //------------------------------------------------------------------------
-    // Program: Divergent branch based on thread ID parity
-    //------------------------------------------------------------------------
-    // R0 = thread ID (0-31)
-    // R1 = tid & 1 (0 for even, 1 for odd)
-    // R2 = result value (100 for even, 200 for odd)
-    // R3 = base address
-    // R4 = store address (base + tid * 4)
-    //
-    // Program:
-    //   0x00: MOV R0, %tid.x           ; R0 = thread_id
-    //   0x04: AND R1, R0, 1            ; R1 = tid & 1
-    //   0x08: MOV R2, 100              ; default: result = 100 (even path)
-    //   0x0C: BRANCH skip if R1 == 0  ; if even, skip odd path
-    //   0x10: MOV R2, 200              ; odd path: result = 200
-    // skip (0x14):
-    //   0x14: MOV R3, BASE_ADDR        ; base address
-    //   0x18: SHL R4, R0, 2            ; R4 = tid * 4
-    //   0x1C: ADD R4, R4, R3           ; R4 = base + tid * 4
-    //   0x20: ST [R4], R2              ; store result
-    //   0x24: EXIT
-    //------------------------------------------------------------------------
     initial begin
-        pc = 0;
-
-        // Get thread ID
-        imem[pc] = encode_mov_special(5'd0, SREG_TID_X);  // R0 = %tid.x
-        pc = pc + 1;
-
-        // R1 = tid & 1 (parity check)
-        imem[pc] = encode_alu_imm(5'd1, 5'd0, `FUNC_AND, 10'd1);  // R1 = R0 & 1
-        pc = pc + 1;
-
-        // Default value for even threads
-        imem[pc] = encode_mov_imm(5'd2, 16'd100);  // R2 = 100
-        pc = pc + 1;
-
-        // Branch to skip if even (R1 == 0)
-        // Current PC = 0x0C, target = 0x14 (skip)
-        // Offset = target - PC = 0x14 - 0x0C = 8
-        imem[pc] = encode_branch(BR_IF_ZERO, 5'd1, 16'd8);
-        pc = pc + 1;
-
-        // Odd threads: set result = 200
-        imem[pc] = encode_mov_imm(5'd2, 16'd200);  // R2 = 200
-        pc = pc + 1;
-
-        // skip: Common path after divergence reconverges
-        // Load base address
-        imem[pc] = encode_mov_imm(5'd3, BASE_ADDR[15:0]);  // R3 = base addr
-        pc = pc + 1;
-
-        // Compute store address: R4 = tid * 4
-        imem[pc] = encode_alu_imm(5'd4, 5'd0, `FUNC_SHL, 10'd2);  // R4 = R0 << 2
-        pc = pc + 1;
-
-        // R4 = R4 + R3 (base + offset)
-        imem[pc] = encode_alu_reg(5'd4, 5'd4, 5'd3, `FUNC_ADD);  // R4 = R4 + R3
-        pc = pc + 1;
-
-        // Store result to per-thread location
-        imem[pc] = encode_st_global(5'd2, 5'd4);  // mem[R4] = R2
-        pc = pc + 1;
-
-        // Exit
-        imem[pc] = encode_exit();
-        pc = pc + 1;
-
-        $display("Program loaded: %0d instructions", pc);
+        // Initialize with NOPs
+        for (integer i = 0; i < 256; i = i + 1) begin
+            imem[i] = 32'hFC000000;  // NOP/EXIT opcode
+        end
+        // Load program from hex file
+        $readmemh("divergence_test.hex", imem);
+        // Count instructions
+        instr_count = 0;
+        for (integer i = 0; i < 256; i = i + 1) begin
+            if (imem[i] != 32'hFC000000) instr_count = instr_count + 1;
+        end
+        $display("Loaded %0d instructions from divergence_test.hex", instr_count);
         $display("Testing divergent branch: even threads -> 100, odd threads -> 200");
     end
 
@@ -280,8 +162,6 @@ module tb_divergence_test;
         if (imem_req) begin
             imem_data <= {imem[imem_addr[9:2] + 1], imem[imem_addr[9:2]]};
             imem_valid <= 1'b1;
-            $display("[IMEM] PC=0x%04x inst0=0x%08x inst1=0x%08x",
-                     imem_addr, imem[imem_addr[9:2]], imem[imem_addr[9:2] + 1]);
         end else begin
             imem_valid <= 1'b0;
         end
@@ -296,8 +176,7 @@ module tb_divergence_test;
 
     // Initialize memory
     initial begin
-        integer i;
-        for (i = 0; i < 4096; i = i + 1) begin
+        for (integer i = 0; i < 4096; i = i + 1) begin
             gmem[i] = 32'hDEADBEEF;  // Pattern to detect unwritten locations
         end
         write_count = 0;
@@ -320,8 +199,6 @@ module tb_divergence_test;
             if (m_axi_wvalid && m_axi_wready) begin
                 gmem[pending_write_addr[13:2]] <= m_axi_wdata;
                 write_count <= write_count + 1;
-                $display("[AXI-WR] addr=0x%08x data=%0d (thread=%0d)",
-                         pending_write_addr, m_axi_wdata, (pending_write_addr - BASE_ADDR) >> 2);
                 m_axi_bvalid <= 1'b1;
             end else if (m_axi_bready && m_axi_bvalid) begin
                 m_axi_bvalid <= 1'b0;
@@ -379,25 +256,21 @@ module tb_divergence_test;
         repeat(10) @(posedge clk);
 
         // Configure kernel: 32 threads (1 warp)
-        // CSR addresses from ralph_gpu_top.v:
-        // CSR_BLOCK_DIM_X = 0x018, CSR_BLOCK_DIM_Y = 0x01C, CSR_BLOCK_DIM_Z = 0x020
-        // CSR_KERNEL_PC = 0x008, CSR_GPU_CONTROL = 0x004
-
-        csr_addr = 12'h018;  // Block dim X (CSR_BLOCK_DIM_X)
+        csr_addr = 12'h018;  // Block dim X
         csr_wr_data = NUM_THREADS;
         csr_wr_en = 1;
         @(posedge clk);
         csr_wr_en = 0;
         @(posedge clk);
 
-        csr_addr = 12'h01C;  // Block dim Y (CSR_BLOCK_DIM_Y)
+        csr_addr = 12'h01C;  // Block dim Y
         csr_wr_data = 1;
         csr_wr_en = 1;
         @(posedge clk);
         csr_wr_en = 0;
         @(posedge clk);
 
-        csr_addr = 12'h020;  // Block dim Z (CSR_BLOCK_DIM_Z)
+        csr_addr = 12'h020;  // Block dim Z
         csr_wr_data = 1;
         csr_wr_en = 1;
         @(posedge clk);
@@ -405,7 +278,7 @@ module tb_divergence_test;
         @(posedge clk);
 
         // Set kernel PC = 0
-        csr_addr = 12'h008;  // Kernel PC (CSR_KERNEL_PC)
+        csr_addr = 12'h008;
         csr_wr_data = 0;
         csr_wr_en = 1;
         @(posedge clk);
@@ -414,7 +287,7 @@ module tb_divergence_test;
 
         // Start kernel
         $display("Starting kernel with %0d threads...\n", NUM_THREADS);
-        csr_addr = 12'h004;  // Kernel launch (CSR_GPU_CONTROL)
+        csr_addr = 12'h004;
         csr_wr_data = 1;
         csr_wr_en = 1;
         @(posedge clk);
@@ -427,8 +300,6 @@ module tb_divergence_test;
         end
 
         // Wait for memory operations to complete
-        // Each lane write takes several cycles through the AXI bus
-        // With 32 threads, we need at least 32 * 5 = 160 cycles
         repeat(200) @(posedge clk);
 
         // Check results
@@ -467,13 +338,6 @@ module tb_divergence_test;
         end
         $display("============================================================\n");
 
-        $finish;
-    end
-
-    // Timeout
-    initial begin
-        #300000;
-        $display("TIMEOUT: Test exceeded maximum time");
         $finish;
     end
 
