@@ -150,15 +150,29 @@ module advanced_warp_scheduler #(
 
     wire [NUM_WARPS-1:0] warp_eligible = warp_schedulable & ~warp_has_hazard;
 
-    // DEBUG: trace hazard detection for warp 0 (disabled for cleaner output)
-    // reg [3:0] hazard_debug_cnt;
-    // always @(posedge clk or negedge rst_n) begin
-    //     if (!rst_n) hazard_debug_cnt <= 0;
-    //     else if (warp_inst_valid[0] && hazard_debug_cnt < 8) begin
-    //         $display("[SCHED] Warp0: ... hazard=%b", warp_has_hazard[0]);
-    //         hazard_debug_cnt <= hazard_debug_cnt + 1;
-    //     end
-    // end
+    // DEBUG: trace hazard detection for warp 0
+    `ifdef SIMULATION
+    reg [31:0] stall_cycle_cnt;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            stall_cycle_cnt <= 0;
+        end else if (warp_schedulable[0] && warp_has_hazard[0]) begin
+            stall_cycle_cnt <= stall_cycle_cnt + 1;
+            if (stall_cycle_cnt < 20 || stall_cycle_cnt[7:0] == 8'hFF) begin
+                $display("[%0t SCHED_HAZARD] warp0: schedulable=%b hasHazard=%b eligible=%b",
+                         $time, warp_schedulable[0], warp_has_hazard[0], warp_eligible[0]);
+                $display("  rs1=R%0d rs2=R%0d rs3=R%0d rd=R%0d writes_reg=%b",
+                         warp_rs1[0], warp_rs2[0], warp_rs3[0], warp_rd[0], warp_writes_reg[0]);
+                $display("  scoreboard[0]=%032b", scoreboard[0]);
+                $display("  RAW: sb[rs1]=%b sb[rs2]=%b sb[rs3]=%b  WAW: sb[rd]=%b",
+                         scoreboard[0][warp_rs1[0]], scoreboard[0][warp_rs2[0]],
+                         scoreboard[0][warp_rs3[0]], scoreboard[0][warp_rd[0]]);
+            end
+        end else begin
+            stall_cycle_cnt <= 0;
+        end
+    end
+    `endif
 
     // Split by instruction type
     wire [NUM_WARPS-1:0] compute_eligible = warp_eligible & warp_is_compute;

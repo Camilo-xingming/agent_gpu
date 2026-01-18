@@ -142,6 +142,73 @@ module alu (
     wire [31:0] bfi_result = (operand_b & ~bfi_mask) | bfi_insert;
 
     //------------------------------------------------------------------------
+    // 新增：位掩码/扩展/查找/漏斗移位/三输入逻辑
+    //------------------------------------------------------------------------
+    wire [4:0] bmsk_pos = operand_a[4:0];
+    wire [5:0] bmsk_len_ext = {1'b0, operand_b[4:0]};
+    wire [31:0] bmsk_base = (bmsk_len_ext == 0) ? 32'b0 :
+                            (bmsk_len_ext >= 32) ? 32'hFFFF_FFFF :
+                            ((32'h1 << bmsk_len_ext) - 1);
+    wire [31:0] bmsk_result = bmsk_base << bmsk_pos;
+
+    wire [5:0] szext_width = {1'b0, operand_b[4:0]};
+    wire [31:0] szext_mask = (szext_width == 0) ? 32'b0 :
+                             (szext_width >= 32) ? 32'hFFFF_FFFF :
+                             ((32'h1 << szext_width) - 1);
+    wire szext_sign = (szext_width == 0) ? 1'b0 :
+                      (szext_width >= 32) ? operand_a[31] :
+                      operand_a[szext_width-1];
+    wire [31:0] szext_result = szext_sign ? (operand_a | ~szext_mask) :
+                                           (operand_a & szext_mask);
+
+    function [31:0] fns32;
+        input [31:0] val;
+        integer i;
+        begin
+            fns32 = 32'hFFFF_FFFF;
+            for (i = 0; i < 32; i = i + 1) begin
+                if (val[i]) begin
+                    fns32 = i;
+                    i = 32; // break
+                end
+            end
+        end
+    endfunction
+
+    wire [4:0] shf_amt = operand_c[4:0];
+    wire [63:0] shf_cat_lr = {operand_a, operand_b};
+    wire [63:0] shf_cat_rl = {operand_b, operand_a};
+    wire [63:0] shf_l_tmp = shf_cat_lr << shf_amt;
+    wire [63:0] shf_r_tmp = shf_cat_rl >> shf_amt;
+    wire [31:0] shf_l_res = shf_l_tmp[63:32];
+    wire [31:0] shf_r_res = shf_r_tmp[31:0];
+    wire [31:0] lop3_res = (operand_a & operand_b) | (~operand_a & operand_c); // LUT 0xCA
+    wire [31:0] cnot_res = ~operand_a & operand_b;
+
+    //------------------------------------------------------------------------
+    // DP4A / DP2A (int8/int16 dot product with accumulate)
+    //------------------------------------------------------------------------
+    wire signed [8:0] a_b0_s = {operand_a[7], operand_a[7:0]};
+    wire signed [8:0] a_b1_s = {operand_a[15], operand_a[15:8]};
+    wire signed [8:0] a_b2_s = {operand_a[23], operand_a[23:16]};
+    wire signed [8:0] a_b3_s = {operand_a[31], operand_a[31:24]};
+
+    wire signed [8:0] b_b0_s = {operand_b[7], operand_b[7:0]};
+    wire signed [8:0] b_b1_s = {operand_b[15], operand_b[15:8]};
+    wire signed [8:0] b_b2_s = {operand_b[23], operand_b[23:16]};
+    wire signed [8:0] b_b3_s = {operand_b[31], operand_b[31:24]};
+
+    wire signed [17:0] dp4a_p0 = a_b0_s * b_b0_s;
+    wire signed [17:0] dp4a_p1 = a_b1_s * b_b1_s;
+    wire signed [17:0] dp4a_p2 = a_b2_s * b_b2_s;
+    wire signed [17:0] dp4a_p3 = a_b3_s * b_b3_s;
+    wire signed [31:0] dp4a_sum = dp4a_p0 + dp4a_p1 + dp4a_p2 + dp4a_p3 + $signed(operand_c);
+
+    wire signed [16:0] dp2a_p0 = $signed({operand_a[15], operand_a[15:0]}) * $signed({operand_b[15], operand_b[15:0]});
+    wire signed [16:0] dp2a_p1 = $signed({operand_a[31], operand_a[31:16]}) * $signed({operand_b[31], operand_b[31:16]});
+    wire signed [31:0] dp2a_sum = dp2a_p0 + dp2a_p1 + $signed(operand_c);
+
+    //------------------------------------------------------------------------
     // FP16 <-> FP32 Conversion (for CVT instructions routed through ALU)
     //------------------------------------------------------------------------
     // FP16 format: [15]=sign, [14:10]=exp (bias 15), [9:0]=mantissa
@@ -289,6 +356,15 @@ module alu (
 
             // 特殊运算
             `FUNC_SAD:   result = sad_result;
+            `FUNC_CNOT:  result = cnot_res;
+            `FUNC_BMSK:  result = bmsk_result;
+            `FUNC_SZEXT: result = szext_result;
+            `FUNC_FNS:   result = fns32(operand_a);
+            `FUNC_SHF_L: result = shf_l_res;
+            `FUNC_SHF_R: result = shf_r_res;
+            `FUNC_LOP3:  result = lop3_res;
+            `VIDEO_DP4A_ALU: result = dp4a_sum;
+            `VIDEO_DP2A_ALU: result = dp2a_sum;
 
             // 选择操作
             `FUNC_SELP:  result = pred_in ? operand_a : operand_b;
@@ -326,6 +402,10 @@ module alu (
             `CVT_F16_F32: begin
                 // Convert FP32 (in operand_a) to FP16 (result in low 16 bits)
                 result = {16'b0, fp32_to_fp16(operand_a)};
+            end
+            `CVT_PACK: begin
+                // Pack low16 of A into lower half, low16 of B into upper half
+                result = {operand_b[15:0], operand_a[15:0]};
             end
 
             default:     result = 32'b0;

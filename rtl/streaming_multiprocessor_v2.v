@@ -134,6 +134,7 @@ module streaming_multiprocessor_v2 #(
     localparam [FP16_WBQ_COUNT_W-1:0] FP16_WBQ_DEPTH_VAL = FP16_WBQ_DEPTH;
     localparam [SFU_WBQ_COUNT_W-1:0] SFU_WBQ_DEPTH_VAL = SFU_WBQ_DEPTH;
     localparam [SHFL_WBQ_COUNT_W-1:0] SHFL_WBQ_DEPTH_VAL = SHFL_WBQ_DEPTH;
+    localparam [3:0] CPASYNC_LATENCY = 6;
 
     localparam WB_DATA_LSB = 0;
     localparam WB_DATA_MSB = SIMD_WIDTH - 1;
@@ -222,15 +223,22 @@ module streaming_multiprocessor_v2 #(
     reg  [NUM_WARPS-1:0] warp_stalled_mem;    // Waiting for memory
     reg  [NUM_WARPS-1:0] warp_stalled_fu;     // Waiting for FU completion
     reg  [NUM_WARPS-1:0] warp_stalled_sync;   // At barrier
+    reg  [NUM_WARPS-1:0] warp_stalled_async;  // Waiting on cp.async wait_group/all
     reg  [NUM_WARPS-1:0] warp_stalled_branch; // Branch in pipeline, wait for resolution
     reg  [NUM_WARPS-1:0] warp_exit_pending;  // EXIT issued, waiting for drain
     reg  [31:0]          warp_pc [0:NUM_WARPS-1];
     reg  [31:0]          warp_fetch_pc [0:NUM_WARPS-1];
     reg  [NUM_LANES-1:0] warp_mask [0:NUM_WARPS-1];  // Active thread mask
+    reg  [3:0]           cp_async_pending [0:NUM_WARPS-1];  // Outstanding cp.async copies
+    reg  [3:0]           cp_async_timer   [0:NUM_WARPS-1];  // Simple latency model
+    reg  [3:0]           cp_async_wait_threshold [0:NUM_WARPS-1];
+    reg  [NUM_WARPS-1:0] cp_async_wait_all;
+    reg                  barrier_pending;  // simple global barrier flag
 
     wire [NUM_WARPS-1:0] warp_ready = warp_valid & ~warp_stalled_mem &
                                        ~warp_stalled_fu & ~warp_stalled_sync &
-                                       ~warp_stalled_branch & ~warp_exit_pending;
+                                       ~warp_stalled_async & ~warp_stalled_branch &
+                                       ~warp_exit_pending;
 
     //========================================================================
     // Pipeline Registers
@@ -364,7 +372,7 @@ module streaming_multiprocessor_v2 #(
     wire                 dec1_mem_read, dec1_mem_write, dec1_mem_shared;
     wire                 dec1_branch_op, dec1_sync_op;
     wire                 dec1_special_reg, dec1_exit_op;
-    wire                 dec1_atomic_op, dec1_shuffle_op;
+    wire                 dec1_reduce_op;
     wire                 dec1_reg_write;
 
     //========================================================================
@@ -704,6 +712,20 @@ module streaming_multiprocessor_v2 #(
 
     assign mem_in_flight = issue_valid && (issue_mem_read || issue_mem_write) &&
                            !issue_atomic_op;
+    wire issue_cpasync = issue_valid && (issue_opcode == `OP_CPASYNC);
+    wire issue1_cpasync = issue1_valid && (issue1_opcode == `OP_CPASYNC);
+    wire issue_cpasync_copy = issue_cpasync &&
+                              ((issue_func == `CPASYNC_CA) ||
+                               (issue_func == `CPASYNC_CG) ||
+                               (issue_func == `CPASYNC_BULK));
+    wire issue1_cpasync_copy = issue1_cpasync &&
+                               ((issue1_func == `CPASYNC_CA) ||
+                                (issue1_func == `CPASYNC_CG) ||
+                                (issue1_func == `CPASYNC_BULK));
+    wire issue_cpasync_wait = issue_cpasync && (issue_func == `CPASYNC_WAIT);
+    wire issue_cpasync_wait_all = issue_cpasync && (issue_func == `CPASYNC_WAIT_ALL);
+    wire issue1_cpasync_wait = issue1_cpasync && (issue1_func == `CPASYNC_WAIT);
+    wire issue1_cpasync_wait_all = issue1_cpasync && (issue1_func == `CPASYNC_WAIT_ALL);
 
     // Aliases for compatibility with later code sections
     wire issue_stall_mem = lane0_stall_mem;
@@ -1441,6 +1463,32 @@ module streaming_multiprocessor_v2 #(
     wire dec_fp32_special;
     wire dec_wmma_mma;
     wire dec_shfl_op;
+    
+    // Extended decoder signals (Lane 0)
+    wire                 dec_mem_param, dec_mem_const, dec_mem_local, dec_mem_vector;
+    wire [1:0]           dec_vec_size;
+    wire                 dec_reduce_op;
+    wire                 dec_vote_op, dec_redux_op;
+    wire                 dec_wmma_load, dec_wmma_store, dec_mma_op;
+    wire                 dec_call_op, dec_membar_op;
+    wire                 dec_video_op;
+    wire                 dec_tex_op, dec_txq_op, dec_surf_ld, dec_surf_st, dec_surf_red;
+    wire                 dec_cpasync_op, dec_prefetch_op, dec_wgmma_load, dec_wgmma_store, dec_wgmma_mma;
+    wire [2:0]           dec_cache_hint;
+
+    // Extended decoder signals (Lane 1)
+    wire dec1_fp32_special;
+    wire dec1_wmma_mma;
+    wire dec1_shfl_op;
+    wire                 dec1_mem_param, dec1_mem_const, dec1_mem_local, dec1_mem_vector;
+    wire [1:0]           dec1_vec_size;
+    wire                 dec1_vote_op, dec1_redux_op;
+    wire                 dec1_wmma_load, dec1_wmma_store, dec1_mma_op;
+    wire                 dec1_call_op, dec1_membar_op;
+    wire                 dec1_video_op;
+    wire                 dec1_tex_op, dec1_txq_op, dec1_surf_ld, dec1_surf_st, dec1_surf_red;
+    wire                 dec1_cpasync_op, dec1_prefetch_op, dec1_wgmma_load, dec1_wgmma_store, dec1_wgmma_mma;
+    wire [2:0]           dec1_cache_hint;
 
     decoder u_decoder0 (
         .clk         (clk),
@@ -1463,9 +1511,9 @@ module streaming_multiprocessor_v2 #(
         .fp32_op     (dec_fp32_op),
         .fp64_op     (dec_fp64_op),
         .fp16_op     (dec_fp16_op),
-        .cvt_op      (dec_cvt_op),        // Type conversion
-        .fp32_special(dec_fp32_special),  // Maps to SFU operations
-        .wmma_mma    (dec_wmma_mma),       // Maps to tensor operations
+        .cvt_op      (dec_cvt_op),
+        .fp32_special(dec_fp32_special),
+        .wmma_mma    (dec_wmma_mma),
         .mem_read    (dec_mem_read),
         .mem_write   (dec_mem_write),
         .mem_shared  (dec_mem_shared),
@@ -1474,19 +1522,40 @@ module streaming_multiprocessor_v2 #(
         .special_reg (dec_special_reg),
         .exit_op     (dec_exit_op),
         .atomic_op   (dec_atomic_op),
-        .shfl_op     (dec_shfl_op),        // Warp shuffle
+        .shfl_op     (dec_shfl_op),
         .reg_write   (dec_reg_write),
         .pred_write  (),
-        .pred_addr   ()
+        .pred_addr   (),
+        .mem_param   (dec_mem_param),
+        .mem_const   (dec_mem_const),
+        .mem_local   (dec_mem_local),
+        .mem_vector  (dec_mem_vector),
+        .vec_size    (dec_vec_size),
+        .reduce_op   (dec_reduce_op),
+        .vote_op     (dec_vote_op),
+        .redux_op    (dec_redux_op),
+        .wmma_load   (dec_wmma_load),
+        .wmma_store  (dec_wmma_store),
+        .mma_op      (dec_mma_op),
+        .call_op     (dec_call_op),
+        .membar_op   (dec_membar_op),
+        .video_op    (dec_video_op),
+        .tex_op      (dec_tex_op),
+        .txq_op      (dec_txq_op),
+        .surf_ld     (dec_surf_ld),
+        .surf_st     (dec_surf_st),
+        .surf_red    (dec_surf_red),
+        .cpasync_op  (dec_cpasync_op),
+        .prefetch_op (dec_prefetch_op),
+        .wgmma_load  (dec_wgmma_load),
+        .wgmma_store (dec_wgmma_store),
+        .wgmma_mma   (dec_wgmma_mma),
+        .cache_hint  (dec_cache_hint)
     );
 
     //------------------------------------------------------------------------
     // Instruction Decoder (lane 1)
     //------------------------------------------------------------------------
-    wire dec1_fp32_special;
-    wire dec1_wmma_mma;
-    wire dec1_shfl_op;
-
     wire dec1_dec_valid;
     decoder u_decoder1 (
         .clk         (clk),
@@ -1509,7 +1578,7 @@ module streaming_multiprocessor_v2 #(
         .fp32_op     (dec1_fp32_op),
         .fp64_op     (dec1_fp64_op),
         .fp16_op     (dec1_fp16_op),
-        .cvt_op      (dec1_cvt_op),        // Type conversion
+        .cvt_op      (dec1_cvt_op),
         .fp32_special(dec1_fp32_special),
         .wmma_mma    (dec1_wmma_mma),
         .mem_read    (dec1_mem_read),
@@ -1523,7 +1592,32 @@ module streaming_multiprocessor_v2 #(
         .shfl_op     (dec1_shfl_op),
         .reg_write   (dec1_reg_write),
         .pred_write  (),
-        .pred_addr   ()
+        .pred_addr   (),
+        .mem_param   (dec1_mem_param),
+        .mem_const   (dec1_mem_const),
+        .mem_local   (dec1_mem_local),
+        .mem_vector  (dec1_mem_vector),
+        .vec_size    (dec1_vec_size),
+        .reduce_op   (dec1_reduce_op),
+        .vote_op     (dec1_vote_op),
+        .redux_op    (dec1_redux_op),
+        .wmma_load   (dec1_wmma_load),
+        .wmma_store  (dec1_wmma_store),
+        .mma_op      (dec1_mma_op),
+        .call_op     (dec1_call_op),
+        .membar_op   (dec1_membar_op),
+        .video_op    (dec1_video_op),
+        .tex_op      (dec1_tex_op),
+        .txq_op      (dec1_txq_op),
+        .surf_ld     (dec1_surf_ld),
+        .surf_st     (dec1_surf_st),
+        .surf_red    (dec1_surf_red),
+        .cpasync_op  (dec1_cpasync_op),
+        .prefetch_op (dec1_prefetch_op),
+        .wgmma_load  (dec1_wgmma_load),
+        .wgmma_store (dec1_wgmma_store),
+        .wgmma_mma   (dec1_wgmma_mma),
+        .cache_hint  (dec1_cache_hint)
     );
 
     // Map decoder outputs to V2 signal names
@@ -1696,6 +1790,8 @@ module streaming_multiprocessor_v2 #(
         end
     end
 
+    wire all_at_barrier = (&(warp_stalled_sync | ~warp_valid)) && barrier_pending;
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             // Initialize scoreboards
@@ -1703,6 +1799,7 @@ module streaming_multiprocessor_v2 #(
                 scoreboard_busy[sb_init] <= 32'b0;
                 pending_fu_count[sb_init] <= 4'b0;
             end
+            barrier_pending <= 1'b0;
         end else begin
             // Mark destination register as busy on issue
             // Note: Unlike RISC-V, CUDA/PTX R0 is a normal register, not hardwired to 0
@@ -1736,6 +1833,16 @@ module streaming_multiprocessor_v2 #(
                     pending_fu_count[wb_warp_id] <= pending_fu_count[wb_warp_id] - 1;
                 end
             end
+
+            // Barrier tracking: set when any sync_op issues; release when all warps reach it
+            if (issue_valid && issue_sync_op)
+                barrier_pending <= 1'b1;
+            if (issue1_valid && issue1_sync_op)
+                barrier_pending <= 1'b1;
+            if (all_at_barrier)
+                barrier_pending <= 1'b0;
+            if (kernel_start)
+                barrier_pending <= 1'b0;
         end
     end
 
@@ -1785,6 +1892,97 @@ module streaming_multiprocessor_v2 #(
                 2'b01: shfl_inflight <= shfl_inflight - 1'b1;
                 default: shfl_inflight <= shfl_inflight;
             endcase
+        end
+    end
+
+    //------------------------------------------------------------------------
+    // Async Copy Tracking (cp.async)
+    //------------------------------------------------------------------------
+    integer cp_w;
+    reg [3:0] pending_val;
+    reg [3:0] timer_val;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            warp_stalled_async <= {NUM_WARPS{1'b0}};
+            cp_async_wait_all <= {NUM_WARPS{1'b0}};
+            for (cp_w = 0; cp_w < NUM_WARPS; cp_w = cp_w + 1) begin
+                cp_async_pending[cp_w] <= 4'd0;
+                cp_async_timer[cp_w] <= 4'd0;
+                cp_async_wait_threshold[cp_w] <= 4'd0;
+            end
+        end else if (kernel_start) begin
+            warp_stalled_async <= {NUM_WARPS{1'b0}};
+            cp_async_wait_all <= {NUM_WARPS{1'b0}};
+            for (cp_w = 0; cp_w < NUM_WARPS; cp_w = cp_w + 1) begin
+                cp_async_pending[cp_w] <= 4'd0;
+                cp_async_timer[cp_w] <= 4'd0;
+                cp_async_wait_threshold[cp_w] <= 4'd0;
+            end
+        end else begin
+            for (cp_w = 0; cp_w < NUM_WARPS; cp_w = cp_w + 1) begin
+                pending_val = cp_async_pending[cp_w];
+                timer_val = cp_async_timer[cp_w];
+
+                // Progress outstanding copies with a simple fixed latency model
+                if (timer_val > 0) begin
+                    if (timer_val == 1) begin
+                        if (pending_val > 0)
+                            pending_val = pending_val - 1'b1;
+                        timer_val = (pending_val > 0) ? CPASYNC_LATENCY : 4'd0;
+                    end else begin
+                        timer_val = timer_val - 1'b1;
+                    end
+                end else if (pending_val > 0) begin
+                    timer_val = CPASYNC_LATENCY;
+                end
+
+                // New async copies (CA/CG/BULK variants)
+                if (issue_cpasync_copy && (issue_warp_id == cp_w[WARP_ID_W-1:0])) begin
+                    pending_val = pending_val + 1'b1;
+                    if (timer_val == 0)
+                        timer_val = CPASYNC_LATENCY;
+                end
+                if (issue1_cpasync_copy && (issue1_warp_id == cp_w[WARP_ID_W-1:0])) begin
+                    pending_val = pending_val + 1'b1;
+                    if (timer_val == 0)
+                        timer_val = CPASYNC_LATENCY;
+                end
+
+                cp_async_pending[cp_w] <= pending_val;
+                cp_async_timer[cp_w] <= timer_val;
+
+                // Release warps waiting on wait_group/wait_all
+                if (warp_stalled_async[cp_w]) begin
+                    if (cp_async_wait_all[cp_w]) begin
+                        if (pending_val == 0) begin
+                            warp_stalled_async[cp_w] <= 1'b0;
+                            cp_async_wait_all[cp_w] <= 1'b0;
+                        end
+                    end else if (pending_val <= cp_async_wait_threshold[cp_w]) begin
+                        warp_stalled_async[cp_w] <= 1'b0;
+                    end
+                end
+            end
+
+            // wait_group / wait_all handling
+            if (issue_cpasync_wait) begin
+                warp_stalled_async[issue_warp_id] <= 1'b1;
+                cp_async_wait_threshold[issue_warp_id] <= issue_imm16[3:0];
+                cp_async_wait_all[issue_warp_id] <= 1'b0;
+            end else if (issue_cpasync_wait_all) begin
+                warp_stalled_async[issue_warp_id] <= 1'b1;
+                cp_async_wait_threshold[issue_warp_id] <= 4'd0;
+                cp_async_wait_all[issue_warp_id] <= 1'b1;
+            end
+            if (issue1_cpasync_wait) begin
+                warp_stalled_async[issue1_warp_id] <= 1'b1;
+                cp_async_wait_threshold[issue1_warp_id] <= issue1_imm16[3:0];
+                cp_async_wait_all[issue1_warp_id] <= 1'b0;
+            end else if (issue1_cpasync_wait_all) begin
+                warp_stalled_async[issue1_warp_id] <= 1'b1;
+                cp_async_wait_threshold[issue1_warp_id] <= 4'd0;
+                cp_async_wait_all[issue1_warp_id] <= 1'b1;
+            end
         end
     end
 
@@ -1900,6 +2098,10 @@ module streaming_multiprocessor_v2 #(
     // For BRANCH, use OR with 0 to pass through register and set zero flag
     wire alu_is_branch = (alu_issue_opcode == `OP_BRANCH);
     wire [SIMD_WIDTH-1:0] alu_operand_a = alu_is_mov_imm ? {SIMD_WIDTH{1'b0}} : alu_op_a;
+    wire [SIMD_WIDTH-1:0] alu_op_c = alu_use_slot0 ? rf_rd_data_c : rf1_rd_data_c;
+    wire [SIMD_WIDTH-1:0] alu_result_hi;
+    wire [NUM_LANES-1:0]  alu_ovf;
+    wire [NUM_LANES-1:0]  alu_cout;
 
     simd_alu u_simd_alu (
         .func       (alu_is_mov_imm ? `FUNC_ADD : (alu_is_branch ? `FUNC_OR : alu_issue_func)),
@@ -1907,10 +2109,16 @@ module streaming_multiprocessor_v2 #(
         // For branch, use 0 as operand_b so result = ra | 0 = ra
         .operand_b  (alu_is_branch ? {SIMD_WIDTH{1'b0}} :
                      (alu_issue_use_imm ? {NUM_LANES{{16'b0, alu_issue_imm16}}} : alu_op_b)),
+        .operand_c  (alu_op_c),
+        .pred_in    ({NUM_LANES{1'b0}}), // TODO: Connect predicate register file
+        .carry_in   ({NUM_LANES{1'b0}}), // TODO: Connect carry flag
         .lane_mask  (alu_issue_mask),
         .result     (alu_result),
+        .result_hi  (alu_result_hi),
         .zero_flags (alu_zero),
-        .neg_flags  (alu_neg)
+        .neg_flags  (alu_neg),
+        .ovf_flags  (alu_ovf),
+        .carry_out  (alu_cout)
     );
 
     // ALU pipeline tracking (1 stage delay to avoid issue-stage race)
@@ -1964,6 +2172,7 @@ module streaming_multiprocessor_v2 #(
     // For other special registers: same value replicated to all lanes
     reg [31:0] special_reg_scalar;  // Scalar value for non-per-lane registers
     wire special_is_tid_x = (special_issue_ra == `SREG_TID_X);
+    wire special_is_laneid = (special_issue_ra == `SREG_LANEID);
 
     always @(*) begin
         case (special_issue_ra)
@@ -1979,6 +2188,9 @@ module streaming_multiprocessor_v2 #(
             `SREG_NCTAID_X: special_reg_scalar = grid_dim_regs[0];
             `SREG_NCTAID_Y: special_reg_scalar = grid_dim_regs[1];
             `SREG_NCTAID_Z: special_reg_scalar = grid_dim_regs[2];
+            `SREG_WARPID:   special_reg_scalar = special_issue_warp;
+            `SREG_SMID:     special_reg_scalar = SM_ID;
+            `SREG_ACTIVEMASK: special_reg_scalar = {{(32-NUM_LANES){1'b0}}, warp_mask[special_issue_warp]};
             default:        special_reg_scalar = 32'd0;
         endcase
     end
@@ -1990,7 +2202,9 @@ module streaming_multiprocessor_v2 #(
     generate
         for (sr_i = 0; sr_i < NUM_LANES; sr_i = sr_i + 1) begin : gen_special_reg
             assign special_result[sr_i*32 +: 32] =
-                special_is_tid_x ? (special_issue_warp * NUM_LANES + sr_i) : special_reg_scalar;
+                special_is_tid_x ? (special_issue_warp * NUM_LANES + sr_i) :
+                special_is_laneid ? sr_i[31:0] :
+                special_reg_scalar;
         end
     endgenerate
 
@@ -2043,6 +2257,7 @@ module streaming_multiprocessor_v2 #(
     wire [4:0] mul_issue_rd = mul_use_slot0 ? issue_rd : issue1_rd;
     wire [NUM_LANES-1:0] mul_issue_mask = mul_use_slot0 ? issue_mask : issue1_mask;
     wire [5:0] mul_issue_func = mul_use_slot0 ? issue_func : issue1_func;
+    wire        mul_issue_is_div = mul_use_slot0 ? issue_div_op : issue1_div_op;
     wire [SIMD_WIDTH-1:0] mul_op_a = mul_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
     wire [SIMD_WIDTH-1:0] mul_op_b = mul_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
     wire [SIMD_WIDTH-1:0] mul_op_c = mul_use_slot0 ? rf_rd_data_c : rf1_rd_data_c;
@@ -2051,6 +2266,7 @@ module streaming_multiprocessor_v2 #(
         .clk       (clk),
         .rst_n     (rst_n),
         .valid_in  (mul_issue),
+        .is_div    (mul_issue_is_div),
         .func      (mul_issue_func),
         .operand_a (mul_op_a),
         .operand_b (mul_op_b),
@@ -2206,6 +2422,19 @@ module streaming_multiprocessor_v2 #(
 
     assign fp16_valid_in = fp16_issue;
 
+    `ifdef SIMULATION
+    reg [7:0] fp16_dbg_cnt;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) fp16_dbg_cnt <= 0;
+        else if (fp16_issue && fp16_dbg_cnt < 10) begin
+            $display("[%0t SM%0d FP16_ISSUE] func=%0d rd=R%0d ra=R%0d rb=R%0d mask=0x%08x",
+                     $time, SM_ID, fp16_issue_func, fp16_issue_rd, issue_ra, issue_rb, fp16_issue_mask);
+            $display("  op_a[0]=0x%08x op_b[0]=0x%08x", fp16_op_a[31:0], fp16_op_b[31:0]);
+            fp16_dbg_cnt <= fp16_dbg_cnt + 1;
+        end
+    end
+    `endif
+
     simd_fp16 u_simd_fp16 (
         .clk       (clk),
         .rst_n     (rst_n),
@@ -2262,7 +2491,8 @@ module streaming_multiprocessor_v2 #(
         .operand   (sfu_op),
         .lane_mask (sfu_issue_mask),
         .valid_out (sfu_valid_out),
-        .result    (sfu_result)
+        .result    (sfu_result),
+        .invalid_flags ()
     );
 
     // SFU pipeline tracking (8-cycle latency)
@@ -2320,16 +2550,36 @@ module streaming_multiprocessor_v2 #(
     end
 
     // Memory operation tracking
+    `ifdef SIMULATION
+    reg [7:0] mem_pend_dbg_cnt;
+    `endif
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             mem_pending_valid <= 1'b0;
+            `ifdef SIMULATION
+            mem_pend_dbg_cnt <= 0;
+            `endif
         end else if (gmem_req_valid && gmem_req_ready && issue_mem_read && !mem_pending_valid) begin
             mem_pending_valid <= 1'b1;
             mem_warp_pending <= issue_warp_id;
             mem_rd_pending <= issue_rd;
             mem_mask_pending <= issue_mask;
+            `ifdef SIMULATION
+            if (mem_pend_dbg_cnt < 10) begin
+                $display("[%0t SM%0d MEM_PEND] SET rd=R%0d warp=%0d mask=0x%08x",
+                         $time, SM_ID, issue_rd, issue_warp_id, issue_mask);
+                mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 1;
+            end
+            `endif
         end else if (gmem_resp_valid) begin
             mem_pending_valid <= 1'b0;
+            `ifdef SIMULATION
+            if (mem_pend_dbg_cnt < 10) begin
+                $display("[%0t SM%0d MEM_PEND] CLEAR (resp_valid) pending_was=%b latched=%b",
+                         $time, SM_ID, mem_pending_valid, gmem_resp_latched);
+                mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 1;
+            end
+            `endif
         end
     end
 
@@ -2970,10 +3220,16 @@ module streaming_multiprocessor_v2 #(
     reg [NUM_LANES*DATA_WIDTH-1:0] smem_resp_data;
     reg [NUM_LANES-1:0] smem_resp_mask;
 
+    `ifdef SIMULATION
+    reg [7:0] latch_dbg_cnt;
+    `endif
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             gmem_resp_latched <= 1'b0;
             smem_resp_latched <= 1'b0;
+            `ifdef SIMULATION
+            latch_dbg_cnt <= 0;
+            `endif
         end else begin
             // Latch global memory response
             if (gmem_resp_valid && mem_pending_valid && !gmem_resp_latched) begin
@@ -2982,8 +3238,21 @@ module streaming_multiprocessor_v2 #(
                 gmem_resp_rd <= mem_rd_pending;
                 gmem_resp_data <= gmem_resp_rdata;
                 gmem_resp_mask <= mem_mask_pending;
+                `ifdef SIMULATION
+                if (latch_dbg_cnt < 10) begin
+                    $display("[%0t SM%0d GMEM_LATCH] CAPTURED rd=R%0d warp=%0d data[0]=0x%08x",
+                             $time, SM_ID, mem_rd_pending, mem_warp_pending, gmem_resp_rdata[31:0]);
+                    latch_dbg_cnt <= latch_dbg_cnt + 1;
+                end
+                `endif
             end else if (gmem_resp_latched && wb_found && wb_sel == 4'd7 && !smem_resp_latched) begin
                 gmem_resp_latched <= 1'b0;  // Clear latch when writeback consumes it
+                `ifdef SIMULATION
+                if (latch_dbg_cnt < 10) begin
+                    $display("[%0t SM%0d GMEM_LATCH] CONSUMED rd=R%0d", $time, SM_ID, gmem_resp_rd);
+                    latch_dbg_cnt <= latch_dbg_cnt + 1;
+                end
+                `endif
             end
 
             // Latch shared memory response
@@ -3391,7 +3660,15 @@ module streaming_multiprocessor_v2 #(
             if (issue_valid && issue_sync_op) begin
                 warp_stalled_sync[issue_warp_id] <= 1'b1;
             end
+            if (issue1_valid && issue1_sync_op) begin
+                warp_stalled_sync[issue1_warp_id] <= 1'b1;
+            end
             // TODO: Check all warps at barrier and release
+            if (all_at_barrier) begin
+                for (w = 0; w < NUM_WARPS; w = w + 1) begin
+                    warp_stalled_sync[w] <= 1'b0;
+                end
+            end
 
             // Exit instruction (defer warp teardown until in-flight ops drain)
             if (issue_valid && issue_exit_op) begin
@@ -3401,6 +3678,7 @@ module streaming_multiprocessor_v2 #(
             for (w = 0; w < NUM_WARPS; w = w + 1) begin
                 if (warp_exit_pending[w] &&
                     (pending_fu_count[w] == 0) &&
+                    (cp_async_pending[w] == 0) &&
                     (scoreboard_busy[w] == 0) &&
                     (!mem_pending_valid || (mem_warp_pending != w[WARP_ID_W-1:0])) &&
                     (!smem_pending_valid || (smem_warp_pending != w[WARP_ID_W-1:0])) &&

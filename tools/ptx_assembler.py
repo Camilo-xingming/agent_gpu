@@ -119,6 +119,13 @@ class AluFunc(IntEnum):
     BFI     = 0b010101
     PRMT    = 0b010110
     SAD     = 0b010111
+    CNOT    = 0b011010
+    BMSK    = 0b011011
+    SZEXT   = 0b011100
+    FNS     = 0b011101
+    SHF_L   = 0b011110
+    SHF_R   = 0b011111
+    LOP3    = 0b100101
     SELP    = 0b011000
     SLCT    = 0b011001
     # Carry operations
@@ -136,6 +143,17 @@ class MulFunc(IntEnum):
     MUL_HI  = 0b000001
     MAD_LO  = 0b000010
     MAD_HI  = 0b000011
+    MUL24   = 0b000100
+    MAD24   = 0b000101
+    MAD_LO_CC = 0b100101
+    MADC_LO   = 0b100110
+
+# Division/Modulo Function Codes (OP_DIV)
+class DivFunc(IntEnum):
+    DIV_S = 0b000000
+    DIV_U = 0b000001
+    REM_S = 0b000010
+    REM_U = 0b000011
 
 #============================================================================
 # Compare Function Codes
@@ -174,6 +192,8 @@ class Fp32SpecialFunc(IntEnum):
     LG2   = 0b000101
     EX2   = 0b000110
     TANH  = 0b000111
+    TESTP = 0b001000
+    COPYSIGN = 0b001001
 
 #============================================================================
 # FP64 Function Codes
@@ -191,6 +211,8 @@ class Fp64Func(IntEnum):
     SQRT  = 0b001001
     RSQRT = 0b001010
     RCP   = 0b001011
+    COPYSIGN = 0b001100
+    TESTP = 0b001101
 
 #============================================================================
 # FP16/BF16 Function Codes
@@ -233,6 +255,7 @@ class CvtFunc(IntEnum):
     U64_F64 = 0b001001
     F64_S64 = 0b001010
     F64_U64 = 0b001011
+    PACK    = 0b101100
 
 #============================================================================
 # Atomic Function Codes
@@ -411,6 +434,7 @@ SPECIAL_REGS = {
     '%laneid':   12,
     '%warpid':   13,
     '%smid':     14,
+    '%activemask': 15,
 }
 
 #============================================================================
@@ -650,6 +674,20 @@ class PTXAssembler:
             return self._parse_alu_ternary(AluFunc.PRMT, operands)
         if mnemonic.startswith('sad'):
             return self._parse_alu_ternary(AluFunc.SAD, operands)
+        if mnemonic.startswith('cnot'):
+            return self._parse_alu_binary(AluFunc.CNOT, operands)
+        if mnemonic.startswith('bmsk'):
+            return self._parse_alu_binary(AluFunc.BMSK, operands)
+        if mnemonic.startswith('szext'):
+            return self._parse_alu_binary(AluFunc.SZEXT, operands)
+        if mnemonic.startswith('fns'):
+            return self._parse_alu_unary(AluFunc.FNS, operands)
+        if mnemonic.startswith('shf.l'):
+            return self._parse_alu_ternary(AluFunc.SHF_L, operands)
+        if mnemonic.startswith('shf.r'):
+            return self._parse_alu_ternary(AluFunc.SHF_R, operands)
+        if mnemonic.startswith('lop3'):
+            return self._parse_alu_ternary(AluFunc.LOP3, operands)
         if mnemonic.startswith('selp'):
             return self._parse_alu_ternary(AluFunc.SELP, operands)
         if mnemonic.startswith('slct'):
@@ -668,14 +706,22 @@ class PTXAssembler:
             return self._parse_mad(MulFunc.MAD_LO, operands)
         if mnemonic.startswith('mad.hi'):
             return self._parse_mad(MulFunc.MAD_HI, operands)
+        if mnemonic.startswith('mul24'):
+            return self._parse_mul(MulFunc.MUL24, operands)
+        if mnemonic.startswith('mad24'):
+            return self._parse_mad(MulFunc.MAD24, operands)
+        if mnemonic.startswith('mad.cc'):
+            return self._parse_mad(MulFunc.MAD_LO_CC, operands)
+        if mnemonic.startswith('madc'):
+            return self._parse_mad(MulFunc.MADC_LO, operands)
 
         #================================================================
         # Division
         #================================================================
         if mnemonic.startswith(('div.s', 'div.u')):
-            return self._parse_div(operands, is_rem=False)
+            return self._parse_div(mnemonic, operands, is_rem=False)
         if mnemonic.startswith(('rem.s', 'rem.u')):
-            return self._parse_div(operands, is_rem=True)
+            return self._parse_div(mnemonic, operands, is_rem=True)
 
         #================================================================
         # Comparison (setp)
@@ -792,6 +838,10 @@ class PTXAssembler:
             return self._parse_fp32_special(Fp32SpecialFunc.EX2, operands)
         if mnemonic.startswith('tanh.f32') or mnemonic.startswith('tanh.approx.f32'):
             return self._parse_fp32_special(Fp32SpecialFunc.TANH, operands)
+        if mnemonic.startswith('testp.f32'):
+            return self._parse_fp32_special(Fp32SpecialFunc.TESTP, operands)
+        if mnemonic.startswith('copysign.f32'):
+            return self._parse_fp32_special(Fp32SpecialFunc.COPYSIGN, operands)
 
         #================================================================
         # FP64 Arithmetic
@@ -818,8 +868,12 @@ class PTXAssembler:
             return self._parse_fp64_unary(Fp64Func.SQRT, operands)
         if mnemonic.startswith('rsqrt.f64'):
             return self._parse_fp64_unary(Fp64Func.RSQRT, operands)
-        if mnemonic.startswith('rcp.f64'):
+        if mnemonic.startswith('rcp.f64') or mnemonic.startswith('rcp.approx.f64') or mnemonic.startswith('rcp.approx.ftz.f64'):
             return self._parse_fp64_unary(Fp64Func.RCP, operands)
+        if mnemonic.startswith('copysign.f64'):
+            return self._parse_fp64_unary(Fp64Func.COPYSIGN, operands)
+        if mnemonic.startswith('testp.f64'):
+            return self._parse_fp64_unary(Fp64Func.TESTP, operands)
 
         #================================================================
         # FP16/BF16
@@ -1148,9 +1202,15 @@ class PTXAssembler:
         inst.rb = parse_register(operands[2])
         return inst
 
-    def _parse_div(self, operands: List[str], is_rem: bool) -> Instruction:
+    def _parse_div(self, mnemonic: str, operands: List[str], is_rem: bool) -> Instruction:
         """Parse division/remainder: div rd, ra, rb"""
-        inst = Instruction(opcode=Opcode.DIV, func=1 if is_rem else 0)
+        signed = '.s' in mnemonic
+        if is_rem:
+            func = DivFunc.REM_S if signed else DivFunc.REM_U
+        else:
+            func = DivFunc.DIV_S if signed else DivFunc.DIV_U
+
+        inst = Instruction(opcode=Opcode.DIV, func=func)
         inst.rd = parse_register(operands[0])
         inst.ra = parse_register(operands[1])
         inst.rb = parse_register(operands[2])
@@ -1419,6 +1479,7 @@ class PTXAssembler:
             'cvt.u64.f64': CvtFunc.U64_F64,
             'cvt.f64.s64': CvtFunc.F64_S64,
             'cvt.f64.u64': CvtFunc.F64_U64,
+            'cvt.pack':    CvtFunc.PACK,
         }
 
         # Find matching conversion

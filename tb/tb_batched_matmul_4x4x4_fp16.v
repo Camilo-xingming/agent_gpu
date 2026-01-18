@@ -606,4 +606,10 @@ module tb_batched_matmul_4x4x4_fp16;
         $finish;
     end
 
+    // VCD waveform dump - disabled for faster simulation
+    // initial begin
+    //     $dumpfile("batched_matmul_4x4x4_fp16.vcd");
+    //     $dumpvars(0, tb_batched_matmul_4x4x4_fp16);
+    // end
+
 endmodule

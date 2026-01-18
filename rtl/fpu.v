@@ -190,20 +190,31 @@ module fpu (
                     invalid <= a_is_nan;
                 end
 
-                `FP_MIN: begin
-                    result  <= min_result;
-                    invalid <= a_is_nan && b_is_nan;
-                end
+            `FP_MIN: begin
+                result  <= min_result;
+                invalid <= a_is_nan && b_is_nan;
+            end
 
-                `FP_MAX: begin
-                    result  <= max_result;
-                    invalid <= a_is_nan && b_is_nan;
-                end
+            `FP_MAX: begin
+                result  <= max_result;
+                invalid <= a_is_nan && b_is_nan;
+            end
 
-                `FP_DIV: begin
-                    // 简化除法: 特殊情况处理
-                    if (a_is_nan || b_is_nan) begin
-                        result  <= 32'h7FC00000;
+            `FP_COPYSIGN: begin
+                result  <= {operand_b[31], operand_a[30:0]};
+                invalid <= a_is_nan && b_is_nan;
+            end
+
+            `FP_TESTP: begin
+                // Simple testp: return 1 if not NaN, else 0 (predicate form encoded as int)
+                result  <= a_is_nan ? 32'b0 : 32'b1;
+                invalid <= 1'b0;
+            end
+
+            `FP_DIV: begin
+                // 简化除法: 特殊情况处理
+                if (a_is_nan || b_is_nan) begin
+                    result  <= 32'h7FC00000;
                         invalid <= 1'b1;
                     end else if (a_is_inf && b_is_inf) begin
                         result  <= 32'h7FC00000;
@@ -482,7 +493,9 @@ module simd_fpu #(
 
     // valid_out requires: at least one lane was active AND all active lanes completed
     // Use registered lane_mask to match FPU 1-cycle latency
-    assign valid_out = |lane_mask_r && &lane_valid;
+    // FIX: Only AND active lanes - inactive lanes should not block valid_out
+    // (lane_valid | ~lane_mask_r) makes inactive lanes contribute 1 to the AND
+    assign valid_out = |lane_mask_r && &(lane_valid | ~lane_mask_r);
 
     genvar i;
     generate

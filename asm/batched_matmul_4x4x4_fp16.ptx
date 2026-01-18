@@ -14,8 +14,8 @@
     mov.u32 r0, %tid.x
 
     // Only thread 0 does the work (skip if not thread 0)
-    setp.eq.u32 p0, r0, 0
-    @!p0 bra done
+    // Use bra.nz (branch if not zero) instead of predicated branch
+    bra.nz r0, done
 
     // Initialize constants
     mov.u32 r29, 0xFFFF         // Mask for low 16-bit

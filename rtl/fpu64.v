@@ -329,6 +329,16 @@ module fpu64 (
                     div_by_zero <= rcp_dbz;
                 end
 
+                `FP64_COPYSIGN: begin
+                    result  <= {operand_b[63], operand_a[62:0]};
+                    invalid <= a_is_nan && b_is_nan;
+                end
+
+                `FP64_TESTP: begin
+                    result  <= a_is_nan ? 64'b0 : 64'b1;
+                    invalid <= 1'b0;
+                end
+
                 default: begin
                     result    <= 64'b0;
                     valid_out <= 1'b0;

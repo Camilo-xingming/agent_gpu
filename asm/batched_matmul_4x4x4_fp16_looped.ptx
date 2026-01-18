@@ -1,0 +1,432 @@
+// RalphGPU Batched 4x4x4 FP16 Tensor Matrix Multiplication - LOOPED VERSION
+// C[batch] = A[batch] * B[batch] for batch = 0,1,2,3
+// Each A,B is 4x4 FP16, each C is 4x4 FP32
+//
+// Memory layout (FP16 packed as 2 per 32-bit word):
+//   A tensors: 0x1000 - 0x107F (4 x 32 bytes = 128 bytes)
+//   B tensors: 0x1080 - 0x10FF (4 x 32 bytes = 128 bytes)
+//   C tensors: 0x1100 - 0x11FF (4 x 64 bytes = 256 bytes)
+
+.entry batched_matmul_4x4x4_fp16_looped:
+    // Initialize constants
+    mov.u32 r29, 0xFFFF         // Mask for low 16-bit
+    mov.u32 r28, 4              // Number of batches remaining
+    mov.u32 r27, 0              // Batch index (0, 1, 2, 3)
+
+batch_loop:
+    // Calculate base addresses for this batch
+    // A_base = 0x1000 + batch * 32 (8 words * 4 bytes)
+    // B_base = 0x1080 + batch * 32
+    // C_base = 0x1100 + batch * 64 (16 words * 4 bytes)
+
+    mov.u32 r26, 32
+    mul.lo.u32 r25, r27, r26    // batch * 32
+    mov.u32 r30, 0x1000
+    add.s32 r30, r30, r25       // A_base
+
+    // Load A matrix (8 words = 16 FP16 values)
+    ld.global.u32 r1, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r2, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r3, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r4, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r5, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r6, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r7, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r8, [r30]
+
+    // Load B matrix
+    mov.u32 r30, 0x1080
+    add.s32 r30, r30, r25       // B_base
+    ld.global.u32 r9, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r10, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r11, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r12, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r13, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r14, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r15, [r30]
+    add.s32 r30, r30, 4
+    ld.global.u32 r16, [r30]
+
+    // Calculate C_base = 0x1100 + batch * 64
+    mov.u32 r26, 64
+    mul.lo.u32 r25, r27, r26    // batch * 64
+    mov.u32 r30, 0x1100
+    add.s32 r30, r30, r25       // C_base
+
+    // Compute C = A * B (16 dot products)
+    // Row 0
+    and.b32 r21, r1, r29
+    and.b32 r22, r9, r29
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r1, 16
+    and.b32 r22, r11, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r2, r29
+    and.b32 r22, r13, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r2, 16
+    and.b32 r22, r15, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r1, r29
+    shr.u32 r22, r9, 16
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r1, 16
+    shr.u32 r22, r11, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r2, r29
+    shr.u32 r22, r13, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r2, 16
+    shr.u32 r22, r15, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r1, r29
+    and.b32 r22, r10, r29
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r1, 16
+    and.b32 r22, r12, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r2, r29
+    and.b32 r22, r14, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r2, 16
+    and.b32 r22, r16, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r1, r29
+    shr.u32 r22, r10, 16
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r1, 16
+    shr.u32 r22, r12, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r2, r29
+    shr.u32 r22, r14, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r2, 16
+    shr.u32 r22, r16, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    // Row 1
+    and.b32 r21, r3, r29
+    and.b32 r22, r9, r29
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r3, 16
+    and.b32 r22, r11, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r4, r29
+    and.b32 r22, r13, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r4, 16
+    and.b32 r22, r15, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r3, r29
+    shr.u32 r22, r9, 16
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r3, 16
+    shr.u32 r22, r11, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r4, r29
+    shr.u32 r22, r13, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r4, 16
+    shr.u32 r22, r15, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r3, r29
+    and.b32 r22, r10, r29
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r3, 16
+    and.b32 r22, r12, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r4, r29
+    and.b32 r22, r14, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r4, 16
+    and.b32 r22, r16, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r3, r29
+    shr.u32 r22, r10, 16
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r3, 16
+    shr.u32 r22, r12, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r4, r29
+    shr.u32 r22, r14, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r4, 16
+    shr.u32 r22, r16, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    // Row 2
+    and.b32 r21, r5, r29
+    and.b32 r22, r9, r29
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r5, 16
+    and.b32 r22, r11, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r6, r29
+    and.b32 r22, r13, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r6, 16
+    and.b32 r22, r15, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r5, r29
+    shr.u32 r22, r9, 16
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r5, 16
+    shr.u32 r22, r11, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r6, r29
+    shr.u32 r22, r13, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r6, 16
+    shr.u32 r22, r15, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r5, r29
+    and.b32 r22, r10, r29
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r5, 16
+    and.b32 r22, r12, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r6, r29
+    and.b32 r22, r14, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r6, 16
+    and.b32 r22, r16, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r5, r29
+    shr.u32 r22, r10, 16
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r5, 16
+    shr.u32 r22, r12, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r6, r29
+    shr.u32 r22, r14, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r6, 16
+    shr.u32 r22, r16, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    // Row 3
+    and.b32 r21, r7, r29
+    and.b32 r22, r9, r29
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r7, 16
+    and.b32 r22, r11, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r8, r29
+    and.b32 r22, r13, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r8, 16
+    and.b32 r22, r15, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r7, r29
+    shr.u32 r22, r9, 16
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r7, 16
+    shr.u32 r22, r11, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r8, r29
+    shr.u32 r22, r13, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r8, 16
+    shr.u32 r22, r15, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r7, r29
+    and.b32 r22, r10, r29
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r7, 16
+    and.b32 r22, r12, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r8, r29
+    and.b32 r22, r14, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r8, 16
+    and.b32 r22, r16, r29
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+    add.s32 r30, r30, 4
+
+    and.b32 r21, r7, r29
+    shr.u32 r22, r10, 16
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+    shr.u32 r21, r7, 16
+    shr.u32 r22, r12, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    and.b32 r21, r8, r29
+    shr.u32 r22, r14, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    shr.u32 r21, r8, 16
+    shr.u32 r22, r16, 16
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+    st.global.f32 [r30], r20
+
+    // Increment batch index, decrement counter, and loop
+    add.s32 r27, r27, 1         // batch++
+    sub.s32 r28, r28, 1         // remaining--
+    bra.nz r28, batch_loop      // loop if remaining != 0
+
+    exit
+
+.end

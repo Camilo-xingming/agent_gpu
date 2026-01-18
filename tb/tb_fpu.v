@@ -87,6 +87,7 @@ module tb_fpu;
     localparam [31:0] FP_HALF     = 32'h3F000000;  // 0.5
     localparam [31:0] FP_THREE    = 32'h40400000;  // 3.0
     localparam [31:0] FP_FOUR     = 32'h40800000;  // 4.0
+    localparam [31:0] FP_NEG_TWO  = 32'hC0000000;  // -2.0
     localparam [31:0] FP_INF      = 32'h7F800000;  // +Inf
     localparam [31:0] FP_NEG_INF  = 32'hFF800000;  // -Inf
     localparam [31:0] FP_NAN      = 32'h7FC00000;  // NaN
@@ -304,6 +305,22 @@ module tb_fpu;
         operand_b = FP_ONE;
         operand_c = FP_ONE;
         check_result_approx(FP_TWO, 8'd2, "fma(1.0, 1.0, 1.0) = 2.0");
+
+        //====================================================================
+        // 测试 COPYSIGN / TESTP
+        //====================================================================
+        $display("\n--- Testing COPYSIGN/TESTP ---");
+        func = `FP_COPYSIGN;
+        operand_a = FP_ONE; operand_b = FP_NEG_ZERO;
+        check_result(FP_NEG_ONE, "copysign(1.0, -0.0) = -1.0");
+        operand_a = FP_NEG_TWO; operand_b = FP_ZERO;
+        check_result(FP_TWO, "copysign(-2.0, +0.0) = +2.0");
+
+        func = `FP_TESTP;
+        operand_a = FP_ONE;
+        check_result(FP_ONE, "testp(1.0) -> 1.0");
+        operand_a = FP_NAN;
+        check_result(32'h00000000, "testp(NaN) -> 0");
 
         //====================================================================
         // 测试总结

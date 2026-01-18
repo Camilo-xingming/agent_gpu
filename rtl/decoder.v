@@ -496,16 +496,14 @@ module decoder (
                 // Phase 10: 扩展操作
                 //============================================================
                 `OP_CPASYNC: begin
+                    // cp.async handled by async engine; do not route through LSU datapath
                     cpasync_op <= 1'b1;
-                    mem_read   <= 1'b1;
-                    mem_write  <= 1'b1;
-                    mem_shared <= 1'b1;
                     cache_hint <= inst_func[2:0];
                 end
 
                 `OP_PREFETCH: begin
+                    // Prefetch is fire-and-forget hint; no LSU action here
                     prefetch_op <= 1'b1;
-                    mem_read    <= 1'b1;
                     cache_hint  <= inst_func[2:0];
                 end
 

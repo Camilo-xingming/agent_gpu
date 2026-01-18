@@ -307,4 +307,21 @@ module memory_interface #(
     assign resp_valid = resp_valid_reg;
     assign resp_rdata = rdata_buf;
 
+`ifdef SIMULATION
+    // Debug: trace AXI READ handshake only
+    reg [31:0] mem_if_debug_cnt;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            mem_if_debug_cnt <= 0;
+        else if (mem_if_debug_cnt < 30) begin
+            if (state == READ_ADDR || state == READ_DATA) begin
+                $display("[%0t MEM_IF_RD] state=%0d arvalid=%b arready=%b rvalid=%b rready=%b addr=0x%08x rdata=0x%08x lane=%0d processed=%0d/%0d resp_valid=%b",
+                         $time, state, m_axi_arvalid, m_axi_arready, m_axi_rvalid, m_axi_rready,
+                         addr_buf[current_lane*ADDR_WIDTH +: ADDR_WIDTH], m_axi_rdata, current_lane, processed_count, lane_count, resp_valid_reg);
+                mem_if_debug_cnt <= mem_if_debug_cnt + 1;
+            end
+        end
+    end
+`endif
+
 endmodule

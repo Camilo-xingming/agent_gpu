@@ -179,6 +179,13 @@
 `define FUNC_BFI        6'b010101   // 位域插入 bfi.b32
 `define FUNC_PRMT       6'b010110   // 字节排列 prmt.b32
 `define FUNC_SAD        6'b010111   // 绝对差值和 sad.s32
+`define FUNC_CNOT       6'b011010   // 取反后与 (cnot)
+`define FUNC_BMSK       6'b011011   // 生成位掩码 bmsk
+`define FUNC_SZEXT      6'b011100   // 按宽度符号扩展 szext
+`define FUNC_FNS        6'b011101   // 找到首个置位 (from LSB) fns
+`define FUNC_SHF_L      6'b011110   // 漏斗左移 shf.l
+`define FUNC_SHF_R      6'b011111   // 漏斗右移 shf.r
+`define FUNC_LOP3       6'b100101   // 三输入逻辑 lop3 (固定LUT)
 
 // 选择操作
 `define FUNC_SELP       6'b011000   // 谓词选择 selp.b32
@@ -190,6 +197,17 @@
 `define FUNC_MUL_LO     6'b000000   // 乘法低32位
 `define FUNC_MUL_HI     6'b000001   // 乘法高32位
 `define FUNC_MAD_LO     6'b000010   // 乘加低32位
+`define FUNC_MAD_HI     6'b000011   // 乘加高32位
+`define FUNC_MUL24      6'b000100   // 24-bit 乘法 (低32位)
+`define FUNC_MAD24      6'b000101   // 24-bit 乘加 (低32位)
+`define FUNC_MAD_LO_CC   6'b100101   // 乘加低32位，生成进位
+`define FUNC_MADC_LO     6'b100110   // 乘加低32位，带进位输入
+
+// 除法/取余 (OP_DIV) 功能码
+`define DIV_FUNC_DIV_S  6'b000000   // 有符号除法
+`define DIV_FUNC_DIV_U  6'b000001   // 无符号除法
+`define DIV_FUNC_REM_S  6'b000010   // 有符号取余
+`define DIV_FUNC_REM_U  6'b000011   // 无符号取余
 
 //============================================================================
 // 比较功能码
@@ -225,6 +243,8 @@
 `define FP_LG2          6'b000101   // lg2.f32 (log2)
 `define FP_EX2          6'b000110   // ex2.f32 (2^x)
 `define FP_TANH         6'b000111   // tanh.f32
+`define FP_TESTP        6'b001000   // testp (simple NaN test)
+`define FP_COPYSIGN     6'b001001   // copysign
 
 //============================================================================
 // 原子操作功能码
@@ -297,6 +317,8 @@
 `define FP64_SQRT       6'b001001   // sqrt.f64
 `define FP64_RSQRT      6'b001010   // rsqrt.f64
 `define FP64_RCP        6'b001011   // rcp.f64
+`define FP64_COPYSIGN   6'b001100   // copysign.f64
+`define FP64_TESTP      6'b001101   // testp.f64
 
 //============================================================================
 // 类型转换功能码 (CVT指令)
@@ -313,6 +335,7 @@
 `define CVT_U64_F64     6'b001001   // cvt.u64.f64
 `define CVT_F64_S64     6'b001010   // cvt.f64.s64
 `define CVT_F64_U64     6'b001011   // cvt.f64.u64
+`define CVT_PACK        6'b101100   // cvt.pack (pack two 16-bit values) - unique code
 
 //============================================================================
 // WMMA 功能码
@@ -389,6 +412,8 @@
 // DP4A/DP2A for ML
 `define VIDEO_DP4A      6'b100000   // dp4a.{s32,u32}.{s32,u32}
 `define VIDEO_DP2A      6'b100001   // dp2a.{s32,u32}.{s32,u32}
+`define VIDEO_DP4A_ALU   6'b100010   // dp4a routed via ALU path
+`define VIDEO_DP2A_ALU   6'b100011   // dp2a routed via ALU path
 
 //============================================================================
 // 特殊寄存器编码
@@ -405,6 +430,10 @@
 `define SREG_NCTAID_X   5'd9        // %nctaid.x - Grid维度
 `define SREG_NCTAID_Y   5'd10       // %nctaid.y
 `define SREG_NCTAID_Z   5'd11       // %nctaid.z
+`define SREG_LANEID     5'd12       // %laneid
+`define SREG_WARPID     5'd13       // %warpid
+`define SREG_SMID       5'd14       // %smid
+`define SREG_ACTIVEMASK 5'd15       // %activemask 当前活跃线程掩码
 
 //============================================================================
 // 流水线阶段编码

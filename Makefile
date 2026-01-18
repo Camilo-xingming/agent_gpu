@@ -31,6 +31,7 @@ RTL_SRCS = \
     $(RTL_DIR)/shared_memory.v \
     $(RTL_DIR)/memory_interface.v \
     $(RTL_DIR)/fpu.v \
+    $(RTL_DIR)/fpu64.v \
     $(RTL_DIR)/sfu.v \
     $(RTL_DIR)/tensor_core.v \
     $(RTL_DIR)/control_flow_unit.v \
@@ -248,6 +249,7 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/alu.v \
 	$(RTL_DIR)/mul_unit.v \
 	$(RTL_DIR)/fpu.v \
+	$(RTL_DIR)/fpu64.v \
 	$(RTL_DIR)/sfu.v \
 	$(RTL_DIR)/tensor_core.v \
 	$(RTL_DIR)/control_flow_unit.v \
