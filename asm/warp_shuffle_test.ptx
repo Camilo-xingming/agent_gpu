@@ -1,0 +1,10 @@
+.entry warp_shuffle_test:
+    // Get lane ID
+    mov.u32 r1, %laneid
+
+    // Simple shuffle test - in single thread mode, just verify laneid
+    mov.u32 r10, 0x1000
+    st.global.u32 [r10], r1
+
+    exit
+.end

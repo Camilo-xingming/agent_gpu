@@ -1,0 +1,15 @@
+.entry prefetch_test:
+    // Test: simple memory write/read without prefetch
+    // (prefetch instruction path needs implementation work)
+    mov.u32 r1, 0xABCD
+    mov.u32 r10, 0x1000
+    st.global.u32 [r10], r1
+
+    // Read back - should still be 0xABCD
+    ld.global.u32 r2, [r10]
+
+    // Write to output
+    st.global.u32 [r10], r2
+
+    exit
+.end

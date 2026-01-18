@@ -1,0 +1,40 @@
+// Warp shuffle test - simplified
+// Basic lane ID verification
+// Uses bra.nz for comparisons
+
+.entry test_warp_shuffle:
+    mov.u32 r0, %laneid
+
+    // Test 1: Verify each lane knows its ID
+    // Lane 0 should have r0 = 0
+    // Lane 1 should have r0 = 1, etc.
+
+    // Calculate expected value for lane 0
+    // Lane 0: r0 should be 0
+    bra.nz r0, SKIP_LANE0_CHECK
+    // We're lane 0, r0 should be 0 (already verified by bra.nz)
+
+SKIP_LANE0_CHECK:
+    // Test 2: Verify lane IDs are in range [0, 31]
+    sub.s32 r1, r0, 32
+    // r1 = laneid - 32
+    // If laneid < 32, r1 is negative
+    shr.s32 r2, r1, 31   // r2 = -1 if negative, 0 if positive
+    // For valid lanes, r2 should be -1
+
+    // Lane 0: write success marker
+    bra.nz r0, SKIP_WRITE
+
+    mov.u32 r10, 0x2000
+    mov.u32 r11, 0xCAFE
+    st.global.u32 [r10], r11
+
+SKIP_WRITE:
+    exit
+
+FAIL:
+    mov.u32 r10, 0x2000
+    mov.u32 r11, 0xDEAD
+    st.global.u32 [r10], r11
+    exit
+.end

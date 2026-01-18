@@ -1,0 +1,107 @@
+// Comprehensive type conversion test
+// Tests: int↔float, signed↔unsigned
+// Uses shift+OR for 32-bit FP constants
+
+.entry test_cvt_comprehensive:
+    // Test 1: cvt.s32.f32 - float to signed int (truncate)
+    // 10.5 = 0x41280000
+    mov.u32 r0, 0x4128
+    shl.b32 r0, r0, 16        // r0 = 0x41280000 = 10.5
+    cvt.rzi.s32.f32 r1, r0    // Truncate to 10
+    setp.ne.s32 p1, r1, 10
+    @p1 bra FAIL
+
+    // Test 2: cvt.s32.f32 - negative float
+    // -10.5 = 0xC1280000
+    mov.u32 r2, 0xC128
+    shl.b32 r2, r2, 16        // r2 = 0xC1280000 = -10.5
+    cvt.rzi.s32.f32 r3, r2    // Truncate to -10
+    // Verify: -10 + 10 = 0
+    add.s32 r4, r3, 10
+    setp.ne.s32 p1, r4, 0
+    @p1 bra FAIL
+
+    // Test 3: cvt.u32.f32 - float to unsigned
+    // 100.0 = 0x42C80000
+    mov.u32 r5, 0x42C8
+    shl.b32 r5, r5, 16
+    cvt.rzi.u32.f32 r6, r5
+    setp.ne.u32 p1, r6, 100
+    @p1 bra FAIL
+
+    // Test 4: cvt.f32.s32 - signed int to float
+    // -42 built via subtraction
+    mov.s32 r7, 0
+    mov.s32 r8, 42
+    sub.s32 r7, r7, r8        // r7 = -42
+    cvt.rn.f32.s32 r8, r7     // -42.0 = 0xC2280000
+    // Check high bits match 0xC228
+    shr.u32 r9, r8, 16
+    mov.u32 r10, 0xC228
+    setp.ne.u32 p1, r9, r10
+    @p1 bra FAIL
+
+    // Test 5: cvt.f32.u32 - unsigned to float
+    mov.u32 r11, 255
+    cvt.rn.f32.u32 r12, r11   // 255.0 = 0x437F0000
+    shr.u32 r13, r12, 16
+    mov.u32 r14, 0x437F
+    setp.ne.u32 p1, r13, r14
+    @p1 bra FAIL
+
+    // Test 6: Round-trip int→float→int
+    mov.s32 r15, 12345
+    cvt.rn.f32.s32 r16, r15
+    cvt.rzi.s32.f32 r17, r16
+    setp.ne.s32 p1, r17, 12345
+    @p1 bra FAIL
+
+    // Test 7: Zero conversion
+    mov.s32 r18, 0
+    cvt.rn.f32.s32 r19, r18
+    setp.ne.u32 p1, r19, 0    // 0.0 = 0x00000000
+    @p1 bra FAIL
+
+    // Test 8: Large positive value round-trip
+    mov.u32 r20, 10000
+    cvt.rn.f32.u32 r21, r20
+    cvt.rzi.u32.f32 r22, r21
+    setp.ne.u32 p1, r22, 10000
+    @p1 bra FAIL
+
+    // Test 9: Power of 2 exact representation
+    mov.u32 r23, 1024
+    cvt.rn.f32.u32 r24, r23
+    cvt.rzi.u32.f32 r25, r24
+    setp.ne.u32 p1, r25, 1024
+    @p1 bra FAIL
+
+    // Test 10: Negative power of 2 (-512)
+    mov.s32 r26, 0
+    mov.s32 r27, 512
+    sub.s32 r26, r26, r27     // r26 = -512
+    cvt.rn.f32.s32 r27, r26
+    cvt.rzi.s32.f32 r28, r27
+    setp.ne.s32 p1, r28, r26
+    @p1 bra FAIL
+
+    // Test 11: float 1.0 to int
+    // 1.0 = 0x3F800000
+    mov.u32 r29, 0x3F80
+    shl.b32 r29, r29, 16
+    cvt.rzi.s32.f32 r30, r29
+    setp.ne.s32 p1, r30, 1
+    @p1 bra FAIL
+
+    // Write success marker
+    mov.u32 r31, 0x2000
+    mov.u32 r0, 0xCAFE
+    st.global.u32 [r31], r0
+    exit
+
+FAIL:
+    mov.u32 r31, 0x2000
+    mov.u32 r0, 0xDEAD
+    st.global.u32 [r31], r0
+    exit
+.end

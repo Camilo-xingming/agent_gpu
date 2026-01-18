@@ -1296,14 +1296,19 @@ module streaming_multiprocessor_v2 #(
 
             wire [5:0] op = inst[31:26];
             assign pd_is_compute[pd_i] = (op == `OP_ALU) || (op == `OP_ALU_IMM) || (op == `OP_MUL) ||
+                                         (op == `OP_DIV) ||  // Added DIV to compute path
                                          (op == `OP_FP32_ARITH) || (op == `OP_FP16_ARITH) ||
                                          (op == `OP_SFU) || (op == `OP_MOV_SPECIAL) ||
                                          (op == `OP_MOV_IMM) || (op == `OP_SETP) ||
                                          (op == `OP_CVT) || (op == `OP_NOP) || (op == `OP_VIDEO);
             assign pd_is_tensor[pd_i]  = (op == `OP_WMMA_MMA);
             assign pd_is_memory[pd_i]  = (op == `OP_LD_GLOBAL) || (op == `OP_ST_GLOBAL) ||
-                                         (op == `OP_LD_SHARED) || (op == `OP_ST_SHARED);
-            assign pd_is_branch[pd_i]  = (op == `OP_BRANCH) || (op == `OP_EXIT);
+                                         (op == `OP_LD_SHARED) || (op == `OP_ST_SHARED) ||
+                                         (op == `OP_LD_LOCAL) || (op == `OP_LD_PARAM) ||
+                                         (op == `OP_ATOM) || (op == `OP_RED) ||
+                                         (op == `OP_PREFETCH);
+            assign pd_is_branch[pd_i]  = (op == `OP_BRANCH) || (op == `OP_EXIT) ||
+                                         (op == `OP_BAR_SYNC) || (op == `OP_MEMBAR);
             assign pd_writes_reg[pd_i] = (op != `OP_ST_GLOBAL) && (op != `OP_ST_SHARED) &&
                                          (op != `OP_BRANCH) && (op != `OP_EXIT);
         end

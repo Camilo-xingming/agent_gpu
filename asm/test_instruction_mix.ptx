@@ -1,0 +1,130 @@
+// Instruction Mix Test
+// Tests varied instruction mix typical of real workloads
+// Combines ALU, MUL, memory, and control flow
+// Uses bra.nz for comparisons
+
+.entry test_instruction_mix:
+    mov.u32 r0, %laneid
+
+    // Only lane 0 runs tests
+    bra.nz r0, SKIP_TEST
+
+    // Test 1: Typical compute kernel pattern
+    // Load -> compute -> store
+    mov.u32 r1, 0x1000
+    mov.u32 r2, 100
+    st.global.u32 [r1], r2
+
+    // Simulated compute on loaded data
+    ld.global.u32 r3, [r1]
+    add.s32 r4, r3, 10       // r4 = 110
+    mov.u32 r25, 2
+    mul.lo.s32 r5, r4, r25   // r5 = 220
+    sub.s32 r6, r5, 20       // r6 = 200
+    shr.u32 r7, r6, 1        // r7 = 100
+    st.global.u32 [r1], r7
+
+    ld.global.u32 r8, [r1]
+    sub.s32 r30, r8, 100
+    bra.nz r30, FAIL
+
+    // Test 2: Reduction-like pattern
+    mov.u32 r1, 0x1010
+    mov.u32 r10, 1
+    mov.u32 r11, 2
+    mov.u32 r12, 3
+    mov.u32 r13, 4
+
+    // Sum them up
+    add.s32 r14, r10, r11    // 3
+    add.s32 r15, r12, r13    // 7
+    add.s32 r16, r14, r15    // 10
+    st.global.u32 [r1], r16
+
+    ld.global.u32 r17, [r1]
+    sub.s32 r30, r17, 10
+    bra.nz r30, FAIL
+
+    // Test 3: Dot product pattern
+    // a = (1, 2, 3), b = (4, 5, 6)
+    // dot = 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
+    mov.u32 r1, 1
+    mov.u32 r2, 2
+    mov.u32 r3, 3
+    mov.u32 r4, 4
+    mov.u32 r5, 5
+    mov.u32 r6, 6
+
+    mul.lo.s32 r10, r1, r4   // 4
+    mul.lo.s32 r11, r2, r5   // 10
+    mul.lo.s32 r12, r3, r6   // 18
+
+    add.s32 r13, r10, r11    // 14
+    add.s32 r14, r13, r12    // 32
+
+    sub.s32 r30, r14, 32
+    bra.nz r30, FAIL
+
+    // Test 4: Conditional compute pattern
+    mov.u32 r1, 5
+    mov.u32 r2, 10
+
+    // If r1 < r2 (5 < 10), do multiply; else add
+    sub.s32 r3, r1, r2       // r3 = -5 (negative)
+    shr.s32 r4, r3, 31       // r4 = -1 (all 1s) if negative
+
+    // Use mask to select operation result
+    mul.lo.s32 r5, r1, r2    // 50 (if condition true)
+    add.s32 r6, r1, r2       // 15 (if condition false)
+
+    // Since r1 < r2, we want r5 = 50
+    // With signed shift, r4 = -1 = 0xFFFFFFFF
+    and.b32 r7, r5, r4       // 50 & 0xFFFFFFFF = 50
+    not.b32 r8, r4           // r8 = 0
+    and.b32 r9, r6, r8       // 15 & 0 = 0
+    or.b32 r10, r7, r9       // 50 | 0 = 50
+
+    sub.s32 r30, r10, 50
+    bra.nz r30, FAIL
+
+    // Test 5: Address calculation pattern
+    mov.u32 r1, 0x1000       // Base address
+    mov.u32 r2, 4            // Element index
+    mov.u32 r3, 4            // sizeof(u32)
+
+    mul.lo.s32 r4, r2, r3    // Offset = 16
+    add.s32 r5, r1, r4       // Address = 0x1010
+
+    mov.u32 r6, 0x1010
+    sub.s32 r30, r5, r6
+    bra.z r30, ADDR_OK
+    bra FAIL
+
+ADDR_OK:
+    // Test 6: Simple loop-like unroll
+    mov.u32 r1, 0
+    add.s32 r1, r1, 1        // iter 0
+    add.s32 r1, r1, 2        // iter 1
+    add.s32 r1, r1, 3        // iter 2
+    add.s32 r1, r1, 4        // iter 3
+    // Sum = 0+1+2+3+4 = 10
+    sub.s32 r30, r1, 10
+    bra.nz r30, FAIL
+
+    // Write success marker
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xCAFE
+    st.global.u32 [r21], r22
+    bra DONE
+
+SKIP_TEST:
+    bra DONE
+
+FAIL:
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xDEAD
+    st.global.u32 [r21], r22
+
+DONE:
+    exit
+.end

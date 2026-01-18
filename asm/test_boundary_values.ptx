@@ -1,0 +1,125 @@
+// Boundary Values Test
+// Tests edge cases: MAX_INT, MIN_INT, zero, special FP values
+// Uses bra.nz for comparisons
+
+.entry test_boundary_values:
+    mov.u32 r0, %laneid
+
+    // Only lane 0 runs tests
+    bra.nz r0, SKIP_TEST
+
+    // Test 1: Zero operations
+    mov.u32 r1, 0
+    mov.u32 r2, 100
+
+    add.s32 r3, r1, r2       // 0 + 100 = 100
+    sub.s32 r30, r3, 100
+    bra.nz r30, FAIL
+
+    mul.lo.s32 r4, r1, r2    // 0 * 100 = 0
+    bra.nz r4, FAIL
+
+    // Test 2: Powers of 2 boundaries (16-bit edge)
+    mov.u32 r1, 0x7FFF       // 32767
+    add.s32 r2, r1, 1        // 32768 = 0x8000
+    mov.u32 r3, 0x8000
+    sub.s32 r30, r2, r3
+    bra.nz r30, FAIL
+
+    // Test 3: Shift edge cases
+    mov.u32 r1, 1
+    shl.b32 r2, r1, 0        // Shift by 0 = no change
+    sub.s32 r30, r2, 1
+    bra.nz r30, FAIL
+
+    shl.b32 r3, r1, 31       // Shift to MSB
+    // r3 = 0x80000000
+    shr.u32 r4, r3, 31       // Shift back
+    sub.s32 r30, r4, 1
+    bra.nz r30, FAIL
+
+    // Test 4: Negative number operations
+    mov.u32 r1, 0            // 0
+    mov.u32 r2, 1            // 1
+    sub.s32 r3, r1, r2       // 0 - 1 = -1 (0xFFFFFFFF)
+
+    // Verify -1 + 1 = 0
+    add.s32 r4, r3, 1
+    bra.nz r4, FAIL
+
+    // Test 5: Logical ops on all-zeros and all-ones
+    mov.u32 r1, 0
+    mov.u32 r2, 0xFFFF       // Use 16-bit all ones
+
+    and.b32 r3, r1, r2       // 0 & anything = 0
+    bra.nz r3, FAIL
+
+    or.b32 r4, r1, r2        // 0 | 0xFFFF = 0xFFFF
+    sub.s32 r30, r4, r2
+    bra.nz r30, FAIL
+
+    xor.b32 r5, r2, r2       // x ^ x = 0
+    bra.nz r5, FAIL
+
+    // Test 6: Min/max for signed numbers
+    mov.u32 r1, 10
+    mov.u32 r2, 20
+    min.s32 r3, r1, r2       // min(10, 20) = 10
+    sub.s32 r30, r3, 10
+    bra.nz r30, FAIL
+
+    max.s32 r4, r1, r2       // max(10, 20) = 20
+    sub.s32 r30, r4, 20
+    bra.nz r30, FAIL
+
+    // Test 7: Unsigned vs signed comparison
+    mov.u32 r1, 0xFFFF       // Large unsigned, -1 if signed
+    mov.u32 r2, 1
+
+    // Unsigned: 0xFFFF > 1
+    min.u32 r3, r1, r2
+    sub.s32 r30, r3, 1
+    bra.nz r30, FAIL
+
+    // Test 8: Multiply producing large results
+    mov.u32 r1, 0x100        // 256
+    mov.u32 r2, 0x100        // 256
+    mul.lo.s32 r3, r1, r2    // 256 * 256 = 65536 = 0x10000
+    mov.u32 r4, 0x0000
+    mov.u32 r5, 0x0001
+    shl.b32 r5, r5, 16       // r5 = 0x10000
+    sub.s32 r30, r3, r5
+    bra.nz r30, FAIL
+
+    // Test 9: Overflow behavior in add
+    mov.u32 r1, 0x7FFF       // Near max 16-bit signed
+    mov.u32 r2, 0x7FFF
+    add.s32 r3, r1, r2       // 0xFFFE = 65534
+    mov.u32 r4, 0xFFFE
+    sub.s32 r30, r3, r4
+    bra.nz r30, FAIL
+
+    // Test 10: Store and load zero
+    mov.u32 r1, 0x1000
+    mov.u32 r2, 0
+    st.global.u32 [r1], r2
+    ld.global.u32 r3, [r1]
+    bra.nz r3, FAIL
+
+    // Write success marker
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xCAFE
+    st.global.u32 [r21], r22
+    bra DONE
+
+SKIP_TEST:
+    bra DONE
+
+FAIL:
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xDEAD
+    st.global.u32 [r21], r22
+
+DONE:
+    exit
+.end

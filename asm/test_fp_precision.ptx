@@ -1,0 +1,82 @@
+// FP32 precision tests - simplified
+// Tests: arithmetic, neg, abs, min, max
+// Uses bra.z/bra.nz for comparisons
+
+.entry test_fp_precision:
+    // Test 1: Simple addition 1.0 + 1.0 = 2.0
+    // 0x3F800000 = 1.0 (fits in 16-bit as 0x3F80 << 16)
+    mov.u32 r0, 0x3F80
+    shl.b32 r0, r0, 16       // r0 = 0x3F800000 = 1.0
+    mov.u32 r1, 0x3F80
+    shl.b32 r1, r1, 16       // r1 = 0x3F800000 = 1.0
+    add.f32 r2, r0, r1       // 1.0 + 1.0 = 2.0
+
+    // Check result: 2.0 = 0x40000000
+    mov.u32 r3, 0x4000
+    shl.b32 r3, r3, 16       // r3 = 0x40000000 = 2.0
+    sub.s32 r30, r2, r3      // r30 = r2 - r3, should be 0
+    bra.nz r30, FAIL
+
+    // Test 2: Multiplication 2.0 * 3.0 = 6.0
+    // 3.0 = 0x40400000
+    mov.u32 r4, 0x4040
+    shl.b32 r4, r4, 16       // r4 = 0x40400000 = 3.0
+    mul.f32 r5, r3, r4       // 2.0 * 3.0 = 6.0
+
+    // 6.0 = 0x40C00000
+    mov.u32 r6, 0x40C0
+    shl.b32 r6, r6, 16
+    sub.s32 r30, r5, r6
+    bra.nz r30, FAIL
+
+    // Test 3: Negation neg(1.0) = -1.0
+    neg.f32 r7, r0           // neg(1.0) = -1.0 = 0xBF800000
+    mov.u32 r8, 0xBF80
+    shl.b32 r8, r8, 16
+    sub.s32 r30, r7, r8
+    bra.nz r30, FAIL
+
+    // Test 4: Absolute value abs(-1.0) = 1.0
+    abs.f32 r9, r7
+    sub.s32 r30, r9, r0      // Should equal 1.0
+    bra.nz r30, FAIL
+
+    // Test 5: Subtraction 2.0 - 2.0 = 0.0
+    sub.f32 r10, r3, r3
+    bra.nz r10, FAIL         // 0.0 = 0x00000000
+
+    // Test 6: Min/Max
+    // 5.0 = 0x40A00000, 7.0 = 0x40E00000
+    mov.u32 r11, 0x40A0
+    shl.b32 r11, r11, 16     // r11 = 5.0
+    mov.u32 r12, 0x40E0
+    shl.b32 r12, r12, 16     // r12 = 7.0
+
+    min.f32 r13, r11, r12    // min(5,7) = 5
+    sub.s32 r30, r13, r11
+    bra.nz r30, FAIL
+
+    max.f32 r14, r11, r12    // max(5,7) = 7
+    sub.s32 r30, r14, r12
+    bra.nz r30, FAIL
+
+    // Test 7: Division 10.0 / 2.0 = 5.0
+    // 10.0 = 0x41200000
+    mov.u32 r15, 0x4120
+    shl.b32 r15, r15, 16
+    div.f32 r16, r15, r3     // 10/2 = 5
+    sub.s32 r30, r16, r11    // Should equal 5.0
+    bra.nz r30, FAIL
+
+    // Write success marker
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    exit
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+    exit
+.end

@@ -1,0 +1,12 @@
+.entry atomic_test:
+    // Simple atomic test: just do one atomic add
+    mov.u32 r10, 0x1000
+    mov.u32 r1, 5
+    st.global.u32 [r10], r1  // Store initial value 5
+
+    // Atomic add 5 to get 10
+    mov.u32 r2, 5
+    atom.add.s32 r3, [r10], r2  // [r10] = 5 + 5 = 10
+
+    exit
+.end

@@ -1,0 +1,104 @@
+// Long Dependency Chain Test
+// Tests pipeline behavior with long dependency chains (latency bound)
+// Uses bra.nz for comparisons
+
+.entry test_long_dependency:
+    mov.u32 r0, %laneid
+
+    // Only lane 0 runs tests
+    bra.nz r0, SKIP_TEST
+
+    // Test 1: Very long ADD dependency chain (16 ops)
+    mov.u32 r1, 1
+    add.s32 r1, r1, 1    // 2
+    add.s32 r1, r1, 1    // 3
+    add.s32 r1, r1, 1    // 4
+    add.s32 r1, r1, 1    // 5
+    add.s32 r1, r1, 1    // 6
+    add.s32 r1, r1, 1    // 7
+    add.s32 r1, r1, 1    // 8
+    add.s32 r1, r1, 1    // 9
+    add.s32 r1, r1, 1    // 10
+    add.s32 r1, r1, 1    // 11
+    add.s32 r1, r1, 1    // 12
+    add.s32 r1, r1, 1    // 13
+    add.s32 r1, r1, 1    // 14
+    add.s32 r1, r1, 1    // 15
+    add.s32 r1, r1, 1    // 16
+
+    sub.s32 r30, r1, 16
+    bra.nz r30, FAIL
+
+    // Test 2: Long MUL chain (powers of 2)
+    mov.u32 r2, 2
+    mov.u32 r20, 2         // Multiplier in register
+    mul.lo.s32 r2, r2, r20   // 4
+    mul.lo.s32 r2, r2, r20   // 8
+    mul.lo.s32 r2, r2, r20   // 16
+    mul.lo.s32 r2, r2, r20   // 32
+    mul.lo.s32 r2, r2, r20   // 64
+    mul.lo.s32 r2, r2, r20   // 128
+    mul.lo.s32 r2, r2, r20   // 256
+
+    sub.s32 r30, r2, 256
+    bra.nz r30, FAIL
+
+    // Test 3: Mixed dependency chain (ALU + MUL + shift)
+    mov.u32 r3, 1
+    mov.u32 r20, 2         // Multiplier in register
+    add.s32 r3, r3, 1      // 2
+    shl.b32 r3, r3, 1      // 4
+    add.s32 r3, r3, 2      // 6
+    mul.lo.s32 r3, r3, r20   // 12
+    add.s32 r3, r3, 4      // 16
+    shr.u32 r3, r3, 1      // 8
+
+    sub.s32 r30, r3, 8
+    bra.nz r30, FAIL
+
+    // Test 4: Load-use dependency chain
+    mov.u32 r4, 0x1000
+    mov.u32 r5, 5
+    st.global.u32 [r4], r5
+    ld.global.u32 r6, [r4]
+    add.s32 r7, r6, 5      // Uses loaded value
+    st.global.u32 [r4], r7
+    ld.global.u32 r8, [r4]
+    add.s32 r9, r8, 5      // 15
+    st.global.u32 [r4], r9
+    ld.global.u32 r10, [r4]
+
+    sub.s32 r30, r10, 15
+    bra.nz r30, FAIL
+
+    // Test 5: Factorial-like chain (1*2*3*4*5 = 120)
+    mov.u32 r11, 1
+    mov.u32 r12, 2
+    mul.lo.s32 r11, r11, r12   // 1*2 = 2
+    mov.u32 r12, 3
+    mul.lo.s32 r11, r11, r12   // 2*3 = 6
+    mov.u32 r12, 4
+    mul.lo.s32 r11, r11, r12   // 6*4 = 24
+    mov.u32 r12, 5
+    mul.lo.s32 r11, r11, r12   // 24*5 = 120
+
+    sub.s32 r30, r11, 120
+    bra.nz r30, FAIL
+
+    // Write success marker
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xCAFE
+    st.global.u32 [r21], r22
+    bra DONE
+
+SKIP_TEST:
+    bra DONE
+
+FAIL:
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xDEAD
+    st.global.u32 [r21], r22
+
+DONE:
+    exit
+.end

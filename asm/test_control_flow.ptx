@@ -1,0 +1,100 @@
+// Control flow stress test - simplified
+// Tests: loops, complex branches
+// Uses bra.z/bra.nz for branches (not @p1 bra)
+
+.entry test_control_flow:
+    mov.u32 r0, %laneid
+
+    // Only lane 0 runs main tests - use bra.nz to skip if laneid != 0
+    bra.nz r0, LANE_WAIT
+
+    // Test 1: Simple loop - sum 1 to 10
+    mov.u32 r1, 0     // Sum
+    mov.u32 r2, 10    // Counter (count down to 0)
+
+LOOP1:
+    add.s32 r1, r1, r2
+    sub.s32 r2, r2, 1
+    bra.nz r2, LOOP1
+
+    // Verify: sum should be 55 (1+2+...+10)
+    sub.s32 r3, r1, 55
+    bra.nz r3, FAIL
+
+    // Test 2: Nested loop - compute 3*4 via addition
+    mov.u32 r3, 0     // Result
+    mov.u32 r4, 3     // Outer counter
+
+OUTER_LOOP:
+    mov.u32 r5, 4     // Inner counter
+
+INNER_LOOP:
+    add.s32 r3, r3, 1
+    sub.s32 r5, r5, 1
+    bra.nz r5, INNER_LOOP
+
+    sub.s32 r4, r4, 1
+    bra.nz r4, OUTER_LOOP
+
+    // Verify: result should be 12
+    sub.s32 r6, r3, 12
+    bra.nz r6, FAIL
+
+    // Test 3: Countdown loop
+    mov.u32 r6, 10    // Start at 10
+    mov.u32 r7, 0     // Count iterations
+
+COUNTDOWN:
+    add.s32 r7, r7, 1
+    sub.s32 r6, r6, 1
+    bra.nz r6, COUNTDOWN
+
+    // Should have 10 iterations
+    sub.s32 r8, r7, 10
+    bra.nz r8, FAIL
+
+    // Test 4: Fibonacci F(10) = 55
+    mov.u32 r8, 0     // F(0)
+    mov.u32 r9, 1     // F(1)
+    mov.u32 r10, 9    // Counter (9 iterations to get F(10))
+
+FIB_LOOP:
+    add.s32 r11, r8, r9   // F(n) = F(n-1) + F(n-2)
+    add.s32 r8, r9, 0     // r8 = r9 (copy via add 0)
+    add.s32 r9, r11, 0    // r9 = r11
+    sub.s32 r10, r10, 1
+    bra.nz r10, FIB_LOOP
+
+    // F(10) = 55
+    sub.s32 r12, r9, 55
+    bra.nz r12, FAIL
+
+    // Test 5: Power of 2 (2^8 = 256)
+    mov.u32 r12, 1    // Result
+    mov.u32 r13, 8    // Counter (8 shifts)
+
+POWER_LOOP:
+    shl.b32 r12, r12, 1
+    sub.s32 r13, r13, 1
+    bra.nz r13, POWER_LOOP
+
+    sub.s32 r14, r12, 256
+    bra.nz r14, FAIL
+
+    // Write success marker
+    mov.u32 r14, 0x8000
+    mov.u32 r15, 0xCAFE
+    st.global.u32 [r14], r15
+    bra DONE
+
+LANE_WAIT:
+    bra DONE
+
+FAIL:
+    mov.u32 r14, 0x8000
+    mov.u32 r15, 0xDEAD
+    st.global.u32 [r14], r15
+
+DONE:
+    exit
+.end

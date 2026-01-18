@@ -1,0 +1,82 @@
+// Atomic operations test - simplified
+// Tests basic atomic add which is most critical
+// Uses bra.nz for comparisons
+
+.entry test_atomic_comprehensive:
+    mov.u32 r0, %laneid
+
+    // Only lane 0 runs atomic tests (avoid races)
+    bra.nz r0, SKIP_TEST
+
+    // Test 1: atom.add.s32 - basic atomic add
+    mov.u32 r1, 0x1000    // Address
+    mov.u32 r2, 10        // Initial value
+    st.global.u32 [r1], r2
+
+    mov.u32 r3, 5
+    atom.add.s32 r4, [r1], r3  // Add 5, returns old value (10)
+
+    // Verify old value was 10
+    sub.s32 r30, r4, 10
+    bra.nz r30, FAIL
+
+    // Verify new value is 15
+    ld.global.u32 r5, [r1]
+    sub.s32 r30, r5, 15
+    bra.nz r30, FAIL
+
+    // Test 2: Multiple atomic adds
+    mov.u32 r6, 0x1004    // New address
+    mov.u32 r7, 0
+    st.global.u32 [r6], r7
+
+    mov.u32 r8, 1
+    atom.add.s32 r9, [r6], r8   // 0 + 1 = 1
+    atom.add.s32 r9, [r6], r8   // 1 + 1 = 2
+    atom.add.s32 r9, [r6], r8   // 2 + 1 = 3
+
+    ld.global.u32 r10, [r6]
+    sub.s32 r30, r10, 3
+    bra.nz r30, FAIL
+
+    // Test 3: atom.min.u32
+    mov.u32 r11, 0x1008
+    mov.u32 r12, 100
+    st.global.u32 [r11], r12
+
+    mov.u32 r13, 50
+    atom.min.u32 r14, [r11], r13  // min(100, 50) = 50
+
+    ld.global.u32 r15, [r11]
+    sub.s32 r30, r15, 50
+    bra.nz r30, FAIL
+
+    // Test 4: atom.max.u32
+    mov.u32 r16, 0x100C
+    mov.u32 r17, 50
+    st.global.u32 [r16], r17
+
+    mov.u32 r18, 100
+    atom.max.u32 r19, [r16], r18  // max(50, 100) = 100
+
+    ld.global.u32 r20, [r16]
+    sub.s32 r30, r20, 100
+    bra.nz r30, FAIL
+
+    // Write success marker
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xCAFE
+    st.global.u32 [r21], r22
+    bra DONE
+
+SKIP_TEST:
+    bra DONE
+
+FAIL:
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xDEAD
+    st.global.u32 [r21], r22
+
+DONE:
+    exit
+.end

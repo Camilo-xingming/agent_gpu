@@ -1,0 +1,103 @@
+// Pipeline Full Throughput Test
+// Tests maximum instruction throughput with back-to-back ALU ops
+// No dependencies between operations to maximize IPC
+// Uses bra.nz for comparisons
+
+.entry test_pipeline_full:
+    mov.u32 r0, %laneid
+
+    // Only lane 0 runs tests
+    bra.nz r0, SKIP_TEST
+
+    // Initialize base values
+    mov.u32 r1, 1
+    mov.u32 r2, 2
+    mov.u32 r3, 3
+    mov.u32 r4, 4
+    mov.u32 r5, 5
+    mov.u32 r6, 6
+    mov.u32 r7, 7
+    mov.u32 r8, 8
+
+    // Test 1: Back-to-back independent ALU operations
+    // These should pipeline perfectly with no stalls
+    add.s32 r10, r1, r2      // r10 = 3
+    add.s32 r11, r3, r4      // r11 = 7
+    add.s32 r12, r5, r6      // r12 = 11
+    add.s32 r13, r7, r8      // r13 = 15
+
+    // Verify: sum should be 3+7+11+15 = 36
+    add.s32 r14, r10, r11    // r14 = 10
+    add.s32 r15, r12, r13    // r15 = 26
+    add.s32 r16, r14, r15    // r16 = 36
+
+    sub.s32 r30, r16, 36
+    bra.nz r30, FAIL
+
+    // Test 2: Back-to-back logical operations
+    mov.u32 r1, 0xFF00
+    mov.u32 r2, 0x00FF
+    mov.u32 r3, 0xF0F0
+    mov.u32 r4, 0x0F0F
+
+    and.b32 r10, r1, r3      // 0xFF00 & 0xF0F0 = 0xF000
+    or.b32 r11, r2, r4       // 0x00FF | 0x0F0F = 0x0FFF
+    xor.b32 r12, r1, r2      // 0xFF00 ^ 0x00FF = 0xFFFF
+
+    // Verify r10 = 0xF000
+    mov.u32 r20, 0xF000
+    sub.s32 r30, r10, r20
+    bra.nz r30, FAIL
+
+    // Verify r11 = 0x0FFF
+    mov.u32 r20, 0x0FFF
+    sub.s32 r30, r11, r20
+    bra.nz r30, FAIL
+
+    // Verify r12 = 0xFFFF
+    mov.u32 r20, 0xFFFF
+    sub.s32 r30, r12, r20
+    bra.nz r30, FAIL
+
+    // Test 3: Back-to-back shift operations
+    mov.u32 r1, 1
+    shl.b32 r10, r1, 4       // 1 << 4 = 16
+    shl.b32 r11, r1, 8       // 1 << 8 = 256
+    shl.b32 r12, r1, 12      // 1 << 12 = 4096
+
+    // Verify r10 = 16
+    sub.s32 r30, r10, 16
+    bra.nz r30, FAIL
+
+    // Test 4: Burst of multiplications
+    mov.u32 r1, 3
+    mov.u32 r2, 5
+    mov.u32 r3, 7
+    mov.u32 r4, 11
+
+    mul.lo.s32 r10, r1, r2   // 3*5 = 15
+    mul.lo.s32 r11, r3, r4   // 7*11 = 77
+    mul.lo.s32 r12, r10, r11 // 15*77 = 1155
+
+    // Verify r12 = 1155
+    mov.u32 r20, 1155
+    sub.s32 r30, r12, r20
+    bra.nz r30, FAIL
+
+    // Write success marker
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xCAFE
+    st.global.u32 [r21], r22
+    bra DONE
+
+SKIP_TEST:
+    bra DONE
+
+FAIL:
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xDEAD
+    st.global.u32 [r21], r22
+
+DONE:
+    exit
+.end

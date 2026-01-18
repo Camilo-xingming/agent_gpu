@@ -1,0 +1,69 @@
+// DP4A/DP2A stress test - simplified for assembler
+// Tests: INT8 dot products for ML workloads
+
+.entry test_dp4a_stress:
+    // Test 1: dp4a.u32.u32 - 4x unsigned byte dot product
+    // A = [1, 2, 3, 4] packed as 0x04030201
+    // B = [5, 6, 7, 8] packed as 0x08070605
+    // Result = 1*5 + 2*6 + 3*7 + 4*8 = 70
+    mov.u32 r0, 0x0201       // Low half
+    mov.u32 r1, 0x0403       // High half
+    shl.b32 r1, r1, 16
+    or.b32 r0, r0, r1        // r0 = 0x04030201
+
+    mov.u32 r2, 0x0605       // Low half
+    mov.u32 r3, 0x0807       // High half
+    shl.b32 r3, r3, 16
+    or.b32 r2, r2, r3        // r2 = 0x08070605
+
+    mov.u32 r4, 0
+    dp4a.u32.u32 r5, r0, r2, r4
+    setp.ne.u32 p1, r5, 70
+    @p1 bra FAIL
+
+    // Test 2: dp4a with accumulator = 100
+    mov.u32 r6, 100
+    dp4a.u32.u32 r7, r0, r2, r6
+    // Result = 70 + 100 = 170
+    setp.ne.u32 p1, r7, 170
+    @p1 bra FAIL
+
+    // Test 3: dp4a with all zeros
+    mov.u32 r8, 0
+    mov.u32 r9, 50
+    dp4a.u32.u32 r10, r8, r0, r9
+    // Result = 0 + 50 = 50
+    setp.ne.u32 p1, r10, 50
+    @p1 bra FAIL
+
+    // Test 4: dp4a with all ones (0x01010101)
+    mov.u32 r11, 0x0101
+    shl.b32 r12, r11, 16
+    or.b32 r11, r11, r12     // r11 = 0x01010101
+    mov.u32 r13, 0
+    dp4a.u32.u32 r14, r11, r11, r13
+    // Result = 1*1 + 1*1 + 1*1 + 1*1 = 4
+    setp.ne.u32 p1, r14, 4
+    @p1 bra FAIL
+
+    // Test 5: Chained dp4a (simulate convolution)
+    mov.u32 r15, 0
+    dp4a.u32.u32 r15, r0, r2, r15   // First dp4a adds 70
+    dp4a.u32.u32 r15, r0, r2, r15   // Second dp4a adds 70
+    dp4a.u32.u32 r15, r0, r2, r15   // Third dp4a adds 70
+    // Total = 70 * 3 = 210
+    setp.ne.u32 p1, r15, 210
+    @p1 bra FAIL
+
+    // Write success marker
+    mov.u32 r16, 0x2000
+    mov.u32 r17, 0xCAFE
+    st.global.u32 [r16], r17
+    exit
+
+FAIL:
+    mov.u32 r16, 0x2000
+    mov.u32 r17, 0xDEAD
+    st.global.u32 [r16], r17
+    exit
+.end

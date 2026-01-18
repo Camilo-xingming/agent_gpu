@@ -1,0 +1,16 @@
+.entry memory_test:
+    // Write value to global memory, then read it back
+    // Use smaller computable value: 0x1234 * 4 = 0x48D0
+    mov.u32 r1, 0x1234
+    mov.u32 r10, 0x1000
+    st.global.u32 [r10], r1
+
+    // Read it back
+    ld.global.u32 r2, [r10]
+
+    // Write to different location
+    mov.u32 r11, 0x2000
+    st.global.u32 [r11], r2
+
+    exit
+.end

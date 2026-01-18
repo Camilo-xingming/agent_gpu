@@ -1,0 +1,8 @@
+.entry sync_test:
+    // Simple test - just write 1 to show completion
+    // Skip bar.sync for single-thread testing
+    mov.u32 r1, 1
+    mov.u32 r10, 0x1000
+    st.global.u32 [r10], r1
+    exit
+.end

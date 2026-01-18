@@ -1,0 +1,14 @@
+.entry cvt_test:
+    // Test CVT int to float: 10 -> 10.0f
+    mov.u32 r1, 10
+    cvt.rn.f32.s32 r2, r1  // r2 = 10.0f = 0x41200000
+    mov.u32 r10, 0x1000
+    st.global.u32 [r10], r2
+
+    // Test CVT float to int: 10.0f -> 10
+    cvt.rzi.s32.f32 r3, r2  // r3 = 10
+    add.s32 r10, r10, 4
+    st.global.u32 [r10], r3
+
+    exit
+.end

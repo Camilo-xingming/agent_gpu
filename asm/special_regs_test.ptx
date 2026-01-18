@@ -1,0 +1,8 @@
+.entry special_regs_test:
+    // Read laneid
+    mov.u32 r1, %laneid
+    mov.u32 r10, 0x1000
+    st.global.u32 [r10], r1
+
+    exit
+.end

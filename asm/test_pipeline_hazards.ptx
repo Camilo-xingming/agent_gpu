@@ -1,0 +1,83 @@
+// Pipeline Hazards Test
+// Tests RAW (Read After Write) hazard handling
+// Verifies forwarding paths work correctly
+// Uses bra.nz for comparisons
+
+.entry test_pipeline_hazards:
+    mov.u32 r0, %laneid
+
+    // Only lane 0 runs tests
+    bra.nz r0, SKIP_TEST
+
+    // Test 1: RAW Hazard - immediate dependency chain
+    mov.u32 r1, 10
+    add.s32 r2, r1, 5        // r2 = 15, depends on r1
+    add.s32 r3, r2, 5        // r3 = 20, depends on r2
+    add.s32 r4, r3, 5        // r4 = 25, depends on r3
+    add.s32 r5, r4, 5        // r5 = 30, depends on r4
+
+    // Verify chain result
+    sub.s32 r30, r5, 30
+    bra.nz r30, FAIL
+
+    // Test 2: Multiple RAW hazards in parallel paths
+    mov.u32 r1, 100
+    mov.u32 r2, 200
+    add.s32 r10, r1, 10      // r10 = 110
+    add.s32 r11, r2, 20      // r11 = 220
+    add.s32 r12, r10, r11    // r12 = 330, depends on both r10 and r11
+
+    sub.s32 r30, r12, 330
+    bra.nz r30, FAIL
+
+    // Test 3: WAW hazard - write after write to same register
+    mov.u32 r1, 1
+    mov.u32 r1, 2
+    mov.u32 r1, 3
+    mov.u32 r1, 4
+    // Final value should be 4
+    sub.s32 r30, r1, 4
+    bra.nz r30, FAIL
+
+    // Test 4: Long dependency chain with different ops
+    mov.u32 r1, 2
+    add.s32 r2, r1, r1       // r2 = 4
+    mul.lo.s32 r3, r2, r2    // r3 = 16
+    add.s32 r4, r3, r3       // r4 = 32
+    shl.b32 r5, r4, 1        // r5 = 64
+
+    sub.s32 r30, r5, 64
+    bra.nz r30, FAIL
+
+    // Test 5: Mixed RAW with memory operations
+    mov.u32 r1, 0x1000
+    mov.u32 r2, 42
+    st.global.u32 [r1], r2   // Store 42
+    ld.global.u32 r3, [r1]   // Load it back
+    add.s32 r4, r3, 8        // Use loaded value
+
+    sub.s32 r30, r4, 50
+    bra.nz r30, FAIL
+
+    // Test 6: Forwarding from ALU to branch
+    mov.u32 r1, 0
+    add.s32 r2, r1, 0        // r2 = 0, should pass through
+    bra.nz r2, FAIL          // Should not branch
+
+    // Write success marker
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xCAFE
+    st.global.u32 [r21], r22
+    bra DONE
+
+SKIP_TEST:
+    bra DONE
+
+FAIL:
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xDEAD
+    st.global.u32 [r21], r22
+
+DONE:
+    exit
+.end

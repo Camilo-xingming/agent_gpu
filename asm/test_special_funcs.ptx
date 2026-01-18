@@ -1,0 +1,99 @@
+// Special functions test (SFU operations)
+// Tests: rcp, sqrt, rsqrt, lg2, ex2
+// Uses shift+OR for 32-bit FP constants
+// Note: Use rcp.f32 not rcp.rn.f32
+
+.entry test_special_funcs:
+    // Test 1: rcp.f32 - reciprocal of 2.0 = 0.5
+    // 2.0 = 0x40000000
+    mov.u32 r0, 0x4000
+    shl.b32 r0, r0, 16        // r0 = 0x40000000 = 2.0
+    rcp.f32 r1, r0            // 1/2 = 0.5
+    // 0.5 = 0x3F000000
+    mov.u32 r2, 0x3F00
+    shl.b32 r2, r2, 16
+    setp.ne.u32 p1, r1, r2
+    @p1 bra FAIL
+
+    // Test 2: rcp.f32 - reciprocal of 4.0 = 0.25
+    // 4.0 = 0x40800000
+    mov.u32 r3, 0x4080
+    shl.b32 r3, r3, 16        // r3 = 4.0
+    rcp.f32 r4, r3            // 1/4 = 0.25
+    // 0.25 = 0x3E800000
+    mov.u32 r5, 0x3E80
+    shl.b32 r5, r5, 16
+    setp.ne.u32 p1, r4, r5
+    @p1 bra FAIL
+
+    // Test 3: sqrt.f32 - sqrt(4.0) = 2.0
+    sqrt.f32 r6, r3           // sqrt(4.0) = 2.0
+    setp.ne.u32 p1, r6, r0    // Compare with 2.0
+    @p1 bra FAIL
+
+    // Test 4: sqrt.f32 - sqrt(1.0) = 1.0
+    // 1.0 = 0x3F800000
+    mov.u32 r7, 0x3F80
+    shl.b32 r7, r7, 16        // r7 = 1.0
+    sqrt.f32 r8, r7
+    setp.ne.u32 p1, r8, r7    // sqrt(1) = 1
+    @p1 bra FAIL
+
+    // Test 5: sqrt.f32 - sqrt(16.0) = 4.0
+    // 16.0 = 0x41800000
+    mov.u32 r9, 0x4180
+    shl.b32 r9, r9, 16        // r9 = 16.0
+    sqrt.f32 r10, r9
+    setp.ne.u32 p1, r10, r3   // Compare with 4.0
+    @p1 bra FAIL
+
+    // Test 6: rsqrt.f32 - 1/sqrt(4.0) = 0.5
+    rsqrt.f32 r11, r3         // rsqrt(4) = 0.5
+    // Check if close to 0.5 (allow small error)
+    sub.f32 r12, r11, r5      // Subtract 0.5
+    abs.f32 r12, r12
+    // Check exponent of error is small
+    shr.u32 r13, r12, 24      // Get exponent
+    setp.gt.u32 p1, r13, 0x3C // Error should be small
+    @p1 bra FAIL
+
+    // Test 7: ex2.approx.f32 - 2^0 = 1.0
+    mov.u32 r14, 0            // 0.0
+    ex2.approx.f32 r15, r14   // 2^0 = 1.0
+    setp.ne.u32 p1, r15, r7   // Compare with 1.0
+    @p1 bra FAIL
+
+    // Test 8: ex2.approx.f32 - 2^1 = 2.0
+    ex2.approx.f32 r16, r7    // 2^1.0 = 2.0
+    setp.ne.u32 p1, r16, r0   // Compare with 2.0
+    @p1 bra FAIL
+
+    // Test 9: lg2.approx.f32 - log2(1.0) = 0.0
+    lg2.approx.f32 r17, r7    // log2(1) = 0
+    // Should be very close to 0 - check exponent is small
+    shr.u32 r19, r17, 23      // Get exponent
+    and.b32 r19, r19, 0xFF
+    setp.gt.u32 p1, r19, 0x70 // Exponent should be small (close to 0)
+    @p1 bra FAIL
+
+    // Test 10: lg2.approx.f32 - log2(2.0) = 1.0
+    lg2.approx.f32 r20, r0    // log2(2) = 1.0
+    // Check if close to 1.0
+    sub.f32 r21, r20, r7      // Subtract 1.0
+    abs.f32 r21, r21
+    shr.u32 r22, r21, 24
+    setp.gt.u32 p1, r22, 0x3C // Error should be small
+    @p1 bra FAIL
+
+    // Write success marker
+    mov.u32 r30, 0x2000
+    mov.u32 r31, 0xCAFE
+    st.global.u32 [r30], r31
+    exit
+
+FAIL:
+    mov.u32 r30, 0x2000
+    mov.u32 r31, 0xDEAD
+    st.global.u32 [r30], r31
+    exit
+.end

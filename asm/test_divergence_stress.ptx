@@ -1,0 +1,61 @@
+// SIMT divergence stress test - simplified
+// Tests: divergence, nested branches, reconvergence
+// Uses bra.z/bra.nz for all branches
+
+.entry test_divergence_stress:
+    mov.u32 r0, %laneid
+    mov.u32 r1, 0     // Result accumulator
+
+    // Test 1: 2-way divergence
+    // Lanes 0-15 take branch A, lanes 16-31 take branch B
+    sub.s32 r2, r0, 16
+    // r2 negative if lane < 16, non-negative if >= 16
+    // Use shr to check sign bit
+    shr.s32 r3, r2, 31  // r3 = -1 if lane < 16, else 0
+
+    bra.z r3, BRANCH_B1     // If r3 == 0, lane >= 16
+    add.s32 r1, r1, 0x100   // Lanes 0-15 add 0x100
+    bra MERGE1
+
+BRANCH_B1:
+    add.s32 r1, r1, 0x200   // Lanes 16-31 add 0x200
+
+MERGE1:
+    // Test 2: Even vs odd divergence
+    and.b32 r2, r0, 1
+
+    bra.nz r2, ODD_LANES    // Odd lanes
+    add.s32 r1, r1, 0x10    // Even lanes add 0x10
+    bra MERGE2
+
+ODD_LANES:
+    add.s32 r1, r1, 0x20    // Odd lanes add 0x20
+
+MERGE2:
+    // Test 3: Write result to memory for verification
+    mov.u32 r10, 0x4000
+    shl.b32 r11, r0, 2
+    add.s32 r12, r10, r11
+    st.global.u32 [r12], r1
+
+    // Lane 0 writes success marker
+    bra.nz r0, SKIP_MARKER
+
+    // Verify lane 0 result:
+    // Lane 0: 0x100 (branch A1 since lane < 16) + 0x10 (even) = 0x110
+    sub.s32 r30, r1, 0x110
+    bra.nz r30, FAIL
+
+    mov.u32 r15, 0x8000
+    mov.u32 r16, 0xCAFE
+    st.global.u32 [r15], r16
+
+SKIP_MARKER:
+    exit
+
+FAIL:
+    mov.u32 r15, 0x8000
+    mov.u32 r16, 0xDEAD
+    st.global.u32 [r15], r16
+    exit
+.end

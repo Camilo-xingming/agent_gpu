@@ -1,0 +1,25 @@
+.entry mul_div_test:
+    // Test MUL: 10 * 10 = 100
+    mov.u32 r1, 10
+    mul.lo.s32 r2, r1, r1  // r2 = 100
+    mov.u32 r10, 0x1000
+    st.global.u32 [r10], r2
+
+    // Test MUL.HI: 10 * 10 high = 0
+    mul.hi.s32 r3, r1, r1  // r3 = 0
+    add.s32 r10, r10, 4
+    st.global.u32 [r10], r3
+
+    // Test DIV: 10 / 3 = 3
+    mov.u32 r4, 3
+    div.s32 r5, r1, r4     // r5 = 3
+    add.s32 r10, r10, 4
+    st.global.u32 [r10], r5
+
+    // Test REM: 10 % 3 = 1
+    rem.s32 r6, r1, r4     // r6 = 1
+    add.s32 r10, r10, 4
+    st.global.u32 [r10], r6
+
+    exit
+.end

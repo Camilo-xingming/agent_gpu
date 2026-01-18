@@ -1,0 +1,134 @@
+// Load/Store Throughput Test
+// Tests memory bandwidth with sequential and parallel access
+// Uses bra.nz for comparisons
+
+.entry test_ld_st_throughput:
+    mov.u32 r0, %laneid
+
+    // Only lane 0 runs tests
+    bra.nz r0, SKIP_TEST
+
+    // Test 1: Sequential stores then sequential loads
+    mov.u32 r1, 0x1000
+    mov.u32 r2, 0x1004
+    mov.u32 r3, 0x1008
+    mov.u32 r4, 0x100C
+
+    // Sequential stores
+    mov.u32 r10, 100
+    mov.u32 r11, 200
+    mov.u32 r12, 300
+    mov.u32 r13, 400
+    st.global.u32 [r1], r10
+    st.global.u32 [r2], r11
+    st.global.u32 [r3], r12
+    st.global.u32 [r4], r13
+
+    // Sequential loads
+    ld.global.u32 r20, [r1]
+    ld.global.u32 r21, [r2]
+    ld.global.u32 r22, [r3]
+    ld.global.u32 r23, [r4]
+
+    // Verify all values
+    sub.s32 r30, r20, 100
+    bra.nz r30, FAIL
+    sub.s32 r30, r21, 200
+    bra.nz r30, FAIL
+    sub.s32 r30, r22, 300
+    bra.nz r30, FAIL
+    sub.s32 r30, r23, 400
+    bra.nz r30, FAIL
+
+    // Test 2: Load-modify-store pattern
+    mov.u32 r1, 0x1010
+    mov.u32 r10, 50
+    st.global.u32 [r1], r10
+    ld.global.u32 r11, [r1]
+    add.s32 r12, r11, 25
+    st.global.u32 [r1], r12
+    ld.global.u32 r13, [r1]
+
+    sub.s32 r30, r13, 75
+    bra.nz r30, FAIL
+
+    // Test 3: Interleaved loads and stores
+    mov.u32 r1, 0x1020
+    mov.u32 r2, 0x1024
+    mov.u32 r10, 111
+    mov.u32 r11, 222
+
+    st.global.u32 [r1], r10
+    ld.global.u32 r20, [r1]
+    st.global.u32 [r2], r11
+    ld.global.u32 r21, [r2]
+
+    sub.s32 r30, r20, 111
+    bra.nz r30, FAIL
+    sub.s32 r30, r21, 222
+    bra.nz r30, FAIL
+
+    // Test 4: Burst of stores followed by burst of loads
+    mov.u32 r1, 0x1030
+    mov.u32 r10, 10
+    mov.u32 r11, 20
+    mov.u32 r12, 30
+    mov.u32 r13, 40
+    mov.u32 r14, 50
+    mov.u32 r15, 60
+    mov.u32 r16, 70
+    mov.u32 r17, 80
+
+    // 8 stores
+    st.global.u32 [r1+0], r10
+    add.s32 r1, r1, 4
+    st.global.u32 [r1+0], r11
+    add.s32 r1, r1, 4
+    st.global.u32 [r1+0], r12
+    add.s32 r1, r1, 4
+    st.global.u32 [r1+0], r13
+    add.s32 r1, r1, 4
+    st.global.u32 [r1+0], r14
+    add.s32 r1, r1, 4
+    st.global.u32 [r1+0], r15
+    add.s32 r1, r1, 4
+    st.global.u32 [r1+0], r16
+    add.s32 r1, r1, 4
+    st.global.u32 [r1+0], r17
+
+    // Reset and read back sum
+    mov.u32 r1, 0x1030
+    ld.global.u32 r20, [r1]
+    add.s32 r1, r1, 4
+    ld.global.u32 r21, [r1]
+    add.s32 r25, r20, r21    // 30
+
+    add.s32 r1, r1, 4
+    ld.global.u32 r22, [r1]
+    add.s32 r25, r25, r22    // 60
+
+    add.s32 r1, r1, 4
+    ld.global.u32 r23, [r1]
+    add.s32 r25, r25, r23    // 100
+
+    // Sum should be 10+20+30+40 = 100
+    sub.s32 r30, r25, 100
+    bra.nz r30, FAIL
+
+    // Write success marker
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xCAFE
+    st.global.u32 [r21], r22
+    bra DONE
+
+SKIP_TEST:
+    bra DONE
+
+FAIL:
+    mov.u32 r21, 0x2000
+    mov.u32 r22, 0xDEAD
+    st.global.u32 [r21], r22
+
+DONE:
+    exit
+.end
