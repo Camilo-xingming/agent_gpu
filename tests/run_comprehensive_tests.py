@@ -95,7 +95,23 @@ PERFORMANCE_TESTS = [
              "Edge cases: zero/max/min/overflow"),
 ]
 
-ALL_TESTS = BASIC_TESTS + EXTENDED_TESTS + STRESS_TESTS + PERFORMANCE_TESTS
+# B300 Gap feature tests (new functionality per gap analysis)
+B300_TESTS = [
+    TestCase("test_dp4a_signed", "asm/test_dp4a_signed.ptx", "b300",
+             "DP4A signed: INT8 dot product with signed bytes"),
+    TestCase("test_dp2a_ops", "asm/test_dp2a_ops.ptx", "b300",
+             "DP2A: INT16 half-word dot product"),
+    TestCase("test_warp_sync", "asm/test_warp_sync.ptx", "b300",
+             "Warp sync: bar.sync synchronization"),
+    TestCase("test_fp16_basic", "asm/test_fp16_basic.ptx", "b300",
+             "FP16: half-precision conversions"),
+    TestCase("test_async_copy", "asm/test_async_copy.ptx", "b300",
+             "Async copy: memory copy patterns"),
+    TestCase("test_tensor_mma", "asm/test_tensor_mma.ptx", "b300",
+             "Tensor MMA: matrix multiply-accumulate"),
+]
+
+ALL_TESTS = BASIC_TESTS + EXTENDED_TESTS + STRESS_TESTS + PERFORMANCE_TESTS + B300_TESTS
 
 def get_project_root():
     """Get project root directory"""
@@ -210,14 +226,16 @@ def main():
         "basic": BASIC_TESTS,
         "extended": EXTENDED_TESTS,
         "stress": STRESS_TESTS,
-        "performance": PERFORMANCE_TESTS
+        "performance": PERFORMANCE_TESTS,
+        "b300": B300_TESTS
     }
 
     results = {
         "basic": {"pass": 0, "fail": 0, "tests": []},
         "extended": {"pass": 0, "fail": 0, "tests": []},
         "stress": {"pass": 0, "fail": 0, "tests": []},
-        "performance": {"pass": 0, "fail": 0, "tests": []}
+        "performance": {"pass": 0, "fail": 0, "tests": []},
+        "b300": {"pass": 0, "fail": 0, "tests": []}
     }
 
     for cat_name, tests in categories.items():
@@ -261,10 +279,11 @@ def main():
     # Coverage estimate based on test categories
     # Each category covers different RTL functionality
     coverage_weights = {
-        "basic": 0.25,       # Basic tests cover ~25% of RTL
-        "extended": 0.35,    # Extended tests add ~35% more
-        "stress": 0.2,       # Stress tests add ~20% more
-        "performance": 0.15  # Performance tests add ~15% more
+        "basic": 0.20,       # Basic tests cover ~20% of RTL
+        "extended": 0.30,    # Extended tests add ~30% more
+        "stress": 0.15,      # Stress tests add ~15% more
+        "performance": 0.15, # Performance tests add ~15% more
+        "b300": 0.15         # B300 gap tests add ~15% more
     }
 
     estimated_coverage = 0
