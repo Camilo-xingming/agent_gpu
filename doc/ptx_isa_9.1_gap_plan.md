@@ -64,3 +64,65 @@ Scope: Map PTX ISA 9.1 against current RalphGPU RTL/assembler support, identify 
 - Extend `tools/ptx_assembler.py` for all new opcodes/operands; keep json specs in sync.  
 - Maintain directed FU benches for each new datapath plus SM integration benches per feature area.  
 - Keep nightly regression running 87+ legacy tests plus accumulating Phase A→C suites; track coverage deltas after each phase.
+
+## Top-Level Verification Plan (ralph_gpu_top via PTX binaries)
+**Goal:** Full-chip functional coverage using PTX kernels compiled to bin/hex, running on `ralph_gpu_top` in Verilog testbenches with self-checks (no manual inspection).
+
+### Toolchain / Harness
+- PTX → binary: `python tools/ptx_assembler.py --input <kernel.ptx> --output <kernel>.hex` (hex preferred for `$readmemh`). Keep `.ptx` alongside `.hex` for traceability.
+- Testbench template: reuse `tb/tb_ralph_gpu.v` style—loads program into instruction memory + data payload into AXI memory model; drives `kernel_start`; polls `kernel_done` with timeout; dumps memory to compare.
+- Self-check contract:
+  1) Assert `kernel_done` before timeout.
+  2) Compare designated output region(s) in global memory against golden (embedded in bench or loaded from `golden.hex`).
+  3) Optionally check register values for small kernels (e.g., predicates, special regs).
+- Stimulus data: embed via `$readmemh` for program (`imem.hex`) and data (`dram_init.hex`). Emit `dram_golden.hex` for expected post-state.
+
+### Test Categories & Kernels
+1) **Control/Branch/Reconvergence**
+   - Straight-line, forward/backward branches, divergence + reconvergence.
+   - CALL/RET/EXIT coverage; partial warp masks.
+2) **ALU / Logic / Compare**
+   - add/sub/and/or/xor/not, shifts, bmsk/szext/fns/lop3/shf/cnot, mad.cc/madc carry chain, setp/selp/slct.
+3) **Mul/Div**
+   - mul.lo/hi/wide, mul24/mad24, div/rem (s/u), mad.hi; dp4a/dp2a placeholder (once wired).
+4) **FP32/FP16/BF16/FP64**
+   - add/sub/mul/fma/div, copysign/testp, rcp/sqrt/rsqrt/sin/cos/lg2/ex2/tanh; FP compare matrix (add half/mixed when implemented).
+5) **CVT**
+   - int↔fp, fp16/bf16↔fp32, cvt.pack packing low halves.
+6) **Memory**
+   - ld/st global/shared/local/param/const; vector v2/v4; alignment/coalescing patterns; shared bank conflict microbench; local spills.
+7) **Atomics/Reductions**
+   - ATOM/RED variants on global/shared; contention cases.
+8) **Warp-level**
+   - SHFL (up/down/bfly/idx), VOTE/REDUX, activemask special reg.
+9) **Sync**
+   - bar.sync + membar correctness (ordering), dual-issue sync stall release.
+   - cp.async stub: verify wait_group/all stalls/unblocks and exit waits pending (data movement is stubbed; expect timing only).
+10) **Tensor**
+    - WMMA/MMA correctness (existing paths); WGMMA once wired.
+11) **Special Regs**
+    - laneid/warpid/smid/activemask values vs. expected masks.
+12) **Prefetch**
+    - Prefetch as hint: ensure no architectural side effects (no data corruption).
+
+### Per-Testbench Structure
+- Inputs: program hex, data init hex, golden hex, timeout cycles.
+- Monitors: kernel_done, optional tracing of key regs/mem, assertions for protocol (no X/Z on AXI, no illegal opcodes).
+- End condition: if `kernel_done` then compare memory; if mismatch, print first failing address/data pair and fail.
+
+### Regression Matrix (minimum)
+- Smoke: 1 per category above (≈12 tests).
+- Extended: add stride/coalescing variants; half/mixed FP compares; atomic contention; divergent control; multi-SM (if top supports >1 SM) for bar.sync/membar visibility.
+- cp.async stub: one test that issues copies + wait_group/all to validate stall counters (acknowledge no data move).
+
+### Automation
+- Script wrapper to:
+  1) Assemble PTX → hex (program & data init).
+  2) Generate golden hex using a reference Python model (same script) or embedded expected arrays for small kernels.
+  3) Run `iverilog -g2012` on `tb_*.v` with `ralph_gpu_top` + memories; run `vvp`; parse PASS/FAIL.
+- CI gate: smoke matrix on every change touching `rtl/` or `tools/ptx_assembler.py`; full matrix nightly.
+
+### Known Limitations / Expectations
+- cp.async currently fixed-latency stub (no real copy); tests should only check wait semantics, not data movement.
+- WGMMA, texture/surface/video, st.async/multimem not wired—exclude from pass criteria until implemented; keep placeholder tests marked XFAIL.
+- Multi-SM cluster/barrier not present; cluster-level tests are future work.

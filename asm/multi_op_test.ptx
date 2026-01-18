@@ -1,0 +1,51 @@
+// Comprehensive Multi-Operation Test
+// Tests ALU, MUL, VIDEO (dp4a), and Memory operations
+// All results stored to global memory for verification
+
+.entry multi_op_test:
+    // Test 1: ALU ADD - r1 = 10 + 5 = 15
+    mov.u32 r10, 10
+    mov.u32 r11, 5
+    add.u32 r1, r10, r11
+
+    // Test 2: ALU SUB - r2 = 20 - 7 = 13
+    mov.u32 r10, 20
+    mov.u32 r11, 7
+    sub.u32 r2, r10, r11
+
+    // Test 3: MUL - r3 = 6 * 7 = 42
+    mov.u32 r10, 6
+    mov.u32 r11, 7
+    mul.lo.u32 r3, r10, r11
+
+    // Test 4: VIDEO DP4A - r4 = [1,2,0,0]*[3,3,0,0] + 10 = 1*3 + 2*3 + 10 = 19
+    mov.u32 r10, 0x0201    // a = [1, 2, 0, 0] as bytes
+    mov.u32 r11, 0x0303    // b = [3, 3, 0, 0] as bytes
+    mov.u32 r12, 10        // c = 10
+    dp4a.s32.s32 r4, r10, r11, r12
+
+    // Test 5: ALU AND - r5 = 0xFF & 0x0F = 0x0F = 15
+    mov.u32 r10, 0xFF
+    mov.u32 r11, 0x0F
+    and.b32 r5, r10, r11
+
+    // Test 6: ALU OR - r6 = 0xF0 | 0x0F = 0xFF = 255
+    mov.u32 r10, 0xF0
+    mov.u32 r11, 0x0F
+    or.b32 r6, r10, r11
+
+    // Store results to global memory
+    mov.u32 r20, 0x1000     // Base address
+    st.global.u32 [r20], r1          // addr 0x1000 = 15 (ADD)
+    mov.u32 r20, 0x1004
+    st.global.u32 [r20], r2          // addr 0x1004 = 13 (SUB)
+    mov.u32 r20, 0x1008
+    st.global.u32 [r20], r3          // addr 0x1008 = 42 (MUL)
+    mov.u32 r20, 0x100C
+    st.global.u32 [r20], r4          // addr 0x100C = 19 (DP4A)
+    mov.u32 r20, 0x1010
+    st.global.u32 [r20], r5          // addr 0x1010 = 15 (AND)
+    mov.u32 r20, 0x1014
+    st.global.u32 [r20], r6          // addr 0x1014 = 255 (OR)
+
+    exit

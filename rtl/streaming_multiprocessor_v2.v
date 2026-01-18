@@ -595,7 +595,7 @@ module streaming_multiprocessor_v2 #(
     wire lane0_stall_atomic = dec0_valid && dec_atomic_op && atomic_busy;
     wire lane0_stall_tensor = dec0_valid && dec_tensor_op && tensor_issue_full_next;
     wire lane0_stall_wbq = dec0_valid && (
-                           (dec_alu_op && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
+                           ((dec_alu_op || dec_video_op) && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
                            (dec_mul_op && (mul_inflight == MUL_WBQ_DEPTH_VAL)) ||
                            (dec_fp32_op && (fpu32_inflight == FPU32_WBQ_DEPTH_VAL)) ||
                            (dec_fp64_op && (fpu64_inflight == FPU64_WBQ_DEPTH_VAL)) ||
@@ -615,7 +615,7 @@ module streaming_multiprocessor_v2 #(
     wire lane1_stall_raw = dec1_valid && (lane1_ra_busy || lane1_rb_busy || lane1_rc_busy);
     wire lane1_stall_fu = dec1_valid && (pending_fu_count[dec1_warp_id] >= 8);
     wire lane1_stall_wbq = dec1_valid && (
-                           (dec1_alu_op && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
+                           ((dec1_alu_op || dec1_video_op) && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
                            (dec1_mul_op && (mul_inflight == MUL_WBQ_DEPTH_VAL)) ||
                            (dec1_fp32_op && (fpu32_inflight == FPU32_WBQ_DEPTH_VAL)) ||
                            (dec1_fp64_op && (fpu64_inflight == FPU64_WBQ_DEPTH_VAL)) ||
@@ -625,7 +625,7 @@ module streaming_multiprocessor_v2 #(
                            );
     wire lane1_is_compute = dec1_alu_op || dec1_mul_op || dec1_div_op ||
                             dec1_fp32_op || dec1_fp64_op || dec1_fp16_op ||
-                            dec1_sfu_op || dec1_shuffle_op;
+                            dec1_sfu_op || dec1_shuffle_op || dec1_video_op;
     wire lane1_blocking = dec1_mem_read || dec1_mem_write || dec1_branch_op ||
                           dec1_sync_op || dec1_exit_op || dec1_tensor_op ||
                           dec1_atomic_op;
@@ -1299,7 +1299,7 @@ module streaming_multiprocessor_v2 #(
                                          (op == `OP_FP32_ARITH) || (op == `OP_FP16_ARITH) ||
                                          (op == `OP_SFU) || (op == `OP_MOV_SPECIAL) ||
                                          (op == `OP_MOV_IMM) || (op == `OP_SETP) ||
-                                         (op == `OP_CVT) || (op == `OP_NOP);
+                                         (op == `OP_CVT) || (op == `OP_NOP) || (op == `OP_VIDEO);
             assign pd_is_tensor[pd_i]  = (op == `OP_WMMA_MMA);
             assign pd_is_memory[pd_i]  = (op == `OP_LD_GLOBAL) || (op == `OP_ST_GLOBAL) ||
                                          (op == `OP_LD_SHARED) || (op == `OP_ST_SHARED);
