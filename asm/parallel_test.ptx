@@ -1,0 +1,18 @@
+// Simple parallel test - each thread writes its ID to memory
+// 16 threads write values 0-15 to addresses 0x1000-0x103C
+
+.entry parallel_test:
+    // Get thread ID
+    mov.u32 r0, %tid.x
+
+    // Load base address (0x1000 requires 16-bit immediate)
+    mov.u32 r2, 0x1000
+
+    // Compute store address: 0x1000 + tid * 4
+    shl.b32 r1, r0, 2           // r1 = tid * 4
+    add.s32 r1, r1, r2          // r1 = 0x1000 + tid * 4
+
+    // Store thread ID
+    st.global.u32 [r1], r0
+
+    exit

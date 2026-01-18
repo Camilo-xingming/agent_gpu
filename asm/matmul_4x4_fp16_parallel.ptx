@@ -1,0 +1,169 @@
+// RalphGPU 4x4 FP16 Matrix Multiplication - Parallel Version
+// C = A * B where A,B are 4x4 FP16, C is 4x4 FP32
+// 16 threads compute 16 output elements in parallel
+//
+// Thread mapping: tid = row * 4 + col
+// Each thread computes one element of C
+//
+// Memory layout (FP16 packed as 2 per 32-bit word):
+//   A matrix: 0x1000 (32 bytes)
+//   B matrix: 0x1020 (32 bytes)
+//   C matrix: 0x1040 (64 bytes)
+
+.entry matmul_4x4_fp16_parallel:
+    // Get thread ID
+    mov.u32 r0, %tid.x
+
+    // r29 = mask for low 16-bit
+    mov.u32 r29, 0xFFFF
+
+    // Compute row = tid / 4 (r1), col = tid % 4 (r2)
+    shr.u32 r1, r0, 2       // r1 = row = tid >> 2
+    and.b32 r2, r0, 3       // r2 = col = tid & 3
+
+    // Load entire A matrix (all threads load same data, but use different rows)
+    mov.u32 r30, 0x1000
+    ld.global.u32 r3, [r30]     // A[0][0:1]
+    add.s32 r30, r30, 4
+    ld.global.u32 r4, [r30]     // A[0][2:3]
+    add.s32 r30, r30, 4
+    ld.global.u32 r5, [r30]     // A[1][0:1]
+    add.s32 r30, r30, 4
+    ld.global.u32 r6, [r30]     // A[1][2:3]
+    add.s32 r30, r30, 4
+    ld.global.u32 r7, [r30]     // A[2][0:1]
+    add.s32 r30, r30, 4
+    ld.global.u32 r8, [r30]     // A[2][2:3]
+    add.s32 r30, r30, 4
+    ld.global.u32 r9, [r30]     // A[3][0:1]
+    add.s32 r30, r30, 4
+    ld.global.u32 r10, [r30]    // A[3][2:3]
+
+    // Load entire B matrix
+    mov.u32 r30, 0x1020
+    ld.global.u32 r11, [r30]    // B[0][0:1]
+    add.s32 r30, r30, 4
+    ld.global.u32 r12, [r30]    // B[0][2:3]
+    add.s32 r30, r30, 4
+    ld.global.u32 r13, [r30]    // B[1][0:1]
+    add.s32 r30, r30, 4
+    ld.global.u32 r14, [r30]    // B[1][2:3]
+    add.s32 r30, r30, 4
+    ld.global.u32 r15, [r30]    // B[2][0:1]
+    add.s32 r30, r30, 4
+    ld.global.u32 r16, [r30]    // B[2][2:3]
+    add.s32 r30, r30, 4
+    ld.global.u32 r17, [r30]    // B[3][0:1]
+    add.s32 r30, r30, 4
+    ld.global.u32 r18, [r30]    // B[3][2:3]
+
+    // Select A row based on thread's row (r1)
+    // Use row index to compute pointer offset, then re-select
+    // A_row_ptr = r3 + row * 2 (2 registers per row)
+    // Since we can't do dynamic register selection, we'll compute inline
+
+    // For simplicity, each thread will compute its element by checking row
+    // This version: fully unrolled for each thread ID pattern
+
+    // Thread 0: row=0, col=0 -> C[0][0]
+    // A[0][0]*B[0][0] + A[0][1]*B[1][0] + A[0][2]*B[2][0] + A[0][3]*B[3][0]
+
+    // Initialize accumulator
+    mov.u32 r20, 0
+
+    // Compute based on row (r1) - select A row
+    // row 0: use r3, r4
+    // row 1: use r5, r6
+    // row 2: use r7, r8
+    // row 3: use r9, r10
+
+    // For column (r2) - select B column
+    // col 0: B[k][0] = low of r11,r13,r15,r17
+    // col 1: B[k][1] = high of r11,r13,r15,r17
+    // col 2: B[k][2] = low of r12,r14,r16,r18
+    // col 3: B[k][3] = high of r12,r14,r16,r18
+
+    // Extract A[row][0] based on row
+    setp.eq.u32 p0, r1, 0
+    setp.eq.u32 p1, r1, 1
+    setp.eq.u32 p2, r1, 2
+    setp.eq.u32 p3, r1, 3
+
+    // Get A[row][0] (low 16 bits of first word)
+    @p0 and.b32 r21, r3, r29
+    @p1 and.b32 r21, r5, r29
+    @p2 and.b32 r21, r7, r29
+    @p3 and.b32 r21, r9, r29
+
+    // Get B[0][col]
+    setp.eq.u32 p4, r2, 0
+    setp.eq.u32 p5, r2, 1
+    setp.eq.u32 p6, r2, 2
+    setp.eq.u32 p7, r2, 3
+
+    @p4 and.b32 r22, r11, r29
+    @p5 shr.u32 r22, r11, 16
+    @p6 and.b32 r22, r12, r29
+    @p7 shr.u32 r22, r12, 16
+
+    // A[row][0] * B[0][col]
+    mul.f16 r20, r21, r22
+    cvt.f32.f16 r20, r20
+
+    // Get A[row][1] (high 16 bits of first word)
+    @p0 shr.u32 r21, r3, 16
+    @p1 shr.u32 r21, r5, 16
+    @p2 shr.u32 r21, r7, 16
+    @p3 shr.u32 r21, r9, 16
+
+    // Get B[1][col]
+    @p4 and.b32 r22, r13, r29
+    @p5 shr.u32 r22, r13, 16
+    @p6 and.b32 r22, r14, r29
+    @p7 shr.u32 r22, r14, 16
+
+    // A[row][1] * B[1][col]
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+
+    // Get A[row][2] (low 16 bits of second word)
+    @p0 and.b32 r21, r4, r29
+    @p1 and.b32 r21, r6, r29
+    @p2 and.b32 r21, r8, r29
+    @p3 and.b32 r21, r10, r29
+
+    // Get B[2][col]
+    @p4 and.b32 r22, r15, r29
+    @p5 shr.u32 r22, r15, 16
+    @p6 and.b32 r22, r16, r29
+    @p7 shr.u32 r22, r16, 16
+
+    // A[row][2] * B[2][col]
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+
+    // Get A[row][3] (high 16 bits of second word)
+    @p0 shr.u32 r21, r4, 16
+    @p1 shr.u32 r21, r6, 16
+    @p2 shr.u32 r21, r8, 16
+    @p3 shr.u32 r21, r10, 16
+
+    // Get B[3][col]
+    @p4 and.b32 r22, r17, r29
+    @p5 shr.u32 r22, r17, 16
+    @p6 and.b32 r22, r18, r29
+    @p7 shr.u32 r22, r18, 16
+
+    // A[row][3] * B[3][col]
+    mul.f16 r23, r21, r22
+    cvt.f32.f16 r23, r23
+    add.f32 r20, r20, r23
+
+    // Store C[row][col] at 0x1040 + tid * 4
+    shl.b32 r30, r0, 2          // r30 = tid * 4
+    add.s32 r30, r30, 0x1040
+    st.global.f32 [r30], r20
+
+    exit

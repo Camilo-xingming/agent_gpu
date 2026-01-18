@@ -864,7 +864,8 @@ module simd_fpu64 #(
             );
 
             assign result[i*64 +: 64] = lane_mask[i] ? lane_result : 64'b0;
-            assign lane_valid[i] = lane_mask[i] ? l_valid : 1'b1;
+            // FIX: Masked lanes should NOT report valid (was 1'b1, should be 1'b0)
+            assign lane_valid[i] = lane_mask[i] & l_valid;
             assign lane_ovf[i] = lane_mask[i] & l_ovf;
             assign lane_inv[i] = lane_mask[i] & l_inv;
         end

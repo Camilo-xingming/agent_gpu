@@ -109,9 +109,11 @@ module tb_matmul_4x4_ptx;
 
     function [31:0] encode_st_global;
         input [4:0] rs, ra;
-        input [10:0] offset;
+        input [10:0] offset;  // offset ignored - address calculated in ra register
         begin
-            encode_st_global = {`OP_ST_GLOBAL, rs, ra, offset};
+            // Format: {opcode[31:26], rd[25:21], ra[20:16], rb[15:11], rc[10:6], func[5:0]}
+            // SM reads: address from RA (rf_rd_data_a), data from RB (rf_rd_data_b)
+            encode_st_global = {`OP_ST_GLOBAL, 5'b0, ra, rs, 5'b0, 6'b0};
         end
     endfunction
 

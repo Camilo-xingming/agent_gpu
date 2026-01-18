@@ -464,6 +464,7 @@ module tb_batched_matmul_4x4x4_fp16;
     // Main Test
     //------------------------------------------------------------------------
     integer pass_count, fail_count, total_pass, total_fail;
+    reg [31:0] start_time, end_time;
     integer c_base;
     real rtl_val, error, abs_expected;
 
@@ -495,13 +496,16 @@ module tb_batched_matmul_4x4x4_fp16;
         csr_write(12'h020, 32'd1);        // Block Z = 1
 
         $display("Starting kernel execution...");
+        start_time = $time;
         csr_write(12'h004, 32'd1);
 
         // Wait for completion
         fork
             begin
                 wait(irq_kernel_done);
+                end_time = $time;
                 $display("Kernel completed!");
+                $display("Execution time: %0d cycles", (end_time - start_time) / CLK_PERIOD);
             end
             begin
                 #50_000_000;  // 50ms timeout (longer for 4 batches)

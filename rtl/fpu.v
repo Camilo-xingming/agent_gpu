@@ -514,7 +514,8 @@ module simd_fpu #(
 
             // Use lane_mask_r (registered) for outputs to match 1-cycle FPU latency
             assign result[i*32 +: 32] = lane_mask_r[i] ? lane_result : 32'b0;
-            assign lane_valid[i] = lane_mask_r[i] ? l_valid : 1'b1;
+            // FIX: Masked lanes should NOT report valid (was 1'b1, should be 1'b0)
+            assign lane_valid[i] = lane_mask_r[i] & l_valid;
             assign lane_ovf[i] = lane_mask_r[i] & l_ovf;
             assign lane_inv[i] = lane_mask_r[i] & l_inv;
         end

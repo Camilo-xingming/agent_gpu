@@ -470,6 +470,7 @@ module tb_matmul_4x4_fp16_binary;
     // Main Test
     //------------------------------------------------------------------------
     integer pass_count, fail_count;
+    reg [31:0] start_time, end_time;
     real rtl_val, error, abs_expected;
 
     initial begin
@@ -503,13 +504,16 @@ module tb_matmul_4x4_fp16_binary;
         csr_write(12'h020, 32'd1);        // Block Z = 1
 
         $display("Starting kernel execution...");
+        start_time = $time;
         csr_write(12'h004, 32'd1);        // Start kernel
 
         // Wait for completion
         fork
             begin
                 wait(irq_kernel_done);
+                end_time = $time;
                 $display("Kernel completed (irq_kernel_done asserted)");
+                $display("Execution time: %0d cycles", (end_time - start_time) / CLK_PERIOD);
             end
             begin
                 #10_000_000;  // 10ms timeout
