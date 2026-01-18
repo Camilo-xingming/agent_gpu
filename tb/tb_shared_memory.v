@@ -41,6 +41,14 @@ module tb_shared_memory;
     wire                             bank_conflict;
 
     //------------------------------------------------------------------------
+    // Async write port signals (for cp.async)
+    //------------------------------------------------------------------------
+    reg                     async_wr_en;
+    reg  [ADDR_WIDTH-1:0]   async_wr_addr;
+    reg  [127:0]            async_wr_data;
+    reg  [4:0]              async_wr_size;  // 5 bits to hold values up to 16
+
+    //------------------------------------------------------------------------
     // DUT 实例化
     //------------------------------------------------------------------------
     shared_memory #(
@@ -58,7 +66,12 @@ module tb_shared_memory;
         .req_mask     (req_mask),
         .resp_valid   (resp_valid),
         .resp_rdata   (resp_rdata),
-        .bank_conflict(bank_conflict)
+        .bank_conflict(bank_conflict),
+        // Async copy write port
+        .async_wr_en  (async_wr_en),
+        .async_wr_addr(async_wr_addr),
+        .async_wr_data(async_wr_data),
+        .async_wr_size(async_wr_size)
     );
 
     //------------------------------------------------------------------------
@@ -149,6 +162,10 @@ module tb_shared_memory;
         req_addr  = 0;
         req_wdata = 0;
         req_mask  = 0;
+        async_wr_en   = 0;
+        async_wr_addr = 0;
+        async_wr_data = 0;
+        async_wr_size = 0;
 
         #100;
         rst_n = 1;
@@ -346,6 +363,93 @@ module tb_shared_memory;
             $display("[FAIL] Selective write error");
             $display("       Lane0: 0x%08X (exp 0x22220000)", resp_rdata[0*32 +: 32]);
             $display("       Lane1: 0x%08X (exp 0x11110001)", resp_rdata[1*32 +: 32]);
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试9: Async Write Port - 4 bytes
+        //====================================================================
+        $display("\n--- Async Write Port Test (4 bytes) ---");
+
+        @(posedge clk);
+        async_wr_en <= 1;
+        async_wr_addr <= 14'd256;  // Word address
+        async_wr_data <= 128'hDEADBEEF_12345678_CAFEBABE_87654321;
+        async_wr_size <= 5'd4;  // 4 bytes = 1 word
+        @(posedge clk);
+        async_wr_en <= 0;
+        #20;
+
+        // Read back using normal interface
+        smem_read(14'd256, 32'd1, 32'h00000001);  // Only lane 0
+        @(posedge clk);
+
+        if (resp_rdata[0*32 +: 32] === 32'h87654321) begin  // LSB 32 bits
+            $display("[PASS] Async write 4 bytes works");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Async write 4 bytes failed: got 0x%08X, exp 0x87654321",
+                     resp_rdata[0*32 +: 32]);
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试10: Async Write Port - 8 bytes
+        //====================================================================
+        $display("\n--- Async Write Port Test (8 bytes) ---");
+
+        @(posedge clk);
+        async_wr_en <= 1;
+        async_wr_addr <= 14'd512;
+        async_wr_data <= 128'hAAAABBBB_CCCCDDDD_11112222_33334444;
+        async_wr_size <= 5'd8;  // 8 bytes = 2 words
+        @(posedge clk);
+        async_wr_en <= 0;
+        #20;
+
+        smem_read(14'd512, 32'd1, 32'h00000003);  // Lane 0 and 1
+        @(posedge clk);
+
+        if (resp_rdata[0*32 +: 32] === 32'h33334444 &&
+            resp_rdata[1*32 +: 32] === 32'h11112222) begin
+            $display("[PASS] Async write 8 bytes works");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Async write 8 bytes failed:");
+            $display("       Word0: got 0x%08X, exp 0x33334444", resp_rdata[0*32 +: 32]);
+            $display("       Word1: got 0x%08X, exp 0x11112222", resp_rdata[1*32 +: 32]);
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试11: Async Write Port - 16 bytes
+        //====================================================================
+        $display("\n--- Async Write Port Test (16 bytes) ---");
+
+        @(posedge clk);
+        async_wr_en <= 1;
+        async_wr_addr <= 14'd768;
+        async_wr_data <= 128'hFEDCBA98_76543210_01234567_89ABCDEF;
+        async_wr_size <= 5'd16;  // 16 bytes = 4 words
+        @(posedge clk);
+        async_wr_en <= 0;
+        #20;
+
+        smem_read(14'd768, 32'd1, 32'h0000000F);  // Lanes 0-3
+        @(posedge clk);
+
+        if (resp_rdata[0*32 +: 32] === 32'h89ABCDEF &&
+            resp_rdata[1*32 +: 32] === 32'h01234567 &&
+            resp_rdata[2*32 +: 32] === 32'h76543210 &&
+            resp_rdata[3*32 +: 32] === 32'hFEDCBA98) begin
+            $display("[PASS] Async write 16 bytes works");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Async write 16 bytes failed:");
+            $display("       Word0: got 0x%08X, exp 0x89ABCDEF", resp_rdata[0*32 +: 32]);
+            $display("       Word1: got 0x%08X, exp 0x01234567", resp_rdata[1*32 +: 32]);
+            $display("       Word2: got 0x%08X, exp 0x76543210", resp_rdata[2*32 +: 32]);
+            $display("       Word3: got 0x%08X, exp 0xFEDCBA98", resp_rdata[3*32 +: 32]);
             failed = failed + 1;
         end
 

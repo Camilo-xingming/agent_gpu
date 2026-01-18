@@ -862,9 +862,7 @@ endmodule
 
 //============================================================================
 // SIMD SFU - 32个并行SFU用于Warp执行
-// Note: Excluded when SM_V2 is defined (V2 has its own wrapper)
 //============================================================================
-`ifndef SM_V2
 module simd_sfu #(
     parameter LANES = `THREADS_PER_WARP  // 32
 )(
@@ -912,4 +910,3 @@ module simd_sfu #(
     endgenerate
 
 endmodule
-`endif  // SM_V2

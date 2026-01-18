@@ -44,7 +44,23 @@ module l1_data_cache #(
     // 统计接口
     //------------------------------------------------------------------------
     output reg  [31:0]          stat_hits,
-    output reg  [31:0]          stat_misses
+    output reg  [31:0]          stat_misses,
+
+    //------------------------------------------------------------------------
+    // Cache Policy Interface (Hopper+)
+    //------------------------------------------------------------------------
+    input  wire                 policy_create_valid,   // createpolicy request
+    input  wire [2:0]           policy_id,             // Policy slot ID (0-7)
+    input  wire [7:0]           policy_priority,       // Priority level for policy
+    output reg  [31:0]          policy_token_out,      // Policy token returned by createpolicy
+    output reg                  policy_token_valid,    // Policy token valid
+
+    input  wire                 policy_apply_valid,    // applypriority request
+    input  wire [31:0]          policy_apply_addr,     // Address to apply priority
+    input  wire [2:0]           policy_apply_id,       // Policy ID to apply
+
+    input  wire                 policy_discard_valid,  // discard request
+    input  wire [31:0]          policy_discard_addr    // Address to discard (invalidate without writeback)
 );
 
     //------------------------------------------------------------------------
@@ -73,6 +89,15 @@ module l1_data_cache #(
 
     // LRU状态 (简化: 2-bit per set for 4-way)
     reg [1:0]            lru_array   [0:NUM_SETS-1];
+
+    //------------------------------------------------------------------------
+    // Cache Policy Registers (8 policy slots)
+    //------------------------------------------------------------------------
+    reg [7:0]            cache_policy_priority [0:7];   // Priority for each policy slot
+    reg [7:0]            cache_policy_valid;            // Valid bits for policy slots
+
+    // Per-line priority (stored with cache line metadata)
+    reg [2:0]            line_policy_id [0:NUM_WAYS-1][0:NUM_SETS-1];  // Policy ID applied to each line
 
     //------------------------------------------------------------------------
     // 状态机
@@ -270,6 +295,19 @@ module l1_data_cache #(
             saved_mask <= 0;
             saved_write <= 0;
 
+            // Initialize cache policy registers
+            cache_policy_valid <= 8'b0;
+            policy_token_out <= 32'b0;
+            policy_token_valid <= 1'b0;
+            for (i = 0; i < 8; i = i + 1) begin
+                cache_policy_priority[i] <= 8'b0;
+            end
+            for (w = 0; w < NUM_WAYS; w = w + 1) begin
+                for (i = 0; i < NUM_SETS; i = i + 1) begin
+                    line_policy_id[w][i] <= 3'b0;
+                end
+            end
+
         end else begin
             // 默认值
             resp_valid <= 0;
@@ -390,6 +428,50 @@ module l1_data_cache #(
                     // 完成状态，返回IDLE
                 end
             endcase
+
+            //----------------------------------------------------------------
+            // Cache Policy Operations (parallel to state machine)
+            //----------------------------------------------------------------
+            // Default: clear policy token valid each cycle
+            policy_token_valid <= 1'b0;
+
+            // createpolicy: Create a cache policy token
+            if (policy_create_valid) begin
+                cache_policy_priority[policy_id] <= policy_priority;
+                cache_policy_valid[policy_id] <= 1'b1;
+                // Return policy token: encode policy_id and priority
+                // Token format: [31:24]=magic, [23:16]=priority, [15:8]=reserved, [7:0]=policy_id
+                policy_token_out <= {8'hCA, policy_priority, 8'h00, 5'b0, policy_id};
+                policy_token_valid <= 1'b1;
+            end
+
+            // applypriority: Apply priority to cache lines at given address
+            if (policy_apply_valid) begin
+                // Find the cache line containing this address
+                for (w = 0; w < NUM_WAYS; w = w + 1) begin
+                    if (valid_array[w][policy_apply_addr[OFFSET_BITS +: INDEX_BITS]] &&
+                        tag_array[w][policy_apply_addr[OFFSET_BITS +: INDEX_BITS]] ==
+                        policy_apply_addr[31:32-TAG_BITS]) begin
+                        // Apply policy ID to this line
+                        line_policy_id[w][policy_apply_addr[OFFSET_BITS +: INDEX_BITS]] <= policy_apply_id;
+                    end
+                end
+            end
+
+            // discard: Mark cache lines for eviction (invalidate without writeback)
+            if (policy_discard_valid) begin
+                // Find the cache line containing this address and invalidate it
+                for (w = 0; w < NUM_WAYS; w = w + 1) begin
+                    if (valid_array[w][policy_discard_addr[OFFSET_BITS +: INDEX_BITS]] &&
+                        tag_array[w][policy_discard_addr[OFFSET_BITS +: INDEX_BITS]] ==
+                        policy_discard_addr[31:32-TAG_BITS]) begin
+                        // Invalidate without writeback (discard dirty data)
+                        valid_array[w][policy_discard_addr[OFFSET_BITS +: INDEX_BITS]] <= 1'b0;
+                        dirty_array[w][policy_discard_addr[OFFSET_BITS +: INDEX_BITS]] <= 1'b0;
+                        line_policy_id[w][policy_discard_addr[OFFSET_BITS +: INDEX_BITS]] <= 3'b0;
+                    end
+                end
+            end
         end
     end
 

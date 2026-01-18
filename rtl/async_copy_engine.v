@@ -42,7 +42,7 @@ module async_copy_engine #(
     output reg                          smem_wr_en,
     output reg  [SHARED_MEM_ADDR_W-1:0] smem_wr_addr,
     output reg  [127:0]                 smem_wr_data,
-    output reg  [3:0]                   smem_wr_size
+    output reg  [4:0]                   smem_wr_size  // 5 bits to hold values up to 16
 );
 
     //------------------------------------------------------------------------

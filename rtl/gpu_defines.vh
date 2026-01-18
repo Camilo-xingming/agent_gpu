@@ -93,7 +93,8 @@
 `define OP_LD_SHARED    6'b000111   // 共享内存加载
 `define OP_ST_SHARED    6'b001000   // 共享内存存储
 `define OP_MOV_SPECIAL  6'b001001   // 特殊寄存器移动
-`define OP_BAR_SYNC     6'b001010   // 同步屏障
+`define OP_BAR_SYNC     6'b001010   // 同步屏障 (block-level)
+`define OP_BAR_WARP_SYNC 6'b110011  // Warp-level sync (bar.warp.sync)
 `define OP_EXIT         6'b001011   // Kernel退出
 `define OP_RET          6'b001100   // 函数返回 (当前等同EXIT)
 
@@ -143,6 +144,71 @@
 `define OP_SULD         6'b101000   // Surface load
 `define OP_SUST         6'b101001   // Surface store
 `define OP_SURED        6'b101010   // Surface reduction
+
+// Phase 10: mbarrier Instructions (Hopper+)
+`define OP_MBARRIER     6'b110010   // mbarrier operations
+
+// Phase 4.1: Cache Policy Instructions (Hopper+)
+`define OP_CACHE_POLICY 6'b110100   // Cache policy operations
+
+// Phase 1.2: Async Store and Multimem Instructions (Hopper+)
+`define OP_ST_ASYNC     6'b111000   // st.async - Async store operations
+`define OP_MULTIMEM     6'b111001   // multimem - Multi-target write operations
+
+// st.async function codes (for OP_ST_ASYNC)
+`define ST_ASYNC_GLOBAL       6'b000000   // st.async.global - Async store to global memory
+`define ST_ASYNC_SHARED       6'b000001   // st.async.shared - Async store to shared memory
+`define ST_ASYNC_COMMIT       6'b000010   // cp.async.commit_group - Commit async store group
+`define ST_ASYNC_WAIT         6'b000011   // cp.async.wait_group - Wait for async store group
+
+// multimem function codes (for OP_MULTIMEM)
+`define MULTIMEM_LD           6'b000000   // multimem.ld - Load from distributed shared memory
+`define MULTIMEM_ST           6'b000001   // multimem.st - Multicast store to multiple SM shared memories
+`define MULTIMEM_RED          6'b000010   // multimem.red - Multicast reduction
+
+// Phase 3.2: Barrier Cluster Instructions (Hopper+)
+`define OP_BARRIER_CLUSTER    6'b111010   // barrier.cluster - Cross-SM cluster synchronization
+
+// barrier.cluster function codes (for OP_BARRIER_CLUSTER)
+`define CLUSTER_BARRIER_ARRIVE   6'b000000   // barrier.cluster.arrive - Signal arrival at cluster barrier
+`define CLUSTER_BARRIER_WAIT     6'b000001   // barrier.cluster.wait - Wait for all cluster members
+`define CLUSTER_BARRIER_SYNC     6'b000010   // barrier.cluster.sync - Combined arrive + wait
+`define CLUSTER_BARRIER_INIT     6'b000011   // barrier.cluster.init - Initialize cluster barrier
+
+// Phase 6.2: Stack and Debug Instructions
+`define OP_STACK        6'b110101   // Stack operations (alloca/stacksave/stackrestore)
+`define OP_DEBUG        6'b110110   // Debug operations (brkpt/trap/pmevent)
+`define OP_MISC         6'b110111   // Misc operations (nanosleep/setmaxnreg)
+
+// Stack operation function codes (for OP_STACK)
+`define STACK_ALLOCA          6'b000000   // alloca - dynamic stack allocation
+`define STACK_SAVE            6'b000001   // stacksave - save stack pointer
+`define STACK_RESTORE         6'b000010   // stackrestore - restore stack pointer
+
+// Debug operation function codes (for OP_DEBUG)
+`define DEBUG_BRKPT           6'b000000   // brkpt - breakpoint
+`define DEBUG_TRAP            6'b000001   // trap - software trap
+`define DEBUG_PMEVENT         6'b000010   // pmevent - performance monitoring event
+
+// Misc operation function codes (for OP_MISC)
+`define MISC_NANOSLEEP        6'b000000   // nanosleep - nanosecond delay
+`define MISC_SETMAXNREG       6'b000001   // setmaxnreg - set maximum register count
+
+// mbarrier function codes
+`define MBAR_INIT           6'b000000   // mbarrier.init - initialize with expected count
+`define MBAR_ARRIVE         6'b000001   // mbarrier.arrive - signal arrival
+`define MBAR_ARRIVE_DROP    6'b000010   // mbarrier.arrive_drop - arrive and decrement expected
+`define MBAR_ARRIVE_TX      6'b000011   // mbarrier.arrive_and_expect_tx - arrive with tx bytes
+`define MBAR_TEST_WAIT      6'b000100   // mbarrier.test_wait - non-blocking test
+`define MBAR_TRY_WAIT       6'b000101   // mbarrier.try_wait - non-blocking wait attempt
+`define MBAR_INVALIDATE     6'b000110   // mbarrier.inval - invalidate barrier
+`define MBAR_ARRIVE_NOCOMP  6'b000111   // mbarrier.arrive.noComplete - arrive without completion
+`define MBAR_EXPECT_TX      6'b001000   // mbarrier.expect_tx - set expected transaction bytes
+
+// Cache policy function codes (for OP_CACHE_POLICY)
+`define CACHE_CREATEPOLICY  6'b000000   // createpolicy - create cache policy token
+`define CACHE_APPLYPRIORITY 6'b000001   // applypriority - apply priority to cache lines
+`define CACHE_DISCARD       6'b000010   // discard - mark cache lines for eviction (invalidate without writeback)
 
 // 保留
 `define OP_MOV_IMM      6'b110000   // Move immediate to register
@@ -301,6 +367,22 @@
 `define FP16X2_SUB      6'b100001   // sub.f16x2
 `define FP16X2_MUL      6'b100010   // mul.f16x2
 `define FP16X2_FMA      6'b100011   // fma.f16x2
+// FP16 compare operations (setp.f16)
+`define FP16_CMP_EQ     6'b001010   // setp.eq.f16
+`define FP16_CMP_NE     6'b001011   // setp.ne.f16
+`define FP16_CMP_LT     6'b001100   // setp.lt.f16
+`define FP16_CMP_LE     6'b001101   // setp.le.f16
+`define FP16_CMP_GT     6'b001110   // setp.gt.f16
+`define FP16_CMP_GE     6'b001111   // setp.ge.f16
+`define FP16_CMP_NUM    6'b011000   // setp.num.f16 (ordered: both not NaN)
+`define FP16_CMP_NAN    6'b011001   // setp.nan.f16 (unordered: either is NaN)
+// Mixed FP16-FP32 compare (convert FP16 to FP32, then compare)
+`define FP16_CMP_EQ_F32 6'b011010   // setp.eq.f16.f32 (mixed precision)
+`define FP16_CMP_LT_F32 6'b011011   // setp.lt.f16.f32 (mixed precision)
+`define FP16_CMP_LE_F32 6'b011100   // setp.le.f16.f32 (mixed precision)
+`define FP16_CMP_GT_F32 6'b011101   // setp.gt.f16.f32 (mixed precision)
+`define FP16_CMP_GE_F32 6'b011110   // setp.ge.f16.f32 (mixed precision)
+`define FP16_CMP_NE_F32 6'b011111   // setp.ne.f16.f32 (mixed precision)
 
 //============================================================================
 // FP64 功能码 (双精度浮点)
@@ -346,21 +428,30 @@
 
 //============================================================================
 // Tensor Core 数据类型 (用于WMMA/MMA配置)
+// Extended to 4-bit to support FP6 (5th-gen Tensor Core - Blackwell)
 //============================================================================
-`define TC_DATA_FP16        3'd0
-`define TC_DATA_BF16        3'd1
-`define TC_DATA_INT8        3'd2
-`define TC_DATA_INT4        3'd3
-`define TC_DATA_FP8_E4M3    3'd4
-`define TC_DATA_FP8_E5M2    3'd5
-`define TC_DATA_FP4_E2M1    3'd6
-`define TC_DATA_FP4_E3M0    3'd7
+`define TC_DATA_FP16        4'd0
+`define TC_DATA_BF16        4'd1
+`define TC_DATA_INT8        4'd2
+`define TC_DATA_INT4        4'd3
+`define TC_DATA_FP8_E4M3    4'd4
+`define TC_DATA_FP8_E5M2    4'd5
+`define TC_DATA_FP4_E2M1    4'd6
+`define TC_DATA_FP4_E3M0    4'd7
+// FP6 format (5th-gen Tensor Core - Blackwell)
+// FP6 E3M2: 1-bit sign, 3-bit exponent (bias=3), 2-bit mantissa
+// Range: ~0.0625 to 7.5, suitable for weight quantization in LLMs
+`define TC_DATA_FP6_E3M2    4'd8
 `define TC_DATA_FP8         `TC_DATA_FP8_E4M3
 `define TC_DATA_FP4         `TC_DATA_FP4_E2M1
+`define TC_DATA_FP6         `TC_DATA_FP6_E3M2
 
 // FP4 格式选择 (默认E2M1)
 `define TC_FP4_E2M1     2'd0
 `define TC_FP4_E3M0     2'd1
+
+// FP6 格式选择 (5th-gen Tensor Core)
+`define TC_FP6_E3M2     2'd0        // Default E3M2 format (bias=3)
 
 // FP8 格式选择 (默认E4M3)
 `define TC_FP8_E4M3     2'd0

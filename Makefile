@@ -32,11 +32,17 @@ RTL_SRCS = \
     $(RTL_DIR)/memory_interface.v \
     $(RTL_DIR)/fpu.v \
     $(RTL_DIR)/fpu64.v \
+    $(RTL_DIR)/fp16_unit.v \
     $(RTL_DIR)/sfu.v \
     $(RTL_DIR)/tensor_core.v \
     $(RTL_DIR)/control_flow_unit.v \
     $(RTL_DIR)/warp_shuffle.v \
     $(RTL_DIR)/atomic_unit.v \
+    $(RTL_DIR)/async_copy_engine.v \
+    $(RTL_DIR)/mbarrier_unit.v \
+    $(RTL_DIR)/wgmma.v \
+    $(RTL_DIR)/texture_unit.v \
+    $(RTL_DIR)/video_unit.v \
     $(RTL_DIR)/streaming_multiprocessor_v2.v \
     $(RTL_DIR)/ralph_gpu_top.v \
     $(RTL_DIR)/memory_controller_hbm.v \
@@ -250,6 +256,7 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/mul_unit.v \
 	$(RTL_DIR)/fpu.v \
 	$(RTL_DIR)/fpu64.v \
+	$(RTL_DIR)/fp16_unit.v \
 	$(RTL_DIR)/sfu.v \
 	$(RTL_DIR)/tensor_core.v \
 	$(RTL_DIR)/control_flow_unit.v \
@@ -257,8 +264,12 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/memory_interface.v \
 	$(RTL_DIR)/warp_shuffle.v \
 	$(RTL_DIR)/atomic_unit.v \
+	$(RTL_DIR)/async_copy_engine.v \
+	$(RTL_DIR)/mbarrier_unit.v \
 	$(RTL_DIR)/wgmma.v \
-	$(RTL_DIR)/wgmma_tile_engine.v
+	$(RTL_DIR)/wgmma_tile_engine.v \
+	$(RTL_DIR)/video_unit.v \
+	$(RTL_DIR)/texture_unit.v
 
 SM_V2_DEFINES = -DSM_V2 -DDEBUG_SM_V2
 

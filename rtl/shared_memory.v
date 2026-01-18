@@ -23,7 +23,13 @@ module shared_memory #(
     input  wire [NUM_BANKS-1:0]     req_mask,       // 活跃线程掩码
     output wire                     resp_valid,
     output wire [NUM_BANKS*DATA_WIDTH-1:0] resp_rdata,
-    output wire                     bank_conflict   // Bank冲突标志
+    output wire                     bank_conflict,  // Bank冲突标志
+
+    // Async copy write port (for cp.async from async_copy_engine)
+    input  wire                     async_wr_en,
+    input  wire [ADDR_WIDTH-1:0]    async_wr_addr,
+    input  wire [127:0]             async_wr_data,  // Up to 16 bytes
+    input  wire [4:0]               async_wr_size   // Size in bytes: 4, 8, or 16 (5 bits to hold 16)
 );
 
     //------------------------------------------------------------------------
@@ -106,7 +112,7 @@ module shared_memory #(
         end
     end
 
-    // 写操作
+    // 写操作 (normal lane-parallel writes)
     always @(posedge clk) begin
         if (req_valid && req_write) begin
             for (i = 0; i < NUM_BANKS; i = i + 1) begin
@@ -114,6 +120,48 @@ module shared_memory #(
                     bank_mem[bank_sel[i]][bank_addr[i]] <=
                         req_wdata[i*DATA_WIDTH +: DATA_WIDTH];
                 end
+            end
+        end
+    end
+
+    //------------------------------------------------------------------------
+    // Async copy write port (for cp.async)
+    // Writes 4/8/16 bytes sequentially to consecutive words
+    // Address format: byte address, converted to word address internally
+    //------------------------------------------------------------------------
+    wire [BANK_SEL_W-1:0]  async_bank_sel  = async_wr_addr[BANK_SEL_W-1:0];
+    wire [BANK_ADDR_W-1:0] async_bank_addr = async_wr_addr[ADDR_WIDTH-1:BANK_SEL_W];
+
+    // Calculate word addresses for multi-word writes (8B = 2 words, 16B = 4 words)
+    wire [ADDR_WIDTH-1:0] async_addr_w0 = async_wr_addr;
+    wire [ADDR_WIDTH-1:0] async_addr_w1 = async_wr_addr + 14'd1;
+    wire [ADDR_WIDTH-1:0] async_addr_w2 = async_wr_addr + 14'd2;
+    wire [ADDR_WIDTH-1:0] async_addr_w3 = async_wr_addr + 14'd3;
+
+    // Bank/addr for each potential word
+    wire [BANK_SEL_W-1:0]  async_bank0 = async_addr_w0[BANK_SEL_W-1:0];
+    wire [BANK_ADDR_W-1:0] async_baddr0 = async_addr_w0[ADDR_WIDTH-1:BANK_SEL_W];
+    wire [BANK_SEL_W-1:0]  async_bank1 = async_addr_w1[BANK_SEL_W-1:0];
+    wire [BANK_ADDR_W-1:0] async_baddr1 = async_addr_w1[ADDR_WIDTH-1:BANK_SEL_W];
+    wire [BANK_SEL_W-1:0]  async_bank2 = async_addr_w2[BANK_SEL_W-1:0];
+    wire [BANK_ADDR_W-1:0] async_baddr2 = async_addr_w2[ADDR_WIDTH-1:BANK_SEL_W];
+    wire [BANK_SEL_W-1:0]  async_bank3 = async_addr_w3[BANK_SEL_W-1:0];
+    wire [BANK_ADDR_W-1:0] async_baddr3 = async_addr_w3[ADDR_WIDTH-1:BANK_SEL_W];
+
+    always @(posedge clk) begin
+        if (async_wr_en) begin
+            // Write word 0 (always for size >= 4)
+            bank_mem[async_bank0][async_baddr0] <= async_wr_data[31:0];
+
+            // Write word 1 (for size >= 8)
+            if (async_wr_size >= 4'd8) begin
+                bank_mem[async_bank1][async_baddr1] <= async_wr_data[63:32];
+            end
+
+            // Write words 2-3 (for size == 16)
+            if (async_wr_size >= 5'd16) begin
+                bank_mem[async_bank2][async_baddr2] <= async_wr_data[95:64];
+                bank_mem[async_bank3][async_baddr3] <= async_wr_data[127:96];
             end
         end
     end
@@ -135,6 +183,19 @@ module shared_memory #(
             assign resp_rdata[lane*DATA_WIDTH +: DATA_WIDTH] = read_data[lane];
         end
     endgenerate
+
+    //------------------------------------------------------------------------
+    // Write Collision Detection (Simulation Only)
+    // Detect simultaneous normal and async writes to shared memory
+    // Async writes have lower priority in hardware, but this warns of conflicts
+    //------------------------------------------------------------------------
+`ifdef SIMULATION
+    always @(posedge clk) begin
+        if (req_valid && req_write && async_wr_en) begin
+            $display("WARNING: [%0t] Simultaneous normal and async writes to shared memory", $time);
+        end
+    end
+`endif
 
     //------------------------------------------------------------------------
     // 初始化 (仿真用)

@@ -85,6 +85,13 @@ module fp16_unit (
     wire bf16_a_is_nan  = (bf16_a_exp == 8'hFF) && (bf16_a_mant != 7'b0);
     wire bf16_b_is_nan  = (bf16_b_exp == 8'hFF) && (bf16_b_mant != 7'b0);
 
+    // Special value detection - FP32 for operand B (used in mixed FP16-FP32 compares)
+    wire [7:0]  fp32_b_exp  = op_b_r2[30:23];
+    wire [22:0] fp32_b_mant = op_b_r2[22:0];
+    wire fp32_b_is_nan  = (fp32_b_exp == 8'hFF) && (fp32_b_mant != 23'b0);
+    wire fp32_b_is_inf  = (fp32_b_exp == 8'hFF) && (fp32_b_mant == 23'b0);
+    wire fp32_b_is_zero = (fp32_b_exp == 8'b0) && (fp32_b_mant == 23'b0);
+
     //------------------------------------------------------------------------
     // FP16 Constants
     //------------------------------------------------------------------------
@@ -458,6 +465,125 @@ module fp16_unit (
                         result <= {fp16_result_hi, fp16_result_lo};
                     end
 
+                    //----------------------------------------------------
+                    // FP16 Comparison Operations (setp.f16)
+                    // Returns 0xFFFF_FFFF (true) or 0x0000_0000 (false)
+                    //----------------------------------------------------
+                    `FP16_CMP_EQ: begin
+                        if (fp16_a_is_nan || fp16_b_is_nan) begin
+                            result <= 32'h0;  // NaN comparisons return false
+                        end else begin
+                            result <= (op_a_r2[15:0] == op_b_r2[15:0]) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
+                    `FP16_CMP_NE: begin
+                        if (fp16_a_is_nan || fp16_b_is_nan) begin
+                            result <= 32'hFFFF_FFFF;  // NaN != anything is true
+                        end else begin
+                            result <= (op_a_r2[15:0] != op_b_r2[15:0]) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
+                    `FP16_CMP_LT: begin
+                        if (fp16_a_is_nan || fp16_b_is_nan) begin
+                            result <= 32'h0;  // NaN comparisons return false
+                        end else begin
+                            result <= fp16_less_than(op_a_r2[15:0], op_b_r2[15:0]) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
+                    `FP16_CMP_LE: begin
+                        if (fp16_a_is_nan || fp16_b_is_nan) begin
+                            result <= 32'h0;  // NaN comparisons return false
+                        end else begin
+                            result <= (fp16_less_than(op_a_r2[15:0], op_b_r2[15:0]) ||
+                                      (op_a_r2[15:0] == op_b_r2[15:0])) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
+                    `FP16_CMP_GT: begin
+                        if (fp16_a_is_nan || fp16_b_is_nan) begin
+                            result <= 32'h0;  // NaN comparisons return false
+                        end else begin
+                            result <= fp16_less_than(op_b_r2[15:0], op_a_r2[15:0]) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
+                    `FP16_CMP_GE: begin
+                        if (fp16_a_is_nan || fp16_b_is_nan) begin
+                            result <= 32'h0;  // NaN comparisons return false
+                        end else begin
+                            result <= (fp16_less_than(op_b_r2[15:0], op_a_r2[15:0]) ||
+                                      (op_a_r2[15:0] == op_b_r2[15:0])) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
+                    `FP16_CMP_NUM: begin
+                        // NUM (ordered): true if both are NOT NaN
+                        result <= (fp16_a_is_nan || fp16_b_is_nan) ? 32'h0 : 32'hFFFF_FFFF;
+                    end
+
+                    `FP16_CMP_NAN: begin
+                        // NAN (unordered): true if either is NaN
+                        result <= (fp16_a_is_nan || fp16_b_is_nan) ? 32'hFFFF_FFFF : 32'h0;
+                    end
+
+                    //----------------------------------------------------
+                    // Mixed FP16-FP32 Comparison Operations
+                    // Operand A is FP16 (lower 16 bits), Operand B is FP32
+                    // Convert FP16 to FP32, then compare as FP32
+                    //----------------------------------------------------
+                    `FP16_CMP_EQ_F32: begin
+                        if (fp16_a_is_nan || fp32_b_is_nan) begin
+                            result <= 32'h0;
+                        end else begin
+                            result <= (fp32_a == op_b_r2) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
+                    `FP16_CMP_NE_F32: begin
+                        if (fp16_a_is_nan || fp32_b_is_nan) begin
+                            result <= 32'hFFFF_FFFF;
+                        end else begin
+                            result <= (fp32_a != op_b_r2) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
+                    `FP16_CMP_LT_F32: begin
+                        if (fp16_a_is_nan || fp32_b_is_nan) begin
+                            result <= 32'h0;
+                        end else begin
+                            result <= fp32_less_than(fp32_a, op_b_r2) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
+                    `FP16_CMP_LE_F32: begin
+                        if (fp16_a_is_nan || fp32_b_is_nan) begin
+                            result <= 32'h0;
+                        end else begin
+                            result <= (fp32_less_than(fp32_a, op_b_r2) ||
+                                      (fp32_a == op_b_r2)) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
+                    `FP16_CMP_GT_F32: begin
+                        if (fp16_a_is_nan || fp32_b_is_nan) begin
+                            result <= 32'h0;
+                        end else begin
+                            result <= fp32_less_than(op_b_r2, fp32_a) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
+                    `FP16_CMP_GE_F32: begin
+                        if (fp16_a_is_nan || fp32_b_is_nan) begin
+                            result <= 32'h0;
+                        end else begin
+                            result <= (fp32_less_than(op_b_r2, fp32_a) ||
+                                      (fp32_a == op_b_r2)) ? 32'hFFFF_FFFF : 32'h0;
+                        end
+                    end
+
                     default: begin
                         result <= 32'b0;
                     end
@@ -486,6 +612,51 @@ module fp16_unit (
             end else begin
                 // Both positive - smaller magnitude is smaller
                 fp16_less_than = (a[14:0] < b[14:0]);
+            end
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
+    // FP32 comparison helper (for mixed FP16-FP32 comparisons)
+    //------------------------------------------------------------------------
+    function fp32_less_than;
+        input [31:0] a, b;
+        reg a_neg, b_neg;
+        reg [7:0] a_exp, b_exp;
+        reg [22:0] a_mant, b_mant;
+        begin
+            a_neg = a[31];
+            b_neg = b[31];
+            a_exp = a[30:23];
+            b_exp = b[30:23];
+            a_mant = a[22:0];
+            b_mant = b[22:0];
+
+            // Handle special cases for zeros (positive and negative zero are equal)
+            if ((a_exp == 8'b0 && a_mant == 23'b0) && (b_exp == 8'b0 && b_mant == 23'b0)) begin
+                fp32_less_than = 1'b0;  // +0 == -0
+            end else if (a_neg && !b_neg) begin
+                fp32_less_than = 1'b1;  // negative < positive
+            end else if (!a_neg && b_neg) begin
+                fp32_less_than = 1'b0;  // positive > negative
+            end else if (a_neg) begin
+                // Both negative - compare magnitudes (larger magnitude is smaller)
+                if (a_exp > b_exp) begin
+                    fp32_less_than = 1'b1;
+                end else if (a_exp < b_exp) begin
+                    fp32_less_than = 1'b0;
+                end else begin
+                    fp32_less_than = (a_mant > b_mant);
+                end
+            end else begin
+                // Both positive - compare magnitudes (smaller magnitude is smaller)
+                if (a_exp < b_exp) begin
+                    fp32_less_than = 1'b1;
+                end else if (a_exp > b_exp) begin
+                    fp32_less_than = 1'b0;
+                end else begin
+                    fp32_less_than = (a_mant < b_mant);
+                end
             end
         end
     endfunction

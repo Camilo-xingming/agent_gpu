@@ -64,6 +64,8 @@ module wgmma #(
     localparam DTYPE_FP8_E4 = 4'b0011;
     localparam DTYPE_FP8_E5 = 4'b0100;
     localparam DTYPE_INT8   = 4'b0101;
+    localparam DTYPE_FP4    = 4'b0110;
+    localparam DTYPE_FP6_E3M2 = 4'b1000;  // 5th-gen Tensor Core (Blackwell)
 
     //------------------------------------------------------------------------
     // 状态机
@@ -468,6 +470,102 @@ module fp8_mma_unit #(
                             a_fp32 = fp8_e5m2_to_fp32(matrix_a[(m*K + k)*8 +: 8]);
                             b_fp32 = fp8_e5m2_to_fp32(matrix_b[(k*N + n)*8 +: 8]);
                         end
+                        // 简化乘累加 (实际需要FP32 MAC单元)
+                        temp_sum = temp_sum + (a_fp32[22:0] * b_fp32[22:0]);
+                    end
+                    matrix_d[(m*N + n)*32 +: 32] <= temp_sum;
+                end
+            end
+            valid_out <= 1'b1;
+        end else begin
+            valid_out <= 1'b0;
+        end
+    end
+
+endmodule
+
+
+//============================================================================
+// FP6 E3M2 矩阵乘法单元 (用于WGMMA - 5th-gen Tensor Core)
+// 支持E3M2格式: 1-bit sign, 3-bit exponent (bias=3), 2-bit mantissa
+// Range: ~0.0625 to 7.5 - suitable for LLM weight quantization
+//============================================================================
+module fp6_mma_unit #(
+    parameter M = 16,
+    parameter N = 8,
+    parameter K = 16
+)(
+    input  wire                 clk,
+    input  wire                 rst_n,
+
+    input  wire                 valid_in,
+    input  wire [M*K*6-1:0]     matrix_a,       // FP6 矩阵A [M][K] (packed 6-bit)
+    input  wire [K*N*6-1:0]     matrix_b,       // FP6 矩阵B [K][N] (packed 6-bit)
+    input  wire [M*N*32-1:0]    matrix_c,       // FP32 累加器 [M][N]
+
+    output reg  [M*N*32-1:0]    matrix_d,       // FP32 输出 [M][N]
+    output reg                  valid_out
+);
+
+    // FP6 E3M2: 1位符号, 3位指数 (bias=3), 2位尾数
+    // Range: 2^(-2) * 1.00 to 2^3 * 1.75 = 0.25 to 7.5
+
+    integer m, n, k;
+
+    // FP6 E3M2 -> FP32 转换函数
+    function [31:0] fp6_e3m2_to_fp32;
+        input [5:0] fp6;
+        reg sign;
+        reg [2:0] exp6;
+        reg [1:0] man6;
+        reg [7:0] exp32;
+        reg [22:0] man32;
+        begin
+            sign = fp6[5];
+            exp6 = fp6[4:2];
+            man6 = fp6[1:0];
+
+            if (exp6 == 3'b000) begin
+                if (man6 == 2'b00) begin
+                    // Zero
+                    fp6_e3m2_to_fp32 = {sign, 31'b0};
+                end else begin
+                    // Denormal: value = (-1)^s * 0.mm * 2^(1-3) = 0.mm * 2^(-2)
+                    // Map to FP32 denormal
+                    fp6_e3m2_to_fp32 = {sign, 8'b0, {man6, 21'b0}};
+                end
+            end else if (exp6 == 3'b111) begin
+                // Inf/NaN (all 1s exponent)
+                fp6_e3m2_to_fp32 = {sign, 8'hFF, (man6 != 0) ? 23'h400000 : 23'h0};
+            end else begin
+                // Normal number
+                // exp_fp32 = exp_fp6 - bias_fp6 + bias_fp32
+                // bias_fp6 = 3, bias_fp32 = 127
+                // exp_fp32 = exp_fp6 - 3 + 127 = exp_fp6 + 124
+                exp32 = {5'b0, exp6} + 8'd124;
+                // Mantissa: 2 bits -> 23 bits (shift left 21)
+                man32 = {man6, 21'b0};
+                fp6_e3m2_to_fp32 = {sign, exp32, man32};
+            end
+        end
+    endfunction
+
+    // 计算矩阵乘法 (组合逻辑 - 实际需要流水线)
+    reg [31:0] temp_sum;
+    reg [31:0] a_fp32, b_fp32;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            matrix_d <= 0;
+            valid_out <= 1'b0;
+        end else if (valid_in) begin
+            // 简化: 实际需要多周期流水线计算
+            for (m = 0; m < M; m = m + 1) begin
+                for (n = 0; n < N; n = n + 1) begin
+                    temp_sum = matrix_c[(m*N + n)*32 +: 32];
+                    for (k = 0; k < K; k = k + 1) begin
+                        a_fp32 = fp6_e3m2_to_fp32(matrix_a[(m*K + k)*6 +: 6]);
+                        b_fp32 = fp6_e3m2_to_fp32(matrix_b[(k*N + n)*6 +: 6]);
                         // 简化乘累加 (实际需要FP32 MAC单元)
                         temp_sum = temp_sum + (a_fp32[22:0] * b_fp32[22:0]);
                     end

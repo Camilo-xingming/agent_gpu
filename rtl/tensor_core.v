@@ -574,9 +574,10 @@ module tensor_core #(
     parameter DATA_WIDTH = 32,
     parameter TC_NUM_CORES = 4,
     parameter TC_LATENCY = 8,
-    parameter [2:0] TC_DATA_DEFAULT = `TC_DATA_FP16,
+    parameter [3:0] TC_DATA_DEFAULT = `TC_DATA_FP16,
     parameter TC_USE_OP_TYPE = 1,
     parameter [1:0] TC_FP4_FORMAT = `TC_FP4_E2M1,
+    parameter [1:0] TC_FP6_FORMAT = `TC_FP6_E3M2,
     parameter [1:0] TC_FP8_FORMAT = `TC_FP8_E4M3
 )(
     input  wire        clk,
@@ -585,7 +586,7 @@ module tensor_core #(
     // Pipeline interface
     input  wire        op_valid,
     output wire        op_ready,
-    input  wire [2:0]  op_type,     // Operation type
+    input  wire [3:0]  op_type,     // Operation type (extended to 4-bit for FP6)
 
     // Fragment inputs (from register file)
     input  wire [NUM_LANES*DATA_WIDTH-1:0] frag_a,
@@ -709,10 +710,96 @@ module tensor_core #(
         end
     endfunction
 
+    //------------------------------------------------------------------------
+    // FP6 E3M2 to FP16 conversion (5th-gen Tensor Core - Blackwell)
+    // Format: S EEE MM (1+3+2 = 6 bits)
+    // Exponent bias: 3 (2^(3-1) - 1)
+    // Range: ~0.0625 to 7.5
+    // Used for efficient weight storage in LLM inference
+    //------------------------------------------------------------------------
+    function [15:0] fp6_to_fp16;
+        input [5:0] fp6;
+        input [1:0] format;  // Reserved for future FP6 variants
+        reg        sign;
+        reg [2:0]  exp6;
+        reg [1:0]  man6;
+        reg [4:0]  exp16;
+        reg [9:0]  man16;
+        begin
+            sign = fp6[5];
+            exp6 = fp6[4:2];
+            man6 = fp6[1:0];
+
+            if (exp6 == 3'b000) begin
+                if (man6 == 2'b00) begin
+                    // Zero
+                    fp6_to_fp16 = {sign, 15'b0};
+                end else begin
+                    // Denormal: treat as small value
+                    // For denormals: value = (-1)^s * 0.mm * 2^(1-bias) = 0.mm * 2^(-2)
+                    // Map to FP16 denormal or very small normal
+                    fp6_to_fp16 = {sign, 5'b00000, {man6, 8'b0}};
+                end
+            end else if (exp6 == 3'b111) begin
+                // Inf/NaN (all 1s exponent)
+                fp6_to_fp16 = {sign, 5'h1F, (man6 != 0) ? 10'h200 : 10'h000};
+            end else begin
+                // Normal number
+                // exp_fp16 = exp_fp6 - bias_fp6 + bias_fp16
+                // bias_fp6 = 3, bias_fp16 = 15
+                // exp_fp16 = exp_fp6 - 3 + 15 = exp_fp6 + 12
+                exp16 = {2'b0, exp6} + 5'd12;
+                // Mantissa: 2 bits -> 10 bits (shift left 8)
+                man16 = {man6, 8'b0};
+                fp6_to_fp16 = {sign, exp16, man16};
+            end
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
+    // FP6 E3M2 to FP32 conversion (for direct FP32 accumulation)
+    // Format: S EEE MM (1+3+2 = 6 bits)
+    //------------------------------------------------------------------------
+    function [31:0] fp6_to_fp32;
+        input [5:0] fp6;
+        reg        sign;
+        reg [2:0]  exp6;
+        reg [1:0]  man6;
+        reg [7:0]  exp32;
+        reg [22:0] man32;
+        begin
+            sign = fp6[5];
+            exp6 = fp6[4:2];
+            man6 = fp6[1:0];
+
+            if (exp6 == 3'b000) begin
+                if (man6 == 2'b00) begin
+                    // Zero
+                    fp6_to_fp32 = {sign, 31'b0};
+                end else begin
+                    // Denormal: treat as very small value
+                    fp6_to_fp32 = {sign, 8'b0, {man6, 21'b0}};
+                end
+            end else if (exp6 == 3'b111) begin
+                // Inf/NaN
+                fp6_to_fp32 = {sign, 8'hFF, (man6 != 0) ? 23'h400000 : 23'h0};
+            end else begin
+                // Normal number
+                // exp_fp32 = exp_fp6 - bias_fp6 + bias_fp32
+                // bias_fp6 = 3, bias_fp32 = 127
+                // exp_fp32 = exp_fp6 - 3 + 127 = exp_fp6 + 124
+                exp32 = {5'b0, exp6} + 8'd124;
+                // Mantissa: 2 bits -> 23 bits (shift left 21)
+                man32 = {man6, 21'b0};
+                fp6_to_fp32 = {sign, exp32, man32};
+            end
+        end
+    endfunction
+
     reg [NUM_LANES*DATA_WIDTH-1:0] slot_a [0:TC_NUM_CORES-1];
     reg [NUM_LANES*DATA_WIDTH-1:0] slot_b [0:TC_NUM_CORES-1];
     reg [NUM_LANES*DATA_WIDTH-1:0] slot_c [0:TC_NUM_CORES-1];
-    reg [2:0]                      slot_type [0:TC_NUM_CORES-1];
+    reg [3:0]                      slot_type [0:TC_NUM_CORES-1];  // Extended to 4-bit for FP6
     reg [TC_COUNT_W-1:0]           slot_count [0:TC_NUM_CORES-1];
     reg                            slot_valid [0:TC_NUM_CORES-1];
 
@@ -721,7 +808,7 @@ module tensor_core #(
     reg                            done_sel_valid;
     reg  [TC_CORE_W-1:0]           done_sel_idx;
 
-    wire [2:0] op_data_type = (TC_USE_OP_TYPE != 0) ? op_type : TC_DATA_DEFAULT;
+    wire [3:0] op_data_type = (TC_USE_OP_TYPE != 0) ? op_type : TC_DATA_DEFAULT;
 
     wire [TC_NUM_CORES-1:0] slot_done;
 
@@ -765,7 +852,7 @@ module tensor_core #(
     reg [NUM_LANES*DATA_WIDTH-1:0] frag_a_sel;
     reg [NUM_LANES*DATA_WIDTH-1:0] frag_b_sel;
     reg [NUM_LANES*DATA_WIDTH-1:0] frag_c_sel;
-    reg [2:0]                      sel_type;
+    reg [3:0]                      sel_type;  // Extended to 4-bit for FP6
 
     always @(*) begin
         frag_a_sel = 0;
@@ -783,17 +870,20 @@ module tensor_core #(
     wire [1:0] fp4_format_sel = (sel_type == `TC_DATA_FP4_E3M0) ? `TC_FP4_E3M0 :
                                 (sel_type == `TC_DATA_FP4_E2M1) ? `TC_FP4_E2M1 :
                                 TC_FP4_FORMAT;
+    wire [1:0] fp6_format_sel = (sel_type == `TC_DATA_FP6_E3M2) ? `TC_FP6_E3M2 :
+                                TC_FP6_FORMAT;
     wire [1:0] fp8_format_sel = (sel_type == `TC_DATA_FP8_E5M2) ? `TC_FP8_E5M2 :
                                 (sel_type == `TC_DATA_FP8_E4M3) ? `TC_FP8_E4M3 :
                                 TC_FP8_FORMAT;
 
-    // Default integer MAC path (placeholder for FP16/BF16/FP8)
+    // Default integer MAC path (placeholder for FP16/BF16/FP8/FP6)
     wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_int;
     wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_int8;
     wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_int4;
     wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_fp16;
     wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_bf16;
     wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_fp8;
+    wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_fp6;
     wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_fp4;
 
     genvar i;
@@ -979,7 +1069,64 @@ module tensor_core #(
         end
     endgenerate
 
+    //------------------------------------------------------------------------
+    // FP6 E3M2 dot5 computation (5th-gen Tensor Core - Blackwell)
+    // 32 bits = 5 x 6-bit FP6 values + 2 padding bits
+    // Converts FP6 to FP16, multiplies, accumulates in FP32
+    //------------------------------------------------------------------------
+    genvar k;
+    generate
+        for (k = 0; k < NUM_LANES; k = k + 1) begin : fp6_lanes
+            wire [31:0] a32 = frag_a_sel[k*32 +: 32];
+            wire [31:0] b32 = frag_b_sel[k*32 +: 32];
+            wire [31:0] c32 = frag_c_sel[k*32 +: 32];
+
+            // Extract 5 x 6-bit FP6 values from 32-bit word (30 bits used, 2 bits padding)
+            // Layout: [31:30]=padding, [29:24]=fp6_4, [23:18]=fp6_3, [17:12]=fp6_2, [11:6]=fp6_1, [5:0]=fp6_0
+            wire [15:0] a_fp6_0 = fp6_to_fp16(a32[5:0], fp6_format_sel);
+            wire [15:0] a_fp6_1 = fp6_to_fp16(a32[11:6], fp6_format_sel);
+            wire [15:0] a_fp6_2 = fp6_to_fp16(a32[17:12], fp6_format_sel);
+            wire [15:0] a_fp6_3 = fp6_to_fp16(a32[23:18], fp6_format_sel);
+            wire [15:0] a_fp6_4 = fp6_to_fp16(a32[29:24], fp6_format_sel);
+
+            wire [15:0] b_fp6_0 = fp6_to_fp16(b32[5:0], fp6_format_sel);
+            wire [15:0] b_fp6_1 = fp6_to_fp16(b32[11:6], fp6_format_sel);
+            wire [15:0] b_fp6_2 = fp6_to_fp16(b32[17:12], fp6_format_sel);
+            wire [15:0] b_fp6_3 = fp6_to_fp16(b32[23:18], fp6_format_sel);
+            wire [15:0] b_fp6_4 = fp6_to_fp16(b32[29:24], fp6_format_sel);
+
+            // FP16 multiplications (output FP32)
+            wire [31:0] fp6_prod0;
+            wire [31:0] fp6_prod1;
+            wire [31:0] fp6_prod2;
+            wire [31:0] fp6_prod3;
+            wire [31:0] fp6_prod4;
+
+            fp16_mul u_fp6_mul0 (.a(a_fp6_0), .b(b_fp6_0), .result(fp6_prod0));
+            fp16_mul u_fp6_mul1 (.a(a_fp6_1), .b(b_fp6_1), .result(fp6_prod1));
+            fp16_mul u_fp6_mul2 (.a(a_fp6_2), .b(b_fp6_2), .result(fp6_prod2));
+            fp16_mul u_fp6_mul3 (.a(a_fp6_3), .b(b_fp6_3), .result(fp6_prod3));
+            fp16_mul u_fp6_mul4 (.a(a_fp6_4), .b(b_fp6_4), .result(fp6_prod4));
+
+            // FP32 addition tree
+            wire [31:0] fp6_sum01;
+            wire [31:0] fp6_sum23;
+            wire [31:0] fp6_sum0123;
+            wire [31:0] fp6_sum01234;
+            wire [31:0] fp6_result;
+
+            fp32_add u_fp6_add01   (.a(fp6_prod0), .b(fp6_prod1), .result(fp6_sum01));
+            fp32_add u_fp6_add23   (.a(fp6_prod2), .b(fp6_prod3), .result(fp6_sum23));
+            fp32_add u_fp6_add0123 (.a(fp6_sum01), .b(fp6_sum23), .result(fp6_sum0123));
+            fp32_add u_fp6_add_4   (.a(fp6_sum0123), .b(fp6_prod4), .result(fp6_sum01234));
+            fp32_add u_fp6_add_c   (.a(fp6_sum01234), .b(c32), .result(fp6_result));
+
+            assign mma_result_fp6[k*32 +: 32] = fp6_result;
+        end
+    endgenerate
+
     wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_sel =
+        (sel_type == `TC_DATA_FP6_E3M2) ? mma_result_fp6 :
         (sel_type == `TC_DATA_FP4_E2M1 || sel_type == `TC_DATA_FP4_E3M0) ? mma_result_fp4 :
         (sel_type == `TC_DATA_FP8_E4M3 || sel_type == `TC_DATA_FP8_E5M2) ? mma_result_fp8 :
         (sel_type == `TC_DATA_BF16) ? mma_result_bf16 :
@@ -999,7 +1146,7 @@ module tensor_core #(
                 slot_a[s] <= {NUM_LANES*DATA_WIDTH{1'b0}};
                 slot_b[s] <= {NUM_LANES*DATA_WIDTH{1'b0}};
                 slot_c[s] <= {NUM_LANES*DATA_WIDTH{1'b0}};
-                slot_type[s] <= 3'b0;
+                slot_type[s] <= 4'b0;
             end
         end else begin
             result_valid <= 1'b0;

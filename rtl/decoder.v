@@ -90,7 +90,28 @@ module decoder (
     output reg         wgmma_load,  // WGMMA加载
     output reg         wgmma_store, // WGMMA存储
     output reg         wgmma_mma,   // WGMMA MMA
-    output reg  [2:0]  cache_hint   // 缓存提示
+    output reg  [2:0]  cache_hint,  // 缓存提示
+
+    // 控制信号 - mbarrier (Hopper+)
+    output reg         mbarrier_op, // mbarrier操作
+
+    // 控制信号 - Warp-level barrier
+    output reg         bar_warp_sync,  // bar.warp.sync (warp-level synchronization)
+
+    // 控制信号 - Cache Policy (Hopper+)
+    output reg         cache_policy_op, // Cache policy operations (createpolicy/applypriority/discard)
+
+    // 控制信号 - Stack/Debug/Misc (Phase 6.2)
+    output reg         stack_op,        // Stack operations (alloca/stacksave/stackrestore)
+    output reg         debug_op,        // Debug operations (brkpt/trap/pmevent)
+    output reg         misc_op,         // Misc operations (nanosleep/setmaxnreg)
+
+    // 控制信号 - Async Store/Multimem (Phase 1.2)
+    output reg         st_async_op,     // st.async operations
+    output reg         multimem_op,     // multimem operations (distributed shared memory)
+
+    // 控制信号 - Barrier Cluster (Phase 3.2)
+    output reg         barrier_cluster_op  // barrier.cluster operations (cross-SM sync)
 );
 
     //------------------------------------------------------------------------
@@ -167,6 +188,15 @@ module decoder (
             wgmma_store <= 1'b0;
             wgmma_mma   <= 1'b0;
             cache_hint  <= 3'b0;
+            mbarrier_op <= 1'b0;
+            bar_warp_sync <= 1'b0;
+            cache_policy_op <= 1'b0;
+            stack_op <= 1'b0;
+            debug_op <= 1'b0;
+            misc_op <= 1'b0;
+            st_async_op <= 1'b0;
+            multimem_op <= 1'b0;
+            barrier_cluster_op <= 1'b0;
         end else if (valid_in) begin
             valid_out <= 1'b1;
 
@@ -229,6 +259,15 @@ module decoder (
             wgmma_store <= 1'b0;
             wgmma_mma   <= 1'b0;
             cache_hint  <= 3'b0;
+            mbarrier_op <= 1'b0;
+            bar_warp_sync <= 1'b0;
+            cache_policy_op <= 1'b0;
+            stack_op <= 1'b0;
+            debug_op <= 1'b0;
+            misc_op <= 1'b0;
+            st_async_op <= 1'b0;
+            multimem_op <= 1'b0;
+            barrier_cluster_op <= 1'b0;
 
             // 根据OPCODE设置控制信号
             case (inst_opcode)
@@ -295,6 +334,13 @@ module decoder (
 
                 `OP_BAR_SYNC: begin
                     sync_op <= 1'b1;
+                end
+
+                `OP_BAR_WARP_SYNC: begin
+                    // bar.warp.sync membermask - warp-level synchronization
+                    // membermask comes from ra (register A) - 32-bit value specifying participating threads
+                    bar_warp_sync <= 1'b1;
+                    sync_op <= 1'b1;  // Also set sync_op to trigger stall handling
                 end
 
                 `OP_EXIT, `OP_RET: begin
@@ -522,6 +568,167 @@ module decoder (
                 `OP_WGMMA_MMA: begin
                     wgmma_mma <= 1'b1;
                     reg_write <= 1'b1;
+                end
+
+                //============================================================
+                // mbarrier (Hopper+ Memory Barrier)
+                //============================================================
+                `OP_MBARRIER: begin
+                    mbarrier_op <= 1'b1;
+                    // test_wait and try_wait return results to register
+                    // func[2] distinguishes wait ops (MBAR_TEST_WAIT=4, MBAR_TRY_WAIT=5)
+                    if (inst_func == `MBAR_TEST_WAIT || inst_func == `MBAR_TRY_WAIT) begin
+                        reg_write <= 1'b1;
+                    end
+                end
+
+                //============================================================
+                // Cache Policy Instructions (Hopper+)
+                //============================================================
+                `OP_CACHE_POLICY: begin
+                    cache_policy_op <= 1'b1;
+                    // createpolicy returns a policy token (writes to register)
+                    // applypriority and discard do not return values
+                    if (inst_func == `CACHE_CREATEPOLICY) begin
+                        reg_write <= 1'b1;
+                    end
+                end
+
+                //============================================================
+                // Stack Operations (Phase 6.2)
+                //============================================================
+                `OP_STACK: begin
+                    stack_op <= 1'b1;
+                    case (inst_func)
+                        `STACK_ALLOCA: begin
+                            // alloca rd, size - allocate stack space, return pointer in rd
+                            reg_write <= 1'b1;
+                        end
+                        `STACK_SAVE: begin
+                            // stacksave rd - save current stack pointer to rd
+                            reg_write <= 1'b1;
+                        end
+                        `STACK_RESTORE: begin
+                            // stackrestore ra - restore stack pointer from ra
+                            // No register write - just updates internal stack pointer
+                        end
+                        default: begin
+                            // Unknown stack operation - treat as NOP
+                        end
+                    endcase
+                end
+
+                //============================================================
+                // Debug Operations (Phase 6.2)
+                //============================================================
+                `OP_DEBUG: begin
+                    debug_op <= 1'b1;
+                    // Debug operations don't write to registers
+                    // brkpt: triggers debugger breakpoint
+                    // trap: triggers software trap exception
+                    // pmevent: signals performance monitoring event
+                end
+
+                //============================================================
+                // Misc Operations (Phase 6.2)
+                //============================================================
+                `OP_MISC: begin
+                    misc_op <= 1'b1;
+                    case (inst_func)
+                        `MISC_NANOSLEEP: begin
+                            // nanosleep t - pause execution for t nanoseconds
+                            // No register write - just delays warp execution
+                        end
+                        `MISC_SETMAXNREG: begin
+                            // setmaxnreg N - set maximum register count for this thread block
+                            // No register write - just configures register limit
+                        end
+                        default: begin
+                            // Unknown misc operation - treat as NOP
+                        end
+                    endcase
+                end
+
+                //============================================================
+                // Async Store Operations (Phase 1.2)
+                //============================================================
+                `OP_ST_ASYNC: begin
+                    st_async_op <= 1'b1;
+                    case (inst_func)
+                        `ST_ASYNC_GLOBAL, `ST_ASYNC_SHARED: begin
+                            // st.async.global/shared [addr], data - async store
+                            mem_write <= 1'b1;
+                            if (inst_func == `ST_ASYNC_SHARED) mem_shared <= 1'b1;
+                        end
+                        `ST_ASYNC_COMMIT: begin
+                            // cp.async.commit_group - commit current async store group
+                            // No memory or register operation
+                        end
+                        `ST_ASYNC_WAIT: begin
+                            // cp.async.wait_group N - wait for N groups to complete
+                            // Stalls warp until condition met
+                        end
+                        default: begin
+                            // Unknown st.async operation - treat as NOP
+                        end
+                    endcase
+                end
+
+                //============================================================
+                // Multimem Operations (Phase 1.2 - Distributed Shared Memory)
+                //============================================================
+                `OP_MULTIMEM: begin
+                    multimem_op <= 1'b1;
+                    case (inst_func)
+                        `MULTIMEM_LD: begin
+                            // multimem.ld rd, [addr] - Load from distributed shared memory
+                            mem_read <= 1'b1;
+                            mem_shared <= 1'b1;
+                            reg_write <= 1'b1;
+                        end
+                        `MULTIMEM_ST: begin
+                            // multimem.st [addr], data, mask - Multicast store to multiple SMs
+                            mem_write <= 1'b1;
+                            mem_shared <= 1'b1;
+                        end
+                        `MULTIMEM_RED: begin
+                            // multimem.red [addr], data, op - Multicast reduction
+                            mem_write <= 1'b1;
+                            mem_shared <= 1'b1;
+                        end
+                        default: begin
+                            // Unknown multimem operation - treat as NOP
+                        end
+                    endcase
+                end
+
+                //============================================================
+                // Barrier Cluster Operations (Phase 3.2 - Thread Block Cluster Sync)
+                //============================================================
+                `OP_BARRIER_CLUSTER: begin
+                    barrier_cluster_op <= 1'b1;
+                    sync_op <= 1'b1;  // All cluster barriers are sync operations
+                    case (inst_func)
+                        `CLUSTER_BARRIER_ARRIVE: begin
+                            // barrier.cluster.arrive - Signal arrival at cluster barrier
+                            // Non-blocking, just increments arrive count
+                        end
+                        `CLUSTER_BARRIER_WAIT: begin
+                            // barrier.cluster.wait - Wait for all threads to arrive
+                            // Blocks until all threads in cluster have arrived
+                        end
+                        `CLUSTER_BARRIER_SYNC: begin
+                            // barrier.cluster.sync - Arrive and wait (combined)
+                            // Equivalent to arrive followed by wait
+                        end
+                        `CLUSTER_BARRIER_INIT: begin
+                            // barrier.cluster.init - Initialize cluster barrier
+                            // Sets expected thread count for barrier
+                        end
+                        default: begin
+                            // Unknown barrier.cluster operation - treat as NOP
+                        end
+                    endcase
                 end
 
                 `OP_MOV_IMM: begin

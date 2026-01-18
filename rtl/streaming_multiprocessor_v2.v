@@ -30,9 +30,10 @@ module streaming_multiprocessor_v2 #(
     parameter DATA_WIDTH = `DATA_WIDTH,
     parameter TC_NUM_CORES = 8,
     parameter TC_LATENCY = 4,
-    parameter [2:0] TC_DATA_DEFAULT = `TC_DATA_FP16,
+    parameter [3:0] TC_DATA_DEFAULT = `TC_DATA_FP16,  // Extended to 4-bit for FP6
     parameter TC_USE_OP_TYPE = 1,
     parameter [1:0] TC_FP4_FORMAT = `TC_FP4_E2M1,
+    parameter [1:0] TC_FP6_FORMAT = `TC_FP6_E3M2,     // 5th-gen Tensor Core FP6
     parameter [1:0] TC_FP8_FORMAT = `TC_FP8_E4M3,
     parameter INIT_WARPS = 1,
     parameter ICACHE_BYPASS = 0  // Bypass icache for ideal fetch latency testing
@@ -120,6 +121,7 @@ module streaming_multiprocessor_v2 #(
     localparam FP16_WBQ_DEPTH = 4;
     localparam SFU_WBQ_DEPTH = 16;
     localparam SHFL_WBQ_DEPTH = 4;
+    localparam VIDEO_WBQ_DEPTH = 4;
     localparam ALU_WBQ_COUNT_W = $clog2(ALU_WBQ_DEPTH + 1);
     localparam MUL_WBQ_COUNT_W = $clog2(MUL_WBQ_DEPTH + 1);
     localparam FPU32_WBQ_COUNT_W = $clog2(FPU32_WBQ_DEPTH + 1);
@@ -127,6 +129,7 @@ module streaming_multiprocessor_v2 #(
     localparam FP16_WBQ_COUNT_W = $clog2(FP16_WBQ_DEPTH + 1);
     localparam SFU_WBQ_COUNT_W = $clog2(SFU_WBQ_DEPTH + 1);
     localparam SHFL_WBQ_COUNT_W = $clog2(SHFL_WBQ_DEPTH + 1);
+    localparam VIDEO_WBQ_COUNT_W = $clog2(VIDEO_WBQ_DEPTH + 1);
     localparam [ALU_WBQ_COUNT_W-1:0] ALU_WBQ_DEPTH_VAL = ALU_WBQ_DEPTH;
     localparam [MUL_WBQ_COUNT_W-1:0] MUL_WBQ_DEPTH_VAL = MUL_WBQ_DEPTH;
     localparam [FPU32_WBQ_COUNT_W-1:0] FPU32_WBQ_DEPTH_VAL = FPU32_WBQ_DEPTH;
@@ -134,7 +137,7 @@ module streaming_multiprocessor_v2 #(
     localparam [FP16_WBQ_COUNT_W-1:0] FP16_WBQ_DEPTH_VAL = FP16_WBQ_DEPTH;
     localparam [SFU_WBQ_COUNT_W-1:0] SFU_WBQ_DEPTH_VAL = SFU_WBQ_DEPTH;
     localparam [SHFL_WBQ_COUNT_W-1:0] SHFL_WBQ_DEPTH_VAL = SHFL_WBQ_DEPTH;
-    localparam [3:0] CPASYNC_LATENCY = 6;
+    localparam [VIDEO_WBQ_COUNT_W-1:0] VIDEO_WBQ_DEPTH_VAL = VIDEO_WBQ_DEPTH;
 
     localparam WB_DATA_LSB = 0;
     localparam WB_DATA_MSB = SIMD_WIDTH - 1;
@@ -176,7 +179,7 @@ module streaming_multiprocessor_v2 #(
     localparam TENSOR_ISSUE_C_LSB = TENSOR_ISSUE_B_MSB + 1;
     localparam TENSOR_ISSUE_C_MSB = TENSOR_ISSUE_C_LSB + SIMD_WIDTH - 1;
     localparam TENSOR_ISSUE_OP_LSB = TENSOR_ISSUE_C_MSB + 1;
-    localparam TENSOR_ISSUE_OP_MSB = TENSOR_ISSUE_OP_LSB + 3 - 1;
+    localparam TENSOR_ISSUE_OP_MSB = TENSOR_ISSUE_OP_LSB + 4 - 1;  // Extended to 4-bit for FP6
     localparam TENSOR_ISSUE_MASK_LSB = TENSOR_ISSUE_OP_MSB + 1;
     localparam TENSOR_ISSUE_MASK_MSB = TENSOR_ISSUE_MASK_LSB + NUM_LANES - 1;
     localparam TENSOR_ISSUE_RD_LSB = TENSOR_ISSUE_MASK_MSB + 1;
@@ -230,15 +233,29 @@ module streaming_multiprocessor_v2 #(
     reg  [31:0]          warp_fetch_pc [0:NUM_WARPS-1];
     reg  [NUM_LANES-1:0] warp_mask [0:NUM_WARPS-1];  // Active thread mask
     reg  [3:0]           cp_async_pending [0:NUM_WARPS-1];  // Outstanding cp.async copies
-    reg  [3:0]           cp_async_timer   [0:NUM_WARPS-1];  // Simple latency model
     reg  [3:0]           cp_async_wait_threshold [0:NUM_WARPS-1];
     reg  [NUM_WARPS-1:0] cp_async_wait_all;
     reg                  barrier_pending;  // simple global barrier flag
 
+    // Warp-level synchronization (bar.warp.sync) state
+    reg  [NUM_WARPS-1:0] warp_sync_pending;           // Warp has bar.warp.sync in progress
+    reg  [31:0]          warp_sync_arrived [0:NUM_WARPS-1];  // Per-lane arrival bits
+    reg  [31:0]          warp_sync_mask [0:NUM_WARPS-1];     // Expected thread mask (membermask)
+
+    // Cluster barrier state (barrier.cluster - Hopper+ Thread Block Cluster sync)
+    // Note: Full cluster interconnect is external; SM tracks local state
+    reg  [NUM_WARPS-1:0] cluster_barrier_pending;     // Warp waiting on cluster barrier
+    reg  [NUM_WARPS-1:0] cluster_barrier_arrived;     // Warp has arrived at barrier
+    reg  [7:0]           cluster_barrier_id [0:NUM_WARPS-1]; // Barrier ID per warp
+    reg  [15:0]          cluster_barrier_thread_count;  // Expected thread count (shared)
+    reg  [15:0]          cluster_local_arrive_count;    // Local SM arrive count
+    reg                  cluster_barrier_complete;      // Set when all have arrived (stub for single SM)
+
     wire [NUM_WARPS-1:0] warp_ready = warp_valid & ~warp_stalled_mem &
                                        ~warp_stalled_fu & ~warp_stalled_sync &
                                        ~warp_stalled_async & ~warp_stalled_branch &
-                                       ~warp_exit_pending;
+                                       ~warp_exit_pending & ~mbarrier_warp_blocked &
+                                       ~warp_stalled_wgmma & ~cluster_barrier_pending;
 
     //========================================================================
     // Pipeline Registers
@@ -299,7 +316,17 @@ module streaming_multiprocessor_v2 #(
     reg                  issue_mem_read, issue_mem_write, issue_mem_shared;
     reg                  issue_branch_op, issue_sync_op, issue_special_reg;
     reg                  issue_exit_op, issue_atomic_op, issue_shuffle_op;
+    reg                  issue_video_op;       // Video SIMD operation
     reg                  issue_reg_write;
+    reg                  issue_bar_warp_sync;  // bar.warp.sync flag
+    reg                  issue_tex_op;         // Texture operation (tex/txq/suld/sust/sured)
+    reg                  issue_cache_policy_op; // Cache policy operation
+    reg                  issue_stack_op;       // Stack operation (alloca/stacksave/stackrestore)
+    reg                  issue_debug_op;       // Debug operation (brkpt/trap/pmevent)
+    reg                  issue_misc_op;        // Misc operation (nanosleep/setmaxnreg)
+    reg                  issue_st_async_op;    // st.async operation
+    reg                  issue_multimem_op;    // multimem operation
+    reg                  issue_barrier_cluster_op;  // barrier.cluster operation
 
     // Issue Stage (slot 1)
     reg                  issue1_valid;
@@ -318,7 +345,17 @@ module streaming_multiprocessor_v2 #(
     reg                  issue1_mem_read, issue1_mem_write, issue1_mem_shared;
     reg                  issue1_branch_op, issue1_sync_op, issue1_special_reg;
     reg                  issue1_exit_op, issue1_atomic_op, issue1_shuffle_op;
+    reg                  issue1_video_op;       // Video SIMD operation
     reg                  issue1_reg_write;
+    reg                  issue1_bar_warp_sync;  // bar.warp.sync flag
+    reg                  issue1_tex_op;         // Texture operation (tex/txq/suld/sust/sured)
+    reg                  issue1_cache_policy_op; // Cache policy operation
+    reg                  issue1_stack_op;       // Stack operation (alloca/stacksave/stackrestore)
+    reg                  issue1_debug_op;       // Debug operation (brkpt/trap/pmevent)
+    reg                  issue1_misc_op;        // Misc operation (nanosleep/setmaxnreg)
+    reg                  issue1_st_async_op;    // st.async operation
+    reg                  issue1_multimem_op;    // multimem operation
+    reg                  issue1_barrier_cluster_op;  // barrier.cluster operation
 
     // Execute Stage (per functional unit)
     reg                  exec_alu_valid;
@@ -420,7 +457,7 @@ module streaming_multiprocessor_v2 #(
     wire [SIMD_WIDTH-1:0] tensor_issue_frag_a;
     wire [SIMD_WIDTH-1:0] tensor_issue_frag_b;
     wire [SIMD_WIDTH-1:0] tensor_issue_frag_c;
-    wire [2:0] tensor_issue_op_type;
+    wire [3:0] tensor_issue_op_type;  // Extended to 4-bit for FP6
     wire [WARP_ID_W-1:0] tensor_issue_warp;
     wire [4:0] tensor_issue_rd;
     wire [NUM_LANES-1:0] tensor_issue_mask;
@@ -463,6 +500,10 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_LANES*5-1:0] shuffle_src_lane;
     wire [NUM_LANES*5-1:0] shuffle_offset;
 
+    // Video SIMD Unit Signals
+    wire [SIMD_WIDTH-1:0] video_result;
+    wire                  video_valid_in, video_valid_out;
+
     // Atomic Unit Signals
     wire [31:0]           atomic_result;
     wire                  atomic_valid_in, atomic_valid_out;
@@ -476,6 +517,44 @@ module streaming_multiprocessor_v2 #(
     wire                  smem_resp_valid;
     wire [SIMD_WIDTH-1:0] smem_resp_rdata;
     wire                  smem_bank_conflict;
+
+    // Async Copy Engine Signals (cp.async support)
+    wire                  ace_ready;
+    wire                  ace_done;
+    wire [3:0]            ace_pending_count;
+    wire                  ace_gmem_req_valid;
+    wire [31:0]           ace_gmem_req_addr;
+    wire [4:0]            ace_gmem_req_size;
+    wire [2:0]            ace_gmem_req_cache;
+    wire                  ace_smem_wr_en;
+    wire [13:0]           ace_smem_wr_addr;
+    wire [127:0]          ace_smem_wr_data;
+    wire [4:0]            ace_smem_wr_size;  // 5 bits to hold values up to 16
+
+    // mbarrier Unit Signals (Hopper+ memory barriers)
+    wire                  mbarrier_ready;
+    wire                  mbarrier_done;
+    wire [31:0]           mbarrier_result;
+    wire                  mbarrier_result_valid;
+    wire [NUM_WARPS-1:0]  mbarrier_warp_blocked;
+
+    // WGMMA Unit Signals (Hopper+ Warpgroup MMA)
+    wire                  wgmma_ready;
+    wire                  wgmma_done;
+    wire [3:0]            wgmma_pending_ops;
+    wire [1023:0]         wgmma_accum_out;
+    reg  [NUM_WARPS-1:0]  warp_stalled_wgmma;         // Warps waiting on WGMMA wait_group
+    reg  [3:0]            wgmma_wait_threshold [0:NUM_WARPS-1];  // Per-warp wait threshold
+
+    // Texture Unit Signals (tex/txq/suld/sust/sured)
+    wire                  tex_valid_in;
+    wire                  tex_valid_out;
+    wire [127:0]          tex_result;
+    wire                  tex_busy;
+    wire                  tex_mem_req;
+    wire                  tex_mem_write;
+    wire [31:0]           tex_mem_addr;
+    wire [127:0]          tex_mem_wdata;
 
     // Global Memory Signals
     wire                  gmem_req_valid;
@@ -594,18 +673,22 @@ module streaming_multiprocessor_v2 #(
                            );
     wire lane0_stall_atomic = dec0_valid && dec_atomic_op && atomic_busy;
     wire lane0_stall_tensor = dec0_valid && dec_tensor_op && tensor_issue_full_next;
+    // WGMMA stall: stall if WGMMA instruction and WGMMA unit not ready
+    wire dec_wgmma_op = dec_wgmma_load || dec_wgmma_store || dec_wgmma_mma;
+    wire lane0_stall_wgmma = dec0_valid && dec_wgmma_op && !wgmma_ready;
     wire lane0_stall_wbq = dec0_valid && (
-                           ((dec_alu_op || dec_video_op) && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
+                           (dec_alu_op && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
                            (dec_mul_op && (mul_inflight == MUL_WBQ_DEPTH_VAL)) ||
                            (dec_fp32_op && (fpu32_inflight == FPU32_WBQ_DEPTH_VAL)) ||
                            (dec_fp64_op && (fpu64_inflight == FPU64_WBQ_DEPTH_VAL)) ||
                            (dec_fp16_op && (fp16_inflight == FP16_WBQ_DEPTH_VAL)) ||
                            (dec_sfu_op && (sfu_inflight == SFU_WBQ_DEPTH_VAL)) ||
-                           (dec_shuffle_op && (shfl_inflight == SHFL_WBQ_DEPTH_VAL))
+                           (dec_shuffle_op && (shfl_inflight == SHFL_WBQ_DEPTH_VAL)) ||
+                           (dec_video_op && (video_inflight == VIDEO_WBQ_DEPTH_VAL))
                            );
     wire lane0_ready = dec0_valid && !lane0_stall_raw && !lane0_stall_fu &&
                        !lane0_stall_mem && !lane0_stall_atomic &&
-                       !lane0_stall_tensor && !lane0_stall_wbq;
+                       !lane0_stall_tensor && !lane0_stall_wgmma && !lane0_stall_wbq;
 
     // Lane 1 dependency checks (compute-only)
     // Note: Unlike RISC-V, CUDA/PTX R0 is a normal register, not hardwired to 0
@@ -615,13 +698,14 @@ module streaming_multiprocessor_v2 #(
     wire lane1_stall_raw = dec1_valid && (lane1_ra_busy || lane1_rb_busy || lane1_rc_busy);
     wire lane1_stall_fu = dec1_valid && (pending_fu_count[dec1_warp_id] >= 8);
     wire lane1_stall_wbq = dec1_valid && (
-                           ((dec1_alu_op || dec1_video_op) && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
+                           (dec1_alu_op && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
                            (dec1_mul_op && (mul_inflight == MUL_WBQ_DEPTH_VAL)) ||
                            (dec1_fp32_op && (fpu32_inflight == FPU32_WBQ_DEPTH_VAL)) ||
                            (dec1_fp64_op && (fpu64_inflight == FPU64_WBQ_DEPTH_VAL)) ||
                            (dec1_fp16_op && (fp16_inflight == FP16_WBQ_DEPTH_VAL)) ||
                            (dec1_sfu_op && (sfu_inflight == SFU_WBQ_DEPTH_VAL)) ||
-                           (dec1_shuffle_op && (shfl_inflight == SHFL_WBQ_DEPTH_VAL))
+                           (dec1_shuffle_op && (shfl_inflight == SHFL_WBQ_DEPTH_VAL)) ||
+                           (dec1_video_op && (video_inflight == VIDEO_WBQ_DEPTH_VAL))
                            );
     wire lane1_is_compute = dec1_alu_op || dec1_mul_op || dec1_div_op ||
                             dec1_fp32_op || dec1_fp64_op || dec1_fp16_op ||
@@ -645,27 +729,30 @@ module streaming_multiprocessor_v2 #(
                                (dec1_rd == dec_rc)))
                              );
 
-    wire lane0_alu = lane0_ready && (dec_alu_op || dec_branch_op || dec_cvt_op || dec_video_op);  // CVT/VIDEO routed through ALU
+    wire lane0_alu = lane0_ready && (dec_alu_op || dec_branch_op || dec_cvt_op);  // CVT routed through ALU
     wire lane0_mul = lane0_ready && (dec_mul_op || dec_div_op);
     wire lane0_fp32 = lane0_ready && dec_fp32_op;
     wire lane0_fp64 = lane0_ready && dec_fp64_op;
     wire lane0_fp16 = lane0_ready && dec_fp16_op;
     wire lane0_sfu = lane0_ready && dec_sfu_op;
     wire lane0_shfl = lane0_ready && dec_shuffle_op;
-    wire lane1_alu = lane1_ready && (dec1_alu_op || dec1_cvt_op || dec1_video_op);  // CVT/VIDEO routed through ALU
+    wire lane0_video = lane0_ready && dec_video_op;  // Video SIMD unit
+    wire lane1_alu = lane1_ready && (dec1_alu_op || dec1_cvt_op);  // CVT routed through ALU
     wire lane1_mul = lane1_ready && (dec1_mul_op || dec1_div_op);
     wire lane1_fp32 = lane1_ready && dec1_fp32_op;
     wire lane1_fp64 = lane1_ready && dec1_fp64_op;
     wire lane1_fp16 = lane1_ready && dec1_fp16_op;
     wire lane1_sfu = lane1_ready && dec1_sfu_op;
     wire lane1_shfl = lane1_ready && dec1_shuffle_op;
+    wire lane1_video = lane1_ready && dec1_video_op;  // Video SIMD unit
     wire lane_unit_conflict = (lane0_alu && lane1_alu) ||
                               (lane0_mul && lane1_mul) ||
                               (lane0_fp32 && lane1_fp32) ||
                               (lane0_fp64 && lane1_fp64) ||
                               (lane0_fp16 && lane1_fp16) ||
                               (lane0_sfu && lane1_sfu) ||
-                              (lane0_shfl && lane1_shfl);
+                              (lane0_shfl && lane1_shfl) ||
+                              (lane0_video && lane1_video);
     wire lane0_control = lane0_ready && (dec_branch_op || dec_sync_op || dec_exit_op);
 
     // Forward declarations - these are driven by the advanced_warp_scheduler
@@ -731,6 +818,33 @@ module streaming_multiprocessor_v2 #(
     wire issue_stall_mem = lane0_stall_mem;
     wire issue_accept = issue0_fire;
 
+    // cp.async backpressure: stall issue if ACE not ready for cp.async instructions
+    wire cpasync_stall = (issue_cpasync_copy || issue1_cpasync_copy ||
+                          issue_cpasync_wait || issue1_cpasync_wait ||
+                          issue_cpasync_wait_all || issue1_cpasync_wait_all) && !ace_ready;
+
+    // mbarrier instruction detection
+    wire issue_mbarrier = issue_valid && (issue_opcode == `OP_MBARRIER);
+    wire issue1_mbarrier = issue1_valid && (issue1_opcode == `OP_MBARRIER);
+
+    // mbarrier backpressure: stall if mbarrier unit not ready
+    wire mbarrier_stall = (issue_mbarrier || issue1_mbarrier) && !mbarrier_ready;
+
+    // WGMMA instruction detection (Hopper+ Warpgroup MMA)
+    wire issue_wgmma = issue_valid && (issue_opcode == `OP_WGMMA_MMA ||
+                                       issue_opcode == `OP_WGMMA_LOAD ||
+                                       issue_opcode == `OP_WGMMA_STORE);
+    wire issue1_wgmma = issue1_valid && (issue1_opcode == `OP_WGMMA_MMA ||
+                                         issue1_opcode == `OP_WGMMA_LOAD ||
+                                         issue1_opcode == `OP_WGMMA_STORE);
+    wire issue_wgmma_mma = issue_valid && (issue_opcode == `OP_WGMMA_MMA);
+    wire issue1_wgmma_mma = issue1_valid && (issue1_opcode == `OP_WGMMA_MMA);
+    wire issue_wgmma_wait = issue_wgmma_mma && (issue_func == `WGMMA_WAIT_GROUP);
+    wire issue1_wgmma_wait = issue1_wgmma_mma && (issue1_func == `WGMMA_WAIT_GROUP);
+
+    // WGMMA backpressure: stall if WGMMA unit not ready
+    wire wgmma_stall = (issue_wgmma || issue1_wgmma) && !wgmma_ready;
+
     assign frontend_flush = (issue_valid && issue_exit_op && (INIT_WARPS == 1));
 
     // Branches also use ALU to compute zero flag for condition check
@@ -748,8 +862,12 @@ module streaming_multiprocessor_v2 #(
     wire sfu_issue1 = issue1_valid && issue1_sfu_op;
     wire shfl_issue0 = issue_valid && issue_shuffle_op;
     wire shfl_issue1 = issue1_valid && issue1_shuffle_op;
+    wire video_issue0 = issue_valid && issue_video_op;
+    wire video_issue1 = issue1_valid && issue1_video_op;
     wire special_reg_issue0 = issue_valid && issue_special_reg;
     wire special_reg_issue1 = issue1_valid && issue1_special_reg;
+    wire tex_issue0 = issue_valid && issue_tex_op;
+    wire tex_issue1 = issue1_valid && issue1_tex_op;
 
     wire alu_issue = alu_issue0 || alu_issue1;
     wire mul_issue = mul_issue0 || mul_issue1;
@@ -758,7 +876,9 @@ module streaming_multiprocessor_v2 #(
     wire fp16_issue = fp16_issue0 || fp16_issue1;
     wire sfu_issue = sfu_issue0 || sfu_issue1;
     wire shfl_issue = shfl_issue0 || shfl_issue1;
+    wire video_issue = video_issue0 || video_issue1;
     wire special_reg_issue = special_reg_issue0 || special_reg_issue1;
+    wire tex_issue = tex_issue0 || tex_issue1;
 
     //========================================================================
     // Multi-Cycle FU Tracking (Track which warp issued to each pipelined FU)
@@ -816,12 +936,30 @@ module streaming_multiprocessor_v2 #(
     reg [NUM_LANES-1:0] atomic_mask_pending;
     reg                 atomic_pending_valid;
 
+    // WGMMA operation tracking (for scoreboard)
+    reg [WARP_ID_W-1:0] wgmma_pending_warp;
+    reg [4:0]           wgmma_pending_rd;
+    reg                 wgmma_pending_valid;
+
     // Shuffle pipeline tracking (1 stage delay for proper writeback timing)
     reg [WARP_ID_W-1:0] shuffle_warp_pipe;
     reg [4:0]           shuffle_rd_pipe;
     reg [NUM_LANES-1:0] shuffle_mask_pipe;
     reg [SIMD_WIDTH-1:0] shuffle_result_pipe;
     reg                 shuffle_valid_pipe;
+
+    // Video SIMD pipeline tracking (2 stages for video_unit latency)
+    reg [WARP_ID_W-1:0] video_warp_pipe [0:1];
+    reg [4:0]           video_rd_pipe [0:1];
+    reg [NUM_LANES-1:0] video_mask_pipe [0:1];
+
+    // Texture unit pipeline tracking (variable latency - use pending registers)
+    reg [WARP_ID_W-1:0] tex_warp_pending;
+    reg [4:0]           tex_rd_pending;
+    reg [NUM_LANES-1:0] tex_mask_pending;
+    reg                 tex_pending_valid;
+    reg [127:0]         tex_result_latched;
+    reg                 tex_result_valid_latched;
 
     // Writeback round-robin arbiter state
     reg [3:0] wb_arb_priority;
@@ -834,6 +972,7 @@ module streaming_multiprocessor_v2 #(
     wire [WB_PKT_W-1:0] fp16_wbq_in, fp16_wbq_out;
     wire [WB_PKT_W-1:0] sfu_wbq_in, sfu_wbq_out;
     wire [WB_PKT_W-1:0] shfl_wbq_in, shfl_wbq_out;
+    wire [WB_PKT_W-1:0] video_wbq_in, video_wbq_out;
     wire [WB_PKT_W-1:0] special_wbq_out;
     wire                 alu_wbq_push, alu_wbq_pop, alu_wbq_full, alu_wbq_empty;
     wire                 mul_wbq_push, mul_wbq_pop, mul_wbq_full, mul_wbq_empty;
@@ -842,6 +981,7 @@ module streaming_multiprocessor_v2 #(
     wire                 fp16_wbq_push, fp16_wbq_pop, fp16_wbq_full, fp16_wbq_empty;
     wire                 sfu_wbq_push, sfu_wbq_pop, sfu_wbq_full, sfu_wbq_empty;
     wire                 shfl_wbq_push, shfl_wbq_pop, shfl_wbq_full, shfl_wbq_empty;
+    wire                 video_wbq_push, video_wbq_pop, video_wbq_full, video_wbq_empty;
     wire                 special_wbq_pop, special_wbq_full, special_wbq_empty;
 
     wire [WARP_ID_W-1:0] alu_wbq_warp;
@@ -851,6 +991,7 @@ module streaming_multiprocessor_v2 #(
     wire [WARP_ID_W-1:0] fp16_wbq_warp;
     wire [WARP_ID_W-1:0] sfu_wbq_warp;
     wire [WARP_ID_W-1:0] shfl_wbq_warp;
+    wire [WARP_ID_W-1:0] video_wbq_warp;
     wire [WARP_ID_W-1:0] special_wbq_warp;
     wire [4:0]           alu_wbq_rd;
     wire [4:0]           mul_wbq_rd;
@@ -859,6 +1000,7 @@ module streaming_multiprocessor_v2 #(
     wire [4:0]           fp16_wbq_rd;
     wire [4:0]           sfu_wbq_rd;
     wire [4:0]           shfl_wbq_rd;
+    wire [4:0]           video_wbq_rd;
     wire [4:0]           special_wbq_rd;
     wire [NUM_LANES-1:0] alu_wbq_mask;
     wire [NUM_LANES-1:0] mul_wbq_mask;
@@ -867,6 +1009,7 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_LANES-1:0] fp16_wbq_mask;
     wire [NUM_LANES-1:0] sfu_wbq_mask;
     wire [NUM_LANES-1:0] shfl_wbq_mask;
+    wire [NUM_LANES-1:0] video_wbq_mask;
     wire [NUM_LANES-1:0] special_wbq_mask;
     wire [SIMD_WIDTH-1:0] alu_wbq_data;
     wire [SIMD_WIDTH-1:0] mul_wbq_data;
@@ -875,6 +1018,7 @@ module streaming_multiprocessor_v2 #(
     wire [SIMD_WIDTH-1:0] fp16_wbq_data;
     wire [SIMD_WIDTH-1:0] sfu_wbq_data;
     wire [SIMD_WIDTH-1:0] shfl_wbq_data;
+    wire [SIMD_WIDTH-1:0] video_wbq_data;
     wire [SIMD_WIDTH-1:0] special_wbq_data;
 
     reg [ALU_WBQ_COUNT_W-1:0] alu_inflight;
@@ -884,6 +1028,7 @@ module streaming_multiprocessor_v2 #(
     reg [FP16_WBQ_COUNT_W-1:0] fp16_inflight;
     reg [SFU_WBQ_COUNT_W-1:0] sfu_inflight;
     reg [SHFL_WBQ_COUNT_W-1:0] shfl_inflight;
+    reg [VIDEO_WBQ_COUNT_W-1:0] video_inflight;
 
     //========================================================================
     // Warp Scheduler with Round-Robin + Priority (Enhanced with GTO)
@@ -1301,12 +1446,14 @@ module streaming_multiprocessor_v2 #(
                                          (op == `OP_SFU) || (op == `OP_MOV_SPECIAL) ||
                                          (op == `OP_MOV_IMM) || (op == `OP_SETP) ||
                                          (op == `OP_CVT) || (op == `OP_NOP) || (op == `OP_VIDEO);
-            assign pd_is_tensor[pd_i]  = (op == `OP_WMMA_MMA);
+            assign pd_is_tensor[pd_i]  = (op == `OP_WMMA_MMA) ||
+                                         (op == `OP_WGMMA_MMA) || (op == `OP_WGMMA_LOAD) ||
+                                         (op == `OP_WGMMA_STORE);
             assign pd_is_memory[pd_i]  = (op == `OP_LD_GLOBAL) || (op == `OP_ST_GLOBAL) ||
                                          (op == `OP_LD_SHARED) || (op == `OP_ST_SHARED) ||
                                          (op == `OP_LD_LOCAL) || (op == `OP_LD_PARAM) ||
                                          (op == `OP_ATOM) || (op == `OP_RED) ||
-                                         (op == `OP_PREFETCH);
+                                         (op == `OP_PREFETCH) || (op == `OP_CPASYNC);
             assign pd_is_branch[pd_i]  = (op == `OP_BRANCH) || (op == `OP_EXIT) ||
                                          (op == `OP_BAR_SYNC) || (op == `OP_MEMBAR);
             assign pd_writes_reg[pd_i] = (op != `OP_ST_GLOBAL) && (op != `OP_ST_SHARED) &&
@@ -1346,9 +1493,12 @@ module streaming_multiprocessor_v2 #(
     // Pipeline readiness signals (simplified)
     wire pipe_compute0_ready = 1'b1; // Pipeline always accepts unless stall logic says otherwise
     wire pipe_compute1_ready = 1'b1;
-    wire pipe_tensor_ready   = !tensor_issue_full;
+    // Tensor pipeline ready: both WMMA and WGMMA units must be ready
+    // WGMMA shares the tensor pipeline, so stall if WGMMA unit is not ready
+    wire pipe_tensor_ready   = !tensor_issue_full && wgmma_ready;
     // Memory pipeline ready only if no memory ops in flight AND not stalled
-    wire pipe_memory_ready   = (mem_pipe_inflight == 0) && !issue_stall_mem;
+    // Also gate with ace_ready for cp.async backpressure (OP_CPASYNC is classified as memory)
+    wire pipe_memory_ready   = (mem_pipe_inflight == 0) && !issue_stall_mem && ace_ready;
     // Branch pipeline is always ready - per-warp stall (warp_stalled_branch) handles flow control
     wire pipe_branch_ready   = 1'b1;
 
@@ -1480,6 +1630,15 @@ module streaming_multiprocessor_v2 #(
     wire                 dec_tex_op, dec_txq_op, dec_surf_ld, dec_surf_st, dec_surf_red;
     wire                 dec_cpasync_op, dec_prefetch_op, dec_wgmma_load, dec_wgmma_store, dec_wgmma_mma;
     wire [2:0]           dec_cache_hint;
+    wire                 dec_mbarrier_op;
+    wire                 dec_bar_warp_sync;
+    wire                 dec_cache_policy_op;
+    wire                 dec_stack_op;
+    wire                 dec_debug_op;
+    wire                 dec_misc_op;
+    wire                 dec_st_async_op;
+    wire                 dec_multimem_op;
+    wire                 dec_barrier_cluster_op;
 
     // Extended decoder signals (Lane 1)
     wire dec1_fp32_special;
@@ -1494,6 +1653,15 @@ module streaming_multiprocessor_v2 #(
     wire                 dec1_tex_op, dec1_txq_op, dec1_surf_ld, dec1_surf_st, dec1_surf_red;
     wire                 dec1_cpasync_op, dec1_prefetch_op, dec1_wgmma_load, dec1_wgmma_store, dec1_wgmma_mma;
     wire [2:0]           dec1_cache_hint;
+    wire                 dec1_mbarrier_op;
+    wire                 dec1_bar_warp_sync;
+    wire                 dec1_cache_policy_op;
+    wire                 dec1_stack_op;
+    wire                 dec1_debug_op;
+    wire                 dec1_misc_op;
+    wire                 dec1_st_async_op;
+    wire                 dec1_multimem_op;
+    wire                 dec1_barrier_cluster_op;
 
     decoder u_decoder0 (
         .clk         (clk),
@@ -1555,7 +1723,16 @@ module streaming_multiprocessor_v2 #(
         .wgmma_load  (dec_wgmma_load),
         .wgmma_store (dec_wgmma_store),
         .wgmma_mma   (dec_wgmma_mma),
-        .cache_hint  (dec_cache_hint)
+        .cache_hint  (dec_cache_hint),
+        .mbarrier_op (dec_mbarrier_op),
+        .bar_warp_sync (dec_bar_warp_sync),
+        .cache_policy_op (dec_cache_policy_op),
+        .stack_op (dec_stack_op),
+        .debug_op (dec_debug_op),
+        .misc_op (dec_misc_op),
+        .st_async_op (dec_st_async_op),
+        .multimem_op (dec_multimem_op),
+        .barrier_cluster_op (dec_barrier_cluster_op)
     );
 
     //------------------------------------------------------------------------
@@ -1622,7 +1799,16 @@ module streaming_multiprocessor_v2 #(
         .wgmma_load  (dec1_wgmma_load),
         .wgmma_store (dec1_wgmma_store),
         .wgmma_mma   (dec1_wgmma_mma),
-        .cache_hint  (dec1_cache_hint)
+        .cache_hint  (dec1_cache_hint),
+        .mbarrier_op (dec1_mbarrier_op),
+        .bar_warp_sync (dec1_bar_warp_sync),
+        .cache_policy_op (dec1_cache_policy_op),
+        .stack_op (dec1_stack_op),
+        .debug_op (dec1_debug_op),
+        .misc_op (dec1_misc_op),
+        .st_async_op (dec1_st_async_op),
+        .multimem_op (dec1_multimem_op),
+        .barrier_cluster_op (dec1_barrier_cluster_op)
     );
 
     // Map decoder outputs to V2 signal names
@@ -1671,6 +1857,14 @@ module streaming_multiprocessor_v2 #(
             issue_atomic_op <= 1'b0;
             issue_shuffle_op <= 1'b0;
             issue_reg_write <= 1'b0;
+            issue_bar_warp_sync <= 1'b0;
+            issue_tex_op <= 1'b0;
+            issue_cache_policy_op <= 1'b0;
+            issue_stack_op <= 1'b0;
+            issue_debug_op <= 1'b0;
+            issue_misc_op <= 1'b0;
+            issue_st_async_op <= 1'b0;
+            issue_multimem_op <= 1'b0;
             issue1_warp_id <= 0;
             issue1_pc <= 0;
             issue1_opcode <= 0;
@@ -1701,6 +1895,14 @@ module streaming_multiprocessor_v2 #(
             issue1_atomic_op <= 1'b0;
             issue1_shuffle_op <= 1'b0;
             issue1_reg_write <= 1'b0;
+            issue1_bar_warp_sync <= 1'b0;
+            issue1_tex_op <= 1'b0;
+            issue1_cache_policy_op <= 1'b0;
+            issue1_stack_op <= 1'b0;
+            issue1_debug_op <= 1'b0;
+            issue1_misc_op <= 1'b0;
+            issue1_st_async_op <= 1'b0;
+            issue1_multimem_op <= 1'b0;
         end else begin
             // Debug: always trace - unconditional
             if (dec_valid || issue_valid)
@@ -1730,7 +1932,7 @@ module streaming_multiprocessor_v2 #(
                     issue_use_imm <= dec_use_imm;
                     // Use merged mask when reconverging, normal mask otherwise
                     issue_mask <= dec0_at_reconverge ? dec0_merged_mask : warp_mask[dec0_warp_id];
-                    issue_alu_op <= dec_alu_op || dec_cvt_op || dec_video_op;  // CVT/VIDEO routed through ALU
+                    issue_alu_op <= dec_alu_op || dec_cvt_op;  // CVT routed through ALU
                     issue_mul_op <= dec_mul_op;
                     issue_div_op <= dec_div_op;
                     issue_fp32_op <= dec_fp32_op;
@@ -1738,6 +1940,7 @@ module streaming_multiprocessor_v2 #(
                     issue_fp16_op <= dec_fp16_op;
                     issue_sfu_op <= dec_sfu_op;
                     issue_tensor_op <= dec_tensor_op;
+                    issue_video_op <= dec_video_op;  // Video SIMD unit (separate path)
                     issue_mem_read <= dec_mem_read;
                     issue_mem_write <= dec_mem_write;
                     issue_mem_shared <= dec_mem_shared;
@@ -1748,6 +1951,15 @@ module streaming_multiprocessor_v2 #(
                     issue_atomic_op <= dec_atomic_op;
                     issue_shuffle_op <= dec_shuffle_op;
                     issue_reg_write <= dec_reg_write;
+                    issue_bar_warp_sync <= dec_bar_warp_sync;
+                    issue_tex_op <= dec_tex_op || dec_txq_op || dec_surf_ld || dec_surf_st || dec_surf_red;
+                    issue_cache_policy_op <= dec_cache_policy_op;
+                    issue_stack_op <= dec_stack_op;
+                    issue_debug_op <= dec_debug_op;
+                    issue_misc_op <= dec_misc_op;
+                    issue_st_async_op <= dec_st_async_op;
+                    issue_multimem_op <= dec_multimem_op;
+                    issue_barrier_cluster_op <= dec_barrier_cluster_op;
 
                     // Handle decode-stage reconvergence: update mask and pop stack
                     if (dec0_at_reconverge) begin
@@ -1773,7 +1985,7 @@ module streaming_multiprocessor_v2 #(
                 issue1_imm21 <= dec1_imm21;
                 issue1_use_imm <= dec1_use_imm;
                 issue1_mask <= warp_mask[dec1_warp_id];
-                issue1_alu_op <= dec1_alu_op || dec1_cvt_op || dec1_video_op;  // CVT/VIDEO routed through ALU
+                issue1_alu_op <= dec1_alu_op || dec1_cvt_op;  // CVT routed through ALU
                 issue1_mul_op <= dec1_mul_op;
                 issue1_div_op <= dec1_div_op;
                 issue1_fp32_op <= dec1_fp32_op;
@@ -1781,6 +1993,7 @@ module streaming_multiprocessor_v2 #(
                 issue1_fp16_op <= dec1_fp16_op;
                 issue1_sfu_op <= dec1_sfu_op;
                 issue1_tensor_op <= dec1_tensor_op;
+                issue1_video_op <= dec1_video_op;  // Video SIMD unit (separate path)
                 issue1_mem_read <= dec1_mem_read;
                 issue1_mem_write <= dec1_mem_write;
                 issue1_mem_shared <= dec1_mem_shared;
@@ -1791,6 +2004,15 @@ module streaming_multiprocessor_v2 #(
                 issue1_atomic_op <= dec1_atomic_op;
                 issue1_shuffle_op <= dec1_shuffle_op;
                 issue1_reg_write <= dec1_reg_write;
+                issue1_bar_warp_sync <= dec1_bar_warp_sync;
+                issue1_tex_op <= dec1_tex_op || dec1_txq_op || dec1_surf_ld || dec1_surf_st || dec1_surf_red;
+                issue1_cache_policy_op <= dec1_cache_policy_op;
+                issue1_stack_op <= dec1_stack_op;
+                issue1_debug_op <= dec1_debug_op;
+                issue1_misc_op <= dec1_misc_op;
+                issue1_st_async_op <= dec1_st_async_op;
+                issue1_multimem_op <= dec1_multimem_op;
+                issue1_barrier_cluster_op <= dec1_barrier_cluster_op;
             end
         end
     end
@@ -1805,6 +2027,13 @@ module streaming_multiprocessor_v2 #(
                 pending_fu_count[sb_init] <= 4'b0;
             end
             barrier_pending <= 1'b0;
+            // Initialize cluster barrier shared state
+            cluster_barrier_thread_count <= 16'b0;
+            cluster_local_arrive_count <= 16'b0;
+            cluster_barrier_complete <= 1'b0;
+            wgmma_pending_valid <= 1'b0;
+            wgmma_pending_warp <= {WARP_ID_W{1'b0}};
+            wgmma_pending_rd <= 5'b0;
         end else begin
             // Mark destination register as busy on issue
             // Note: Unlike RISC-V, CUDA/PTX R0 is a normal register, not hardwired to 0
@@ -1815,9 +2044,26 @@ module streaming_multiprocessor_v2 #(
                 scoreboard_busy[dec1_warp_id][dec1_rd] <= 1'b1;
             end
 
+            // WGMMA MMA tracking: mark destination busy and track pending operation
+            if (issue_wgmma_mma) begin
+                wgmma_pending_valid <= 1'b1;
+                wgmma_pending_warp <= issue_warp_id;
+                wgmma_pending_rd <= issue_rd;
+            end else if (issue1_wgmma_mma) begin
+                wgmma_pending_valid <= 1'b1;
+                wgmma_pending_warp <= issue1_warp_id;
+                wgmma_pending_rd <= issue1_rd;
+            end
+
             // Clear on writeback
             if (wb_valid) begin
                 scoreboard_busy[wb_warp_id][wb_rd] <= 1'b0;
+            end
+
+            // Clear WGMMA pending when operation completes
+            if (wgmma_done && wgmma_pending_valid) begin
+                scoreboard_busy[wgmma_pending_warp][wgmma_pending_rd] <= 1'b0;
+                wgmma_pending_valid <= 1'b0;
             end
 
             // Increment pending FU count for multi-cycle operations
@@ -1861,6 +2107,7 @@ module streaming_multiprocessor_v2 #(
             fp16_inflight <= {FP16_WBQ_COUNT_W{1'b0}};
             sfu_inflight <= {SFU_WBQ_COUNT_W{1'b0}};
             shfl_inflight <= {SHFL_WBQ_COUNT_W{1'b0}};
+            video_inflight <= {VIDEO_WBQ_COUNT_W{1'b0}};
         end else begin
             case ({alu_issue, alu_wbq_pop})
                 2'b10: alu_inflight <= alu_inflight + 1'b1;
@@ -1897,22 +2144,27 @@ module streaming_multiprocessor_v2 #(
                 2'b01: shfl_inflight <= shfl_inflight - 1'b1;
                 default: shfl_inflight <= shfl_inflight;
             endcase
+            case ({video_issue, video_wbq_pop})
+                2'b10: video_inflight <= video_inflight + 1'b1;
+                2'b01: video_inflight <= video_inflight - 1'b1;
+                default: video_inflight <= video_inflight;
+            endcase
         end
     end
 
     //------------------------------------------------------------------------
-    // Async Copy Tracking (cp.async)
+    // Async Copy Tracking (cp.async) - Using Real async_copy_engine
+    // The async_copy_engine handles actual memory transactions.
+    // This tracking manages per-warp pending counts and wait stalls.
     //------------------------------------------------------------------------
     integer cp_w;
     reg [3:0] pending_val;
-    reg [3:0] timer_val;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             warp_stalled_async <= {NUM_WARPS{1'b0}};
             cp_async_wait_all <= {NUM_WARPS{1'b0}};
             for (cp_w = 0; cp_w < NUM_WARPS; cp_w = cp_w + 1) begin
                 cp_async_pending[cp_w] <= 4'd0;
-                cp_async_timer[cp_w] <= 4'd0;
                 cp_async_wait_threshold[cp_w] <= 4'd0;
             end
         end else if (kernel_start) begin
@@ -1920,56 +2172,59 @@ module streaming_multiprocessor_v2 #(
             cp_async_wait_all <= {NUM_WARPS{1'b0}};
             for (cp_w = 0; cp_w < NUM_WARPS; cp_w = cp_w + 1) begin
                 cp_async_pending[cp_w] <= 4'd0;
-                cp_async_timer[cp_w] <= 4'd0;
                 cp_async_wait_threshold[cp_w] <= 4'd0;
             end
         end else begin
+            // Track which warp to decrement when ace completes (first warp with pending > 0)
+            // This is a simplification; a full implementation would track warp IDs in queue
             for (cp_w = 0; cp_w < NUM_WARPS; cp_w = cp_w + 1) begin
                 pending_val = cp_async_pending[cp_w];
-                timer_val = cp_async_timer[cp_w];
 
-                // Progress outstanding copies with a simple fixed latency model
-                if (timer_val > 0) begin
-                    if (timer_val == 1) begin
-                        if (pending_val > 0)
-                            pending_val = pending_val - 1'b1;
-                        timer_val = (pending_val > 0) ? CPASYNC_LATENCY : 4'd0;
-                    end else begin
-                        timer_val = timer_val - 1'b1;
-                    end
-                end else if (pending_val > 0) begin
-                    timer_val = CPASYNC_LATENCY;
-                end
-
-                // New async copies (CA/CG/BULK variants)
+                // New async copies (CA/CG/BULK variants) - increment pending
                 if (issue_cpasync_copy && (issue_warp_id == cp_w[WARP_ID_W-1:0])) begin
                     pending_val = pending_val + 1'b1;
-                    if (timer_val == 0)
-                        timer_val = CPASYNC_LATENCY;
                 end
                 if (issue1_cpasync_copy && (issue1_warp_id == cp_w[WARP_ID_W-1:0])) begin
                     pending_val = pending_val + 1'b1;
-                    if (timer_val == 0)
-                        timer_val = CPASYNC_LATENCY;
+                end
+
+                // Decrement pending when async_copy_engine completes a copy
+                // ace_smem_wr_en indicates a write to shared memory (completion)
+                // Only decrement first warp with pending copies (warp 0 has priority)
+                if (ace_smem_wr_en && pending_val > 0 && cp_w == 0) begin
+                    // For single-warp or first-warp-priority, decrement warp 0
+                    // A full implementation would use a FIFO to track warp ordering
+                    pending_val = pending_val - 1'b1;
+                end else if (ace_smem_wr_en && pending_val > 0 && cp_async_pending[0] == 0 && cp_w == 1) begin
+                    // If warp 0 has no pending, try warp 1
+                    pending_val = pending_val - 1'b1;
+                end else if (ace_smem_wr_en && pending_val > 0 && cp_async_pending[0] == 0 && cp_async_pending[1] == 0 && cp_w == 2) begin
+                    // If warps 0,1 have no pending, try warp 2
+                    pending_val = pending_val - 1'b1;
+                end else if (ace_smem_wr_en && pending_val > 0 && cp_async_pending[0] == 0 && cp_async_pending[1] == 0 && cp_async_pending[2] == 0 && cp_w == 3) begin
+                    // If warps 0,1,2 have no pending, try warp 3
+                    pending_val = pending_val - 1'b1;
                 end
 
                 cp_async_pending[cp_w] <= pending_val;
-                cp_async_timer[cp_w] <= timer_val;
 
                 // Release warps waiting on wait_group/wait_all
+                // Use the real pending count from tracking
                 if (warp_stalled_async[cp_w]) begin
                     if (cp_async_wait_all[cp_w]) begin
+                        // wait_all: release when all copies complete
                         if (pending_val == 0) begin
                             warp_stalled_async[cp_w] <= 1'b0;
                             cp_async_wait_all[cp_w] <= 1'b0;
                         end
                     end else if (pending_val <= cp_async_wait_threshold[cp_w]) begin
+                        // wait_group N: release when <= N groups pending
                         warp_stalled_async[cp_w] <= 1'b0;
                     end
                 end
             end
 
-            // wait_group / wait_all handling
+            // wait_group / wait_all handling - stall the requesting warp
             if (issue_cpasync_wait) begin
                 warp_stalled_async[issue_warp_id] <= 1'b1;
                 cp_async_wait_threshold[issue_warp_id] <= issue_imm16[3:0];
@@ -1987,6 +2242,45 @@ module streaming_multiprocessor_v2 #(
                 warp_stalled_async[issue1_warp_id] <= 1'b1;
                 cp_async_wait_threshold[issue1_warp_id] <= 4'd0;
                 cp_async_wait_all[issue1_warp_id] <= 1'b1;
+            end
+        end
+    end
+
+    //------------------------------------------------------------------------
+    // WGMMA Wait Tracking (wgmma.wait_group)
+    // Manages warp stalls for WGMMA wait_group operations.
+    //------------------------------------------------------------------------
+    integer wgmma_w;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            warp_stalled_wgmma <= {NUM_WARPS{1'b0}};
+            for (wgmma_w = 0; wgmma_w < NUM_WARPS; wgmma_w = wgmma_w + 1) begin
+                wgmma_wait_threshold[wgmma_w] <= 4'd0;
+            end
+        end else if (kernel_start) begin
+            warp_stalled_wgmma <= {NUM_WARPS{1'b0}};
+            for (wgmma_w = 0; wgmma_w < NUM_WARPS; wgmma_w = wgmma_w + 1) begin
+                wgmma_wait_threshold[wgmma_w] <= 4'd0;
+            end
+        end else begin
+            // Release warps waiting on wgmma.wait_group when pending_ops condition met
+            for (wgmma_w = 0; wgmma_w < NUM_WARPS; wgmma_w = wgmma_w + 1) begin
+                if (warp_stalled_wgmma[wgmma_w]) begin
+                    // Release when wgmma_pending_ops <= wait_threshold
+                    if (wgmma_pending_ops <= wgmma_wait_threshold[wgmma_w]) begin
+                        warp_stalled_wgmma[wgmma_w] <= 1'b0;
+                    end
+                end
+            end
+
+            // wgmma.wait_group handling - stall the requesting warp
+            if (issue_wgmma_wait) begin
+                warp_stalled_wgmma[issue_warp_id] <= 1'b1;
+                wgmma_wait_threshold[issue_warp_id] <= issue_imm16[3:0];
+            end
+            if (issue1_wgmma_wait) begin
+                warp_stalled_wgmma[issue1_warp_id] <= 1'b1;
+                wgmma_wait_threshold[issue1_warp_id] <= issue1_imm16[3:0];
             end
         end
     end
@@ -2664,6 +2958,7 @@ module streaming_multiprocessor_v2 #(
         .TC_DATA_DEFAULT (TC_DATA_DEFAULT),
         .TC_USE_OP_TYPE  (TC_USE_OP_TYPE),
         .TC_FP4_FORMAT   (TC_FP4_FORMAT),
+        .TC_FP6_FORMAT   (TC_FP6_FORMAT),
         .TC_FP8_FORMAT   (TC_FP8_FORMAT)
     ) u_tensor_core (
         .clk         (clk),
@@ -2787,6 +3082,161 @@ module streaming_multiprocessor_v2 #(
     assign shuffle_valid_out = shuffle_valid_pipe;
 
     //------------------------------------------------------------------------
+    // Video SIMD Unit (VADD4/VSUB4/VABSDIFF4/DP4A/DP2A)
+    //------------------------------------------------------------------------
+    wire video_use_slot0 = video_issue0;
+    wire video_use_slot1 = video_issue1;
+    wire [WARP_ID_W-1:0] video_issue_warp = video_use_slot0 ? issue_warp_id : issue1_warp_id;
+    wire [4:0] video_issue_rd = video_use_slot0 ? issue_rd : issue1_rd;
+    wire [NUM_LANES-1:0] video_issue_mask = video_use_slot0 ? issue_mask : issue1_mask;
+    wire [5:0] video_issue_func = video_use_slot0 ? issue_func : issue1_func;
+    wire [SIMD_WIDTH-1:0] video_op_a = video_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
+    wire [SIMD_WIDTH-1:0] video_op_b = video_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
+    wire [SIMD_WIDTH-1:0] video_op_c = video_use_slot0 ? rf_rd_data_c : rf1_rd_data_c;
+    // Extract signed flag from func[5] for video operations
+    wire video_is_signed = video_issue_func[5];
+
+    assign video_valid_in = video_issue;
+
+    video_simd_unit #(
+        .NUM_LANES(NUM_LANES)
+    ) u_video_simd (
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .func      (video_issue_func),
+        .valid_in  (video_valid_in),
+        .is_signed (video_is_signed),
+        .operand_a (video_op_a),
+        .operand_b (video_op_b),
+        .operand_c (video_op_c),
+        .lane_mask (video_issue_mask),
+        .result    (video_result),
+        .valid_out (video_valid_out)
+    );
+
+    // Video pipeline tracking (2 stages for video_unit latency)
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            video_warp_pipe[0] <= 0;
+            video_rd_pipe[0] <= 0;
+            video_mask_pipe[0] <= 0;
+            video_warp_pipe[1] <= 0;
+            video_rd_pipe[1] <= 0;
+            video_mask_pipe[1] <= 0;
+        end else begin
+            // Stage 0: capture issue info
+            video_warp_pipe[0] <= video_valid_in ? video_issue_warp : {WARP_ID_W{1'b0}};
+            video_rd_pipe[0] <= video_valid_in ? video_issue_rd : 5'b0;
+            video_mask_pipe[0] <= video_valid_in ? video_issue_mask : {NUM_LANES{1'b0}};
+            // Stage 1: shift pipeline
+            video_warp_pipe[1] <= video_warp_pipe[0];
+            video_rd_pipe[1] <= video_rd_pipe[0];
+            video_mask_pipe[1] <= video_mask_pipe[0];
+        end
+    end
+
+    //------------------------------------------------------------------------
+    // Texture Unit (tex/txq/suld/sust/sured)
+    //------------------------------------------------------------------------
+    wire tex_use_slot0 = tex_issue0;
+    wire tex_use_slot1 = tex_issue1;
+    wire [WARP_ID_W-1:0] tex_issue_warp = tex_use_slot0 ? issue_warp_id : issue1_warp_id;
+    wire [4:0] tex_issue_rd = tex_use_slot0 ? issue_rd : issue1_rd;
+    wire [NUM_LANES-1:0] tex_issue_mask = tex_use_slot0 ? issue_mask : issue1_mask;
+    wire [5:0] tex_issue_opcode = tex_use_slot0 ? issue_opcode : issue1_opcode;
+    wire [5:0] tex_issue_func = tex_use_slot0 ? issue_func : issue1_func;
+    wire [SIMD_WIDTH-1:0] tex_coord_s = tex_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
+    wire [SIMD_WIDTH-1:0] tex_coord_t = tex_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
+    wire [SIMD_WIDTH-1:0] tex_coord_r = tex_use_slot0 ? rf_rd_data_c : rf1_rd_data_c;
+    wire [SIMD_WIDTH-1:0] tex_store_data = tex_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
+
+    assign tex_valid_in = tex_issue && !tex_busy;
+
+    texture_unit #(
+        .CACHE_SIZE_KB(16),
+        .MAX_ANISO    (16)
+    ) u_texture (
+        .clk            (clk),
+        .rst_n          (rst_n),
+        .opcode         (tex_issue_opcode),
+        .func           (tex_issue_func),
+        .valid_in       (tex_valid_in),
+
+        // Coordinates from registers (using first lane for simplicity)
+        .coord_s        (tex_coord_s[31:0]),
+        .coord_t        (tex_coord_t[31:0]),
+        .coord_r        (tex_coord_r[31:0]),
+        .coord_q        (32'b0),
+
+        // LOD - simplified (explicit LOD not used in basic implementation)
+        .lod            (32'b0),
+        .dsdx           (32'b0),
+        .dsdy           (32'b0),
+        .dtdx           (32'b0),
+        .dtdy           (32'b0),
+
+        // Texture descriptor - placeholder (would come from descriptor table in full impl)
+        .tex_base_addr  (32'h0),
+        .tex_width      (16'd256),
+        .tex_height     (16'd256),
+        .tex_depth      (16'd1),
+        .tex_format     (4'h0),
+        .tex_filter     (4'h0),
+        .tex_wrap_s     (4'h0),
+        .tex_wrap_t     (4'h0),
+        .tex_wrap_r     (4'h0),
+        .num_mip_levels (4'd1),
+
+        // Store data for surface writes
+        .store_data     ({tex_store_data[127:0]}),
+
+        // Memory interface - simplified (not connected to L2 in this phase)
+        .mem_req        (tex_mem_req),
+        .mem_write      (tex_mem_write),
+        .mem_addr       (tex_mem_addr),
+        .mem_wdata      (tex_mem_wdata),
+        .mem_ready      (1'b1),
+        .mem_rdata      (128'b0),
+        .mem_valid      (1'b0),
+
+        .result         (tex_result),
+        .valid_out      (tex_valid_out),
+        .busy           (tex_busy)
+    );
+
+    // Texture pipeline tracking (variable latency)
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            tex_pending_valid <= 1'b0;
+            tex_warp_pending <= 0;
+            tex_rd_pending <= 0;
+            tex_mask_pending <= 0;
+            tex_result_latched <= 128'b0;
+            tex_result_valid_latched <= 1'b0;
+        end else begin
+            // Track pending texture operation
+            if (tex_valid_in) begin
+                tex_pending_valid <= 1'b1;
+                tex_warp_pending <= tex_issue_warp;
+                tex_rd_pending <= tex_issue_rd;
+                tex_mask_pending <= tex_issue_mask;
+            end
+
+            // Latch result when valid
+            if (tex_valid_out && tex_pending_valid && !tex_result_valid_latched) begin
+                tex_result_latched <= tex_result;
+                tex_result_valid_latched <= 1'b1;
+            end
+
+            // Clear pending and latch when writeback consumes it
+            if (tex_result_valid_latched && wb_found && wb_sel == 4'd12) begin
+                tex_pending_valid <= 1'b0;
+                tex_result_valid_latched <= 1'b0;
+            end
+        end
+    end
+
+    //------------------------------------------------------------------------
     // Writeback queues (capture FU outputs for arbitration)
     //------------------------------------------------------------------------
     assign alu_wbq_in = pack_wb(alu_warp_pipe, alu_rd_pipe, alu_mask_pipe, alu_result_pipe);
@@ -2796,6 +3246,7 @@ module streaming_multiprocessor_v2 #(
     assign fp16_wbq_in = pack_wb(fp16_warp_pipe[2], fp16_rd_pipe[2], fp16_mask_pipe[2], fp16_result);
     assign sfu_wbq_in = pack_wb(sfu_warp_pipe[7], sfu_rd_pipe[7], sfu_mask_pipe[7], sfu_result);
     assign shfl_wbq_in = pack_wb(shuffle_warp_pipe, shuffle_rd_pipe, shuffle_mask_pipe, shuffle_result_pipe);
+    assign video_wbq_in = pack_wb(video_warp_pipe[1], video_rd_pipe[1], video_mask_pipe[1], video_result);
     wire [WB_PKT_W-1:0] special_wbq_in = pack_wb(special_warp_pipe, special_rd_pipe, special_mask_pipe, special_result_pipe);
 
     assign alu_wbq_push = alu_valid_out;
@@ -2813,6 +3264,7 @@ module streaming_multiprocessor_v2 #(
     assign fp16_wbq_push = fp16_valid_out;
     assign sfu_wbq_push = sfu_valid_out;
     assign shfl_wbq_push = shuffle_valid_out;
+    assign video_wbq_push = video_valid_out;
     wire special_wbq_push = special_valid_out;
 
     wb_fifo #(
@@ -2913,6 +3365,21 @@ module streaming_multiprocessor_v2 #(
         .empty    (shfl_wbq_empty)
     );
 
+    // Video SIMD WBQ (2-cycle latency)
+    wb_fifo #(
+        .WIDTH(WB_PKT_W),
+        .DEPTH(VIDEO_WBQ_DEPTH)
+    ) u_video_wbq (
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .push     (video_wbq_push),
+        .push_data(video_wbq_in),
+        .pop      (video_wbq_pop),
+        .pop_data (video_wbq_out),
+        .full     (video_wbq_full),
+        .empty    (video_wbq_empty)
+    );
+
     // Special register WBQ (reuse ALU depth since it's also 1-cycle)
     wb_fifo #(
         .WIDTH(WB_PKT_W),
@@ -2935,6 +3402,7 @@ module streaming_multiprocessor_v2 #(
     assign fp16_wbq_warp = fp16_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
     assign sfu_wbq_warp = sfu_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
     assign shfl_wbq_warp = shfl_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
+    assign video_wbq_warp = video_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
     assign alu_wbq_rd = alu_wbq_out[WB_RD_MSB:WB_RD_LSB];
     assign mul_wbq_rd = mul_wbq_out[WB_RD_MSB:WB_RD_LSB];
     assign fpu32_wbq_rd = fpu32_wbq_out[WB_RD_MSB:WB_RD_LSB];
@@ -2942,6 +3410,7 @@ module streaming_multiprocessor_v2 #(
     assign fp16_wbq_rd = fp16_wbq_out[WB_RD_MSB:WB_RD_LSB];
     assign sfu_wbq_rd = sfu_wbq_out[WB_RD_MSB:WB_RD_LSB];
     assign shfl_wbq_rd = shfl_wbq_out[WB_RD_MSB:WB_RD_LSB];
+    assign video_wbq_rd = video_wbq_out[WB_RD_MSB:WB_RD_LSB];
     assign alu_wbq_mask = alu_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
     assign mul_wbq_mask = mul_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
     assign fpu32_wbq_mask = fpu32_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
@@ -2949,6 +3418,7 @@ module streaming_multiprocessor_v2 #(
     assign fp16_wbq_mask = fp16_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
     assign sfu_wbq_mask = sfu_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
     assign shfl_wbq_mask = shfl_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
+    assign video_wbq_mask = video_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
     assign alu_wbq_data = alu_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
     assign mul_wbq_data = mul_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
     assign fpu32_wbq_data = fpu32_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
@@ -2956,6 +3426,7 @@ module streaming_multiprocessor_v2 #(
     assign fp16_wbq_data = fp16_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
     assign sfu_wbq_data = sfu_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
     assign shfl_wbq_data = shfl_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
+    assign video_wbq_data = video_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
     assign special_wbq_warp = special_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
     assign special_wbq_rd = special_wbq_out[WB_RD_MSB:WB_RD_LSB];
     assign special_wbq_mask = special_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
@@ -3000,6 +3471,340 @@ module streaming_multiprocessor_v2 #(
     end
 
     //------------------------------------------------------------------------
+    // Async Copy Engine (cp.async support)
+    // Handles asynchronous global->shared memory copies
+    //------------------------------------------------------------------------
+    // Input signals for async_copy_engine
+    // For cp.async: src_addr (global) from ra, dst_addr (shared) from imm16
+    // Size encoded in func field
+    // Gate with ace_ready to implement backpressure - prevents dropped requests
+    wire        ace_valid_in = ace_ready && (issue_cpasync_copy || issue1_cpasync_copy ||
+                               (issue_cpasync && (issue_func == `CPASYNC_COMMIT ||
+                                                  issue_func == `CPASYNC_WAIT ||
+                                                  issue_func == `CPASYNC_WAIT_ALL)) ||
+                               (issue1_cpasync && (issue1_func == `CPASYNC_COMMIT ||
+                                                   issue1_func == `CPASYNC_WAIT ||
+                                                   issue1_func == `CPASYNC_WAIT_ALL)));
+    wire [5:0]  ace_func = issue_cpasync ? issue_func :
+                           issue1_cpasync ? issue1_func : 6'b0;
+    // Source address from register (lane 0 for simplicity - real impl would be per-lane)
+    wire [31:0] ace_src_addr = issue_cpasync ? rf_rd_data_a[31:0] :
+                               issue1_cpasync ? rf1_rd_data_a[31:0] : 32'b0;
+    // Destination address in shared memory from imm16
+    wire [13:0] ace_dst_addr = issue_cpasync ? issue_imm16[13:0] :
+                               issue1_cpasync ? issue1_imm16[13:0] : 14'b0;
+    // Size from rb register (bits [3:0] encode 4/8/16 bytes)
+    wire [3:0]  ace_size = issue_cpasync ? issue_rb[3:0] :
+                           issue1_cpasync ? issue1_rb[3:0] : 4'd4;
+    // Wait count for wait_group
+    wire [3:0]  ace_wait_count = issue_cpasync ? issue_imm16[3:0] :
+                                 issue1_cpasync ? issue1_imm16[3:0] : 4'b0;
+
+    // Global memory response for async_copy_engine
+    // We create a simple arbiter: ACE gets priority when it has pending requests
+    wire        ace_gmem_resp_valid;
+    wire [127:0] ace_gmem_resp_data;
+
+    async_copy_engine #(
+        .MAX_GROUPS(8),
+        .MAX_PENDING(16),
+        .SHARED_MEM_ADDR_W(14),
+        .GLOBAL_ADDR_W(32)
+    ) u_async_copy_engine (
+        .clk            (clk),
+        .rst_n          (rst_n),
+        // Control interface
+        .func           (ace_func),
+        .valid_in       (ace_valid_in),
+        .src_addr       (ace_src_addr),
+        .dst_addr       (ace_dst_addr),
+        .size           (ace_size),
+        .cache_hint     (3'b0),  // Default cache hint
+        .wait_count     (ace_wait_count),
+        // Status outputs
+        .ready          (ace_ready),
+        .done           (ace_done),
+        .pending_count  (ace_pending_count),
+        // Global memory interface
+        .gmem_req_valid (ace_gmem_req_valid),
+        .gmem_req_addr  (ace_gmem_req_addr),
+        .gmem_req_size  (ace_gmem_req_size),
+        .gmem_req_cache (ace_gmem_req_cache),
+        .gmem_resp_valid(ace_gmem_resp_valid),
+        .gmem_resp_data (ace_gmem_resp_data),
+        // Shared memory write interface
+        .smem_wr_en     (ace_smem_wr_en),
+        .smem_wr_addr   (ace_smem_wr_addr),
+        .smem_wr_data   (ace_smem_wr_data),
+        .smem_wr_size   (ace_smem_wr_size)
+    );
+
+    //------------------------------------------------------------------------
+    // mbarrier Unit (Hopper+ Memory Barriers)
+    //------------------------------------------------------------------------
+    // Determine which lane is issuing an mbarrier instruction
+    wire        mbarrier_valid_in = mbarrier_ready && (issue_mbarrier || issue1_mbarrier);
+    wire [5:0]  mbarrier_func = issue_mbarrier ? issue_func : issue1_func;
+    wire [13:0] mbarrier_addr = issue_mbarrier ? rf_rd_data_a[13:0] : rf1_rd_data_a[13:0];
+    wire [31:0] mbarrier_count = issue_mbarrier ? rf_rd_data_b[31:0] : rf1_rd_data_b[31:0];
+    wire [WARP_ID_W-1:0] mbarrier_warp = issue_mbarrier ? issue_warp_id : issue1_warp_id;
+    wire [31:0] mbarrier_mask = issue_mbarrier ? issue_mask : issue1_mask;
+
+    // Async arrival from cp.async: signal when transaction completes
+    wire        mbarrier_async_arrive = ace_smem_wr_en;  // cp.async completion
+    wire [13:0] mbarrier_async_addr = ace_smem_wr_addr;
+    wire [31:0] mbarrier_async_bytes = {27'b0, ace_smem_wr_size};
+
+    mbarrier_unit #(
+        .NUM_BARRIERS(8),
+        .NUM_WARPS(NUM_WARPS),
+        .SMEM_ADDR_W(14),
+        .WARP_ID_W(WARP_ID_W)
+    ) u_mbarrier (
+        .clk                (clk),
+        .rst_n              (rst_n),
+        // Control interface
+        .valid_in           (mbarrier_valid_in),
+        .func               (mbarrier_func),
+        .barrier_addr       (mbarrier_addr),
+        .count              (mbarrier_count),
+        .warp_id            (mbarrier_warp),
+        .thread_mask        (mbarrier_mask),
+        // Status outputs
+        .ready              (mbarrier_ready),
+        .done               (mbarrier_done),
+        .result             (mbarrier_result),
+        .result_valid       (mbarrier_result_valid),
+        // Async arrival (from cp.async)
+        .async_arrive_valid (mbarrier_async_arrive),
+        .async_barrier_addr (mbarrier_async_addr),
+        .async_tx_bytes     (mbarrier_async_bytes),
+        // Warp stall interface
+        .warp_blocked       (mbarrier_warp_blocked),
+        // Shared memory interface (unused for now - barriers cached internally)
+        .smem_rd_en         (),
+        .smem_rd_addr       (),
+        .smem_rd_data       (128'b0),
+        .smem_rd_valid      (1'b0),
+        .smem_wr_en         (),
+        .smem_wr_addr       (),
+        .smem_wr_data       (),
+        .smem_wr_mask       ()
+    );
+
+    //------------------------------------------------------------------------
+    // Cache Policy Control (Hopper+)
+    // Handles createpolicy, applypriority, and discard instructions
+    //------------------------------------------------------------------------
+    // Cache policy instruction detection
+    wire issue_cache_policy = issue_valid && issue_cache_policy_op;
+    wire issue1_cache_policy = issue1_valid && issue1_cache_policy_op;
+
+    // Determine which lane is issuing a cache policy instruction
+    wire cache_policy_active = issue_cache_policy || issue1_cache_policy;
+    wire [5:0] cache_policy_func = issue_cache_policy ? issue_func : issue1_func;
+
+    // createpolicy: policy_id from imm16[2:0], priority from rb register
+    wire cache_policy_create = cache_policy_active && (cache_policy_func == `CACHE_CREATEPOLICY);
+    wire [2:0] cache_policy_create_id = issue_cache_policy ? issue_imm16[2:0] : issue1_imm16[2:0];
+    wire [7:0] cache_policy_create_priority = issue_cache_policy ? rf_rd_data_b[7:0] : rf1_rd_data_b[7:0];
+
+    // applypriority: address from ra, policy_id from rb[2:0]
+    wire cache_policy_apply = cache_policy_active && (cache_policy_func == `CACHE_APPLYPRIORITY);
+    wire [31:0] cache_policy_apply_addr = issue_cache_policy ? rf_rd_data_a[31:0] : rf1_rd_data_a[31:0];
+    wire [2:0] cache_policy_apply_id = issue_cache_policy ? rf_rd_data_b[2:0] : rf1_rd_data_b[2:0];
+
+    // discard: address from ra register
+    wire cache_policy_discard = cache_policy_active && (cache_policy_func == `CACHE_DISCARD);
+    wire [31:0] cache_policy_discard_addr = issue_cache_policy ? rf_rd_data_a[31:0] : rf1_rd_data_a[31:0];
+
+    // Cache policy result (from createpolicy) - writeback handling
+    reg cache_policy_token_valid_r;
+    reg [31:0] cache_policy_token_r;
+    reg [WARP_ID_W-1:0] cache_policy_wb_warp;
+    reg [4:0] cache_policy_wb_rd;
+    reg [NUM_LANES-1:0] cache_policy_wb_mask;
+
+    //------------------------------------------------------------------------
+    // Stack Operations (Phase 6.2)
+    // Handles alloca, stacksave, stackrestore
+    //------------------------------------------------------------------------
+    // Per-warp stack pointers (local memory stack)
+    reg [31:0] warp_stack_ptr [0:NUM_WARPS-1];
+
+    // Stack operation detection
+    wire issue_stack = issue_valid && issue_stack_op;
+    wire issue1_stack = issue1_valid && issue1_stack_op;
+    wire stack_active = issue_stack || issue1_stack;
+    wire [5:0] stack_func = issue_stack ? issue_func : issue1_func;
+    wire [WARP_ID_W-1:0] stack_warp_id = issue_stack ? issue_warp_id : issue1_warp_id;
+
+    // alloca: size from ra register
+    wire stack_alloca = stack_active && (stack_func == `STACK_ALLOCA);
+    wire [31:0] stack_alloca_size = issue_stack ? rf_rd_data_a[0] : rf1_rd_data_a[0];
+
+    // stacksave: no operand (just read stack pointer)
+    wire stack_save = stack_active && (stack_func == `STACK_SAVE);
+
+    // stackrestore: new stack pointer from ra register
+    wire stack_restore = stack_active && (stack_func == `STACK_RESTORE);
+    wire [31:0] stack_restore_ptr = issue_stack ? rf_rd_data_a[0] : rf1_rd_data_a[0];
+
+    // Stack result for writeback
+    reg stack_result_valid_r;
+    reg [31:0] stack_result_r;
+    reg [WARP_ID_W-1:0] stack_wb_warp;
+    reg [4:0] stack_wb_rd;
+    reg [NUM_LANES-1:0] stack_wb_mask;
+
+    //------------------------------------------------------------------------
+    // Debug Operations (Phase 6.2)
+    // Handles brkpt, trap, pmevent
+    //------------------------------------------------------------------------
+    wire issue_debug = issue_valid && issue_debug_op;
+    wire issue1_debug = issue1_valid && issue1_debug_op;
+    wire debug_active = issue_debug || issue1_debug;
+    wire [5:0] debug_func = issue_debug ? issue_func : issue1_func;
+
+    // Debug event outputs (active-high pulses for external monitoring)
+    reg debug_brkpt_event;    // Breakpoint hit
+    reg debug_trap_event;     // Trap triggered
+    reg [31:0] debug_pmevent_id; // Performance event ID
+    reg debug_pmevent_valid;
+
+    //------------------------------------------------------------------------
+    // Misc Operations (Phase 6.2)
+    // Handles nanosleep, setmaxnreg
+    //------------------------------------------------------------------------
+    wire issue_misc = issue_valid && issue_misc_op;
+    wire issue1_misc = issue1_valid && issue1_misc_op;
+    wire misc_active = issue_misc || issue1_misc;
+    wire [5:0] misc_func = issue_misc ? issue_func : issue1_func;
+    wire [WARP_ID_W-1:0] misc_warp_id = issue_misc ? issue_warp_id : issue1_warp_id;
+
+    // nanosleep: delay value from ra register (in cycles for simulation)
+    wire misc_nanosleep = misc_active && (misc_func == `MISC_NANOSLEEP);
+    wire [31:0] nanosleep_cycles = issue_misc ? rf_rd_data_a[0] : rf1_rd_data_a[0];
+
+    // Per-warp nanosleep counter
+    reg [31:0] warp_nanosleep_counter [0:NUM_WARPS-1];
+    wire [NUM_WARPS-1:0] warp_sleeping;
+    genvar ns_i;
+    generate
+        for (ns_i = 0; ns_i < NUM_WARPS; ns_i = ns_i + 1) begin : gen_sleep_check
+            assign warp_sleeping[ns_i] = (warp_nanosleep_counter[ns_i] > 0);
+        end
+    endgenerate
+
+    // setmaxnreg: max register count from imm16
+    wire misc_setmaxnreg = misc_active && (misc_func == `MISC_SETMAXNREG);
+    reg [15:0] warp_maxnreg [0:NUM_WARPS-1];
+
+    //------------------------------------------------------------------------
+    // Async Store Operations (Phase 1.2)
+    // Handles st.async.global, st.async.shared, and async commit/wait
+    //------------------------------------------------------------------------
+    wire issue_st_async = issue_valid && issue_st_async_op;
+    wire issue1_st_async = issue1_valid && issue1_st_async_op;
+    wire st_async_active = issue_st_async || issue1_st_async;
+    wire [5:0] st_async_func = issue_st_async ? issue_func : issue1_func;
+    wire [WARP_ID_W-1:0] st_async_warp_id = issue_st_async ? issue_warp_id : issue1_warp_id;
+
+    // st.async store data and address
+    wire [31:0] st_async_addr = issue_st_async ? rf_rd_data_a[0] : rf1_rd_data_a[0];
+    wire [31:0] st_async_data = issue_st_async ? rf_rd_data_b[0] : rf1_rd_data_b[0];
+    wire st_async_to_shared = (st_async_func == `ST_ASYNC_SHARED);
+    wire st_async_commit = (st_async_func == `ST_ASYNC_COMMIT);
+    wire st_async_wait = (st_async_func == `ST_ASYNC_WAIT);
+    wire [3:0] st_async_wait_count = issue_st_async ? issue_imm16[3:0] : issue1_imm16[3:0];
+
+    // Per-warp async store group tracking (similar to cp.async groups)
+    reg [7:0] warp_st_async_pending [0:NUM_WARPS-1];  // Pending stores per group
+    reg [3:0] warp_st_async_groups [0:NUM_WARPS-1];   // Active group count
+    wire [NUM_WARPS-1:0] warp_st_async_stalled;       // Warps waiting on st.async completion
+
+    genvar sta_i;
+    generate
+        for (sta_i = 0; sta_i < NUM_WARPS; sta_i = sta_i + 1) begin : gen_st_async_stall
+            assign warp_st_async_stalled[sta_i] = (warp_st_async_groups[sta_i] > 0);
+        end
+    endgenerate
+
+    //------------------------------------------------------------------------
+    // Multimem Operations (Phase 1.2 - Distributed Shared Memory)
+    // Enables cross-SM shared memory access for Thread Block Clusters
+    //------------------------------------------------------------------------
+    wire issue_multimem = issue_valid && issue_multimem_op;
+    wire issue1_multimem = issue1_valid && issue1_multimem_op;
+    wire multimem_active = issue_multimem || issue1_multimem;
+    wire [5:0] multimem_func = issue_multimem ? issue_func : issue1_func;
+    wire [WARP_ID_W-1:0] multimem_warp_id = issue_multimem ? issue_warp_id : issue1_warp_id;
+
+    // Multimem address includes target SM ID in upper bits: [31:24] = target_sm_mask, [23:0] = smem_addr
+    wire [31:0] multimem_addr = issue_multimem ? rf_rd_data_a[0] : rf1_rd_data_a[0];
+    wire [31:0] multimem_data = issue_multimem ? rf_rd_data_b[0] : rf1_rd_data_b[0];
+    wire [7:0] multimem_target_mask = multimem_addr[31:24];  // Which SMs to target
+    wire [23:0] multimem_smem_addr = multimem_addr[23:0];    // Shared memory address
+
+    // Multimem state for result tracking
+    reg multimem_result_valid_r;
+    reg [31:0] multimem_result_r;
+    reg [WARP_ID_W-1:0] multimem_wb_warp;
+    reg [4:0] multimem_wb_rd;
+    reg [NUM_LANES-1:0] multimem_wb_mask;
+
+    // Multicast interface outputs (for external routing to other SMs)
+    // Note: Actual cross-SM routing requires cluster-level interconnect
+    wire multimem_req_valid = multimem_active && (multimem_func == `MULTIMEM_ST || multimem_func == `MULTIMEM_RED);
+    wire multimem_req_write = (multimem_func == `MULTIMEM_ST);
+    wire multimem_req_reduce = (multimem_func == `MULTIMEM_RED);
+
+    //------------------------------------------------------------------------
+    // WGMMA Unit (Hopper+ Warpgroup MMA)
+    // Handles wgmma.mma_async, wgmma.fence, wgmma.commit_group, wgmma.wait_group
+    //------------------------------------------------------------------------
+    // Input signals for WGMMA
+    wire        wgmma_valid_in = wgmma_ready && (issue_wgmma || issue1_wgmma);
+    wire [5:0]  wgmma_func = issue_wgmma ? issue_func : issue1_func;
+    wire [WARP_ID_W-1:0] wgmma_issue_warp = issue_wgmma ? issue_warp_id : issue1_warp_id;
+    // Warpgroup = warp_id / 4 (right shift by 2)
+    // Use explicit division to avoid bit-select issues with small WARP_ID_W
+    wire [2:0]  wgmma_warpgroup = wgmma_issue_warp >> 2;
+
+    // Matrix descriptors from registers (64-bit descriptors from 2 consecutive 32-bit regs)
+    wire [63:0] wgmma_desc_a = issue_wgmma ? {rf_rd_data_a[63:0]} : {rf1_rd_data_a[63:0]};
+    wire [63:0] wgmma_desc_b = issue_wgmma ? {rf_rd_data_b[63:0]} : {rf1_rd_data_b[63:0]};
+    wire [31:0] wgmma_scale_d = issue_wgmma ? rf_rd_data_c[31:0] : rf1_rd_data_c[31:0];
+    wire [3:0]  wgmma_wait_count = issue_wgmma ? issue_imm16[3:0] : issue1_imm16[3:0];
+
+    wgmma #(
+        .WARPGROUP_SIZE(4),
+        .THREADS_PER_WARP(NUM_LANES),
+        .MAX_PENDING_OPS(8)
+    ) u_wgmma (
+        .clk            (clk),
+        .rst_n          (rst_n),
+        // Control interface
+        .func           (wgmma_func),
+        .valid_in       (wgmma_valid_in),
+        .warpgroup_id   (wgmma_warpgroup),
+        .wait_count     (wgmma_wait_count),
+        // Matrix descriptors
+        .desc_a         (wgmma_desc_a),
+        .desc_b         (wgmma_desc_b),
+        .scale_d        (wgmma_scale_d),
+        // Data interface (TODO: wire to shared memory for actual data)
+        .data_a         (512'b0),               // Placeholder - needs shared memory path
+        .data_b         (512'b0),               // Placeholder - needs shared memory path
+        .accum_in       (1024'b0),              // Placeholder - needs accumulator register
+        .accum_out      (wgmma_accum_out),
+        // Status outputs
+        .ready          (wgmma_ready),
+        .done           (wgmma_done),
+        .pending_ops    (wgmma_pending_ops)
+    );
+
+    //------------------------------------------------------------------------
     // Shared Memory
     //------------------------------------------------------------------------
     assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op &&
@@ -3018,17 +3823,63 @@ module streaming_multiprocessor_v2 #(
         .req_mask     (issue_mask),
         .resp_valid   (smem_resp_valid),
         .resp_rdata   (smem_resp_rdata),
-        .bank_conflict(smem_bank_conflict)
+        .bank_conflict(smem_bank_conflict),
+        // Async copy write port (from async_copy_engine)
+        .async_wr_en  (ace_smem_wr_en),
+        .async_wr_addr(ace_smem_wr_addr),
+        .async_wr_data(ace_smem_wr_data),
+        .async_wr_size(ace_smem_wr_size)
     );
 
     //------------------------------------------------------------------------
-    // Global Memory Interface
+    // Global Memory Interface with Async Copy Arbitration
     //------------------------------------------------------------------------
-    assign gmem_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op &&
-                            (issue_mem_read || issue_mem_write);
-    assign gmem_req_write = issue_mem_write;
-    assign gmem_req_addr = rf_rd_data_a;
-    assign gmem_req_wdata = rf_rd_data_b;
+    // Memory arbiter: normal instructions have priority, ACE uses idle cycles
+    // ACE state machine for tracking requests
+    reg         ace_mem_pending;
+    reg [31:0]  ace_mem_addr_saved;
+    reg [4:0]   ace_mem_size_saved;
+
+    // Normal memory request signals
+    wire gmem_normal_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op &&
+                                 (issue_mem_read || issue_mem_write);
+    wire gmem_normal_req_write = issue_mem_write;
+
+    // Mux between normal and ACE requests
+    // ACE requests only when no normal request and ACE has pending work
+    wire gmem_use_ace = ace_gmem_req_valid && !gmem_normal_req_valid && !ace_mem_pending;
+
+    assign gmem_req_valid = gmem_normal_req_valid || gmem_use_ace;
+    assign gmem_req_write = gmem_use_ace ? 1'b0 : gmem_normal_req_write;  // ACE only reads
+
+    // For ACE: replicate single address across all lanes (only lane 0 matters)
+    wire [NUM_LANES*32-1:0] ace_replicated_addr = {NUM_LANES{ace_gmem_req_addr}};
+    assign gmem_req_addr = gmem_use_ace ? ace_replicated_addr : rf_rd_data_a;
+    assign gmem_req_wdata = rf_rd_data_b;  // ACE doesn't write
+
+    // Track ACE memory request state
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            ace_mem_pending <= 1'b0;
+            ace_mem_addr_saved <= 32'b0;
+            ace_mem_size_saved <= 5'b0;
+        end else begin
+            if (gmem_use_ace && gmem_req_ready) begin
+                // ACE request accepted
+                ace_mem_pending <= 1'b1;
+                ace_mem_addr_saved <= ace_gmem_req_addr;
+                ace_mem_size_saved <= ace_gmem_req_size;
+            end else if (ace_mem_pending && gmem_resp_valid) begin
+                // ACE response received
+                ace_mem_pending <= 1'b0;
+            end
+        end
+    end
+
+    // Route response to ACE when ACE request is pending
+    // Extract 128-bit data from lane 0-3 of the response
+    assign ace_gmem_resp_valid = ace_mem_pending && gmem_resp_valid;
+    assign ace_gmem_resp_data = {gmem_resp_rdata[127:0]};  // First 128 bits (4 lanes)
 
     // DEBUG: trace first few load/store operations
     reg [3:0] gmem_debug_cnt;
@@ -3225,13 +4076,52 @@ module streaming_multiprocessor_v2 #(
     reg [NUM_LANES*DATA_WIDTH-1:0] smem_resp_data;
     reg [NUM_LANES-1:0] smem_resp_mask;
 
+    // mbarrier result latch (for test_wait/try_wait writeback)
+    reg mbarrier_result_latched;
+    reg [WARP_ID_W-1:0] mbarrier_wb_warp;
+    reg [4:0] mbarrier_wb_rd;
+    reg [31:0] mbarrier_wb_result;
+    reg [NUM_LANES-1:0] mbarrier_wb_mask;
+
     `ifdef SIMULATION
     reg [7:0] latch_dbg_cnt;
     `endif
-    always @(posedge clk or negedge rst_n) begin
+    always @(posedge clk or negedge rst_n) begin : latch_block
+        integer init_idx;
         if (!rst_n) begin
             gmem_resp_latched <= 1'b0;
             smem_resp_latched <= 1'b0;
+            mbarrier_result_latched <= 1'b0;
+            cache_policy_token_valid_r <= 1'b0;
+            cache_policy_token_r <= 32'b0;
+            cache_policy_wb_warp <= 0;
+            cache_policy_wb_rd <= 5'b0;
+            cache_policy_wb_mask <= 0;
+            // Stack state initialization
+            stack_result_valid_r <= 1'b0;
+            stack_result_r <= 32'b0;
+            stack_wb_warp <= 0;
+            stack_wb_rd <= 5'b0;
+            stack_wb_mask <= 0;
+            // Debug state initialization
+            debug_brkpt_event <= 1'b0;
+            debug_trap_event <= 1'b0;
+            debug_pmevent_id <= 32'b0;
+            debug_pmevent_valid <= 1'b0;
+            // Initialize per-warp state
+            for (init_idx = 0; init_idx < NUM_WARPS; init_idx = init_idx + 1) begin
+                warp_stack_ptr[init_idx] <= 32'h80000000;  // Default stack base in local memory
+                warp_nanosleep_counter[init_idx] <= 32'b0;
+                warp_maxnreg[init_idx] <= 16'd32;  // Default max 32 registers
+                warp_st_async_pending[init_idx] <= 8'b0;
+                warp_st_async_groups[init_idx] <= 4'b0;
+            end
+            // Multimem state initialization
+            multimem_result_valid_r <= 1'b0;
+            multimem_result_r <= 32'b0;
+            multimem_wb_warp <= 0;
+            multimem_wb_rd <= 5'b0;
+            multimem_wb_mask <= 0;
             `ifdef SIMULATION
             latch_dbg_cnt <= 0;
             `endif
@@ -3270,11 +4160,126 @@ module streaming_multiprocessor_v2 #(
             end else if (smem_resp_latched && wb_found && wb_sel == 4'd7) begin
                 smem_resp_latched <= 1'b0;  // Clear latch when writeback consumes it
             end
+
+            // Latch mbarrier result (for test_wait/try_wait)
+            if (mbarrier_result_valid && !mbarrier_result_latched) begin
+                mbarrier_result_latched <= 1'b1;
+                mbarrier_wb_warp <= mbarrier_warp;
+                mbarrier_wb_rd <= issue_mbarrier ? issue_rd : issue1_rd;
+                mbarrier_wb_result <= mbarrier_result;
+                mbarrier_wb_mask <= mbarrier_mask;
+            end else if (mbarrier_result_latched && wb_found && wb_sel == 4'd11) begin
+                mbarrier_result_latched <= 1'b0;  // Clear latch when writeback consumes it
+            end
+
+            // Latch cache policy token (for createpolicy writeback)
+            // createpolicy generates a token synchronously, so latch when instruction issues
+            if (cache_policy_create && !cache_policy_token_valid_r) begin
+                cache_policy_token_valid_r <= 1'b1;
+                cache_policy_wb_warp <= issue_cache_policy ? issue_warp_id : issue1_warp_id;
+                cache_policy_wb_rd <= issue_cache_policy ? issue_rd : issue1_rd;
+                cache_policy_wb_mask <= issue_cache_policy ? issue_mask : issue1_mask;
+                // Generate policy token: [31:24]=magic(0xCA), [23:16]=priority, [15:8]=reserved, [7:0]=policy_id
+                cache_policy_token_r <= {8'hCA, cache_policy_create_priority, 8'h00, 5'b0, cache_policy_create_id};
+            end else if (cache_policy_token_valid_r && wb_found && wb_sel == 4'd14) begin
+                cache_policy_token_valid_r <= 1'b0;  // Clear latch when writeback consumes it
+            end
+
+            // Stack operations (alloca/stacksave write results, stackrestore updates internal state)
+            if (stack_alloca && !stack_result_valid_r) begin
+                stack_result_valid_r <= 1'b1;
+                stack_wb_warp <= stack_warp_id;
+                stack_wb_rd <= issue_stack ? issue_rd : issue1_rd;
+                stack_wb_mask <= issue_stack ? issue_mask : issue1_mask;
+                // Return current stack pointer (before allocation), then bump pointer
+                stack_result_r <= warp_stack_ptr[stack_warp_id];
+                warp_stack_ptr[stack_warp_id] <= warp_stack_ptr[stack_warp_id] + stack_alloca_size;
+            end else if (stack_save && !stack_result_valid_r) begin
+                stack_result_valid_r <= 1'b1;
+                stack_wb_warp <= stack_warp_id;
+                stack_wb_rd <= issue_stack ? issue_rd : issue1_rd;
+                stack_wb_mask <= issue_stack ? issue_mask : issue1_mask;
+                stack_result_r <= warp_stack_ptr[stack_warp_id];
+            end else if (stack_restore) begin
+                // stackrestore doesn't write to register, just updates stack pointer
+                warp_stack_ptr[stack_warp_id] <= stack_restore_ptr;
+            end else if (stack_result_valid_r && wb_found && wb_sel == 4'd15) begin
+                stack_result_valid_r <= 1'b0;  // Clear latch when writeback consumes it
+            end
+
+            // Debug operations (generate events)
+            debug_brkpt_event <= 1'b0;
+            debug_trap_event <= 1'b0;
+            debug_pmevent_valid <= 1'b0;
+            if (debug_active) begin
+                case (debug_func)
+                    `DEBUG_BRKPT: debug_brkpt_event <= 1'b1;
+                    `DEBUG_TRAP: debug_trap_event <= 1'b1;
+                    `DEBUG_PMEVENT: begin
+                        debug_pmevent_valid <= 1'b1;
+                        debug_pmevent_id <= issue_debug ? rf_rd_data_a[0] : rf1_rd_data_a[0];
+                    end
+                endcase
+            end
+
+            // Misc operations (nanosleep, setmaxnreg)
+            if (misc_nanosleep) begin
+                warp_nanosleep_counter[misc_warp_id] <= nanosleep_cycles;
+            end
+            if (misc_setmaxnreg) begin
+                warp_maxnreg[misc_warp_id] <= issue_misc ? issue_imm16 : issue1_imm16;
+            end
+
+            // Decrement nanosleep counters for all sleeping warps
+            begin : nanosleep_decrement
+                integer ns_idx;
+                for (ns_idx = 0; ns_idx < NUM_WARPS; ns_idx = ns_idx + 1) begin
+                    if (warp_nanosleep_counter[ns_idx] > 0) begin
+                        warp_nanosleep_counter[ns_idx] <= warp_nanosleep_counter[ns_idx] - 1;
+                    end
+                end
+            end
+
+            // st.async operations
+            if (st_async_active) begin
+                if (st_async_commit) begin
+                    // Commit current async store group - increment group count
+                    warp_st_async_groups[st_async_warp_id] <= warp_st_async_groups[st_async_warp_id] + 1;
+                    warp_st_async_pending[st_async_warp_id] <= 8'b0;  // Reset pending count for new group
+                end else if (st_async_wait) begin
+                    // Wait handled in warp scheduler - decrement when stores complete
+                    // For simulation, assume instant completion
+                    if (warp_st_async_groups[st_async_warp_id] >= st_async_wait_count) begin
+                        warp_st_async_groups[st_async_warp_id] <= warp_st_async_groups[st_async_warp_id] - st_async_wait_count;
+                    end else begin
+                        warp_st_async_groups[st_async_warp_id] <= 4'b0;
+                    end
+                end else begin
+                    // Actual async store - increment pending count
+                    warp_st_async_pending[st_async_warp_id] <= warp_st_async_pending[st_async_warp_id] + 1;
+                    // Note: Actual store routing happens through existing memory paths
+                    // The store is marked as async and goes into the async queue
+                end
+            end
+
+            // multimem.ld result writeback handling
+            if ((multimem_func == `MULTIMEM_LD) && multimem_active && !multimem_result_valid_r) begin
+                // For distributed shared memory load - currently reads local shared memory
+                // Full implementation needs cluster interconnect
+                multimem_result_valid_r <= 1'b1;
+                multimem_wb_warp <= multimem_warp_id;
+                multimem_wb_rd <= issue_multimem ? issue_rd : issue1_rd;
+                multimem_wb_mask <= issue_multimem ? issue_mask : issue1_mask;
+                // Result comes from local shared memory for now (placeholder)
+                multimem_result_r <= 32'h0;  // TODO: Wire to actual distributed smem result
+            end else if (multimem_result_valid_r && wb_found && wb_sel == 5'd16) begin
+                multimem_result_valid_r <= 1'b0;  // Clear latch when writeback consumes it
+            end
         end
     end
 
     // Collect all ready FU outputs for round-robin arbitration
-    wire [10:0] fu_ready;
+    wire [16:0] fu_ready;
     assign fu_ready[0] = !alu_wbq_empty;                     // ALU (queued)
     assign fu_ready[1] = !mul_wbq_empty;                     // MUL (queued)
     assign fu_ready[2] = !fpu32_wbq_empty;                   // FPU32 (queued)
@@ -3288,19 +4293,25 @@ module streaming_multiprocessor_v2 #(
     assign fu_ready[8] = !shfl_wbq_empty;                    // Shuffle (queued)
     assign fu_ready[9] = atomic_valid_out;                   // Atomic
     assign fu_ready[10] = !special_wbq_empty;                // Special registers (queued)
+    assign fu_ready[11] = mbarrier_result_latched;           // mbarrier (test_wait/try_wait results)
+    assign fu_ready[12] = tex_result_valid_latched;          // Texture (latched results)
+    assign fu_ready[13] = !video_wbq_empty;                  // Video SIMD (queued)
+    assign fu_ready[14] = cache_policy_token_valid_r;        // Cache policy (createpolicy results)
+    assign fu_ready[15] = stack_result_valid_r;              // Stack (alloca/stacksave results)
+    assign fu_ready[16] = multimem_result_valid_r;           // Multimem (distributed smem load results)
 
     // Round-robin selection for writeback
-    reg [3:0] wb_sel;
+    reg [4:0] wb_sel;  // 5 bits for 17 FUs
     reg       wb_found;
     integer   wb_i;
 
     always @(*) begin
         wb_found = 1'b0;
         wb_sel = 0;
-        // Start from last priority + 1 for fairness
-        for (wb_i = 0; wb_i < 11; wb_i = wb_i + 1) begin
-            if (!wb_found && fu_ready[(wb_arb_priority + wb_i) % 11]) begin
-                wb_sel = (wb_arb_priority + wb_i) % 11;
+        // Start from last priority + 1 for fairness (17 FU sources)
+        for (wb_i = 0; wb_i < 17; wb_i = wb_i + 1) begin
+            if (!wb_found && fu_ready[(wb_arb_priority + wb_i) % 17]) begin
+                wb_sel = (wb_arb_priority + wb_i) % 17;
                 wb_found = 1'b1;
             end
         end
@@ -3315,6 +4326,8 @@ module streaming_multiprocessor_v2 #(
     assign tensor_wbq_pop = wb_found && (wb_sel == 4'd6);
     assign shfl_wbq_pop = wb_found && (wb_sel == 4'd8);
     assign special_wbq_pop = wb_found && (wb_sel == 4'd10);
+    wire tex_wbq_pop = wb_found && (wb_sel == 4'd12);
+    assign video_wbq_pop = wb_found && (wb_sel == 4'd13);
 
     // Writeback arbiter with proper warp/rd tracking from FU pipelines
     always @(posedge clk or negedge rst_n) begin
@@ -3324,10 +4337,10 @@ module streaming_multiprocessor_v2 #(
         end else begin
             if (wb_found) begin
                 wb_valid <= 1'b1;
-                wb_arb_priority <= (wb_sel + 1) % 11;  // Advance for fairness
+                wb_arb_priority <= (wb_sel + 1) % 17;  // Advance for fairness (17 FU sources)
 
                 // DEBUG: trace which FU is causing writebacks
-                $display("[SM%0d] WB_SEL: wb_sel=%0d fu_ready=%011b", SM_ID, wb_sel, fu_ready);
+                $display("[SM%0d] WB_SEL: wb_sel=%0d fu_ready=%014b", SM_ID, wb_sel, fu_ready);
 
                 case (wb_sel)
                     4'd0: begin  // ALU (1-cycle pipeline for proper timing)
@@ -3411,6 +4424,53 @@ module streaming_multiprocessor_v2 #(
                         wb_rd <= special_wbq_rd;
                         wb_data <= special_wbq_data;
                         wb_mask <= special_wbq_mask;
+                    end
+                    4'd11: begin  // mbarrier (test_wait/try_wait results)
+                        wb_warp_id <= mbarrier_wb_warp;
+                        wb_rd <= mbarrier_wb_rd;
+                        wb_data <= {NUM_LANES{mbarrier_wb_result}};  // Replicate result to all lanes
+                        wb_mask <= mbarrier_wb_mask;
+                    end
+                    4'd12: begin  // Texture unit (tex/txq/suld/sust/sured)
+                        wb_warp_id <= tex_warp_pending;
+                        wb_rd <= tex_rd_pending;
+                        // Texture returns 128-bit result (RGBA 4x32-bit), replicate across lanes
+                        wb_data <= {(NUM_LANES/4){tex_result_latched}};
+                        wb_mask <= tex_mask_pending;
+                        $display("[SM%0d] TEX_WB: rd=R%0d warp=%0d mask=0x%08x result=0x%032x",
+                                 SM_ID, tex_rd_pending, tex_warp_pending, tex_mask_pending, tex_result_latched);
+                    end
+                    4'd13: begin  // Video SIMD unit (VADD4/VSUB4/DP4A/DP2A/etc)
+                        wb_warp_id <= video_wbq_warp;
+                        wb_rd <= video_wbq_rd;
+                        wb_data <= video_wbq_data;
+                        wb_mask <= video_wbq_mask;
+                        $display("[SM%0d] VIDEO_WB: rd=R%0d warp=%0d mask=0x%08x data[0]=0x%08x",
+                                 SM_ID, video_wbq_rd, video_wbq_warp, video_wbq_mask, video_wbq_data[31:0]);
+                    end
+                    4'd14: begin  // Cache policy (createpolicy token result)
+                        wb_warp_id <= cache_policy_wb_warp;
+                        wb_rd <= cache_policy_wb_rd;
+                        wb_data <= {NUM_LANES{cache_policy_token_r}};  // Replicate token to all lanes
+                        wb_mask <= cache_policy_wb_mask;
+                        $display("[SM%0d] CACHE_POLICY_WB: rd=R%0d warp=%0d mask=0x%08x token=0x%08x",
+                                 SM_ID, cache_policy_wb_rd, cache_policy_wb_warp, cache_policy_wb_mask, cache_policy_token_r);
+                    end
+                    4'd15: begin  // Stack (alloca/stacksave result)
+                        wb_warp_id <= stack_wb_warp;
+                        wb_rd <= stack_wb_rd;
+                        wb_data <= {NUM_LANES{stack_result_r}};  // Replicate stack pointer to all lanes
+                        wb_mask <= stack_wb_mask;
+                        $display("[SM%0d] STACK_WB: rd=R%0d warp=%0d mask=0x%08x ptr=0x%08x",
+                                 SM_ID, stack_wb_rd, stack_wb_warp, stack_wb_mask, stack_result_r);
+                    end
+                    5'd16: begin  // Multimem (distributed shared memory load result)
+                        wb_warp_id <= multimem_wb_warp;
+                        wb_rd <= multimem_wb_rd;
+                        wb_data <= {NUM_LANES{multimem_result_r}};  // Replicate result to all lanes
+                        wb_mask <= multimem_wb_mask;
+                        $display("[SM%0d] MULTIMEM_WB: rd=R%0d warp=%0d mask=0x%08x data=0x%08x",
+                                 SM_ID, multimem_wb_rd, multimem_wb_warp, multimem_wb_mask, multimem_result_r);
                     end
                 endcase
             end else begin
@@ -3497,6 +4557,14 @@ module streaming_multiprocessor_v2 #(
                 warp_pc[w] <= 32'b0;
                 warp_fetch_pc[w] <= 32'b0;
                 warp_mask[w] <= {NUM_LANES{1'b1}};
+                // Initialize warp-level sync state (bar.warp.sync)
+                warp_sync_pending[w] <= 1'b0;
+                warp_sync_arrived[w] <= 32'b0;
+                warp_sync_mask[w] <= 32'b0;
+                // Initialize cluster barrier state (barrier.cluster)
+                cluster_barrier_pending[w] <= 1'b0;
+                cluster_barrier_arrived[w] <= 1'b0;
+                cluster_barrier_id[w] <= 8'b0;
                 // Initialize SM divergence stack
                 sm_div_stack_ptr[w] <= 2'b0;
                 for (rst_j = 0; rst_j < 4; rst_j = rst_j + 1) begin
@@ -3554,7 +4622,19 @@ module streaming_multiprocessor_v2 #(
                         warp_fetch_pc[w] <= 32'b0;
                         warp_mask[w] <= {NUM_LANES{1'b0}};
                     end
+                    // Reset warp-level sync state (bar.warp.sync)
+                    warp_sync_pending[w] <= 1'b0;
+                    warp_sync_arrived[w] <= 32'b0;
+                    warp_sync_mask[w] <= 32'b0;
+                    // Reset cluster barrier state (barrier.cluster)
+                    cluster_barrier_pending[w] <= 1'b0;
+                    cluster_barrier_arrived[w] <= 1'b0;
+                    cluster_barrier_id[w] <= 8'b0;
                 end
+                // Reset cluster barrier shared state on kernel start
+                cluster_barrier_thread_count <= 16'b0;
+                cluster_local_arrive_count <= 16'b0;
+                cluster_barrier_complete <= 1'b0;
             end
 
             // NOTE: Fetch PC is advanced in the instruction buffer fill logic (line 1083)
@@ -3661,18 +4741,171 @@ module streaming_multiprocessor_v2 #(
                 warp_stalled_mem[mem_warp_pending] <= 1'b0;
             end
 
-            // Sync barrier
-            if (issue_valid && issue_sync_op) begin
+            // Block-level sync barrier (bar.sync)
+            // Only stall for bar.sync (not bar.warp.sync)
+            if (issue_valid && issue_sync_op && !issue_bar_warp_sync) begin
                 warp_stalled_sync[issue_warp_id] <= 1'b1;
             end
-            if (issue1_valid && issue1_sync_op) begin
+            if (issue1_valid && issue1_sync_op && !issue1_bar_warp_sync) begin
                 warp_stalled_sync[issue1_warp_id] <= 1'b1;
             end
-            // TODO: Check all warps at barrier and release
+            // Check all warps at barrier and release
             if (all_at_barrier) begin
                 for (w = 0; w < NUM_WARPS; w = w + 1) begin
                     warp_stalled_sync[w] <= 1'b0;
                 end
+            end
+
+            //================================================================
+            // Warp-level sync barrier (bar.warp.sync)
+            //================================================================
+            // When bar.warp.sync issues:
+            // - Set the expected membermask from register file (rf_rd_data_a[31:0])
+            // - Mark arriving threads based on issue_mask
+            // - Stall the warp (using warp_stalled_sync)
+            //
+            // When all specified threads arrive:
+            // - Release the warp by clearing warp_stalled_sync
+            // - Reset arrival tracking for next barrier
+
+            // Handle bar.warp.sync from issue slot 0
+            if (issue_valid && issue_bar_warp_sync) begin
+                // Set expected mask from ra register (first lane's value as membermask)
+                warp_sync_mask[issue_warp_id] <= rf_rd_data_a[31:0];
+                // Mark arriving threads (issue_mask is NUM_LANES bits = 32 bits)
+                warp_sync_arrived[issue_warp_id] <= warp_sync_arrived[issue_warp_id] | issue_mask;
+                // Mark sync pending and stall the warp
+                warp_sync_pending[issue_warp_id] <= 1'b1;
+                warp_stalled_sync[issue_warp_id] <= 1'b1;
+                $display("[SM%0d] bar.warp.sync: warp=%0d membermask=0x%08x arriving=0x%08x",
+                         SM_ID, issue_warp_id, rf_rd_data_a[31:0], issue_mask);
+            end
+
+            // Handle bar.warp.sync from issue slot 1
+            if (issue1_valid && issue1_bar_warp_sync) begin
+                warp_sync_mask[issue1_warp_id] <= rf1_rd_data_a[31:0];
+                warp_sync_arrived[issue1_warp_id] <= warp_sync_arrived[issue1_warp_id] | issue1_mask;
+                warp_sync_pending[issue1_warp_id] <= 1'b1;
+                warp_stalled_sync[issue1_warp_id] <= 1'b1;
+                $display("[SM%0d] bar.warp.sync: warp=%0d membermask=0x%08x arriving=0x%08x",
+                         SM_ID, issue1_warp_id, rf1_rd_data_a[31:0], issue1_mask);
+            end
+
+            // Check for warp-level sync completion and release
+            for (w = 0; w < NUM_WARPS; w = w + 1) begin
+                if (warp_sync_pending[w]) begin
+                    // Check if all participating threads have arrived
+                    // (arrived & mask) == mask means all required threads are here
+                    if ((warp_sync_arrived[w] & warp_sync_mask[w]) == warp_sync_mask[w]) begin
+                        // All threads arrived - release the warp
+                        warp_stalled_sync[w] <= 1'b0;
+                        warp_sync_pending[w] <= 1'b0;
+                        warp_sync_arrived[w] <= 32'b0;  // Reset for next barrier
+                        $display("[SM%0d] bar.warp.sync COMPLETE: warp=%0d", SM_ID, w);
+                    end
+                end
+            end
+
+            //================================================================
+            // Cluster Barrier Operations (barrier.cluster - Hopper+)
+            //================================================================
+            // Handle barrier.cluster from issue slot 0
+            if (issue_valid && issue_barrier_cluster_op) begin
+                case (issue_func)
+                    `CLUSTER_BARRIER_INIT: begin
+                        // Initialize cluster barrier with expected thread count
+                        // ra = expected thread count across all SMs in cluster
+                        cluster_barrier_thread_count <= rf_rd_data_a[15:0];
+                        cluster_local_arrive_count <= 16'b0;
+                        cluster_barrier_complete <= 1'b0;
+                        $display("[SM%0d] barrier.cluster.init: warp=%0d thread_count=%0d",
+                                 SM_ID, issue_warp_id, rf_rd_data_a[15:0]);
+                    end
+                    `CLUSTER_BARRIER_ARRIVE: begin
+                        // Signal arrival at cluster barrier (non-blocking)
+                        cluster_barrier_arrived[issue_warp_id] <= 1'b1;
+                        cluster_barrier_id[issue_warp_id] <= issue_imm16[7:0];
+                        // Increment local arrive count by active thread count
+                        cluster_local_arrive_count <= cluster_local_arrive_count + $countones(issue_mask);
+                        $display("[SM%0d] barrier.cluster.arrive: warp=%0d barrier_id=%0d",
+                                 SM_ID, issue_warp_id, issue_imm16[7:0]);
+                    end
+                    `CLUSTER_BARRIER_WAIT: begin
+                        // Wait for all threads to arrive (blocking)
+                        if (!cluster_barrier_complete) begin
+                            cluster_barrier_pending[issue_warp_id] <= 1'b1;
+                            $display("[SM%0d] barrier.cluster.wait: warp=%0d STALLED",
+                                     SM_ID, issue_warp_id);
+                        end
+                    end
+                    `CLUSTER_BARRIER_SYNC: begin
+                        // Combined arrive and wait (most common)
+                        cluster_barrier_arrived[issue_warp_id] <= 1'b1;
+                        cluster_barrier_id[issue_warp_id] <= issue_imm16[7:0];
+                        cluster_local_arrive_count <= cluster_local_arrive_count + $countones(issue_mask);
+                        if (!cluster_barrier_complete) begin
+                            cluster_barrier_pending[issue_warp_id] <= 1'b1;
+                        end
+                        $display("[SM%0d] barrier.cluster.sync: warp=%0d barrier_id=%0d",
+                                 SM_ID, issue_warp_id, issue_imm16[7:0]);
+                    end
+                    default: ;  // Unknown barrier.cluster operation
+                endcase
+            end
+
+            // Handle barrier.cluster from issue slot 1
+            if (issue1_valid && issue1_barrier_cluster_op) begin
+                case (issue1_func)
+                    `CLUSTER_BARRIER_INIT: begin
+                        cluster_barrier_thread_count <= rf1_rd_data_a[15:0];
+                        cluster_local_arrive_count <= 16'b0;
+                        cluster_barrier_complete <= 1'b0;
+                        $display("[SM%0d] barrier.cluster.init: warp=%0d thread_count=%0d",
+                                 SM_ID, issue1_warp_id, rf1_rd_data_a[15:0]);
+                    end
+                    `CLUSTER_BARRIER_ARRIVE: begin
+                        cluster_barrier_arrived[issue1_warp_id] <= 1'b1;
+                        cluster_barrier_id[issue1_warp_id] <= issue1_imm16[7:0];
+                        cluster_local_arrive_count <= cluster_local_arrive_count + $countones(issue1_mask);
+                        $display("[SM%0d] barrier.cluster.arrive: warp=%0d barrier_id=%0d",
+                                 SM_ID, issue1_warp_id, issue1_imm16[7:0]);
+                    end
+                    `CLUSTER_BARRIER_WAIT: begin
+                        if (!cluster_barrier_complete) begin
+                            cluster_barrier_pending[issue1_warp_id] <= 1'b1;
+                            $display("[SM%0d] barrier.cluster.wait: warp=%0d STALLED",
+                                     SM_ID, issue1_warp_id);
+                        end
+                    end
+                    `CLUSTER_BARRIER_SYNC: begin
+                        cluster_barrier_arrived[issue1_warp_id] <= 1'b1;
+                        cluster_barrier_id[issue1_warp_id] <= issue1_imm16[7:0];
+                        cluster_local_arrive_count <= cluster_local_arrive_count + $countones(issue1_mask);
+                        if (!cluster_barrier_complete) begin
+                            cluster_barrier_pending[issue1_warp_id] <= 1'b1;
+                        end
+                        $display("[SM%0d] barrier.cluster.sync: warp=%0d barrier_id=%0d",
+                                 SM_ID, issue1_warp_id, issue1_imm16[7:0]);
+                    end
+                    default: ;
+                endcase
+            end
+
+            // Check for cluster barrier completion
+            // Note: For single-SM operation, completion is when local count reaches expected
+            // For multi-SM clusters, this would be signaled by cluster interconnect
+            if (!cluster_barrier_complete && (cluster_local_arrive_count >= cluster_barrier_thread_count) && (cluster_barrier_thread_count > 0)) begin
+                cluster_barrier_complete <= 1'b1;
+                // Release all waiting warps
+                for (w = 0; w < NUM_WARPS; w = w + 1) begin
+                    if (cluster_barrier_pending[w]) begin
+                        cluster_barrier_pending[w] <= 1'b0;
+                        cluster_barrier_arrived[w] <= 1'b0;
+                        $display("[SM%0d] barrier.cluster COMPLETE: releasing warp=%0d", SM_ID, w);
+                    end
+                end
+                // Reset for next barrier
+                cluster_local_arrive_count <= 16'b0;
             end
 
             // Exit instruction (defer warp teardown until in-flight ops drain)
