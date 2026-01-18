@@ -645,14 +645,14 @@ module streaming_multiprocessor_v2 #(
                                (dec1_rd == dec_rc)))
                              );
 
-    wire lane0_alu = lane0_ready && (dec_alu_op || dec_branch_op || dec_cvt_op);  // CVT routed through ALU as passthrough
+    wire lane0_alu = lane0_ready && (dec_alu_op || dec_branch_op || dec_cvt_op || dec_video_op);  // CVT/VIDEO routed through ALU
     wire lane0_mul = lane0_ready && (dec_mul_op || dec_div_op);
     wire lane0_fp32 = lane0_ready && dec_fp32_op;
     wire lane0_fp64 = lane0_ready && dec_fp64_op;
     wire lane0_fp16 = lane0_ready && dec_fp16_op;
     wire lane0_sfu = lane0_ready && dec_sfu_op;
     wire lane0_shfl = lane0_ready && dec_shuffle_op;
-    wire lane1_alu = lane1_ready && (dec1_alu_op || dec1_cvt_op);  // CVT routed through ALU
+    wire lane1_alu = lane1_ready && (dec1_alu_op || dec1_cvt_op || dec1_video_op);  // CVT/VIDEO routed through ALU
     wire lane1_mul = lane1_ready && (dec1_mul_op || dec1_div_op);
     wire lane1_fp32 = lane1_ready && dec1_fp32_op;
     wire lane1_fp64 = lane1_ready && dec1_fp64_op;
@@ -1725,7 +1725,7 @@ module streaming_multiprocessor_v2 #(
                     issue_use_imm <= dec_use_imm;
                     // Use merged mask when reconverging, normal mask otherwise
                     issue_mask <= dec0_at_reconverge ? dec0_merged_mask : warp_mask[dec0_warp_id];
-                    issue_alu_op <= dec_alu_op || dec_cvt_op;  // CVT routed through ALU
+                    issue_alu_op <= dec_alu_op || dec_cvt_op || dec_video_op;  // CVT/VIDEO routed through ALU
                     issue_mul_op <= dec_mul_op;
                     issue_div_op <= dec_div_op;
                     issue_fp32_op <= dec_fp32_op;
@@ -1768,7 +1768,7 @@ module streaming_multiprocessor_v2 #(
                 issue1_imm21 <= dec1_imm21;
                 issue1_use_imm <= dec1_use_imm;
                 issue1_mask <= warp_mask[dec1_warp_id];
-                issue1_alu_op <= dec1_alu_op || dec1_cvt_op;  // CVT routed through ALU
+                issue1_alu_op <= dec1_alu_op || dec1_cvt_op || dec1_video_op;  // CVT/VIDEO routed through ALU
                 issue1_mul_op <= dec1_mul_op;
                 issue1_div_op <= dec1_div_op;
                 issue1_fp32_op <= dec1_fp32_op;

@@ -3,6 +3,32 @@
 ## 目标
 实现一个完整功能的 CUDA/PTX 兼容 GPU IP，核数量可配置。
 
+## 新任务 (2026-01-18): PTX ISA 9.1 Phase A/B/C
+- 目标：完成文档 `doc/ptx_isa_9.1_gap_plan.md` 的 Phase A→B→C 实现与验证，按阶段闸门推进。
+- 状态：Phase A COMPLETE；Phase B (async memory/sync primitives) 基础已搭建，可进入 Phase B 深化实现。
+
+### Phase A – Correctness Fill-Ins (COMPLETE)
+- [x] 整数 div/rem 单元：32位有符号/无符号 div/rem 已接入 mul/div 通道（mul_unit + simd_mul + SM 接口）；添加 mad.hi 支持；汇编函数码区分 s/u/div/rem；新增 tb 覆盖。
+- [x] mul24/mad24 + ALU fns/szext/bmsk：`mul_unit` 增加 24-bit 路径，ALU 新增 bmsk/szext/fns。
+- [x] dp4a/dp2a：已通过 ALU 路径接入 SM（VIDEO_DP4A_ALU/VIDEO_DP2A_ALU），directed test 覆盖。
+- [x] lop3/shf/cnot：在 `alu.v` 增加固定 LUT lop3、漏斗移位 shf.l/shf.r、cnot；汇编支持。
+- [x] FP 边角：testp/copysign 已加；`rcp.approx.ftz.f64` 已映射到 RCP。（FP 比较 half/mixed 为 minor residual，Phase B 可选）
+- [x] 特殊寄存器：activemask 暴露；laneid/warpid/smid 也可读。
+- [x] 验证闸门：ALU 50/50, MUL 27/27, FPU 26/26, Decoder 16/16, SM Core 12/12, Loop/Divergence PASS。Phase A COMPLETE。
+
+### Phase B – Memory & Sync (等待)
+- [x] cp.async/prefetch 固定延迟跟踪 + wait_group/wait_all 阻塞（无真实copy，后续接入LSU/st.async/multimem）。
+- [x] bar.sync/barrier 释放：所有 warp 到齐后清零 `warp_stalled_sync`（单代barrier实现）。
+- [ ] red.async/match.sync/bar.warp.sync/barrier.cluster/griddepcontrol/elect.sync/mbarrier/tensormap.*；scoreboard 跟踪 async 组。
+- [ ] cvt.pack/mapa/getctarank/isspacep/createpolicy/applypriority/discard 解码与管线接入。（cvt.pack 已完成）
+- 验证闸门：LSU/sync directed + SM 集成 + 回归。
+
+### Phase C – Tensor/Graphics (等待)
+- [ ] WGMMA load/store/mma_async + fence/commit/wait；调度/scoreboard 长延迟处理。
+- [ ] Texture/surface/video 管线接入；tex/txq/suld/sust/sured、SIMD 视频饱和规则。
+- [ ] 栈/调试：alloca/stacksave/stackrestore；brkpt/trap/nanosleep/pmevent/setmaxnreg。
+- 验证闸门：tensor/texture directed + SM 集成 + 全回归。
+
 ## 当前状态
 
 ### 已完成 ✅

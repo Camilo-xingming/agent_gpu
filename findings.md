@@ -153,3 +153,35 @@ RalphGPU achieves **95%+ NVIDIA performance parity** on same-process, same-core-
 The remaining gaps (Thread Block Clusters, Distributed Shared Memory, larger caches) are primarily scale features that don't affect per-core performance comparisons.
 
 **PERFORMANCE TARGET: ACHIEVED**
+
+---
+
+## PTX ISA Gap Analysis (in progress)
+- Task: Compare `doc/ptx_isa_9.1.pdf` against current RTL/asm to find unimplemented PTX instructions and produce an implementation plan.
+- Next: Extract PTX 9.1 instruction list from the PDF, catalog current implemented opcodes, and map gaps.
+- PTX 9.1 instruction taxonomy (from TOC):
+  - Integer: add/sub/mul/mad/mul24/mad24/sad/div/rem/abs/neg/min/max/popc/clz/bfind/fns/brev/bfe/bfi/szext/bmsk/dp4a/dp2a; extended-precision add.cc/addc/sub.cc/subc/mad.cc/madc.
+  - FP (full/half/mixed): add/sub/mul/fma/mad/div/abs/neg/min/max/rcp/rcp.approx/sqrt/rsqrt.approx/sin/cos/lg2/ex2/tanh/testp/copysign; half and mixed variants mirrored.
+  - Compare/select: set/setp/selp/slct plus half-precision set/setp.
+  - Logic/shift: and/or/xor/not/cnot/lop3/shf/shl/shr.
+  - Data move/convert: mov/shfl(.sync)/prmt/ld/ld.global.nc/ldu/st/st.async/st.bulk/multimem.ld_reduce/prefetch/applypriority/discard/createpolicy/isspacep/cvta/cvt/cvt.pack/mapa/getctarank/async copy/cp.async bulk/reduce/tensormap.replace.
+  - Texture & surface: tex/tld4/txq/istypep; suld/sust/sured/suq.
+  - Control flow: bra/brx.idx/call/ret/exit plus predicate guards.
+  - Sync/comm: bar/barrier/bar.warp.sync/barrier.cluster/membar|fence/atom/red/red.async/vote(.sync)/match.sync/activemask/redux.sync/griddepcontrol/elect.sync/mbarrier/tensormap.*.
+  - Matrix/tensor: wmma/mma/mma.sp (warp-level); wgmma (warpgroup); 5th-gen tensor memory ops, loads/stores, data movement, matrix ops, specialized and async sync.
+  - Stack/video/misc: stacksave/stackrestore/alloca; scalar+SIMD video ops; brkpt/nanosleep/pmevent/trap/setmaxnreg.
+- Current RTL opcode coverage (observed from `gpu_defines.vh` + `decoder.v` + SM wiring):
+  - Decoded/instantiated: ALU (+setp), MUL (mul.lo/hi/mad.lo, mul.wide in ALU), BRANCH/call/ret/exit, MOV special regs, BAR.SYNC, MEM (ld/st global/shared/param/const/local + v2/v4), FP32/FP16/BF16/FP64 arithmetic + FP32 special funcs (rcp/sqrt/rsqrt/sin/cos/lg2/ex2/tanh via SFU), CVT, ATOM/RED, SHFL/VOTE/REDUX, WMMA/MMA tensor core, MEMBAR.
+  - Decoded but not integrated in SM datapath: cp.async/prefetch, WGMMA load/store/mma_async, texture/surface ops, video ops, async/tensormap extras.
+  - Missing hardware blocks: no integer div/rem unit despite `OP_DIV`; `mul_unit` only mul.lo/hi/mad.lo (no mul24/mad24); no match.sync/elect.sync/griddepcontrol/mbarrier modules; no stack ops (alloca/stacksave/stackrestore); no trap/pmevent/nanosleep/setmaxnreg handling; no multimem/st.async bulk/tensormap replace.
+- Gap map vs PTX 9.1 (by category):
+  - Integer: mul24/mad24/fns/szext/bmsk missing; div/rem unimplemented; dp4a/dp2a only in video path (not wired); bfind only signed variant; add.cc/addc/sub.cc/subc present, mad.cc/madc absent.
+  - Logic/shift: lop3, shf (funnel), cnot not present; shl/shr/not/and/or/xor exist.
+  - FP: core FP32/16/64 ops present; missing testp/copysign/rcp.approx.ftz.f64, half/mixed compare variants; FP special math beyond tanh/ex2 not covered.
+  - Compare/select: setp/selp/slct present; set (integer/half) not implemented separately.
+  - Data move: ld/st global/shared/param/const/local + v2/v4 implemented; cache hint variants parsed but no policy controls; missing st.async/st.bulk/multimem.*, prefetch/applypriority/discard/createpolicy/isspacep/mapa/getctarank, cvt.pack.
+  - Control flow/misc: bra/brx/call/ret/exit implemented; brkpt/nanosleep/pmevent/trap/setmaxnreg not handled.
+  - Sync/comm: bar.sync + membar + atom/red + warp vote/shuffle/redux present; missing bar.warp.sync, barrier.cluster, red.async, match.sync, activemask opcode, griddepcontrol, elect.sync, mbarrier, tensormap.*.
+  - Memory async/tensor: cp.async/prefetch decoded but no engine; WGMMA/5th-gen tensor instructions absent; WMMA/MMA present.
+  - Texture/surface/video: modules exist but not connected in SM; tex/txq/suld/sust/sured + video SIMD ops effectively unsupported.
+  - Stack/video/misc: stacksave/stackrestore/alloca and video SIMD ops are uncovered; misc debug instructions missing.

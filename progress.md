@@ -1,5 +1,42 @@
 # RalphGPU Progress Log
 
+## Session Date: 2026-01-18
+
+### Phase A kick-off: div/rem + mul path fixes
+- Added signed/unsigned div/rem handling in `rtl/mul_unit.v` with explicit div opcode flag (`is_div`) from SM; `simd_mul_unit`/`streaming_multiprocessor_v2.v` updated to carry div/mul distinction.
+- Implemented `MAD_HI` path in `mul_unit` (high 32-bit product + addend).
+- Assembler encodes div/rem signedness via new `DivFunc` (div.s/u, rem.s/u) and keeps mad.hi mapping.
+- Added mul24/mad24 support plus new ALU ops (bmsk/szext/fns/shf.l/shf.r/lop3/cnot); updated func codes in `gpu_defines.vh`.
+- Special registers expanded to include `%laneid/%warpid/%smid/%activemask`; SM special-reg path returns activemask from warp_mask.
+- Assembler updated for new ALU/mul ops and `%activemask` special reg.
+- Added FP side helpers: copysign/testp ops for FP32/FP64, parse rcp.approx.ftz.f64 to RCP; tests cover FP32 copysign/testp.
+
+### Tests
+- `iverilog -g2012 -I rtl -s tb_mul_unit tb/tb_mul_unit.v rtl/mul_unit.v` + `vvp /tmp/tb_mul_unit.vvp`
+  - All tests PASS (27/27) including div/rem (s/u), mad.hi, mul24/mad24.
+- `iverilog -g2012 -I rtl -s tb_alu_extended tb/tb_alu_extended.v rtl/alu.v` + `vvp /tmp/tb_alu_extended.vvp`
+  - All tests PASS (50/50) covering new bmsk/szext/fns/shf/lop3/cnot/dp4a/dp2a cases.
+- `iverilog -g2012 -I rtl -s tb_fpu tb/tb_fpu.v rtl/fpu.v` + `vvp /tmp/tb_fpu.vvp`
+  - All tests PASS (26/26) including copysign/testp.
+
+### dp4a/dp2a wiring (Phase A completion)
+- Identified gap: dp4a/dp2a ops were implemented in ALU (VIDEO_DP4A_ALU, VIDEO_DP2A_ALU func codes) but OP_VIDEO was not routed to ALU path in SM.
+- Fixed `streaming_multiprocessor_v2.v`: added `dec_video_op` to lane0_alu/lane1_alu wires and issue_alu_op/issue1_alu_op assignments.
+- Updated `tools/ptx_assembler.py`: VideoFunc.DP4A/DP2A now use ALU-routed func codes (0b100010, 0b100011).
+- Created `asm/dp4a_test.ptx` directed test for dp4a/dp2a.
+- All ALU tests PASS (50/50) including dp4a/dp2a.
+
+### Phase B kickoff: async copy scaffolding
+- SM now tracks `cp.async` copies with per-warp pending counters and a fixed latency drain (CPASYNC_LATENCY=6); wait_group/wait_all stall warps via `warp_stalled_async` until pending <= threshold/0; warp exit guard checks cp.async pending.
+- `warp_ready` accounts for async stalls so scheduler avoids issuing while a warp waits; copies are serialized (one completion per latency window) until a real LSU path replaces the stub.
+- Tests not re-run after the async stub; run SM/LSU sims once cp.async kernels are available.
+
+### Sync barrier cleanup
+- Added simple global barrier release: `warp_stalled_sync` now clears once all valid warps hit a sync op; dual-issue path also marks sync stalls. `barrier_pending` resets on kernel_start.
+
+### Other notes
+- Sync attempt from `~/.claude/skills` via `rsync -a` failed in sandbox (utimensat/unlink permissions); planning-with-files is already present, no additional skills copied.
+
 ## Session Date: 2026-01-17
 
 ### Bugs Fixed in SM V2 Integration

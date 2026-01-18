@@ -350,8 +350,8 @@ class VideoFunc(IntEnum):
     VADD2     = 0b010100
     VSUB2     = 0b010101
     VMUL2     = 0b010110
-    DP4A      = 0b100000
-    DP2A      = 0b100001
+    DP4A      = 0b100010  # VIDEO_DP4A_ALU - routed through ALU path
+    DP2A      = 0b100011  # VIDEO_DP2A_ALU - routed through ALU path
 
 #============================================================================
 # WMMA Function Codes

@@ -290,6 +290,75 @@ module tb_alu_extended;
         check_result(32'h00000005, "sad(5, 10, 0) = |5-10| + 0 = 5");
 
         //====================================================================
+        // 新增指令测试：BMSK/SZEXT/FNS/SHF/LOP3/CNOT
+        //====================================================================
+        $display("\n--- Testing BMSK ---");
+        func = `FUNC_BMSK;
+        operand_a = 32'd2;   // pos
+        operand_b = 32'd3;   // len
+        check_result(32'h0000001C, "bmsk(pos=2,len=3)");
+
+        $display("\n--- Testing SZEXT ---");
+        func = `FUNC_SZEXT;
+        operand_a = 32'h00000F80; operand_b = 32'd8;
+        check_result(32'hFFFFFF80, "szext width=8 negative");
+        operand_a = 32'h0000070F; operand_b = 32'd12;
+        check_result(32'h0000070F, "szext width=12 positive");
+
+        $display("\n--- Testing FNS ---");
+        func = `FUNC_FNS;
+        operand_a = 32'h00000000;
+        check_result(32'hFFFFFFFF, "fns(0) -> -1");
+        operand_a = 32'h00000010;
+        check_result(32'h00000004, "fns(0x10) -> 4");
+
+        $display("\n--- Testing SHF (funnel) ---");
+        func = `FUNC_SHF_L;
+        operand_a = 32'h00000001; operand_b = 32'h00000000; operand_c = 32'd1;
+        check_result(32'h00000002, "shf.l (A=1,B=0,sh=1)");
+        func = `FUNC_SHF_R;
+        operand_a = 32'h89ABCDEF; operand_b = 32'h01234567; operand_c = 32'd4;
+        check_result(32'h789ABCDE, "shf.r (B=0x01234567,A=0x89ABCDEF,sh=4)");
+
+        $display("\n--- Testing LOP3 (LUT=0xCA default) ---");
+        func = `FUNC_LOP3;
+        operand_a = 32'hFFFF0000;
+        operand_b = 32'h12345678;
+        operand_c = 32'hDEADBEEF;
+        check_result(32'h1234BEEF, "lop3 default LUT 0xCA");
+
+        $display("\n--- Testing CNOT ---");
+        func = `FUNC_CNOT;
+        operand_a = 32'h0F0F0F0F;
+        operand_b = 32'hFFFF0000;
+        check_result(32'hF0F00000, "cnot(~A & B)");
+
+        //====================================================================
+        // 新增 DP4A/DP2A (ALU 路径)
+        //====================================================================
+        $display("\n--- Testing DP4A/DP2A ---");
+        func = `VIDEO_DP4A_ALU;
+        operand_a = 32'h01010101;  // all 1
+        operand_b = 32'h02020202;  // all 2
+        operand_c = 32'h00000000;
+        check_result(32'h00000008, "dp4a (1*2)*4 = 8");
+
+        func = `VIDEO_DP2A_ALU;
+        operand_a = 32'h00010002;  // halfwords 1,2
+        operand_b = 32'h00030004;  // halfwords 3,4
+        operand_c = 32'h00000001;
+        check_result(32'h0000000C, "dp2a 1*3 + 2*4 + 1 (signed 16-bit)");
+
+        //====================================================================
+        // cvt.pack
+        //====================================================================
+        $display("\n--- Testing CVT.PACK ---");
+        func = `CVT_PACK;
+        operand_a = 32'hAAAA5555;
+        operand_b = 32'h12345678;
+        check_result(32'h56785555, "cvt.pack lower16 A + lower16 B");
+
+        //====================================================================
         // 测试总结
         //====================================================================
         $display("\n============================================");
