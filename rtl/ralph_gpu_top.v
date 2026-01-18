@@ -188,7 +188,8 @@ module ralph_gpu_top #(
             assign sm_l1d_resp_hit = 1'b0;
 
             streaming_multiprocessor_v2 #(
-                .SM_ID (sm)
+                .SM_ID (sm),
+                .ICACHE_BYPASS (1)  // Bypass icache for simpler testbench
             ) u_sm (
                 .clk           (clk),
                 .rst_n         (rst_n),
@@ -578,7 +579,7 @@ module ralph_gpu_top #(
         .ch_req_ready           (8'hFF),
         .ch_resp_valid          (8'h00),
         .ch_resp_rdata          ({(512*8){1'b0}}),
-        .ch_resp_source         ({($clog2(NUM_SM)*8){1'b0}}),
+        .ch_resp_source         ({((($clog2(NUM_SM) > 0) ? $clog2(NUM_SM) : 1)*8){1'b0}}),
         .cfg_bandwidth_limit    ({(16*NUM_SM){1'b1}}),
         .cfg_fairness_window    (8'd255),
         .cfg_throttle_enable    (1'b0),

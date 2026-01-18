@@ -86,7 +86,7 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all
-.PHONY: test_alu test_mul test_decoder test_regfile test_smem test_warp
+.PHONY: test_alu test_mul test_decoder test_regfile test_smem test_warp test_sfu
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_tensor_core_fp4
 .PHONY: test_vector_add test_multi_sm test_memsys test_phase2
 
@@ -161,6 +161,15 @@ test_warp: $(BUILD_DIR)/tb_warp_scheduler.vvp
 
 $(BUILD_DIR)/tb_warp_scheduler.vvp: $(RTL_DIR)/warp_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_WARP) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_WARP) $(RTL_DIR)/warp_scheduler.v
+
+test_sfu: $(BUILD_DIR)/tb_sfu.vvp
+	@echo "========================================"
+	@echo "Running SFU Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_sfu.vvp
+
+$(BUILD_DIR)/tb_sfu.vvp: $(RTL_DIR)/sfu.v $(RTL_DIR)/gpu_defines.vh $(TB_DIR)/tb_sfu.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_sfu.v $(RTL_DIR)/sfu.v
 
 #----------------------------------------------------------------------------
 # Tensor Core FP4 Sanity Test
