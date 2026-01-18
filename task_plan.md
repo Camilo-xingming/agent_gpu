@@ -294,6 +294,134 @@ Based on `doc/b300_gap_analysis.md`, all critical features have been implemented
 ### Verification Status
 - Decoder tests: 16/16 PASS
 - SM V2 Core tests: 12/12 PASS
+- ALU tests: 26/26 PASS
 - RTL compilation: PASS (no errors)
 
 **STATUS: B300 GAP IMPLEMENTATION COMPLETE**
+
+---
+
+## B300 Comprehensive Testbench - COMPLETE (2026-01-19)
+
+### tb/tb_b300_features.v - 58 Tests Total
+
+**Phase 1: TMA/Async Memory Operations (19 tests)**
+- cp.async.ca, cp.async.commit, cp.async.wait
+- st.async.global, st.async.shared, st.async.commit, st.async.wait
+- multimem.ld, multimem.st, multimem.red
+- mbarrier.init, mbarrier.arrive, mbarrier.test_wait, mbarrier.try_wait
+
+**Phase 2: Tensor Operations (6 tests)**
+- wgmma.load, wgmma.store, wgmma.mma
+- wgmma.fence, wgmma.commit, wgmma.wait
+
+**Phase 3: Synchronization Operations (7 tests)**
+- bar.warp.sync
+- barrier.cluster.arrive, barrier.cluster.wait, barrier.cluster.sync, barrier.cluster.init
+
+**Phase 4: Cache Policy Operations (3 tests)**
+- createpolicy, applypriority, discard
+
+**Phase 5: Stack/Debug Operations (8 tests)**
+- alloca, stacksave, stackrestore
+- brkpt, trap, pmevent
+- nanosleep, setmaxnreg
+
+**Phase 6: Texture/Video Operations (6 tests)**
+- tex, txq, suld, sust, sured, video
+
+**Phase 7: Performance Benchmarks (5 tests)**
+- Decoder throughput: 50 instr/ns (100 instructions in 2000 ps)
+- Instruction mix latency: 20 mixed instructions decoded
+- WGMMA stress test: 50x back-to-back WGMMA
+- Async/sync interleave: 40 operations
+- TMA+WGMMA kernel pattern: 40 operations
+
+**Phase 8: Combination Tests (4 tests)**
+- All memory operations sequence
+- All synchronization operations
+- All tensor operations
+- Complete B300 kernel simulation (30 ops)
+
+**STATUS: 58/58 TESTS PASS - B300 COMPREHENSIVE TESTING COMPLETE**
+
+---
+
+## Extended Complex Test Cases - COMPLETE (2026-01-19)
+
+### tb/tb_b300_features.v - 145 Tests Total (87 additional complex tests)
+
+**Phase 9: Extended Complex Test Cases**
+
+**9.1: Register Field Boundary Tests (10 tests)**
+- rd=0, rd=31 boundary tests
+- ra=0, ra=31 boundary tests
+- rb=0, rb=31 boundary tests
+- func=0, func=63 boundary tests
+- All fields max/min combination tests
+
+**9.2: Mbarrier Function Code Tests (8 tests)**
+- mbarrier.arrive_drop, mbarrier.arrive_tx
+- mbarrier.invalidate, mbarrier.arrive_noComplete
+- mbarrier.expect_tx, mbarrier.test_wait with regs
+- mbarrier.try_wait reg_write, mbarrier.init with count
+
+**9.3: WGMMA Tile Size Variations (10 tests)**
+- M64N8K16, M64N16K16, M64N32K16, M64N64K16
+- M64N128K16, M64N256K16
+- fence, commit_group, wait_group
+- WGMMA with high register values
+
+**9.4: Async Copy Cache Hint Variations (6 tests)**
+- cp.async.ca cache_hint=0, cp.async.cg cache_hint=1
+- prefetch hint=0,1,2,7 variations
+
+**9.5: Barrier Cluster Variants (6 tests)**
+- arrive, wait, sync, init with count
+- High/mid register value tests
+
+**9.6: Multimem Variations (6 tests)**
+- ld, st, red with different registers
+- max/min/mid register boundary tests
+
+**9.7: St.async Variations (6 tests)**
+- global, shared, commit, wait
+- max/min register boundary tests
+
+**9.8: Cache Policy Variations (6 tests)**
+- createpolicy, applypriority, discard
+- max/min/mid register tests
+
+**9.9: Stack Operations Extended (6 tests)**
+- alloca, stacksave, stackrestore
+- max/min/mid register tests
+
+**9.10: Debug/Misc Operations Extended (6 tests)**
+- brkpt, trap, pmevent, nanosleep, setmaxnreg
+- max register boundary test
+
+**9.11: Texture/Surface Extended (8 tests)**
+- tex, txq, suld, sust, sured with various func codes
+- max/min/mid register combinations
+
+**9.12: Video Operations Extended (6 tests)**
+- vadd, vsub, vabsdiff, vmin, vmax, dp4a
+
+**9.13: Complex GEMM Kernel Pattern (1 test, 28 ops)**
+- Full TMA + WGMMA GEMM simulation
+- mbarrier init, cpasync loads, WGMMA compute, cluster sync
+
+**9.14: Flash Attention Pattern (1 test, 20 ops)**
+- Q/K/V tile loads with cp.async
+- WGMMA for QK^T and softmax*V
+- Async store and cluster sync
+
+**9.15: Performance Stress Test (1 test, 200 ops)**
+- Rapid decode of 200 mixed operations
+- Throughput: 50.00 ops/ns
+
+**Test Performance Metrics:**
+- Decoder throughput: 50.00 instr/ns
+- Total test execution: 13.4ms simulation time
+
+**STATUS: 145/145 TESTS PASS - EXTENDED COMPLEX TESTING COMPLETE**
