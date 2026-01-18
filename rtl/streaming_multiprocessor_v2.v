@@ -341,6 +341,7 @@ module streaming_multiprocessor_v2 #(
     wire                 dec_use_imm;
     wire                 dec_alu_op, dec_mul_op, dec_div_op;
     wire                 dec_fp32_op, dec_fp64_op, dec_fp16_op;
+    wire                 dec_cvt_op;  // CVT (type conversion) operation
     wire                 dec_sfu_op, dec_tensor_op;
     wire                 dec_mem_read, dec_mem_write, dec_mem_shared;
     wire                 dec_branch_op, dec_sync_op;
@@ -357,6 +358,7 @@ module streaming_multiprocessor_v2 #(
     wire                 dec1_use_imm;
     wire                 dec1_alu_op, dec1_mul_op, dec1_div_op;
     wire                 dec1_fp32_op, dec1_fp64_op, dec1_fp16_op;
+    wire                 dec1_cvt_op;  // CVT (type conversion) operation
     wire                 dec1_sfu_op, dec1_tensor_op;
     wire                 dec1_mem_read, dec1_mem_write, dec1_mem_shared;
     wire                 dec1_branch_op, dec1_sync_op;
@@ -627,14 +629,14 @@ module streaming_multiprocessor_v2 #(
                                (dec1_rd == dec_rc)))
                              );
 
-    wire lane0_alu = lane0_ready && (dec_alu_op || dec_branch_op);
+    wire lane0_alu = lane0_ready && (dec_alu_op || dec_branch_op || dec_cvt_op);  // CVT routed through ALU as passthrough
     wire lane0_mul = lane0_ready && (dec_mul_op || dec_div_op);
     wire lane0_fp32 = lane0_ready && dec_fp32_op;
     wire lane0_fp64 = lane0_ready && dec_fp64_op;
     wire lane0_fp16 = lane0_ready && dec_fp16_op;
     wire lane0_sfu = lane0_ready && dec_sfu_op;
     wire lane0_shfl = lane0_ready && dec_shuffle_op;
-    wire lane1_alu = lane1_ready && dec1_alu_op;
+    wire lane1_alu = lane1_ready && (dec1_alu_op || dec1_cvt_op);  // CVT routed through ALU
     wire lane1_mul = lane1_ready && (dec1_mul_op || dec1_div_op);
     wire lane1_fp32 = lane1_ready && dec1_fp32_op;
     wire lane1_fp64 = lane1_ready && dec1_fp64_op;
@@ -715,6 +717,8 @@ module streaming_multiprocessor_v2 #(
     wire sfu_issue1 = issue1_valid && issue1_sfu_op;
     wire shfl_issue0 = issue_valid && issue_shuffle_op;
     wire shfl_issue1 = issue1_valid && issue1_shuffle_op;
+    wire special_reg_issue0 = issue_valid && issue_special_reg;
+    wire special_reg_issue1 = issue1_valid && issue1_special_reg;
 
     wire alu_issue = alu_issue0 || alu_issue1;
     wire mul_issue = mul_issue0 || mul_issue1;
@@ -723,6 +727,7 @@ module streaming_multiprocessor_v2 #(
     wire fp16_issue = fp16_issue0 || fp16_issue1;
     wire sfu_issue = sfu_issue0 || sfu_issue1;
     wire shfl_issue = shfl_issue0 || shfl_issue1;
+    wire special_reg_issue = special_reg_issue0 || special_reg_issue1;
 
     //========================================================================
     // Multi-Cycle FU Tracking (Track which warp issued to each pipelined FU)
@@ -739,10 +744,10 @@ module streaming_multiprocessor_v2 #(
     reg [4:0]           mul_rd_pipe;
     reg [NUM_LANES-1:0] mul_mask_pipe;
 
-    // FPU32 pipeline tracking (4 stages)
-    reg [WARP_ID_W-1:0] fpu32_warp_pipe [0:4];
-    reg [4:0]           fpu32_rd_pipe [0:4];
-    reg [NUM_LANES-1:0] fpu32_mask_pipe [0:4];
+    // FPU32 pipeline tracking (1 stage for 1-cycle simd_fpu latency)
+    reg [WARP_ID_W-1:0] fpu32_warp_pipe [0:0];
+    reg [4:0]           fpu32_rd_pipe [0:0];
+    reg [NUM_LANES-1:0] fpu32_mask_pipe [0:0];
 
     // FPU64 pipeline tracking (4 stages)
     reg [WARP_ID_W-1:0] fpu64_warp_pipe [0:4];
@@ -750,9 +755,9 @@ module streaming_multiprocessor_v2 #(
     reg [NUM_LANES-1:0] fpu64_mask_pipe [0:4];
 
     // FP16 pipeline tracking (2 stages)
-    reg [WARP_ID_W-1:0] fp16_warp_pipe [0:1];
-    reg [4:0]           fp16_rd_pipe [0:1];
-    reg [NUM_LANES-1:0] fp16_mask_pipe [0:1];
+    reg [WARP_ID_W-1:0] fp16_warp_pipe [0:2];  // Extended to 3 stages for 3-cycle FP16 latency
+    reg [4:0]           fp16_rd_pipe [0:2];
+    reg [NUM_LANES-1:0] fp16_mask_pipe [0:2];
 
     // SFU pipeline tracking (8 stages)
     reg [WARP_ID_W-1:0] sfu_warp_pipe [0:7];
@@ -798,6 +803,7 @@ module streaming_multiprocessor_v2 #(
     wire [WB_PKT_W-1:0] fp16_wbq_in, fp16_wbq_out;
     wire [WB_PKT_W-1:0] sfu_wbq_in, sfu_wbq_out;
     wire [WB_PKT_W-1:0] shfl_wbq_in, shfl_wbq_out;
+    wire [WB_PKT_W-1:0] special_wbq_out;
     wire                 alu_wbq_push, alu_wbq_pop, alu_wbq_full, alu_wbq_empty;
     wire                 mul_wbq_push, mul_wbq_pop, mul_wbq_full, mul_wbq_empty;
     wire                 fpu32_wbq_push, fpu32_wbq_pop, fpu32_wbq_full, fpu32_wbq_empty;
@@ -805,6 +811,7 @@ module streaming_multiprocessor_v2 #(
     wire                 fp16_wbq_push, fp16_wbq_pop, fp16_wbq_full, fp16_wbq_empty;
     wire                 sfu_wbq_push, sfu_wbq_pop, sfu_wbq_full, sfu_wbq_empty;
     wire                 shfl_wbq_push, shfl_wbq_pop, shfl_wbq_full, shfl_wbq_empty;
+    wire                 special_wbq_pop, special_wbq_full, special_wbq_empty;
 
     wire [WARP_ID_W-1:0] alu_wbq_warp;
     wire [WARP_ID_W-1:0] mul_wbq_warp;
@@ -813,6 +820,7 @@ module streaming_multiprocessor_v2 #(
     wire [WARP_ID_W-1:0] fp16_wbq_warp;
     wire [WARP_ID_W-1:0] sfu_wbq_warp;
     wire [WARP_ID_W-1:0] shfl_wbq_warp;
+    wire [WARP_ID_W-1:0] special_wbq_warp;
     wire [4:0]           alu_wbq_rd;
     wire [4:0]           mul_wbq_rd;
     wire [4:0]           fpu32_wbq_rd;
@@ -820,6 +828,7 @@ module streaming_multiprocessor_v2 #(
     wire [4:0]           fp16_wbq_rd;
     wire [4:0]           sfu_wbq_rd;
     wire [4:0]           shfl_wbq_rd;
+    wire [4:0]           special_wbq_rd;
     wire [NUM_LANES-1:0] alu_wbq_mask;
     wire [NUM_LANES-1:0] mul_wbq_mask;
     wire [NUM_LANES-1:0] fpu32_wbq_mask;
@@ -827,6 +836,7 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_LANES-1:0] fp16_wbq_mask;
     wire [NUM_LANES-1:0] sfu_wbq_mask;
     wire [NUM_LANES-1:0] shfl_wbq_mask;
+    wire [NUM_LANES-1:0] special_wbq_mask;
     wire [SIMD_WIDTH-1:0] alu_wbq_data;
     wire [SIMD_WIDTH-1:0] mul_wbq_data;
     wire [SIMD_WIDTH-1:0] fpu32_wbq_data;
@@ -834,6 +844,7 @@ module streaming_multiprocessor_v2 #(
     wire [SIMD_WIDTH-1:0] fp16_wbq_data;
     wire [SIMD_WIDTH-1:0] sfu_wbq_data;
     wire [SIMD_WIDTH-1:0] shfl_wbq_data;
+    wire [SIMD_WIDTH-1:0] special_wbq_data;
 
     reg [ALU_WBQ_COUNT_W-1:0] alu_inflight;
     reg [MUL_WBQ_COUNT_W-1:0] mul_inflight;
@@ -1087,11 +1098,10 @@ module streaming_multiprocessor_v2 #(
     end
 
     // Combinatorial same-cycle hit detection
-    // Note: With pipelined fetch, same_cycle_hit is only valid for true zero-latency icache hits.
-    // With the testbench's 1-cycle memory latency, icache_valid is for a previous request,
-    // not the current one. So same_cycle_hit should be false in that case.
-    // For icache bypass with 1-cycle memory, we use the pipeline for ALL responses.
-    wire same_cycle_hit = 1'b0;  // Disabled for pipelined fetch with latency > 0
+    // When icache_valid comes back in the same cycle as fetch_fire, the fetch pipeline
+    // isn't updated yet (non-blocking assigns), so we need to detect this case.
+    // same_cycle_hit is true when the response comes back before the pipeline is filled.
+    wire same_cycle_hit = fetch_fire && icache_valid && (fetch_pipe_valid == 0);
 
     // Fetch pipeline and pending tracking
     integer fp_i;
@@ -1129,7 +1139,12 @@ module streaming_multiprocessor_v2 #(
             end
 
             // Response received - clear pending for the responding warp
-            if (icache_valid && fetch_pipe_valid[FETCH_PIPE_DEPTH-1]) begin
+            // Handle both early response (1-cycle latency) and normal delayed response
+            if (icache_valid && fetch_pipe_valid[0] && !fetch_pipe_valid[FETCH_PIPE_DEPTH-1]) begin
+                // Early response: request is in stage 0
+                warp_fetch_pending[fetch_pipe_warp[0]] <= 1'b0;
+            end else if (icache_valid && fetch_pipe_valid[FETCH_PIPE_DEPTH-1]) begin
+                // Delayed response: request reached final stage
                 warp_fetch_pending[fetch_pipe_warp[FETCH_PIPE_DEPTH-1]] <= 1'b0;
             end
         end
@@ -1144,10 +1159,29 @@ module streaming_multiprocessor_v2 #(
     // When a warp is consumed AND filled in the same cycle, fill should win (buffer stays valid).
     integer w_buf;
     wire [NUM_WARPS-1:0] warp_fill;  // Which warp gets filled this cycle
-    // Use the last stage of fetch pipeline for delayed responses
+    // Handle responses at various pipeline depths
+    // delayed_response_valid: response comes after FETCH_PIPE_DEPTH cycles (normal case)
     wire delayed_response_valid = icache_valid && fetch_pipe_valid[FETCH_PIPE_DEPTH-1];
-    wire [WARP_ID_W-1:0] fill_warp_id = same_cycle_hit ? fetch_warp_id : fetch_pipe_warp[FETCH_PIPE_DEPTH-1];
-    wire fill_valid = same_cycle_hit || delayed_response_valid;
+    // early_response_valid: response comes after just 1 cycle (testbench with 1-cycle latency)
+    // In this case, the request is in pipe stage 0 but not yet in the final stage
+    wire early_response_valid = icache_valid && fetch_pipe_valid[0] && !fetch_pipe_valid[FETCH_PIPE_DEPTH-1];
+    // Choose the right warp ID based on which stage has the response
+    wire [WARP_ID_W-1:0] fill_warp_id = same_cycle_hit ? fetch_warp_id :
+                                         early_response_valid ? fetch_pipe_warp[0] :
+                                         fetch_pipe_warp[FETCH_PIPE_DEPTH-1];
+    wire fill_valid = same_cycle_hit || delayed_response_valid || early_response_valid;
+
+    // DEBUG: Track fetch pipeline state - disabled for faster simulation
+    `ifdef DEBUG_FETCH
+    always @(posedge clk) begin
+        if (fetch_fire)
+            $display("[%0t SM%0d FETCH] fetch_fire: warp=%0d pc=0x%08h imem_req=%b", $time, SM_ID, fetch_warp_id, warp_fetch_pc[fetch_warp_id], imem_req);
+        if (icache_valid)
+            $display("[%0t SM%0d FETCH] icache_valid: pipe_valid=%b imem_data=0x%016h icache_data=0x%08h", $time, SM_ID, fetch_pipe_valid, imem_data, icache_data);
+        if (fill_valid)
+            $display("[%0t SM%0d FETCH] fill_valid: warp=%0d early=%b delayed=%b", $time, SM_ID, fill_warp_id, early_response_valid, delayed_response_valid);
+    end
+    `endif
 
     genvar fill_w;
     generate
@@ -1178,8 +1212,11 @@ module streaming_multiprocessor_v2 #(
             if (same_cycle_hit) begin
                 // Same-cycle hit: use fetch_warp_id (the requesting warp)
                 warp_inst_buf[fetch_warp_id] <= icache_data;
+            end else if (early_response_valid) begin
+                // Early response (1-cycle latency): use warp ID from pipeline stage 0
+                warp_inst_buf[fetch_pipe_warp[0]] <= icache_data;
             end else if (delayed_response_valid) begin
-                // Delayed response: use warp ID from pipeline
+                // Delayed response: use warp ID from final pipeline stage
                 warp_inst_buf[fetch_pipe_warp[FETCH_PIPE_DEPTH-1]] <= icache_data;
             end
 
@@ -1219,9 +1256,11 @@ module streaming_multiprocessor_v2 #(
             assign pd_rs3[pd_i] = inst[10:6]; // Approximation
 
             wire [5:0] op = inst[31:26];
-            assign pd_is_compute[pd_i] = (op == `OP_ALU) || (op == `OP_MUL) ||
+            assign pd_is_compute[pd_i] = (op == `OP_ALU) || (op == `OP_ALU_IMM) || (op == `OP_MUL) ||
                                          (op == `OP_FP32_ARITH) || (op == `OP_FP16_ARITH) ||
-                                         (op == `OP_SFU);
+                                         (op == `OP_SFU) || (op == `OP_MOV_SPECIAL) ||
+                                         (op == `OP_MOV_IMM) || (op == `OP_SETP) ||
+                                         (op == `OP_CVT) || (op == `OP_NOP);
             assign pd_is_tensor[pd_i]  = (op == `OP_WMMA_MMA);
             assign pd_is_memory[pd_i]  = (op == `OP_LD_GLOBAL) || (op == `OP_ST_GLOBAL) ||
                                          (op == `OP_LD_SHARED) || (op == `OP_ST_SHARED);
@@ -1237,11 +1276,35 @@ module streaming_multiprocessor_v2 #(
     wire [31:0] sched_issue_inst [0:1];
     wire [2:0] sched_issue_pipe [0:1];
 
+    //------------------------------------------------------------------------
+    // Memory Pipeline In-Flight Counter
+    // Track memory instructions between scheduler and memory interface
+    // Prevent issuing new memory ops when one is already in the pipeline
+    //------------------------------------------------------------------------
+    reg [2:0] mem_pipe_inflight;  // Count of memory ops in scheduler->mem pipeline
+    wire sched_issues_memory = sched_issue_valid_mask[0] && pd_is_memory[sched_issue_warp_id[0]];
+    wire mem_response_complete = gmem_resp_valid || smem_resp_valid;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            mem_pipe_inflight <= 3'd0;
+        end else begin
+            case ({sched_issues_memory, mem_response_complete})
+                2'b10: mem_pipe_inflight <= mem_pipe_inflight + 3'd1;  // Issue, no response
+                2'b01: mem_pipe_inflight <= (mem_pipe_inflight > 0) ? mem_pipe_inflight - 3'd1 : 3'd0;  // Response, no issue
+                // 2'b11: no change (issue and response same cycle)
+                // 2'b00: no change
+                default: ;
+            endcase
+        end
+    end
+
     // Pipeline readiness signals (simplified)
     wire pipe_compute0_ready = 1'b1; // Pipeline always accepts unless stall logic says otherwise
     wire pipe_compute1_ready = 1'b1;
     wire pipe_tensor_ready   = !tensor_issue_full;
-    wire pipe_memory_ready   = !issue_stall_mem; // Reuse stall logic
+    // Memory pipeline ready only if no memory ops in flight AND not stalled
+    wire pipe_memory_ready   = (mem_pipe_inflight == 0) && !issue_stall_mem;
     wire pipe_branch_ready   = 1'b1;
 
     advanced_warp_scheduler #(
@@ -1288,6 +1351,16 @@ module streaming_multiprocessor_v2 #(
     // Replaces dec0_fire / dec1_fire logic
     assign issue0_fire = sched_issue_valid_mask[0];
     assign issue1_fire = sched_issue_valid_mask[1];
+
+    // DEBUG: Scheduler output - disabled for faster simulation
+    `ifdef DEBUG_SCHED
+    always @(posedge clk) begin
+        if (issue0_fire || issue1_fire)
+            $display("[%0t SM%0d SCHED] issue0_fire=%b issue1_fire=%b", $time, SM_ID, issue0_fire, issue1_fire);
+        if (|warp_inst_buf_valid)
+            $display("[%0t SM%0d SCHED] warp_inst_buf_valid=%b warp_ready=%b", $time, SM_ID, warp_inst_buf_valid, warp_ready);
+    end
+    `endif
 
     // We reuse the 'dec0' pipeline registers to hold the scheduled instructions
     // effectively merging Decode/Issue stages into one logical flow handled by scheduler+decoder
@@ -1350,6 +1423,7 @@ module streaming_multiprocessor_v2 #(
         .fp32_op     (dec_fp32_op),
         .fp64_op     (dec_fp64_op),
         .fp16_op     (dec_fp16_op),
+        .cvt_op      (dec_cvt_op),        // Type conversion
         .fp32_special(dec_fp32_special),  // Maps to SFU operations
         .wmma_mma    (dec_wmma_mma),       // Maps to tensor operations
         .mem_read    (dec_mem_read),
@@ -1395,6 +1469,7 @@ module streaming_multiprocessor_v2 #(
         .fp32_op     (dec1_fp32_op),
         .fp64_op     (dec1_fp64_op),
         .fp16_op     (dec1_fp16_op),
+        .cvt_op      (dec1_cvt_op),        // Type conversion
         .fp32_special(dec1_fp32_special),
         .wmma_mma    (dec1_wmma_mma),
         .mem_read    (dec1_mem_read),
@@ -1508,7 +1583,7 @@ module streaming_multiprocessor_v2 #(
                     issue_imm21 <= dec_imm21;
                     issue_use_imm <= dec_use_imm;
                     issue_mask <= warp_mask[dec0_warp_id];
-                    issue_alu_op <= dec_alu_op;
+                    issue_alu_op <= dec_alu_op || dec_cvt_op;  // CVT routed through ALU
                     issue_mul_op <= dec_mul_op;
                     issue_div_op <= dec_div_op;
                     issue_fp32_op <= dec_fp32_op;
@@ -1542,7 +1617,7 @@ module streaming_multiprocessor_v2 #(
                 issue1_imm21 <= dec1_imm21;
                 issue1_use_imm <= dec1_use_imm;
                 issue1_mask <= warp_mask[dec1_warp_id];
-                issue1_alu_op <= dec1_alu_op;
+                issue1_alu_op <= dec1_alu_op || dec1_cvt_op;  // CVT routed through ALU
                 issue1_mul_op <= dec1_mul_op;
                 issue1_div_op <= dec1_div_op;
                 issue1_fp32_op <= dec1_fp32_op;
@@ -1756,15 +1831,20 @@ module streaming_multiprocessor_v2 #(
     wire [4:0] alu_issue_rd = alu_use_slot0 ? issue_rd : issue1_rd;
     wire [NUM_LANES-1:0] alu_issue_mask = alu_use_slot0 ? issue_mask : issue1_mask;
     wire [5:0] alu_issue_func = alu_use_slot0 ? issue_func : issue1_func;
+    wire [5:0] alu_issue_opcode = alu_use_slot0 ? issue_opcode : issue1_opcode;
     wire [15:0] alu_issue_imm16 = alu_use_slot0 ? issue_imm16 : issue1_imm16;
     wire alu_issue_use_imm = alu_use_slot0 ? issue_use_imm : issue1_use_imm;
     wire [SIMD_WIDTH-1:0] alu_op_a = alu_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
     wire [SIMD_WIDTH-1:0] alu_op_b = alu_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
 
+    // For MOV_IMM, use 0 as operand_a so result = 0 + imm16 = imm16
+    wire alu_is_mov_imm = (alu_issue_opcode == `OP_MOV_IMM);
+    wire [SIMD_WIDTH-1:0] alu_operand_a = alu_is_mov_imm ? {SIMD_WIDTH{1'b0}} : alu_op_a;
+
     simd_alu u_simd_alu (
-        .func       (alu_issue_func),
-        .operand_a  (alu_op_a),
-        .operand_b  (alu_issue_use_imm ? {NUM_LANES{16'b0, alu_issue_imm16}} : alu_op_b),
+        .func       (alu_is_mov_imm ? `FUNC_ADD : alu_issue_func),
+        .operand_a  (alu_operand_a),
+        .operand_b  (alu_issue_use_imm ? {NUM_LANES{{16'b0, alu_issue_imm16}}} : alu_op_b),
         .lane_mask  (alu_issue_mask),
         .result     (alu_result),
         .zero_flags (alu_zero),
@@ -1791,6 +1871,91 @@ module streaming_multiprocessor_v2 #(
     end
 
     assign alu_valid_out = alu_valid_pipe;
+
+    //------------------------------------------------------------------------
+    // Special Register Execution (MOV_SPECIAL - 1 cycle)
+    // Reads special registers like tid.x, ctaid.x, ntid.x, nctaid.x, etc.
+    //------------------------------------------------------------------------
+    wire special_use_slot0 = special_reg_issue0;
+    wire [WARP_ID_W-1:0] special_issue_warp = special_use_slot0 ? issue_warp_id : issue1_warp_id;
+    wire [4:0] special_issue_rd = special_use_slot0 ? issue_rd : issue1_rd;
+    wire [4:0] special_issue_ra = special_use_slot0 ? issue_ra : issue1_ra;  // Special reg code
+    wire [NUM_LANES-1:0] special_issue_mask = special_use_slot0 ? issue_mask : issue1_mask;
+
+    // Generate special register value
+    // For %tid.x: each lane gets its lane index (0-31)
+    // For other special registers: same value replicated to all lanes
+    reg [31:0] special_reg_scalar;  // Scalar value for non-per-lane registers
+    wire special_is_tid_x = (special_issue_ra == `SREG_TID_X);
+
+    always @(*) begin
+        case (special_issue_ra)
+            `SREG_TID_X:    special_reg_scalar = 32'd0;  // Not used - per-lane below
+            `SREG_TID_Y:    special_reg_scalar = 32'd0;
+            `SREG_TID_Z:    special_reg_scalar = 32'd0;
+            `SREG_CTAID_X:  special_reg_scalar = block_id_regs[0];
+            `SREG_CTAID_Y:  special_reg_scalar = block_id_regs[1];
+            `SREG_CTAID_Z:  special_reg_scalar = block_id_regs[2];
+            `SREG_NTID_X:   special_reg_scalar = block_dim_regs[0];
+            `SREG_NTID_Y:   special_reg_scalar = block_dim_regs[1];
+            `SREG_NTID_Z:   special_reg_scalar = block_dim_regs[2];
+            `SREG_NCTAID_X: special_reg_scalar = grid_dim_regs[0];
+            `SREG_NCTAID_Y: special_reg_scalar = grid_dim_regs[1];
+            `SREG_NCTAID_Z: special_reg_scalar = grid_dim_regs[2];
+            default:        special_reg_scalar = 32'd0;
+        endcase
+    end
+
+    // Generate per-lane thread IDs for %tid.x, or replicate scalar for others
+    // Lane IDs: lane 0=0, lane 1=1, ..., lane 31=31
+    wire [SIMD_WIDTH-1:0] special_result;
+    genvar sr_i;
+    generate
+        for (sr_i = 0; sr_i < NUM_LANES; sr_i = sr_i + 1) begin : gen_special_reg
+            assign special_result[sr_i*32 +: 32] =
+                special_is_tid_x ? (special_issue_warp * NUM_LANES + sr_i) : special_reg_scalar;
+        end
+    endgenerate
+
+    // Special register pipeline tracking (1 stage)
+    reg                  special_valid_pipe;
+    reg [WARP_ID_W-1:0]  special_warp_pipe;
+    reg [4:0]            special_rd_pipe;
+    reg [NUM_LANES-1:0]  special_mask_pipe;
+    reg [SIMD_WIDTH-1:0] special_result_pipe;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            special_valid_pipe <= 1'b0;
+            special_warp_pipe <= 0;
+            special_rd_pipe <= 0;
+            special_mask_pipe <= 0;
+            special_result_pipe <= 0;
+        end else begin
+            special_valid_pipe <= special_reg_issue;
+            if (special_reg_issue) begin
+                special_warp_pipe <= special_issue_warp;
+                special_rd_pipe <= special_issue_rd;
+                special_mask_pipe <= special_issue_mask;
+                special_result_pipe <= special_result;
+                // DEBUG - show per-lane values to verify %tid.x
+                $display("[SM%0d] MOV_SPECIAL issued: warp=%0d rd=R%0d ra=%0d is_tid_x=%b",
+                    SM_ID, special_issue_warp, special_issue_rd, special_issue_ra, special_is_tid_x);
+                $display("        lane0=0x%08h lane1=0x%08h lane31=0x%08h",
+                    special_result[31:0], special_result[63:32], special_result[1023:992]);
+            end
+        end
+    end
+
+    wire special_valid_out = special_valid_pipe;
+
+    // DEBUG: special writeback
+    always @(posedge clk) begin
+        if (special_valid_out) begin
+            $display("[SM%0d] MOV_SPECIAL result ready: warp=%0d rd=R%0d value=0x%08h",
+                SM_ID, special_warp_pipe, special_rd_pipe, special_result_pipe[31:0]);
+        end
+    end
 
     //------------------------------------------------------------------------
     // SIMD Multiplier
@@ -1848,35 +2013,31 @@ module streaming_multiprocessor_v2 #(
     simd_fpu u_simd_fpu (
         .clk       (clk),
         .rst_n     (rst_n),
-        .valid_in  (fpu32_valid_in),
-        .ready     (fpu32_ready),
         .func      (fpu32_issue_func),
+        .rnd_mode  (2'b00),
+        .ftz       (1'b0),
         .operand_a (fpu32_op_a),
         .operand_b (fpu32_op_b),
         .operand_c (fpu32_op_c),
+        .valid_in  (fpu32_valid_in),
         .lane_mask (fpu32_issue_mask),
+        .result    (fpu32_result),
         .valid_out (fpu32_valid_out),
-        .result    (fpu32_result)
+        .overflow_flags (),
+        .invalid_flags  ()
     );
+    assign fpu32_ready = 1'b1;  // Always ready (pipelined)
 
-    // FPU32 pipeline tracking (warp/rd/mask follows data through pipeline)
-    integer fpu32_i;
+    // FPU32 pipeline tracking (1 stage for 1-cycle simd_fpu latency)
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            for (fpu32_i = 0; fpu32_i < 5; fpu32_i = fpu32_i + 1) begin
-                fpu32_warp_pipe[fpu32_i] <= 0;
-                fpu32_rd_pipe[fpu32_i] <= 0;
-                fpu32_mask_pipe[fpu32_i] <= 0;
-            end
+            fpu32_warp_pipe[0] <= 0;
+            fpu32_rd_pipe[0] <= 0;
+            fpu32_mask_pipe[0] <= 0;
         end else begin
             fpu32_warp_pipe[0] <= fpu32_valid_in ? fpu32_issue_warp : {WARP_ID_W{1'b0}};
             fpu32_rd_pipe[0] <= fpu32_valid_in ? fpu32_issue_rd : 5'b0;
             fpu32_mask_pipe[0] <= fpu32_valid_in ? fpu32_issue_mask : {NUM_LANES{1'b0}};
-            for (fpu32_i = 1; fpu32_i < 5; fpu32_i = fpu32_i + 1) begin
-                fpu32_warp_pipe[fpu32_i] <= fpu32_warp_pipe[fpu32_i-1];
-                fpu32_rd_pipe[fpu32_i] <= fpu32_rd_pipe[fpu32_i-1];
-                fpu32_mask_pipe[fpu32_i] <= fpu32_mask_pipe[fpu32_i-1];
-            end
         end
     end
 
@@ -1895,19 +2056,36 @@ module streaming_multiprocessor_v2 #(
 
     assign fpu64_valid_in = fpu64_issue;
 
+    // Extend 32-bit operands to 64-bit for FP64 unit
+    wire [NUM_LANES*64-1:0] fpu64_op_a_ext;
+    wire [NUM_LANES*64-1:0] fpu64_op_b_ext;
+    wire [NUM_LANES*64-1:0] fpu64_op_c_ext;
+    genvar fpu64_ext_i;
+    generate
+        for (fpu64_ext_i = 0; fpu64_ext_i < NUM_LANES; fpu64_ext_i = fpu64_ext_i + 1) begin : fpu64_ext
+            assign fpu64_op_a_ext[fpu64_ext_i*64 +: 64] = {32'b0, fpu64_op_a[fpu64_ext_i*32 +: 32]};
+            assign fpu64_op_b_ext[fpu64_ext_i*64 +: 64] = {32'b0, fpu64_op_b[fpu64_ext_i*32 +: 32]};
+            assign fpu64_op_c_ext[fpu64_ext_i*64 +: 64] = {32'b0, fpu64_op_c[fpu64_ext_i*32 +: 32]};
+        end
+    endgenerate
+
     simd_fpu64 u_simd_fpu64 (
         .clk       (clk),
         .rst_n     (rst_n),
-        .valid_in  (fpu64_valid_in),
-        .ready     (fpu64_ready),
         .func      (fpu64_issue_func),
-        .operand_a (fpu64_op_a),
-        .operand_b (fpu64_op_b),
-        .operand_c (fpu64_op_c),
+        .rnd_mode  (2'b00),
+        .ftz       (1'b0),
+        .operand_a (fpu64_op_a_ext),
+        .operand_b (fpu64_op_b_ext),
+        .operand_c (fpu64_op_c_ext),
+        .valid_in  (fpu64_valid_in),
         .lane_mask (fpu64_issue_mask),
+        .result    (fpu64_result),
         .valid_out (fpu64_valid_out),
-        .result    (fpu64_result)
+        .overflow_flags (),
+        .invalid_flags  ()
     );
+    assign fpu64_ready = 1'b1;  // Always ready (pipelined)
 
     integer fpu64_i;
     always @(posedge clk or negedge rst_n) begin
@@ -1967,7 +2145,7 @@ module streaming_multiprocessor_v2 #(
     integer fp16_i;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            for (fp16_i = 0; fp16_i < 2; fp16_i = fp16_i + 1) begin
+            for (fp16_i = 0; fp16_i < 3; fp16_i = fp16_i + 1) begin
                 fp16_warp_pipe[fp16_i] <= 0;
                 fp16_rd_pipe[fp16_i] <= 0;
                 fp16_mask_pipe[fp16_i] <= 0;
@@ -1979,6 +2157,9 @@ module streaming_multiprocessor_v2 #(
             fp16_warp_pipe[1] <= fp16_warp_pipe[0];
             fp16_rd_pipe[1] <= fp16_rd_pipe[0];
             fp16_mask_pipe[1] <= fp16_mask_pipe[0];
+            fp16_warp_pipe[2] <= fp16_warp_pipe[1];
+            fp16_rd_pipe[2] <= fp16_rd_pipe[1];
+            fp16_mask_pipe[2] <= fp16_mask_pipe[1];
         end
     end
 
@@ -2271,11 +2452,12 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     assign alu_wbq_in = pack_wb(alu_warp_pipe, alu_rd_pipe, alu_mask_pipe, alu_result_pipe);
     assign mul_wbq_in = pack_wb(mul_warp_pipe, mul_rd_pipe, mul_mask_pipe, mul_result);
-    assign fpu32_wbq_in = pack_wb(fpu32_warp_pipe[4], fpu32_rd_pipe[4], fpu32_mask_pipe[4], fpu32_result);
+    assign fpu32_wbq_in = pack_wb(fpu32_warp_pipe[0], fpu32_rd_pipe[0], fpu32_mask_pipe[0], fpu32_result);
     assign fpu64_wbq_in = pack_wb(fpu64_warp_pipe[4], fpu64_rd_pipe[4], fpu64_mask_pipe[4], fpu64_result_trunc);
-    assign fp16_wbq_in = pack_wb(fp16_warp_pipe[1], fp16_rd_pipe[1], fp16_mask_pipe[1], fp16_result);
+    assign fp16_wbq_in = pack_wb(fp16_warp_pipe[2], fp16_rd_pipe[2], fp16_mask_pipe[2], fp16_result);
     assign sfu_wbq_in = pack_wb(sfu_warp_pipe[7], sfu_rd_pipe[7], sfu_mask_pipe[7], sfu_result);
     assign shfl_wbq_in = pack_wb(shuffle_warp_pipe, shuffle_rd_pipe, shuffle_mask_pipe, shuffle_result_pipe);
+    wire [WB_PKT_W-1:0] special_wbq_in = pack_wb(special_warp_pipe, special_rd_pipe, special_mask_pipe, special_result_pipe);
 
     assign alu_wbq_push = alu_valid_out;
     assign mul_wbq_push = mul_valid_out;
@@ -2284,6 +2466,7 @@ module streaming_multiprocessor_v2 #(
     assign fp16_wbq_push = fp16_valid_out;
     assign sfu_wbq_push = sfu_valid_out;
     assign shfl_wbq_push = shuffle_valid_out;
+    wire special_wbq_push = special_valid_out;
 
     wb_fifo #(
         .WIDTH(WB_PKT_W),
@@ -2383,6 +2566,21 @@ module streaming_multiprocessor_v2 #(
         .empty    (shfl_wbq_empty)
     );
 
+    // Special register WBQ (reuse ALU depth since it's also 1-cycle)
+    wb_fifo #(
+        .WIDTH(WB_PKT_W),
+        .DEPTH(ALU_WBQ_DEPTH)
+    ) u_special_wbq (
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .push     (special_wbq_push),
+        .push_data(special_wbq_in),
+        .pop      (special_wbq_pop),
+        .pop_data (special_wbq_out),
+        .full     (special_wbq_full),
+        .empty    (special_wbq_empty)
+    );
+
     assign alu_wbq_warp = alu_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
     assign mul_wbq_warp = mul_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
     assign fpu32_wbq_warp = fpu32_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
@@ -2411,6 +2609,10 @@ module streaming_multiprocessor_v2 #(
     assign fp16_wbq_data = fp16_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
     assign sfu_wbq_data = sfu_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
     assign shfl_wbq_data = shfl_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
+    assign special_wbq_warp = special_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
+    assign special_wbq_rd = special_wbq_out[WB_RD_MSB:WB_RD_LSB];
+    assign special_wbq_mask = special_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
+    assign special_wbq_data = special_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
 
     //------------------------------------------------------------------------
     // Atomic Unit
@@ -2560,8 +2762,54 @@ module streaming_multiprocessor_v2 #(
     // STAGE 5: WRITEBACK (Round-Robin Arbitration + Scoreboard Clear)
     //========================================================================
 
+    //------------------------------------------------------------------------
+    // Memory Response Latch
+    // Capture memory response data when it arrives, since gmem_resp_valid
+    // is only high for one cycle but writeback arbiter runs one cycle later
+    //------------------------------------------------------------------------
+    reg gmem_resp_latched;
+    reg [WARP_ID_W-1:0] gmem_resp_warp;
+    reg [4:0] gmem_resp_rd;
+    reg [NUM_LANES*DATA_WIDTH-1:0] gmem_resp_data;
+    reg [NUM_LANES-1:0] gmem_resp_mask;
+
+    reg smem_resp_latched;
+    reg [WARP_ID_W-1:0] smem_resp_warp;
+    reg [4:0] smem_resp_rd;
+    reg [NUM_LANES*DATA_WIDTH-1:0] smem_resp_data;
+    reg [NUM_LANES-1:0] smem_resp_mask;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            gmem_resp_latched <= 1'b0;
+            smem_resp_latched <= 1'b0;
+        end else begin
+            // Latch global memory response
+            if (gmem_resp_valid && mem_pending_valid && !gmem_resp_latched) begin
+                gmem_resp_latched <= 1'b1;
+                gmem_resp_warp <= mem_warp_pending;
+                gmem_resp_rd <= mem_rd_pending;
+                gmem_resp_data <= gmem_resp_rdata;
+                gmem_resp_mask <= mem_mask_pending;
+            end else if (gmem_resp_latched && wb_found && wb_sel == 4'd7 && !smem_resp_latched) begin
+                gmem_resp_latched <= 1'b0;  // Clear latch when writeback consumes it
+            end
+
+            // Latch shared memory response
+            if (smem_resp_valid && smem_pending_valid && !smem_resp_latched) begin
+                smem_resp_latched <= 1'b1;
+                smem_resp_warp <= smem_warp_pending;
+                smem_resp_rd <= smem_rd_pending;
+                smem_resp_data <= smem_resp_rdata;
+                smem_resp_mask <= smem_mask_pending;
+            end else if (smem_resp_latched && wb_found && wb_sel == 4'd7) begin
+                smem_resp_latched <= 1'b0;  // Clear latch when writeback consumes it
+            end
+        end
+    end
+
     // Collect all ready FU outputs for round-robin arbitration
-    wire [9:0] fu_ready;
+    wire [10:0] fu_ready;
     assign fu_ready[0] = !alu_wbq_empty;                     // ALU (queued)
     assign fu_ready[1] = !mul_wbq_empty;                     // MUL (queued)
     assign fu_ready[2] = !fpu32_wbq_empty;                   // FPU32 (queued)
@@ -2569,9 +2817,12 @@ module streaming_multiprocessor_v2 #(
     assign fu_ready[4] = !fp16_wbq_empty;                    // FP16 (queued)
     assign fu_ready[5] = !sfu_wbq_empty;                     // SFU (queued)
     assign fu_ready[6] = !tensor_wbq_empty;                  // Tensor (queued)
-    assign fu_ready[7] = smem_resp_valid || gmem_resp_valid || store_pending_valid; // Memory
+    // Memory is ready if we have a latched response (from previous cycle) or store pending
+    // Note: We latch on cycle N when resp_valid arrives, then fu_ready[7]=1 on cycle N+1
+    assign fu_ready[7] = gmem_resp_latched || smem_resp_latched || store_pending_valid;
     assign fu_ready[8] = !shfl_wbq_empty;                    // Shuffle (queued)
     assign fu_ready[9] = atomic_valid_out;                   // Atomic
+    assign fu_ready[10] = !special_wbq_empty;                // Special registers (queued)
 
     // Round-robin selection for writeback
     reg [3:0] wb_sel;
@@ -2582,9 +2833,9 @@ module streaming_multiprocessor_v2 #(
         wb_found = 1'b0;
         wb_sel = 0;
         // Start from last priority + 1 for fairness
-        for (wb_i = 0; wb_i < 10; wb_i = wb_i + 1) begin
-            if (!wb_found && fu_ready[(wb_arb_priority + wb_i) % 10]) begin
-                wb_sel = (wb_arb_priority + wb_i) % 10;
+        for (wb_i = 0; wb_i < 11; wb_i = wb_i + 1) begin
+            if (!wb_found && fu_ready[(wb_arb_priority + wb_i) % 11]) begin
+                wb_sel = (wb_arb_priority + wb_i) % 11;
                 wb_found = 1'b1;
             end
         end
@@ -2598,6 +2849,7 @@ module streaming_multiprocessor_v2 #(
     assign sfu_wbq_pop = wb_found && (wb_sel == 4'd5);
     assign tensor_wbq_pop = wb_found && (wb_sel == 4'd6);
     assign shfl_wbq_pop = wb_found && (wb_sel == 4'd8);
+    assign special_wbq_pop = wb_found && (wb_sel == 4'd10);
 
     // Writeback arbiter with proper warp/rd tracking from FU pipelines
     always @(posedge clk or negedge rst_n) begin
@@ -2607,7 +2859,7 @@ module streaming_multiprocessor_v2 #(
         end else begin
             if (wb_found) begin
                 wb_valid <= 1'b1;
-                wb_arb_priority <= (wb_sel + 1) % 10;  // Advance for fairness
+                wb_arb_priority <= (wb_sel + 1) % 11;  // Advance for fairness
 
                 case (wb_sel)
                     4'd0: begin  // ALU (1-cycle pipeline for proper timing)
@@ -2652,18 +2904,20 @@ module streaming_multiprocessor_v2 #(
                         wb_data <= tensor_wbq_data;
                         wb_mask <= tensor_wbq_mask;
                     end
-                    4'd7: begin  // Memory
-                        if (smem_resp_valid) begin
-                            wb_warp_id <= smem_warp_pending;
-                            wb_rd <= smem_rd_pending;
-                            wb_data <= smem_resp_rdata;
-                            wb_mask <= smem_mask_pending;
-                        end else if (gmem_resp_valid) begin
-                            wb_warp_id <= mem_warp_pending;
-                            wb_rd <= mem_rd_pending;
-                            wb_data <= gmem_resp_rdata;
-                            wb_mask <= mem_mask_pending;
+                    4'd7: begin  // Memory - use latched values
+                        // $display("[%0t SM%0d CASE7] ...", $time, SM_ID, ...); // Debug disabled
+                        if (smem_resp_latched) begin
+                            wb_warp_id <= smem_resp_warp;
+                            wb_rd <= smem_resp_rd;
+                            wb_data <= smem_resp_data;
+                            wb_mask <= smem_resp_mask;
+                        end else if (gmem_resp_latched) begin
+                            wb_warp_id <= gmem_resp_warp;
+                            wb_rd <= gmem_resp_rd;
+                            wb_data <= gmem_resp_data;
+                            wb_mask <= gmem_resp_mask;
                         end else begin
+                            // Store completion (no register writeback)
                             wb_warp_id <= store_warp_pending;
                             wb_rd <= 0;
                             wb_data <= 0;
@@ -2682,6 +2936,12 @@ module streaming_multiprocessor_v2 #(
                         wb_data <= {NUM_LANES{atomic_result}};
                         wb_mask <= atomic_mask_pending;
                     end
+                    4'd10: begin  // Special registers (MOV_SPECIAL)
+                        wb_warp_id <= special_wbq_warp;
+                        wb_rd <= special_wbq_rd;
+                        wb_data <= special_wbq_data;
+                        wb_mask <= special_wbq_mask;
+                    end
                 endcase
             end else begin
                 wb_valid <= 1'b0;
@@ -2695,10 +2955,55 @@ module streaming_multiprocessor_v2 #(
     assign rf_wr_data = wb_data;
     assign rf_wr_mask = wb_mask;
 
+    // DEBUG: Track memory writeback - disabled for faster simulation
+    `ifdef DEBUG_MEMWB
+    always @(posedge clk) begin
+        if (gmem_resp_valid)
+            $display("[%0t SM%0d MEM_RESP] valid, gmem_latched=%b smem_latched=%b store_pend=%b, mem_rd=%0d, mem_warp=%0d",
+                     $time, SM_ID, gmem_resp_latched, smem_resp_latched, store_pending_valid, mem_rd_pending, mem_warp_pending);
+        if (gmem_resp_latched || smem_resp_latched)
+            $display("[%0t SM%0d LATCH] gmem_latched=%b (rd=%0d warp=%0d) smem_latched=%b wb_found=%b wb_sel=%0d",
+                     $time, SM_ID, gmem_resp_latched, gmem_resp_rd, gmem_resp_warp, smem_resp_latched, wb_found, wb_sel);
+        if (wb_valid && wb_sel == 4'd7)
+            $display("[%0t SM%0d WB_MEM] warp=%0d rd=R%0d gmem_latched=%b smem_latched=%b data=0x%08h",
+                     $time, SM_ID, wb_warp_id, wb_rd, gmem_resp_latched, smem_resp_latched, wb_data[31:0]);
+    end
+    `endif
+
+    // DEBUG: Track R23 register writes and CVT operations
+    `ifdef SIMULATION
+    always @(posedge clk) begin
+        // Track all writes to R23
+        if (rf_wr_en && wb_rd == 5'd23) begin
+            $display("[%0t R23_WRITE] warp=%0d wb_sel=%0d data=0x%08h from %s",
+                     $time, wb_warp_id, wb_sel, wb_data[31:0],
+                     wb_sel == 4'd0 ? "ALU" :
+                     wb_sel == 4'd1 ? "MUL" :
+                     wb_sel == 4'd2 ? "FPU32" :
+                     wb_sel == 4'd4 ? "FP16" : "OTHER");
+        end
+
+        // Track CVT instructions
+        if (alu_issue && issue_func[5:0] == 6'd40) begin  // CVT_F32_F16 = 40
+            $display("[%0t CVT_ISSUE] rd=R%0d ra=R%0d operand_a[15:0]=0x%04h",
+                     $time, alu_issue_rd, dec_ra, alu_op_a[15:0]);
+        end
+
+        // Track ALU result for CVT
+        if (alu_valid_pipe && alu_rd_pipe == 5'd23) begin
+            $display("[%0t ALU_R23_RESULT] alu_result_pipe=0x%08h", $time, alu_result_pipe[31:0]);
+        end
+    end
+    `endif
+
     //========================================================================
     // Warp State Management
     //========================================================================
     integer w;
+    reg [31:0] init_total_threads;
+    reg [31:0] init_threads_in_warp;
+    reg [NUM_LANES-1:0] init_computed_mask;
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             for (w = 0; w < NUM_WARPS; w = w + 1) begin
@@ -2722,16 +3027,38 @@ module streaming_multiprocessor_v2 #(
             bp_update_is_return <= 1'b0;
             bp_update_mispredicted <= 1'b0;
         end else begin
-            // Kernel start - allocate initial warps
+            // Kernel start - allocate initial warps with proper masks
             if (kernel_start) begin
+                $display("[SM%0d] kernel_start: block_dim=(%0d,%0d,%0d) kernel_pc=0x%08h",
+                         SM_ID, block_dim_x, block_dim_y, block_dim_z, kernel_pc);
+
+                init_total_threads = block_dim_x * block_dim_y * block_dim_z;
+
                 for (w = 0; w < NUM_WARPS; w = w + 1) begin
                     if (w < INIT_WARPS) begin
-                        warp_valid[w] <= 1'b1;
-                        warp_active[w] <= 1'b1;
+                        // Calculate how many threads belong to this warp
+                        // Warp w covers thread IDs [w*32, (w+1)*32-1]
+                        if (init_total_threads >= ((w + 1) * NUM_LANES)) begin
+                            // Full warp - all 32 threads active
+                            init_computed_mask = {NUM_LANES{1'b1}};
+                        end else if (init_total_threads > (w * NUM_LANES)) begin
+                            // Partial warp - only some threads active
+                            init_threads_in_warp = init_total_threads - (w * NUM_LANES);
+                            init_computed_mask = (1'b1 << init_threads_in_warp) - 1'b1;
+                        end else begin
+                            // No threads in this warp
+                            init_computed_mask = {NUM_LANES{1'b0}};
+                        end
+
+                        warp_valid[w] <= (init_computed_mask != 0);
+                        warp_active[w] <= (init_computed_mask != 0);
                         warp_exit_pending[w] <= 1'b0;
                         warp_pc[w] <= kernel_pc;
                         warp_fetch_pc[w] <= kernel_pc;
-                        warp_mask[w] <= {NUM_LANES{1'b1}};
+                        warp_mask[w] <= init_computed_mask;
+
+                        $display("[SM%0d] Warp %0d initialized: mask=0x%08h (total_threads=%0d)",
+                                 SM_ID, w, init_computed_mask, init_total_threads);
                     end else begin
                         warp_valid[w] <= 1'b0;
                         warp_active[w] <= 1'b0;
@@ -2841,144 +3168,8 @@ endmodule
 
 
 //============================================================================
-// SIMD FPU Wrapper (Instantiates per-lane FPU with proper interface)
-//============================================================================
-module simd_fpu #(
-    parameter NUM_LANES = 32,
-    parameter DATA_WIDTH = 32
-)(
-    input  wire                     clk,
-    input  wire                     rst_n,
-    input  wire                     valid_in,
-    output wire                     ready,
-    input  wire [5:0]               func,
-    input  wire [NUM_LANES*DATA_WIDTH-1:0] operand_a,
-    input  wire [NUM_LANES*DATA_WIDTH-1:0] operand_b,
-    input  wire [NUM_LANES*DATA_WIDTH-1:0] operand_c,
-    input  wire [NUM_LANES-1:0]     lane_mask,
-    output reg                      valid_out,
-    output reg  [NUM_LANES*DATA_WIDTH-1:0] result
-);
-
-    // Pipeline stages for FMA (4 cycles)
-    reg valid_pipe [0:3];
-    reg [NUM_LANES*DATA_WIDTH-1:0] result_pipe [0:3];
-
-    genvar i;
-    generate
-        for (i = 0; i < NUM_LANES; i = i + 1) begin : fpu_lanes
-            wire [31:0] a = operand_a[i*32 +: 32];
-            wire [31:0] b = operand_b[i*32 +: 32];
-            wire [31:0] c = operand_c[i*32 +: 32];
-            wire [31:0] r;
-            wire fpu_valid_out;
-
-            fpu u_fpu (
-                .clk        (clk),
-                .rst_n      (rst_n),
-                .func       (func),
-                .rnd_mode   (2'b00),     // Round to nearest
-                .ftz        (1'b0),       // Don't flush to zero
-                .operand_a  (a),
-                .operand_b  (b),
-                .operand_c  (c),
-                .valid_in   (valid_pipe[2]),  // Delayed to match pipeline
-                .result     (r),
-                .valid_out  (fpu_valid_out),
-                .overflow   (),
-                .underflow  (),
-                .inexact    (),
-                .invalid    (),
-                .div_by_zero()
-            );
-
-            always @(posedge clk) begin
-                if (fpu_valid_out)
-                    result_pipe[3][i*32 +: 32] <= r;
-            end
-        end
-    endgenerate
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            valid_pipe[0] <= 0;
-            valid_pipe[1] <= 0;
-            valid_pipe[2] <= 0;
-            valid_pipe[3] <= 0;
-            valid_out <= 0;
-        end else begin
-            valid_pipe[0] <= valid_in;
-            valid_pipe[1] <= valid_pipe[0];
-            valid_pipe[2] <= valid_pipe[1];
-            valid_pipe[3] <= valid_pipe[2];
-            valid_out <= valid_pipe[3];
-            result <= result_pipe[3];
-        end
-    end
-
-    assign ready = 1'b1;  // Always ready (pipelined)
-
-endmodule
-
-
-//============================================================================
-// SIMD FPU64 Wrapper
-//============================================================================
-module simd_fpu64 #(
-    parameter NUM_LANES = 32
-)(
-    input  wire                     clk,
-    input  wire                     rst_n,
-    input  wire                     valid_in,
-    output wire                     ready,
-    input  wire [5:0]               func,
-    input  wire [NUM_LANES*32-1:0]  operand_a,
-    input  wire [NUM_LANES*32-1:0]  operand_b,
-    input  wire [NUM_LANES*32-1:0]  operand_c,
-    input  wire [NUM_LANES-1:0]     lane_mask,
-    output reg                      valid_out,
-    output reg  [NUM_LANES*64-1:0]  result
-);
-    // FP64 operations use pairs of lanes (16 double-precision operations)
-    // Implementation similar to simd_fpu but with fpu64 instances
-
-    reg [3:0] valid_pipe;
-    reg [NUM_LANES*64-1:0] result_pipe [0:3];
-
-    wire [NUM_LANES*64-1:0] operand_a_ext;
-    genvar f64_idx;
-    generate
-        for (f64_idx = 0; f64_idx < NUM_LANES; f64_idx = f64_idx + 1) begin : f64_ext
-            assign operand_a_ext[f64_idx*64 +: 64] = {32'b0, operand_a[f64_idx*32 +: 32]};
-        end
-    endgenerate
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            valid_pipe <= 0;
-            valid_out <= 0;
-            result <= 0;
-            result_pipe[0] <= 0;
-            result_pipe[1] <= 0;
-            result_pipe[2] <= 0;
-            result_pipe[3] <= 0;
-        end else begin
-            valid_pipe <= {valid_pipe[2:0], valid_in};
-            valid_out <= valid_pipe[3];
-            result_pipe[0] <= operand_a_ext;
-            result_pipe[1] <= result_pipe[0];
-            result_pipe[2] <= result_pipe[1];
-            result_pipe[3] <= result_pipe[2];
-            result <= result_pipe[3];
-        end
-    end
-
-    assign ready = 1'b1;
-endmodule
-
-
-//============================================================================
-// SIMD FP16 Wrapper
+// SIMD FP16 Wrapper - instantiates fp16_unit for each lane
+// fp16_unit has 3-cycle latency, simd_fp16 should NOT add more
 //============================================================================
 module simd_fp16 #(
     parameter NUM_LANES = 32,
@@ -2992,91 +3183,49 @@ module simd_fp16 #(
     input  wire [NUM_LANES*DATA_WIDTH-1:0] operand_a,
     input  wire [NUM_LANES*DATA_WIDTH-1:0] operand_b,
     input  wire [NUM_LANES-1:0]     lane_mask,
-    output reg                      valid_out,
-    output reg  [NUM_LANES*DATA_WIDTH-1:0] result
+    output wire                     valid_out,
+    output wire [NUM_LANES*DATA_WIDTH-1:0] result
 );
     // FP16 packed operations (2x FP16 per 32-bit lane)
+    // Instantiate fp16_unit for each lane
 
-    reg [1:0] valid_pipe;
-    reg [NUM_LANES*DATA_WIDTH-1:0] result_pipe [0:1];
+    wire [DATA_WIDTH-1:0] lane_result [0:NUM_LANES-1];
+    wire [NUM_LANES-1:0] lane_valid_out;
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            valid_pipe <= 0;
-            valid_out <= 0;
-            result <= 0;
-            result_pipe[0] <= 0;
-            result_pipe[1] <= 0;
-        end else begin
-            valid_pipe <= {valid_pipe[0], valid_in};
-            valid_out <= valid_pipe[1];
-            result_pipe[0] <= operand_a;
-            result_pipe[1] <= result_pipe[0];
-            result <= result_pipe[1];
-        end
-    end
-
-    assign ready = 1'b1;
-endmodule
-
-
-//============================================================================
-// SIMD SFU Wrapper (Instantiates per-lane SFU with proper interface)
-//============================================================================
-module simd_sfu #(
-    parameter NUM_LANES = 32,
-    parameter DATA_WIDTH = 32
-)(
-    input  wire                     clk,
-    input  wire                     rst_n,
-    input  wire                     valid_in,
-    output wire                     ready,
-    input  wire [5:0]               func,
-    input  wire [NUM_LANES*DATA_WIDTH-1:0] operand,
-    input  wire [NUM_LANES-1:0]     lane_mask,
-    output reg                      valid_out,
-    output reg  [NUM_LANES*DATA_WIDTH-1:0] result
-);
-    // SFU operations: sin, cos, sqrt, rsqrt, lg2, ex2, rcp
-    // 8-cycle latency
-
-    reg [7:0] valid_pipe;
-
-    genvar i;
+    // Instantiate fp16_unit for each lane
+    genvar lane;
     generate
-        for (i = 0; i < NUM_LANES; i = i + 1) begin : sfu_lanes
-            wire [31:0] op = operand[i*32 +: 32];
-            wire [31:0] r;
-            wire sfu_valid_out;
-
-            sfu u_sfu (
+        for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : fp16_lanes
+            fp16_unit u_fp16 (
                 .clk        (clk),
                 .rst_n      (rst_n),
                 .func       (func),
-                .operand    (op),
-                .valid_in   (valid_pipe[6]),  // Delayed to match pipeline
-                .result     (r),
-                .valid_out  (sfu_valid_out),
-                .invalid    (),
-                .div_by_zero()
+                .valid_in   (valid_in && lane_mask[lane]),
+                .packed_mode(1'b0),  // Single FP16 mode
+                .operand_a  (operand_a[lane*DATA_WIDTH +: DATA_WIDTH]),
+                .operand_b  (operand_b[lane*DATA_WIDTH +: DATA_WIDTH]),
+                .operand_c  (32'b0),  // No FMA accumulator in simple mul
+                .result     (lane_result[lane]),
+                .valid_out  (lane_valid_out[lane]),
+                .overflow   (),
+                .underflow  (),
+                .inexact    (),
+                .invalid    ()
             );
-
-            always @(posedge clk) begin
-                if (sfu_valid_out)
-                    result[i*32 +: 32] <= r;
-            end
         end
     endgenerate
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            valid_pipe <= 0;
-            valid_out <= 0;
-        end else begin
-            valid_pipe <= {valid_pipe[6:0], valid_in};
-            valid_out <= valid_pipe[7];
+    // Use lane 0's valid_out as the overall valid signal
+    // (all lanes should produce valid at the same time)
+    assign valid_out = lane_valid_out[0];
+
+    // Collect results from all lanes combinatorially
+    genvar j;
+    generate
+        for (j = 0; j < NUM_LANES; j = j + 1) begin : result_collect
+            assign result[j*DATA_WIDTH +: DATA_WIDTH] = lane_result[j];
         end
-    end
+    endgenerate
 
     assign ready = 1'b1;
 endmodule

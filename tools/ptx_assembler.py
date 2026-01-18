@@ -86,6 +86,9 @@ class Opcode(IntEnum):
     WGMMA_STORE = 0b101110
     WGMMA_MMA   = 0b101111
 
+    MOV_IMM     = 0b110000  # Move immediate to register
+    ALU_IMM     = 0b110001  # ALU with 16-bit immediate
+
     NOP         = 0b111111
 
 #============================================================================
@@ -224,8 +227,8 @@ class CvtFunc(IntEnum):
     F32_U32 = 0b000011
     F32_F64 = 0b000100
     F64_F32 = 0b000101
-    F32_F16 = 0b000110
-    F16_F32 = 0b000111
+    F32_F16 = 0b101000  # unique code 40, not conflicting with ALU FUNC_SHL
+    F16_F32 = 0b101001  # unique code 41, not conflicting with ALU FUNC_SHR_U
     S64_F64 = 0b001000
     U64_F64 = 0b001001
     F64_S64 = 0b001010
@@ -422,15 +425,29 @@ class Instruction:
     rb: int = 0
     rc: int = 0
     func: int = 0
+    imm16: int = 0  # For immediate-mode instructions
 
     def encode(self) -> int:
         """Encode to 32-bit machine code"""
-        return ((self.opcode & 0x3F) << 26 |
-                (self.rd & 0x1F) << 21 |
-                (self.ra & 0x1F) << 16 |
-                (self.rb & 0x1F) << 11 |
-                (self.rc & 0x1F) << 6 |
-                (self.func & 0x3F))
+        if self.opcode == Opcode.MOV_IMM:
+            # MOV_IMM format: [31:26]=opcode, [25:21]=rd, [15:0]=imm16
+            return ((self.opcode & 0x3F) << 26 |
+                    (self.rd & 0x1F) << 21 |
+                    (self.imm16 & 0xFFFF))
+        elif self.opcode == Opcode.ALU_IMM:
+            # ALU_IMM format: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:0]=imm16
+            # (imm16 contains func in [15:10] and imm10 in [9:0])
+            return ((self.opcode & 0x3F) << 26 |
+                    (self.rd & 0x1F) << 21 |
+                    (self.ra & 0x1F) << 16 |
+                    (self.imm16 & 0xFFFF))
+        else:
+            return ((self.opcode & 0x3F) << 26 |
+                    (self.rd & 0x1F) << 21 |
+                    (self.ra & 0x1F) << 16 |
+                    (self.rb & 0x1F) << 11 |
+                    (self.rc & 0x1F) << 6 |
+                    (self.func & 0x3F))
 
 #============================================================================
 # Parser Utilities
@@ -1063,10 +1080,14 @@ class PTXAssembler:
         try:
             inst.rb = parse_register(operands[2])
         except ValueError:
-            # Immediate value
+            # Immediate value - use ALU_IMM opcode
+            # Format: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:10]=func, [9:0]=imm10
             imm = parse_immediate(operands[2])
-            inst.rb = imm & 0x1F
-            inst.rc = (imm >> 5) & 0x1F
+            if imm < 0:
+                # Handle negative immediates with sign extension
+                imm = imm & 0x3FF  # 10-bit wrap
+            inst.opcode = Opcode.ALU_IMM
+            inst.imm16 = ((func & 0x3F) << 10) | (imm & 0x3FF)
         return inst
 
     def _parse_alu_unary(self, func: int, operands: List[str]) -> Instruction:
@@ -1226,14 +1247,16 @@ class PTXAssembler:
 
         src = operands[1].lower()
         if src.startswith('%'):
+            # Special register (tid.x, ctaid.x, etc.)
             inst.ra = parse_special_reg(src)
         else:
-            # Immediate
+            # Immediate value - use MOV_IMM opcode
+            # Format: [31:26]=opcode, [25:21]=rd, [15:0]=imm16
             imm = parse_immediate(src)
-            inst.ra = (imm >> 16) & 0x1F
-            inst.rb = (imm >> 11) & 0x1F
-            inst.rc = (imm >> 6) & 0x1F
-            inst.func = imm & 0x3F
+            if imm < 0 or imm > 0xFFFF:
+                raise ValueError(f"MOV immediate {imm} out of 16-bit range")
+            inst.opcode = Opcode.MOV_IMM
+            inst.imm16 = imm
         return inst
 
     def _parse_bar_sync(self, operands: List[str]) -> Instruction:

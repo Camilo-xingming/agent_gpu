@@ -290,7 +290,9 @@ module memory_interface #(
                     m_axi_bready <= 1'b1;
                     if (m_axi_bvalid) begin
                         processed_count <= processed_count + 1'b1;
-                        if ((processed_count + 1'b1) < lane_count) begin
+                        if ((processed_count + 1'b1) >= lane_count) begin
+                            resp_valid_reg <= 1'b1;  // Signal write completion
+                        end else begin
                             current_lane <= find_next_lane(current_lane + 1, mask_buf);
                         end
                     end

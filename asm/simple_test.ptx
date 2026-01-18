@@ -1,0 +1,15 @@
+// Simple test kernel - just load, store, exit
+
+.entry simple_test:
+    // Load a value from memory at 0x1000
+    mov.u32 r1, 0x1000
+    ld.global.u32 r2, [r1]
+
+    // Store to 0x1040
+    mov.u32 r3, 0x1040
+    st.global.u32 [r3], r2
+
+    // Exit
+    exit
+
+.end

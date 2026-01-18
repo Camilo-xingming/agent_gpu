@@ -145,6 +145,8 @@
 `define OP_SURED        6'b101010   // Surface reduction
 
 // 保留
+`define OP_MOV_IMM      6'b110000   // Move immediate to register
+`define OP_ALU_IMM      6'b110001   // ALU with 16-bit immediate: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:0]=imm16, func from lower bits
 `define OP_NOP          6'b111111   // 空操作
 
 //============================================================================
@@ -305,8 +307,8 @@
 `define CVT_F32_U32     6'b000011   // cvt.f32.u32
 `define CVT_F32_F64     6'b000100   // cvt.f32.f64
 `define CVT_F64_F32     6'b000101   // cvt.f64.f32
-`define CVT_F32_F16     6'b000110   // cvt.f32.f16
-`define CVT_F16_F32     6'b000111   // cvt.f16.f32
+`define CVT_F32_F16     6'b101000   // cvt.f32.f16 (unique code 40)
+`define CVT_F16_F32     6'b101001   // cvt.f16.f32 (unique code 41)
 `define CVT_S64_F64     6'b001000   // cvt.s64.f64
 `define CVT_U64_F64     6'b001001   // cvt.u64.f64
 `define CVT_F64_S64     6'b001010   // cvt.f64.s64

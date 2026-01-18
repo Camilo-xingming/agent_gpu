@@ -36,39 +36,40 @@ module fp16_unit (
     //------------------------------------------------------------------------
 
     // Pipeline registers
-    reg [5:0]  func_r;
-    reg        packed_mode_r;
+    reg [5:0]  func_r, func_r2;           // Two stages for func
+    reg        packed_mode_r, packed_mode_r2;
     reg [31:0] op_a_r, op_b_r, op_c_r;
+    reg [31:0] op_a_r2, op_b_r2, op_c_r2;  // Operands for stage 2
     reg        valid_r1, valid_r2;
 
-    // FP16 extraction (lower 16 bits)
-    wire        fp16_a_sign = operand_a[15];
-    wire [4:0]  fp16_a_exp  = operand_a[14:10];
-    wire [9:0]  fp16_a_mant = operand_a[9:0];
+    // FP16 extraction from STAGE 2 operands (for use in pipeline stage 2 computation)
+    wire        fp16_a_sign = op_a_r2[15];
+    wire [4:0]  fp16_a_exp  = op_a_r2[14:10];
+    wire [9:0]  fp16_a_mant = op_a_r2[9:0];
 
-    wire        fp16_b_sign = operand_b[15];
-    wire [4:0]  fp16_b_exp  = operand_b[14:10];
-    wire [9:0]  fp16_b_mant = operand_b[9:0];
+    wire        fp16_b_sign = op_b_r2[15];
+    wire [4:0]  fp16_b_exp  = op_b_r2[14:10];
+    wire [9:0]  fp16_b_mant = op_b_r2[9:0];
 
-    // FP16 upper (for packed mode)
-    wire        fp16_a_hi_sign = operand_a[31];
-    wire [4:0]  fp16_a_hi_exp  = operand_a[30:26];
-    wire [9:0]  fp16_a_hi_mant = operand_a[25:16];
+    // FP16 upper (for packed mode) from STAGE 2 operands
+    wire        fp16_a_hi_sign = op_a_r2[31];
+    wire [4:0]  fp16_a_hi_exp  = op_a_r2[30:26];
+    wire [9:0]  fp16_a_hi_mant = op_a_r2[25:16];
 
-    wire        fp16_b_hi_sign = operand_b[31];
-    wire [4:0]  fp16_b_hi_exp  = operand_b[30:26];
-    wire [9:0]  fp16_b_hi_mant = operand_b[25:16];
+    wire        fp16_b_hi_sign = op_b_r2[31];
+    wire [4:0]  fp16_b_hi_exp  = op_b_r2[30:26];
+    wire [9:0]  fp16_b_hi_mant = op_b_r2[25:16];
 
-    // BF16 extraction
-    wire        bf16_a_sign = operand_a[15];
-    wire [7:0]  bf16_a_exp  = operand_a[14:7];
-    wire [6:0]  bf16_a_mant = operand_a[6:0];
+    // BF16 extraction from STAGE 2 operands
+    wire        bf16_a_sign = op_a_r2[15];
+    wire [7:0]  bf16_a_exp  = op_a_r2[14:7];
+    wire [6:0]  bf16_a_mant = op_a_r2[6:0];
 
-    wire        bf16_b_sign = operand_b[15];
-    wire [7:0]  bf16_b_exp  = operand_b[14:7];
-    wire [6:0]  bf16_b_mant = operand_b[6:0];
+    wire        bf16_b_sign = op_b_r2[15];
+    wire [7:0]  bf16_b_exp  = op_b_r2[14:7];
+    wire [6:0]  bf16_b_mant = op_b_r2[6:0];
 
-    // Special value detection - FP16
+    // Special value detection - FP16 (from stage 2 operands)
     wire fp16_a_is_zero = (fp16_a_exp == 5'b0) && (fp16_a_mant == 10'b0);
     wire fp16_b_is_zero = (fp16_b_exp == 5'b0) && (fp16_b_mant == 10'b0);
     wire fp16_a_is_inf  = (fp16_a_exp == 5'h1F) && (fp16_a_mant == 10'b0);
@@ -76,7 +77,7 @@ module fp16_unit (
     wire fp16_a_is_nan  = (fp16_a_exp == 5'h1F) && (fp16_a_mant != 10'b0);
     wire fp16_b_is_nan  = (fp16_b_exp == 5'h1F) && (fp16_b_mant != 10'b0);
 
-    // Special value detection - BF16
+    // Special value detection - BF16 (from stage 2 operands)
     wire bf16_a_is_zero = (bf16_a_exp == 8'b0) && (bf16_a_mant == 7'b0);
     wire bf16_b_is_zero = (bf16_b_exp == 8'b0) && (bf16_b_mant == 7'b0);
     wire bf16_a_is_inf  = (bf16_a_exp == 8'hFF) && (bf16_a_mant == 7'b0);
@@ -208,19 +209,20 @@ module fp16_unit (
 
     //------------------------------------------------------------------------
     // Simple FP16 arithmetic using FP32 intermediate
+    // Use STAGE 2 operands (op_a_r2, op_b_r2, op_c_r2) for pipeline correctness
     //------------------------------------------------------------------------
-    wire [31:0] fp32_a = fp16_to_fp32(operand_a[15:0]);
-    wire [31:0] fp32_b = fp16_to_fp32(operand_b[15:0]);
-    wire [31:0] fp32_c = fp16_to_fp32(operand_c[15:0]);
+    wire [31:0] fp32_a = fp16_to_fp32(op_a_r2[15:0]);
+    wire [31:0] fp32_b = fp16_to_fp32(op_b_r2[15:0]);
+    wire [31:0] fp32_c = fp16_to_fp32(op_c_r2[15:0]);
 
-    wire [31:0] fp32_a_hi = fp16_to_fp32(operand_a[31:16]);
-    wire [31:0] fp32_b_hi = fp16_to_fp32(operand_b[31:16]);
-    wire [31:0] fp32_c_hi = fp16_to_fp32(operand_c[31:16]);
+    wire [31:0] fp32_a_hi = fp16_to_fp32(op_a_r2[31:16]);
+    wire [31:0] fp32_b_hi = fp16_to_fp32(op_b_r2[31:16]);
+    wire [31:0] fp32_c_hi = fp16_to_fp32(op_c_r2[31:16]);
 
-    // BF16 to FP32
-    wire [31:0] bf32_a = bf16_to_fp32(operand_a[15:0]);
-    wire [31:0] bf32_b = bf16_to_fp32(operand_b[15:0]);
-    wire [31:0] bf32_c = bf16_to_fp32(operand_c[15:0]);
+    // BF16 to FP32 (from stage 2 operands)
+    wire [31:0] bf32_a = bf16_to_fp32(op_a_r2[15:0]);
+    wire [31:0] bf32_b = bf16_to_fp32(op_b_r2[15:0]);
+    wire [31:0] bf32_c = bf16_to_fp32(op_c_r2[15:0]);
 
     //------------------------------------------------------------------------
     // FP32 arithmetic results (using simple operations)
@@ -255,8 +257,19 @@ module fp16_unit (
             op_b_r <= operand_b;
             op_c_r <= operand_c;
 
-            // Pipeline stage 2: Compute
+            // Pipeline stage 2: Compute - advance stage 1 to stage 2
             valid_r2 <= valid_r1;
+            func_r2 <= func_r;
+            packed_mode_r2 <= packed_mode_r;
+            op_a_r2 <= op_a_r;
+            op_b_r2 <= op_b_r;
+            op_c_r2 <= op_c_r;
+
+            `ifdef SIMULATION
+            if (valid_r1)
+                $display("[%0t FP16_STAGE1] func_r=%0d op_a_r=0x%08x op_b_r=0x%08x",
+                         $time, func_r, op_a_r, op_b_r);
+            `endif
 
             // Pipeline stage 3: Output
             valid_out <= valid_r2;
@@ -265,8 +278,14 @@ module fp16_unit (
             inexact <= 1'b0;
             invalid <= 1'b0;
 
+            `ifdef SIMULATION
+            if (valid_r2)
+                $display("[%0t FP16_STAGE2] func_r2=%0d op_a_r2=0x%08x op_b_r2=0x%08x",
+                         $time, func_r2, op_a_r2, op_b_r2);
+            `endif
+
             if (valid_r2) begin
-                case (func_r)
+                case (func_r2)
                     //----------------------------------------------------
                     // FP16 Operations
                     //----------------------------------------------------
@@ -284,9 +303,9 @@ module fp16_unit (
                         end else if (fp16_b_is_inf) begin
                             fp16_result_lo = {fp16_b_sign, 5'h1F, 10'b0};
                         end else if (fp16_a_is_zero) begin
-                            fp16_result_lo = op_b_r[15:0];
+                            fp16_result_lo = op_b_r2[15:0];
                         end else if (fp16_b_is_zero) begin
-                            fp16_result_lo = op_a_r[15:0];
+                            fp16_result_lo = op_a_r2[15:0];
                         end else begin
                             // Use FP32 intermediate
                             fp16_result_lo = fp32_to_fp16(fp32_add(fp32_a, fp32_b));
@@ -307,6 +326,10 @@ module fp16_unit (
                     end
 
                     `FP16_MUL: begin
+                        `ifdef SIMULATION
+                        $display("[%0t FP16_MUL] op_a_r2=0x%08x op_b_r2=0x%08x fp32_a=0x%08x fp32_b=0x%08x",
+                                 $time, op_a_r2, op_b_r2, fp32_a, fp32_b);
+                        `endif
                         if (fp16_a_is_nan || fp16_b_is_nan) begin
                             fp16_result_lo = FP16_NAN;
                             invalid <= 1'b1;
@@ -320,6 +343,10 @@ module fp16_unit (
                             fp16_result_lo = {fp16_a_sign ^ fp16_b_sign, 5'h1F, 10'b0};
                         end else begin
                             fp16_result_lo = fp32_to_fp16(fp32_mul(fp32_a, fp32_b));
+                            `ifdef SIMULATION
+                            $display("[%0t FP16_MUL] fp32_product=0x%08x fp16_result=0x%04x",
+                                     $time, fp32_mul(fp32_a, fp32_b), fp16_result_lo);
+                            `endif
                         end
                         result <= {16'b0, fp16_result_lo};
                     end
@@ -327,7 +354,7 @@ module fp16_unit (
                     `FP16_FMA: begin
                         // a * b + c
                         if (fp16_a_is_nan || fp16_b_is_nan ||
-                            (op_c_r[14:10] == 5'h1F && op_c_r[9:0] != 10'b0)) begin
+                            (op_c_r2[14:10] == 5'h1F && op_c_r2[9:0] != 10'b0)) begin
                             fp16_result_lo = FP16_NAN;
                             invalid <= 1'b1;
                         end else begin
@@ -338,33 +365,33 @@ module fp16_unit (
                     end
 
                     `FP16_NEG: begin
-                        result <= {16'b0, ~op_a_r[15], op_a_r[14:0]};
+                        result <= {16'b0, ~op_a_r2[15], op_a_r2[14:0]};
                     end
 
                     `FP16_ABS: begin
-                        result <= {16'b0, 1'b0, op_a_r[14:0]};
+                        result <= {16'b0, 1'b0, op_a_r2[14:0]};
                     end
 
                     `FP16_MIN: begin
                         if (fp16_a_is_nan) begin
-                            result <= {16'b0, op_b_r[15:0]};
+                            result <= {16'b0, op_b_r2[15:0]};
                         end else if (fp16_b_is_nan) begin
-                            result <= {16'b0, op_a_r[15:0]};
+                            result <= {16'b0, op_a_r2[15:0]};
                         end else begin
                             // Compare as signed integers for proper FP comparison
-                            result <= fp16_less_than(op_a_r[15:0], op_b_r[15:0]) ?
-                                     {16'b0, op_a_r[15:0]} : {16'b0, op_b_r[15:0]};
+                            result <= fp16_less_than(op_a_r2[15:0], op_b_r2[15:0]) ?
+                                     {16'b0, op_a_r2[15:0]} : {16'b0, op_b_r2[15:0]};
                         end
                     end
 
                     `FP16_MAX: begin
                         if (fp16_a_is_nan) begin
-                            result <= {16'b0, op_b_r[15:0]};
+                            result <= {16'b0, op_b_r2[15:0]};
                         end else if (fp16_b_is_nan) begin
-                            result <= {16'b0, op_a_r[15:0]};
+                            result <= {16'b0, op_a_r2[15:0]};
                         end else begin
-                            result <= fp16_less_than(op_a_r[15:0], op_b_r[15:0]) ?
-                                     {16'b0, op_b_r[15:0]} : {16'b0, op_a_r[15:0]};
+                            result <= fp16_less_than(op_a_r2[15:0], op_b_r2[15:0]) ?
+                                     {16'b0, op_b_r2[15:0]} : {16'b0, op_a_r2[15:0]};
                         end
                     end
 

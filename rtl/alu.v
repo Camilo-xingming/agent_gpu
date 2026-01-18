@@ -142,6 +142,85 @@ module alu (
     wire [31:0] bfi_result = (operand_b & ~bfi_mask) | bfi_insert;
 
     //------------------------------------------------------------------------
+    // FP16 <-> FP32 Conversion (for CVT instructions routed through ALU)
+    //------------------------------------------------------------------------
+    // FP16 format: [15]=sign, [14:10]=exp (bias 15), [9:0]=mantissa
+    // FP32 format: [31]=sign, [30:23]=exp (bias 127), [22:0]=mantissa
+    function [31:0] fp16_to_fp32;
+        input [15:0] fp16;
+        reg sign;
+        reg [4:0] exp16;
+        reg [9:0] man16;
+        reg [7:0] exp32;
+        reg [22:0] man32;
+        begin
+            sign = fp16[15];
+            exp16 = fp16[14:10];
+            man16 = fp16[9:0];
+
+            if (exp16 == 5'h1F) begin
+                // Inf or NaN
+                exp32 = 8'hFF;
+                man32 = {man16, 13'b0};
+            end else if (exp16 == 5'h00) begin
+                if (man16 == 10'b0) begin
+                    // Zero
+                    exp32 = 8'h00;
+                    man32 = 23'b0;
+                end else begin
+                    // Denormalized - treat as zero for simplicity
+                    exp32 = 8'h00;
+                    man32 = 23'b0;
+                end
+            end else begin
+                // Normal number: rebias exponent (15 -> 127)
+                exp32 = exp16 + 8'd112;  // 127 - 15 = 112
+                man32 = {man16, 13'b0};
+            end
+
+            fp16_to_fp32 = {sign, exp32, man32};
+        end
+    endfunction
+
+    function [15:0] fp32_to_fp16;
+        input [31:0] fp32;
+        reg sign;
+        reg [7:0] exp32;
+        reg [22:0] man32;
+        reg [4:0] exp16;
+        reg [9:0] man16;
+        begin
+            sign = fp32[31];
+            exp32 = fp32[30:23];
+            man32 = fp32[22:0];
+
+            if (exp32 == 8'hFF) begin
+                // Inf or NaN
+                exp16 = 5'h1F;
+                man16 = man32[22:13];
+            end else if (exp32 == 8'h00) begin
+                // Zero or denorm
+                exp16 = 5'h00;
+                man16 = 10'b0;
+            end else if (exp32 < 8'd113) begin
+                // Underflow to zero
+                exp16 = 5'h00;
+                man16 = 10'b0;
+            end else if (exp32 > 8'd142) begin
+                // Overflow to infinity
+                exp16 = 5'h1F;
+                man16 = 10'b0;
+            end else begin
+                // Normal number: rebias exponent (127 -> 15)
+                exp16 = exp32 - 8'd112;
+                man16 = man32[22:13];
+            end
+
+            fp32_to_fp16 = {sign, exp16, man16};
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
     // PRMT (Permute Bytes)
     // 根据operand_c选择operand_a和operand_b的字节
     //------------------------------------------------------------------------
@@ -237,6 +316,16 @@ module alu (
             `FUNC_MUL_WIDE: begin
                 result = mul_wide_u[31:0];
                 result_hi = mul_wide_u[63:32];
+            end
+
+            // CVT instructions (FP16 <-> FP32 conversion)
+            `CVT_F32_F16: begin
+                // Convert FP16 (in low 16 bits of operand_a) to FP32
+                result = fp16_to_fp32(operand_a[15:0]);
+            end
+            `CVT_F16_F32: begin
+                // Convert FP32 (in operand_a) to FP16 (result in low 16 bits)
+                result = {16'b0, fp32_to_fp16(operand_a)};
             end
 
             default:     result = 32'b0;

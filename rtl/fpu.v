@@ -162,6 +162,10 @@ module fpu (
 
             case (func)
                 `FP_ADD, `FP_SUB: begin
+                    `ifdef SIMULATION
+                    $display("[%0t FP32_ADD] op_a=0x%08x op_b=0x%08x result=0x%08x",
+                             $time, operand_a, operand_b, add_result);
+                    `endif
                     result  <= add_result;
                     invalid <= add_invalid;
                 end
@@ -435,7 +439,20 @@ module simd_fpu #(
     wire [LANES-1:0] lane_ovf;
     wire [LANES-1:0] lane_inv;
 
-    assign valid_out = |lane_valid;
+    // Register lane_mask to align with 1-cycle FPU latency
+    // valid_in asserts at cycle N, FPU completes at cycle N+1
+    // lane_mask_r holds the mask from when the operation was issued
+    reg [LANES-1:0] lane_mask_r;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            lane_mask_r <= {LANES{1'b0}};
+        else if (valid_in)
+            lane_mask_r <= lane_mask;
+    end
+
+    // valid_out requires: at least one lane was active AND all active lanes completed
+    // Use registered lane_mask to match FPU 1-cycle latency
+    assign valid_out = |lane_mask_r && &lane_valid;
 
     genvar i;
     generate
@@ -465,10 +482,11 @@ module simd_fpu #(
                 .div_by_zero(l_dbz)
             );
 
-            assign result[i*32 +: 32] = lane_mask[i] ? lane_result : 32'b0;
-            assign lane_valid[i] = lane_mask[i] ? l_valid : 1'b1;
-            assign lane_ovf[i] = lane_mask[i] & l_ovf;
-            assign lane_inv[i] = lane_mask[i] & l_inv;
+            // Use lane_mask_r (registered) for outputs to match 1-cycle FPU latency
+            assign result[i*32 +: 32] = lane_mask_r[i] ? lane_result : 32'b0;
+            assign lane_valid[i] = lane_mask_r[i] ? l_valid : 1'b1;
+            assign lane_ovf[i] = lane_mask_r[i] & l_ovf;
+            assign lane_inv[i] = lane_mask_r[i] & l_inv;
         end
     endgenerate
 

@@ -237,6 +237,16 @@ module decoder (
                     reg_write <= 1'b1;
                 end
 
+                `OP_ALU_IMM: begin
+                    // ALU with 16-bit immediate: rd = ra op imm16
+                    // Format: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:10]=func, [9:0]=imm10
+                    alu_op    <= 1'b1;
+                    use_imm   <= 1'b1;
+                    reg_write <= 1'b1;
+                    func      <= inst_imm16[15:10];  // func from upper bits of imm16
+                    imm16     <= {6'b0, inst_imm16[9:0]};  // 10-bit immediate
+                end
+
                 `OP_MUL: begin
                     mul_op    <= 1'b1;
                     reg_write <= 1'b1;
@@ -279,6 +289,7 @@ module decoder (
                 `OP_MOV_SPECIAL: begin
                     special_reg <= 1'b1;
                     reg_write   <= 1'b1;
+                    $display("[DECODER] MOV_SPECIAL detected: inst=0x%08h rd=R%0d sreg=%0d", instruction, rd, ra);
                 end
 
                 `OP_BAR_SYNC: begin
@@ -511,6 +522,14 @@ module decoder (
 
                 `OP_WGMMA_MMA: begin
                     wgmma_mma <= 1'b1;
+                    reg_write <= 1'b1;
+                end
+
+                `OP_MOV_IMM: begin
+                    // Move immediate value to register
+                    // Uses ALU with OR: rd = 0 | imm16
+                    alu_op    <= 1'b1;
+                    use_imm   <= 1'b1;
                     reg_write <= 1'b1;
                 end
 

@@ -1,0 +1,211 @@
+// RalphGPU Simple FP16 Matmul Test - No address arithmetic hazards
+// Precompute all addresses to avoid RAW hazards
+
+.entry matmul_simple:
+    // Load matrix A word 0 (A[0][1],A[0][0]) into r1
+    mov.u32 r31, 0x1000
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r1, [r31]
+
+    // Load matrix A word 1 (A[0][3],A[0][2]) into r2
+    mov.u32 r31, 0x1004
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r2, [r31]
+
+    // Load matrix A word 2 into r3
+    mov.u32 r31, 0x1008
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r3, [r31]
+
+    // Load matrix A word 3 into r4
+    mov.u32 r31, 0x100c
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r4, [r31]
+
+    // Load matrix A word 4 into r5
+    mov.u32 r31, 0x1010
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r5, [r31]
+
+    // Load matrix A word 5 into r6
+    mov.u32 r31, 0x1014
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r6, [r31]
+
+    // Load matrix A word 6 into r7
+    mov.u32 r31, 0x1018
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r7, [r31]
+
+    // Load matrix A word 7 into r8
+    mov.u32 r31, 0x101c
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r8, [r31]
+
+    // Load matrix B (8 words) into r9-r16
+    mov.u32 r31, 0x1020
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r9, [r31]
+
+    mov.u32 r31, 0x1024
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r10, [r31]
+
+    mov.u32 r31, 0x1028
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r11, [r31]
+
+    mov.u32 r31, 0x102c
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r12, [r31]
+
+    mov.u32 r31, 0x1030
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r13, [r31]
+
+    mov.u32 r31, 0x1034
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r14, [r31]
+
+    mov.u32 r31, 0x1038
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r15, [r31]
+
+    mov.u32 r31, 0x103c
+    nop
+    nop
+    nop
+    nop
+    ld.global.u32 r16, [r31]
+
+    // Compute C[0][0] = A[0][0]*B[0][0] + A[0][1]*B[1][0] + A[0][2]*B[2][0] + A[0][3]*B[3][0]
+    nop
+    nop
+    nop
+    nop
+    and.b32 r21, r1, 0xFFFF     // A[0][0]
+    and.b32 r22, r9, 0xFFFF     // B[0][0]
+    nop
+    nop
+    nop
+    nop
+    mul.f16 r20, r21, r22
+    nop
+    nop
+    nop
+    nop
+    cvt.f32.f16 r20, r20
+
+    shr.u32 r21, r1, 16         // A[0][1]
+    and.b32 r22, r11, 0xFFFF    // B[1][0]
+    nop
+    nop
+    nop
+    nop
+    mul.f16 r23, r21, r22
+    nop
+    nop
+    nop
+    nop
+    cvt.f32.f16 r23, r23
+    nop
+    nop
+    nop
+    nop
+    add.f32 r20, r20, r23
+
+    and.b32 r21, r2, 0xFFFF     // A[0][2]
+    and.b32 r22, r13, 0xFFFF    // B[2][0]
+    nop
+    nop
+    nop
+    nop
+    mul.f16 r23, r21, r22
+    nop
+    nop
+    nop
+    nop
+    cvt.f32.f16 r23, r23
+    nop
+    nop
+    nop
+    nop
+    add.f32 r20, r20, r23
+
+    shr.u32 r21, r2, 16         // A[0][3]
+    and.b32 r22, r15, 0xFFFF    // B[3][0]
+    nop
+    nop
+    nop
+    nop
+    mul.f16 r23, r21, r22
+    nop
+    nop
+    nop
+    nop
+    cvt.f32.f16 r23, r23
+    nop
+    nop
+    nop
+    nop
+    add.f32 r20, r20, r23       // r20 = C[0][0]
+
+    // Store C[0][0]
+    mov.u32 r30, 0x1040
+    nop
+    nop
+    nop
+    nop
+    st.global.f32 [r30], r20
+
+    // For the test, just compute and store one element
+    // If this works, we can expand to all 16 elements
+
+    exit
+
+.end
