@@ -288,28 +288,58 @@ module fp_add_simple (
                                            {1'b0, aligned_b} - {1'b0, aligned_a}) :
                  {1'b0, aligned_a} + {1'b0, aligned_b};
 
+    // Fixed: When eff_sub, use sign of the larger aligned operand
+    // - aligned_a >= aligned_b: we computed a - b, result has sign_a
+    // - aligned_a < aligned_b: we computed b - a, result has sign_b
     assign result_sign = eff_sub ?
-                         (aligned_a >= aligned_b ? (a_larger ? sign_a : sign_b) :
-                                                   (a_larger ? sign_b : sign_a)) :
+                         (aligned_a >= aligned_b ? sign_a : sign_b) :
                          sign_a;
 
-    // 规范化 (简化)
-    // When sum[25]=1: overflow by 2 positions, exp+2
-    // When sum[24]=1: overflow by 1 position, exp+1
-    // When sum[23]=1: no overflow, exp unchanged
-    // Otherwise: underflow, exp-1
+    // Full normalization with leading zero counting
+    // Count leading zeros in sum[25:0] to determine shift amount
+    wire [4:0] lzc;  // Leading zero count (0-26)
+    assign lzc = sum[25] ? 5'd0 :
+                 sum[24] ? 5'd1 :
+                 sum[23] ? 5'd2 :
+                 sum[22] ? 5'd3 :
+                 sum[21] ? 5'd4 :
+                 sum[20] ? 5'd5 :
+                 sum[19] ? 5'd6 :
+                 sum[18] ? 5'd7 :
+                 sum[17] ? 5'd8 :
+                 sum[16] ? 5'd9 :
+                 sum[15] ? 5'd10 :
+                 sum[14] ? 5'd11 :
+                 sum[13] ? 5'd12 :
+                 sum[12] ? 5'd13 :
+                 sum[11] ? 5'd14 :
+                 sum[10] ? 5'd15 :
+                 sum[9]  ? 5'd16 :
+                 sum[8]  ? 5'd17 :
+                 sum[7]  ? 5'd18 :
+                 sum[6]  ? 5'd19 :
+                 sum[5]  ? 5'd20 :
+                 sum[4]  ? 5'd21 :
+                 sum[3]  ? 5'd22 :
+                 sum[2]  ? 5'd23 :
+                 sum[1]  ? 5'd24 :
+                 sum[0]  ? 5'd25 : 5'd26;
+
+    // Normalized mantissa position is 23 (bit 23 should be 1)
+    // So shift amount is lzc - 2 (since leading 1 should be at position 23)
+    // When lzc=0: sum[25]=1, shift right by 2, exp+2
+    // When lzc=1: sum[24]=1, shift right by 1, exp+1
+    // When lzc=2: sum[23]=1, no shift, exp unchanged
+    // When lzc>2: shift left by (lzc-2), exp-(lzc-2)
+
     wire [7:0] final_exp;
     wire [22:0] final_man;
+    wire [25:0] shifted_sum;
 
-    assign final_exp = sum[25] ? result_exp + 8'd2 :
-                       sum[24] ? result_exp + 8'd1 :
-                       sum[23] ? result_exp :
-                       result_exp - 8'd1;
-
-    assign final_man = sum[25] ? sum[24:2] :
-                       sum[24] ? sum[23:1] :
-                       sum[23] ? sum[22:0] :
-                       {sum[21:0], 1'b0};
+    assign shifted_sum = (lzc <= 5'd2) ? (sum >> (5'd2 - lzc)) : (sum << (lzc - 5'd2));
+    assign final_exp = (lzc <= 5'd2) ? (result_exp + (8'd2 - {3'b0, lzc})) :
+                       (result_exp - ({3'b0, lzc} - 8'd2));
+    assign final_man = shifted_sum[22:0];
 
     always @(*) begin
         invalid = 1'b0;
