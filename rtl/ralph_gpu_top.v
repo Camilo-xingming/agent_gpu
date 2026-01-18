@@ -302,6 +302,19 @@ module ralph_gpu_top #(
     assign imem_req  = imem_accept;
     assign imem_addr = imem_accept ? sm_imem_addr[imem_arb_sel] : 32'b0;
 
+    // Debug: trace imem interface - print first clock only
+    reg imem_debug_done;
+    initial begin
+        imem_debug_done = 0;
+        $display("[GPU_TOP] Module initialized - NUM_SM=%0d", NUM_SM);
+    end
+    always @(posedge clk) begin
+        if (!imem_debug_done) begin
+            $display("[GPU_TOP-CLK] First clock edge! sm_req[0]=%b", sm_imem_req[0]);
+            imem_debug_done <= 1;
+        end
+    end
+
     integer sm_i;
     always @(*) begin
         sm_imem_ready = {NUM_SM{1'b0}};

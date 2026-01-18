@@ -150,6 +150,16 @@ module advanced_warp_scheduler #(
 
     wire [NUM_WARPS-1:0] warp_eligible = warp_schedulable & ~warp_has_hazard;
 
+    // DEBUG: trace hazard detection for warp 0 (disabled for cleaner output)
+    // reg [3:0] hazard_debug_cnt;
+    // always @(posedge clk or negedge rst_n) begin
+    //     if (!rst_n) hazard_debug_cnt <= 0;
+    //     else if (warp_inst_valid[0] && hazard_debug_cnt < 8) begin
+    //         $display("[SCHED] Warp0: ... hazard=%b", warp_has_hazard[0]);
+    //         hazard_debug_cnt <= hazard_debug_cnt + 1;
+    //     end
+    // end
+
     // Split by instruction type
     wire [NUM_WARPS-1:0] compute_eligible = warp_eligible & warp_is_compute;
     wire [NUM_WARPS-1:0] tensor_eligible  = warp_eligible & warp_is_tensor;
@@ -268,6 +278,8 @@ module advanced_warp_scheduler #(
             issue_inst_r[0] = warp_inst[selected_memory];
             issue_pipe_r[0] = PIPE_MEMORY;
             issue_writes_reg_r[0] = warp_writes_reg[selected_memory];
+            // DEBUG: trace memory issue
+            // $display("[SCHED] Issuing memory op warp=%0d inst=%08x", selected_memory, warp_inst[selected_memory]);
         end else if (found_tensor && tensor_pipe_ready) begin
             issue_valid_r[0] = 1'b1;
             issue_warp_r[0] = selected_tensor;
@@ -341,6 +353,7 @@ module advanced_warp_scheduler #(
     // Scoreboard Update
     //------------------------------------------------------------------------
     integer sb_w;
+    reg [3:0] sb_debug_cnt;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             for (sb_w = 0; sb_w < NUM_WARPS; sb_w = sb_w + 1) begin
@@ -349,6 +362,7 @@ module advanced_warp_scheduler #(
             compute_rr_ptr <= 0;
             tensor_rr_ptr <= 0;
             memory_rr_ptr <= 0;
+            sb_debug_cnt <= 0;
         end else begin
             // Set scoreboard bits on issue
             // IMPORTANT: Use captured instruction (issue_inst_r) to extract rd and

@@ -262,7 +262,8 @@ module memory_interface #(
 
                 READ_DATA: begin
                     m_axi_rready <= 1'b1;
-                    if (m_axi_rvalid) begin
+                    // Must check both rvalid AND rready for proper AXI handshake
+                    if (m_axi_rvalid && m_axi_rready) begin
                         rdata_buf[current_lane*DATA_WIDTH +: DATA_WIDTH] <= m_axi_rdata;
                         processed_count <= processed_count + 1'b1;
                         if ((processed_count + 1'b1) >= lane_count) begin
@@ -288,7 +289,8 @@ module memory_interface #(
 
                 WRITE_RESP: begin
                     m_axi_bready <= 1'b1;
-                    if (m_axi_bvalid) begin
+                    // Must check both bvalid AND bready for proper AXI handshake
+                    if (m_axi_bvalid && m_axi_bready) begin
                         processed_count <= processed_count + 1'b1;
                         if ((processed_count + 1'b1) >= lane_count) begin
                             resp_valid_reg <= 1'b1;  // Signal write completion
