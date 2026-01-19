@@ -113,15 +113,32 @@ module tb_vector_add;
     );
 
     //------------------------------------------------------------------------
-    // 指令内存模型
+    // 指令内存模型 - load from hex file
     //------------------------------------------------------------------------
-    reg [31:0] instruction_mem [0:255];
+    reg [31:0] imem [0:255];
+    integer instr_count;
+
+    initial begin
+        // Initialize with NOPs/EXIT
+        for (integer j = 0; j < 256; j = j + 1) begin
+            imem[j] = 32'hFC000000;  // NOP opcode
+        end
+        // Load program from hex file
+        $readmemh("vector_add.hex", imem);
+        // Count instructions
+        instr_count = 0;
+        for (integer j = 0; j < 256; j = j + 1) begin
+            if (imem[j] != 32'hFC000000) instr_count = instr_count + 1;
+        end
+        $display("Loaded %0d instructions from vector_add.hex", instr_count);
+    end
 
     always @(posedge clk) begin
-        imem_valid <= imem_req;
         if (imem_req) begin
-            // Return 2 words for 8-byte cache line (64-bit response)
-            imem_data <= {instruction_mem[imem_addr[9:2] + 1], instruction_mem[imem_addr[9:2]]};
+            imem_data <= {imem[imem_addr[9:2] + 1], imem[imem_addr[9:2]]};
+            imem_valid <= 1'b1;
+        end else begin
+            imem_valid <= 1'b0;
         end
     end
 
@@ -180,18 +197,6 @@ module tb_vector_add;
     end
 
     //------------------------------------------------------------------------
-    // 辅助函数 - 构造指令
-    //------------------------------------------------------------------------
-    function [31:0] make_inst;
-        input [5:0] op;
-        input [4:0] rd, ra, rb, rc;
-        input [5:0] fn;
-        begin
-            make_inst = {op, rd, ra, rb, rc, fn};
-        end
-    endfunction
-
-    //------------------------------------------------------------------------
     // CSR写入任务
     //------------------------------------------------------------------------
     task csr_write;
@@ -231,35 +236,11 @@ module tb_vector_add;
         csr_wr_data = 0;
 
         //--------------------------------------------------------------------
-        // 加载向量加法Kernel
-        // PTX伪代码:
-        //   mov.u32 r0, %tid.x           // r0 = thread_id
-        //   shl.b32 r1, r0, 2            // r1 = r0 * 4 (字节偏移)
-        //   ld.global r2, [r1+0x0000]    // r2 = A[i]
-        //   ld.global r3, [r1+0x1000]    // r3 = B[i]
-        //   add.s32 r4, r2, r3           // r4 = r2 + r3
-        //   st.global [r1+0x2000], r4    // C[i] = r4
-        //   nop (结束)
-        //--------------------------------------------------------------------
-
-        // 指令0: mov r0, %tid.x
-        instruction_mem[0] = make_inst(`OP_MOV_SPECIAL, 5'd0, `SREG_TID_X, 5'd0, 5'd0, 6'd0);
-
-        // 指令1: shl r1, r0, 2 (立即数移位，简化处理)
-        // 注意: 实际实现可能需要立即数支持，这里用r2预设为2
-        instruction_mem[1] = make_inst(`OP_ALU, 5'd1, 5'd0, 5'd2, 5'd0, `FUNC_SHL);
-
-        // 指令2-6: NOP占位 (简化测试)
-        instruction_mem[2] = make_inst(`OP_NOP, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0);
-        instruction_mem[3] = make_inst(`OP_NOP, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0);
-        instruction_mem[4] = make_inst(`OP_NOP, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0);
-        instruction_mem[5] = make_inst(`OP_NOP, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0);
-        instruction_mem[6] = make_inst(`OP_NOP, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0);
-        // EXIT指令结束kernel
-        instruction_mem[7] = make_inst(`OP_EXIT, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0);
-
-        //--------------------------------------------------------------------
         // 初始化数据内存
+        // Memory map (matching vector_add.ptx):
+        // - A array: 0x0000 (word index 0-31)
+        // - B array: 0x1000 (word index 1024-1055)
+        // - C array: 0x2000 (word index 2048-2079)
         //--------------------------------------------------------------------
         $display("\nInitializing data memory...");
         for (i = 0; i < 32; i = i + 1) begin
@@ -313,11 +294,15 @@ module tb_vector_add;
                 disable wait_kernel;
             end
             begin
-                #50000;
+                #100000;
                 $display("\n--- Timeout waiting for kernel ---");
                 disable wait_kernel;
             end
         join
+
+        // Wait for memory stores to drain (kernel completes before all stores finish)
+        $display("Waiting for stores to complete...");
+        #5000;
 
         //--------------------------------------------------------------------
         // 验证结果
@@ -325,15 +310,21 @@ module tb_vector_add;
         $display("\n--- Verifying Results ---");
         $display("Expected: C[i] = A[i] + B[i] = i*10 + i*5 = i*15\n");
 
-        // 注意: 由于kernel是简化的，主要验证基础设施工作
-        // 实际结果可能需要完整的kernel实现
-
-        for (i = 0; i < 8; i = i + 1) begin
-            $display("  C[%0d] = %0d (A=%0d, B=%0d, expected=%0d)",
-                     i, data_memory[2048 + i],
-                     data_memory[i], data_memory[1024 + i],
-                     data_memory[i] + data_memory[1024 + i]);
+        // Check all 32 thread results
+        for (i = 0; i < 32; i = i + 1) begin
+            if (data_memory[2048 + i] == data_memory[i] + data_memory[1024 + i]) begin
+                if (i < 8) $display("  C[%0d] = %0d (expected %0d) [PASS]",
+                         i, data_memory[2048 + i],
+                         data_memory[i] + data_memory[1024 + i]);
+                passed = passed + 1;
+            end else begin
+                $display("  C[%0d] = %0d (expected %0d) [FAIL]",
+                         i, data_memory[2048 + i],
+                         data_memory[i] + data_memory[1024 + i]);
+                failed = failed + 1;
+            end
         end
+        $display("  Vector add: %0d/32 correct", passed);
 
         //--------------------------------------------------------------------
         // CSR读取测试
@@ -397,8 +388,11 @@ module tb_vector_add;
     // 调试监控
     //------------------------------------------------------------------------
     always @(posedge clk) begin
-        if (imem_req) begin
-            $display("[FETCH] PC=0x%08X, Inst=0x%08X", imem_addr, imem_data);
+        // Print on response cycle (when imem_valid is high), not request cycle
+        // Non-blocking assignments update after all blocks execute
+        if (imem_valid) begin
+            $display("[FETCH] Inst=0x%016X (lo=0x%08X, hi=0x%08X)",
+                     imem_data, imem_data[31:0], imem_data[63:32]);
         end
     end
 

@@ -432,7 +432,19 @@ module advanced_warp_scheduler #(
 
             if (issue_valid_r[0] && issue_valid_r[1]) begin
                 dual_count <= dual_count + 1;
+                `ifdef SIMULATION
+                if (dual_count < 10 || dual_count[7:0] == 8'hFF)
+                    $display("[%0t DUAL_ISSUE] cycle=%0d warp0=%0d pipe0=%0d warp1=%0d pipe1=%0d",
+                             $time, cycle_count, issue_warp_r[0], issue_pipe_r[0],
+                             issue_warp_r[1], issue_pipe_r[1]);
+                `endif
             end else if (issue_valid_r[0]) begin
+                // Debug: why no dual-issue?
+                `ifdef SIMULATION
+                if (single_count < 5)
+                    $display("[%0t SINGLE] cycle=%0d pipe0=%0d c_elig=%04b warp_elig=%04b warp_sched=%04b",
+                             $time, cycle_count, issue_pipe_r[0], compute_eligible, warp_eligible, warp_schedulable);
+                `endif
                 single_count <= single_count + 1;
             end else begin
                 stall_count <= stall_count + 1;

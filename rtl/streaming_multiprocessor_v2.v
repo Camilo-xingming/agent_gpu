@@ -1265,14 +1265,15 @@ module streaming_multiprocessor_v2 #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             fetch_arb_ptr <= 0;
-            warp_inst_buf_valid <= 0;
+            // warp_inst_buf_valid is managed in the buffer always block
             fetch_debug_cnt <= 0;
         end else begin
             // Debug first few fetch cycles
-            if (fetch_debug_cnt < 5) begin
+            if (fetch_debug_cnt < 20) begin
                 `ifdef SIMULATION
-                $display("[SM%0d FETCH] fetch_req=%b icache_ready=%b fetch_fire=%b",
-                         SM_ID, fetch_req, icache_ready, fetch_fire);
+                $display("[SM%0d FETCH] req=%b ready=%b fire=%b warp_valid=%04b needs_fetch=%04b pending=%04b buf_valid=%04b",
+                         SM_ID, fetch_req, icache_ready, fetch_fire,
+                         warp_valid, warp_needs_fetch, warp_fetch_pending, warp_inst_buf_valid);
                 `endif
                 fetch_debug_cnt <= fetch_debug_cnt + 1;
             end
@@ -1389,6 +1390,12 @@ module streaming_multiprocessor_v2 #(
              end
              warp_inst_buf_valid <= 0;
         end else begin
+            // Debug: trace consume/fill
+            `ifdef SIMULATION
+            if (|warp_inst_consume || |warp_fill)
+                $display("[%0t SM%0d BUF] consume=%b fill=%b buf_valid=%b",
+                         $time, SM_ID, warp_inst_consume, warp_fill, warp_inst_buf_valid);
+            `endif
             // Handle each warp's buffer valid bit
             for (w_buf = 0; w_buf < NUM_WARPS; w_buf = w_buf + 1) begin
                 if (warp_fill[w_buf]) begin
@@ -1465,15 +1472,19 @@ module streaming_multiprocessor_v2 #(
             assign pd_is_branch[pd_i]  = (op == `OP_BRANCH) || (op == `OP_EXIT) ||
                                          (op == `OP_BAR_SYNC) || (op == `OP_MEMBAR);
             assign pd_writes_reg[pd_i] = (op != `OP_ST_GLOBAL) && (op != `OP_ST_SHARED) &&
-                                         (op != `OP_BRANCH) && (op != `OP_EXIT);
+                                         (op != `OP_BRANCH) && (op != `OP_EXIT) &&
+                                         (op != `OP_NOP) && (op != `OP_BAR_SYNC) &&
+                                         (op != `OP_MEMBAR);
         end
     endgenerate
 
     // Scheduler Instantiation
-    wire [1:0] sched_issue_valid_mask;
-    wire [WARP_ID_W-1:0] sched_issue_warp_id [0:1];
-    wire [31:0] sched_issue_inst [0:1];
-    wire [2:0] sched_issue_pipe [0:1];
+    // Note: Currently pipeline supports 2 issue lanes; scheduler outputs [0:1] used
+    localparam SCHED_LANES = 2;  // Pipeline width (fixed for now)
+    wire [SCHED_LANES-1:0] sched_issue_valid_mask;
+    wire [WARP_ID_W-1:0] sched_issue_warp_id [0:SCHED_LANES-1];
+    wire [31:0] sched_issue_inst [0:SCHED_LANES-1];
+    wire [2:0] sched_issue_pipe [0:SCHED_LANES-1];
 
     //------------------------------------------------------------------------
     // Memory Pipeline In-Flight Counter
@@ -1510,15 +1521,19 @@ module streaming_multiprocessor_v2 #(
     // Branch pipeline is always ready - per-warp stall (warp_stalled_branch) handles flow control
     wire pipe_branch_ready   = 1'b1;
 
-    advanced_warp_scheduler #(
+    //------------------------------------------------------------------------
+    // Scheduler Selection: Blackwell (configurable) or Advanced (dual-issue)
+    //------------------------------------------------------------------------
+`ifdef USE_BLACKWELL_SCHEDULER
+    blackwell_scheduler #(
         .NUM_WARPS(NUM_WARPS),
-        .NUM_ISSUE(2)
+        .NUM_SCHEDULERS(SCHED_LANES)  // Match pipeline width
     ) u_scheduler (
         .clk(clk),
         .rst_n(rst_n),
         .warp_valid(warp_valid),
         .warp_ready(warp_ready),
-        .warp_diverged(32'b0), // Todo: connect to CFU
+        .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
         .warp_at_barrier(warp_stalled_sync),
         .warp_inst(warp_inst_buf),
         .warp_inst_valid(warp_inst_buf_valid),
@@ -1549,6 +1564,47 @@ module streaming_multiprocessor_v2 #(
         .stat_dual_issue(),
         .stat_stalls()
     );
+`else
+    advanced_warp_scheduler #(
+        .NUM_WARPS(NUM_WARPS),
+        .NUM_ISSUE(SCHED_LANES)
+    ) u_scheduler (
+        .clk(clk),
+        .rst_n(rst_n),
+        .warp_valid(warp_valid),
+        .warp_ready(warp_ready),
+        .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
+        .warp_at_barrier(warp_stalled_sync),
+        .warp_inst(warp_inst_buf),
+        .warp_inst_valid(warp_inst_buf_valid),
+        .warp_inst_consume(warp_inst_consume),
+        .warp_rd(pd_rd),
+        .warp_rs1(pd_rs1),
+        .warp_rs2(pd_rs2),
+        .warp_rs3(pd_rs3),
+        .warp_is_compute(pd_is_compute),
+        .warp_is_tensor(pd_is_tensor),
+        .warp_is_memory(pd_is_memory),
+        .warp_is_branch(pd_is_branch),
+        .warp_writes_reg(pd_writes_reg),
+        .compute_pipe0_ready(pipe_compute0_ready),
+        .compute_pipe1_ready(pipe_compute1_ready),
+        .tensor_pipe_ready(pipe_tensor_ready),
+        .memory_pipe_ready(pipe_memory_ready),
+        .branch_unit_ready(pipe_branch_ready),
+        .issue_valid(sched_issue_valid_mask),
+        .issue_warp_id(sched_issue_warp_id),
+        .issue_inst(sched_issue_inst),
+        .issue_pipe(sched_issue_pipe),
+        .wb_valid(wb_valid),
+        .wb_warp_id(wb_warp_id),
+        .wb_rd(wb_rd),
+        .stat_cycles(),
+        .stat_single_issue(),
+        .stat_dual_issue(),
+        .stat_stalls()
+    );
+`endif
 
     // Map Scheduler Output to Pipeline Signals
     // Replaces dec0_fire / dec1_fire logic
@@ -1606,6 +1662,10 @@ module streaming_multiprocessor_v2 #(
                     dec1_warp_id <= sched_issue_warp_id[1];
                     dec1_instruction <= sched_issue_inst[1];
                     dec1_pc <= warp_pc[sched_issue_warp_id[1]];
+                    `ifdef SIMULATION
+                    $display("[%0t SM%0d] ISSUE1_FIRE: warp=%0d pc=0x%08x inst=0x%08x",
+                             $time, SM_ID, sched_issue_warp_id[1], warp_pc[sched_issue_warp_id[1]], sched_issue_inst[1]);
+                    `endif
                     if (!pd_is_branch[sched_issue_warp_id[1]]) begin
                         warp_pc[sched_issue_warp_id[1]] <= warp_pc[sched_issue_warp_id[1]] + 4;
                     end
@@ -2104,12 +2164,24 @@ module streaming_multiprocessor_v2 #(
             end
 
             // Barrier tracking: set when any sync_op issues; release when all warps reach it
-            if (issue_valid && issue_sync_op)
+            if (issue_valid && issue_sync_op) begin
                 barrier_pending <= 1'b1;
-            if (issue1_valid && issue1_sync_op)
+                `ifdef SIMULATION
+                $display("[SM%0d] barrier_pending set by issue0: sync_op=%b", SM_ID, issue_sync_op);
+                `endif
+            end
+            if (issue1_valid && issue1_sync_op) begin
                 barrier_pending <= 1'b1;
-            if (all_at_barrier)
+                `ifdef SIMULATION
+                $display("[SM%0d] barrier_pending set by issue1: sync_op=%b", SM_ID, issue1_sync_op);
+                `endif
+            end
+            if (all_at_barrier) begin
                 barrier_pending <= 1'b0;
+                `ifdef SIMULATION
+                $display("[SM%0d] barrier_pending cleared by all_at_barrier", SM_ID);
+                `endif
+            end
             if (kernel_start)
                 barrier_pending <= 1'b0;
         end
@@ -3594,6 +3666,19 @@ module streaming_multiprocessor_v2 #(
     wire [WARP_ID_W-1:0] mbarrier_warp = issue_mbarrier ? issue_warp_id : issue1_warp_id;
     wire [31:0] mbarrier_mask = issue_mbarrier ? issue_mask : issue1_mask;
 
+    `ifdef SIMULATION
+    always @(posedge clk) begin
+        if (mbarrier_valid_in) begin
+            $display("[SM%0d] MBARRIER: func=%0d addr=0x%h count=%0d warp=%0d mask=0x%08x",
+                     SM_ID, mbarrier_func, mbarrier_addr, mbarrier_count, mbarrier_warp, mbarrier_mask);
+        end
+        if (issue_mbarrier || issue1_mbarrier) begin
+            $display("[SM%0d] mbarrier detected: issue_mbarrier=%b issue1_mbarrier=%b ready=%b",
+                     SM_ID, issue_mbarrier, issue1_mbarrier, mbarrier_ready);
+        end
+    end
+    `endif
+
     // Async arrival from cp.async: signal when transaction completes
     wire        mbarrier_async_arrive = ace_smem_wr_en;  // cp.async completion
     wire [13:0] mbarrier_async_addr = ace_smem_wr_addr;
@@ -4044,6 +4129,36 @@ module streaming_multiprocessor_v2 #(
     // For divergent branches, mask changes to not-taken threads (they execute first)
     wire [NUM_LANES-1:0] divergent_new_mask = not_taken_lanes;
 
+    //------------------------------------------------------------------------
+    // Lane 1 Branch Logic (for dual-issue support)
+    // When branch is issued on lane 1, we need separate calculations
+    //------------------------------------------------------------------------
+    wire branch1_is_unconditional = (issue1_rd[4:3] == 2'b00) || (issue1_rd[4:3] == 2'b11);
+    wire branch1_is_if_zero       = (issue1_rd[4:3] == 2'b01);
+    wire branch1_is_if_not_zero   = (issue1_rd[4:3] == 2'b10);
+
+    // When lane 1 has a branch and ALU is processing it, alu_zero reflects lane 1's condition
+    // Note: ALU multiplexes - when alu_use_slot0=0 and alu_use_slot1=1, alu_zero is for lane 1
+    wire [NUM_LANES-1:0] branch1_cond_lanes = branch1_is_if_zero ? alu_zero : ~alu_zero;
+    wire [NUM_LANES-1:0] taken1_lanes = branch1_cond_lanes & issue1_mask;
+    wire [NUM_LANES-1:0] not_taken1_lanes = ~branch1_cond_lanes & issue1_mask;
+
+    wire threads1_diverge = (taken1_lanes != 0) && (not_taken1_lanes != 0) &&
+                           !branch1_is_unconditional && issue1_valid && issue1_branch_op;
+
+    wire all1_lanes_take_branch = (taken1_lanes != 0) && (not_taken1_lanes == 0);
+
+    wire simple_branch1_taken = issue1_valid && issue1_branch_op && (
+        branch1_is_unconditional ||
+        all1_lanes_take_branch
+    );
+    wire [31:0] simple_branch1_target = issue1_pc + {{16{issue1_imm16[15]}}, issue1_imm16};
+
+    wire divergent_branch1 = issue1_valid && issue1_branch_op && threads1_diverge;
+    wire branch1_taken_combined = simple_branch1_taken;
+    wire [31:0] branch1_target_combined = simple_branch1_target;
+    wire [NUM_LANES-1:0] divergent1_new_mask = not_taken1_lanes;
+
     // Divergence stack per warp for SM-level reconvergence tracking
     reg [31:0] sm_div_stack_pc   [0:NUM_WARPS-1][0:3];  // PC to reconverge at
     reg [NUM_LANES-1:0] sm_div_stack_mask [0:NUM_WARPS-1][0:3];  // Threads waiting
@@ -4056,6 +4171,9 @@ module streaming_multiprocessor_v2 #(
                            (sm_div_stack_pc[issue_warp_id][div_top_idx] == issue_pc) &&
                            issue_valid && !issue_branch_op;
 
+    // Lane 1 divergence stack pointer
+    wire [1:0] curr1_div_ptr = sm_div_stack_ptr[issue1_warp_id];
+
     // Decode-stage reconvergence detection (for early mask merge)
     wire [1:0] dec0_div_ptr = sm_div_stack_ptr[dec0_warp_id];
     wire [1:0] dec0_top_idx = (dec0_div_ptr > 0) ? (dec0_div_ptr - 2'd1) : 2'd0;
@@ -4067,9 +4185,13 @@ module streaming_multiprocessor_v2 #(
 
     // Assign flush signals - flush on taken branch OR divergent branch (mask changes)
     // For divergent branch, we flush to ensure next instruction uses updated mask
-    wire any_branch_flush = branch_taken_combined || divergent_branch;
-    assign branch_flush_dec0 = any_branch_flush && (dec0_warp_id == issue_warp_id) && dec0_valid;
-    assign branch_flush_dec1 = any_branch_flush && (dec1_warp_id == issue_warp_id) && dec1_valid;
+    // Include both lane 0 and lane 1 branches
+    wire any_branch_flush = branch_taken_combined || divergent_branch ||
+                           branch1_taken_combined || divergent_branch1;
+    assign branch_flush_dec0 = any_branch_flush && ((dec0_warp_id == issue_warp_id) ||
+                                                    (dec0_warp_id == issue1_warp_id)) && dec0_valid;
+    assign branch_flush_dec1 = any_branch_flush && ((dec1_warp_id == issue_warp_id) ||
+                                                    (dec1_warp_id == issue1_warp_id)) && dec1_valid;
 
     //------------------------------------------------------------------------
     // Control Flow Unit (Divergence/Convergence)
@@ -4600,7 +4722,7 @@ module streaming_multiprocessor_v2 #(
         // Debug: trace all writebacks
         if (rf_wr_en) begin
             `ifdef SIMULATION
-            $display("[%0t WB] rd=R%0d data=0x%08h sel=%0d", $time, wb_rd, wb_data[31:0], wb_sel);
+            $display("[%0t WB] warp=%0d rd=R%0d data=0x%08h sel=%0d", $time, wb_warp_id, wb_rd, wb_data[31:0], wb_sel);
             `endif
         end
         // Track all writes to R23
@@ -4820,6 +4942,63 @@ module streaming_multiprocessor_v2 #(
                 warp_stalled_branch[issue_warp_id] <= 1'b0;
             end
 
+            //------------------------------------------------------------------------
+            // Lane 1 Branch Handling (mirrors lane 0 handling above)
+            //------------------------------------------------------------------------
+            // Branch handling for lane 1 (uses combinational simple_branch1_taken)
+            if (issue1_valid && issue1_branch_op) begin
+                `ifdef SIMULATION
+                $display("[%0t SM%0d] BRANCH1: pc=0x%04x opcode=0x%02x type=%0d ra=R%0d imm16=0x%04x target=0x%04x zero=%b taken=%b diverge=%b",
+                         $time, SM_ID, issue1_pc, issue1_opcode, issue1_rd[4:3], issue1_ra, issue1_imm16,
+                         issue1_pc + {{16{issue1_imm16[15]}}, issue1_imm16},
+                         alu_zero[0], branch1_taken_combined, threads1_diverge);
+                `endif
+                // For non-divergent branches, clear stall immediately
+                if (!threads1_diverge) begin
+                    warp_stalled_branch[issue1_warp_id] <= 1'b0;
+                end
+            end
+
+            // Handle non-divergent branch taken on lane 1
+            if (branch1_taken_combined) begin
+                `ifdef SIMULATION
+                $display("[SM%0d] BRANCH1 TAKEN: new_pc=0x%04x (flushing pipeline)", SM_ID, branch1_target_combined);
+                `endif
+                warp_pc[issue1_warp_id] <= branch1_target_combined;
+                warp_fetch_pc[issue1_warp_id] <= branch1_target_combined;
+                warp_mask[issue1_warp_id] <= issue1_mask;
+                // Flush instruction buffer and pipeline for this warp
+                warp_inst_buf_valid[issue1_warp_id] <= 1'b0;
+                warp_fetch_pending[issue1_warp_id] <= 1'b0;
+            end
+
+            // Handle divergent branch on lane 1
+            if (divergent_branch1) begin
+                `ifdef SIMULATION
+                $display("[SM%0d] DIVERGENT BRANCH1: pc=0x%04x target=0x%04x",
+                         SM_ID, issue1_pc, simple_branch1_target);
+                $display("[SM%0d]   taken_mask=0x%08x not_taken_mask=0x%08x",
+                         SM_ID, taken1_lanes, not_taken1_lanes);
+                `endif
+
+                // Push {branch_target, taken_lanes} to divergence stack
+                sm_div_stack_pc[issue1_warp_id][curr1_div_ptr] <= simple_branch1_target;
+                sm_div_stack_mask[issue1_warp_id][curr1_div_ptr] <= taken1_lanes;
+                sm_div_stack_ptr[issue1_warp_id] <= curr1_div_ptr + 2'd1;
+
+                // Execute not-taken threads first (fall-through)
+                warp_mask[issue1_warp_id] <= not_taken1_lanes;
+                warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+
+                // Flush instruction buffer and pipeline
+                warp_inst_buf_valid[issue1_warp_id] <= 1'b0;
+                warp_fetch_pending[issue1_warp_id] <= 1'b0;
+
+                // Clear branch stall
+                warp_stalled_branch[issue1_warp_id] <= 1'b0;
+            end
+
             // Handle SM-level reconvergence (when PC matches stacked reconverge_pc)
             // Note: Reconvergence is now handled at decode stage (dec0_at_reconverge)
             // to ensure the instruction uses the merged mask
@@ -4831,6 +5010,7 @@ module streaming_multiprocessor_v2 #(
             end
 
             // Branch predictor update (when branch resolves)
+            // Priority: lane 0, then lane 1 (only one update per cycle)
             if (issue_valid && issue_branch_op) begin
                 bp_update_valid <= 1'b1;
                 bp_update_warp_id <= issue_warp_id;
@@ -4840,6 +5020,15 @@ module streaming_multiprocessor_v2 #(
                 bp_update_is_call <= (issue_func == 6'h01);  // JAL-like
                 bp_update_is_return <= (issue_func == 6'h02); // RET-like
                 bp_update_mispredicted <= 1'b0;  // TODO: Compare with prediction
+            end else if (issue1_valid && issue1_branch_op) begin
+                bp_update_valid <= 1'b1;
+                bp_update_warp_id <= issue1_warp_id;
+                bp_update_pc <= issue1_pc;
+                bp_update_taken <= branch1_taken_combined;
+                bp_update_target <= branch1_target_combined;
+                bp_update_is_call <= (issue1_func == 6'h01);
+                bp_update_is_return <= (issue1_func == 6'h02);
+                bp_update_mispredicted <= 1'b0;
             end else begin
                 bp_update_valid <= 1'b0;
             end
@@ -4859,12 +5048,40 @@ module streaming_multiprocessor_v2 #(
             // Only stall for bar.sync (not bar.warp.sync)
             if (issue_valid && issue_sync_op && !issue_bar_warp_sync) begin
                 warp_stalled_sync[issue_warp_id] <= 1'b1;
+                // Clear branch stall (bar.sync is in pd_is_branch but not an actual branch)
+                warp_stalled_branch[issue_warp_id] <= 1'b0;
+                // Advance PC past the barrier instruction (since pd_is_branch prevents auto-advance)
+                warp_pc[issue_warp_id] <= issue_pc + 32'd4;
+                warp_fetch_pc[issue_warp_id] <= issue_pc + 32'd4;
+                // Flush instruction buffer to force re-fetch at new PC after barrier releases
+                warp_inst_buf_valid[issue_warp_id] <= 1'b0;
+                warp_fetch_pending[issue_warp_id] <= 1'b0;
+                `ifdef SIMULATION
+                $display("[SM%0d] bar.sync issued: warp=%0d, setting warp_stalled_sync, advancing PC to 0x%08x",
+                         SM_ID, issue_warp_id, issue_pc + 32'd4);
+                `endif
             end
             if (issue1_valid && issue1_sync_op && !issue1_bar_warp_sync) begin
                 warp_stalled_sync[issue1_warp_id] <= 1'b1;
+                // Clear branch stall (bar.sync is in pd_is_branch but not an actual branch)
+                warp_stalled_branch[issue1_warp_id] <= 1'b0;
+                // Advance PC past the barrier instruction
+                warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                // Flush instruction buffer to force re-fetch at new PC after barrier releases
+                warp_inst_buf_valid[issue1_warp_id] <= 1'b0;
+                warp_fetch_pending[issue1_warp_id] <= 1'b0;
+                `ifdef SIMULATION
+                $display("[SM%0d] bar.sync issued (slot1): warp=%0d, setting warp_stalled_sync, advancing PC to 0x%08x",
+                         SM_ID, issue1_warp_id, issue1_pc + 32'd4);
+                `endif
             end
             // Check all warps at barrier and release
             if (all_at_barrier) begin
+                `ifdef SIMULATION
+                $display("[SM%0d] all_at_barrier=1, releasing all warps! stalled=%04b valid=%04b pending=%b",
+                         SM_ID, warp_stalled_sync, warp_valid, barrier_pending);
+                `endif
                 for (w = 0; w < NUM_WARPS; w = w + 1) begin
                     warp_stalled_sync[w] <= 1'b0;
                 end

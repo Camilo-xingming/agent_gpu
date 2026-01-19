@@ -68,6 +68,24 @@
 `endif
 `endif
 
+// Blackwell-style Multi-Scheduler Parameters
+`ifndef NUM_SCHEDULERS
+`ifdef GPU_PROFILE_HPC
+`define NUM_SCHEDULERS      4       // Blackwell: 4 parallel schedulers
+`else
+`define NUM_SCHEDULERS      2       // Default: 2 schedulers
+`endif
+`endif
+
+`ifndef IBUFFER_DEPTH
+`define IBUFFER_DEPTH       4       // Instructions per warp I-Buffer (Blackwell: 4+)
+`endif
+
+// Scheduler Selection: 1 = Blackwell multi-scheduler, 0 = Advanced dual-issue
+`ifndef USE_BLACKWELL_SCHEDULER
+`define USE_BLACKWELL_SCHEDULER 1   // Default: Use Blackwell-style scheduler
+`endif
+
 //============================================================================
 // 派生参数 (自动计算)
 //============================================================================

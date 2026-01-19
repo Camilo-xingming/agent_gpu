@@ -54,6 +54,7 @@ RTL_SRCS = \
     $(RTL_DIR)/reconvergence_stack.v \
     $(RTL_DIR)/register_file_banked.v \
     $(RTL_DIR)/advanced_scheduler.v \
+    $(RTL_DIR)/blackwell_scheduler.v \
     $(RTL_DIR)/wgmma_tile_engine.v \
     $(RTL_DIR)/l2_interconnect.v \
     $(RTL_DIR)/performance_counters.v
@@ -251,6 +252,7 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/branch_predictor.v \
 	$(RTL_DIR)/icache.v \
 	$(RTL_DIR)/advanced_scheduler.v \
+	$(RTL_DIR)/blackwell_scheduler.v \
 	$(RTL_DIR)/reconvergence_stack.v \
 	$(RTL_DIR)/alu.v \
 	$(RTL_DIR)/mul_unit.v \

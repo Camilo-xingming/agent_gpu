@@ -89,6 +89,12 @@ class Opcode(IntEnum):
     MOV_IMM     = 0b110000  # Move immediate to register
     ALU_IMM     = 0b110001  # ALU with 16-bit immediate
 
+    # mbarrier (Phase 10 - Hopper+)
+    MBARRIER    = 0b110010  # mbarrier operations
+    BAR_WARP_SYNC = 0b110011  # bar.warp.sync
+    CACHE_POLICY = 0b110100  # Cache policy operations
+    BARRIER_CLUSTER = 0b111010  # barrier.cluster
+
     NOP         = 0b111111
 
 #============================================================================
@@ -414,6 +420,29 @@ class MembarFunc(IntEnum):
     CTA = 0b000000
     GL  = 0b000001
     SYS = 0b000010
+
+#============================================================================
+# mbarrier Function Codes (matches gpu_defines.vh)
+#============================================================================
+class MbarrierFunc(IntEnum):
+    INIT          = 0b000000  # mbarrier.init - initialize with expected count
+    ARRIVE        = 0b000001  # mbarrier.arrive - signal arrival
+    ARRIVE_DROP   = 0b000010  # mbarrier.arrive_drop - arrive and decrement expected
+    ARRIVE_TX     = 0b000011  # mbarrier.arrive_and_expect_tx - arrive with tx bytes
+    TEST_WAIT     = 0b000100  # mbarrier.test_wait - non-blocking test
+    TRY_WAIT      = 0b000101  # mbarrier.try_wait - non-blocking wait attempt
+    INVALIDATE    = 0b000110  # mbarrier.inval - invalidate barrier
+    ARRIVE_NOCOMP = 0b000111  # mbarrier.arrive.noComplete - arrive without completion
+    EXPECT_TX     = 0b001000  # mbarrier.expect_tx - set expected transaction bytes
+
+#============================================================================
+# barrier.cluster Function Codes
+#============================================================================
+class BarrierClusterFunc(IntEnum):
+    ARRIVE = 0b000000  # barrier.cluster.arrive
+    WAIT   = 0b000001  # barrier.cluster.wait
+    SYNC   = 0b000010  # barrier.cluster.sync (arrive + wait)
+    INIT   = 0b000011  # barrier.cluster.init
 
 #============================================================================
 # Special Registers
@@ -794,8 +823,14 @@ class PTXAssembler:
         #================================================================
         if mnemonic.startswith('bar.sync'):
             return self._parse_bar_sync(operands)
+        if mnemonic.startswith('bar.warp.sync'):
+            return self._parse_bar_warp_sync(operands)
         if mnemonic.startswith('membar'):
             return self._parse_membar(mnemonic, operands)
+        if mnemonic.startswith('mbarrier'):
+            return self._parse_mbarrier(mnemonic, operands)
+        if mnemonic.startswith('barrier.cluster'):
+            return self._parse_barrier_cluster(mnemonic, operands)
 
         #================================================================
         # FP32 Arithmetic
@@ -1369,6 +1404,13 @@ class PTXAssembler:
             inst.ra = parse_immediate(operands[0]) & 0x1F
         return inst
 
+    def _parse_bar_warp_sync(self, operands: List[str]) -> Instruction:
+        """Parse warp barrier: bar.warp.sync mask"""
+        inst = Instruction(opcode=Opcode.BAR_WARP_SYNC)
+        if operands:
+            inst.imm16 = parse_immediate(operands[0]) & 0xFFFF
+        return inst
+
     def _parse_membar(self, mnemonic: str, operands: List[str]) -> Instruction:
         """Parse memory barrier: membar.cta/gl/sys"""
         inst = Instruction(opcode=Opcode.MEMBAR)
@@ -1378,6 +1420,102 @@ class PTXAssembler:
             inst.func = MembarFunc.GL
         elif '.sys' in mnemonic:
             inst.func = MembarFunc.SYS
+        return inst
+
+    def _parse_mbarrier(self, mnemonic: str, operands: List[str]) -> Instruction:
+        """Parse mbarrier instructions (Hopper+)
+        Formats:
+        - mbarrier.init [addr], count_reg    (count from rb register)
+        - mbarrier.arrive [addr]
+        - mbarrier.arrive_drop [addr]
+        - mbarrier.arrive.expect_tx [addr], tx_count_reg
+        - mbarrier.test_wait rd, [addr], phase_reg
+        - mbarrier.try_wait [addr], phase_reg
+        - mbarrier.inval [addr]
+
+        Note: The SM reads count/phase from rf_rd_data_b (rb register), so
+        count and phase values must be passed through registers.
+        """
+        inst = Instruction(opcode=Opcode.MBARRIER)
+
+        # Parse function from mnemonic
+        if '.init' in mnemonic:
+            inst.func = MbarrierFunc.INIT
+            # mbarrier.init [addr], count_reg
+            addr_str = operands[0].strip('[]')
+            inst.ra = parse_register(addr_str)
+            # Count comes from rb register
+            inst.rb = parse_register(operands[1])
+        elif '.arrive_drop' in mnemonic:
+            inst.func = MbarrierFunc.ARRIVE_DROP
+            addr_str = operands[0].strip('[]')
+            inst.ra = parse_register(addr_str)
+        elif '.arrive.expect_tx' in mnemonic or '.arrive_and_expect_tx' in mnemonic:
+            inst.func = MbarrierFunc.ARRIVE_TX
+            addr_str = operands[0].strip('[]')
+            inst.ra = parse_register(addr_str)
+            # tx_count comes from rb register
+            inst.rb = parse_register(operands[1])
+        elif '.arrive.noComplete' in mnemonic:
+            inst.func = MbarrierFunc.ARRIVE_NOCOMP
+            addr_str = operands[0].strip('[]')
+            inst.ra = parse_register(addr_str)
+        elif '.arrive' in mnemonic:
+            inst.func = MbarrierFunc.ARRIVE
+            addr_str = operands[0].strip('[]')
+            inst.ra = parse_register(addr_str)
+        elif '.test_wait' in mnemonic:
+            inst.func = MbarrierFunc.TEST_WAIT
+            # mbarrier.test_wait rd, [addr], phase_reg
+            inst.rd = parse_register(operands[0])
+            addr_str = operands[1].strip('[]')
+            inst.ra = parse_register(addr_str)
+            if len(operands) > 2:
+                inst.rb = parse_register(operands[2])
+        elif '.try_wait' in mnemonic:
+            inst.func = MbarrierFunc.TRY_WAIT
+            addr_str = operands[0].strip('[]')
+            inst.ra = parse_register(addr_str)
+            if len(operands) > 1:
+                inst.rb = parse_register(operands[1])
+        elif '.expect_tx' in mnemonic:
+            inst.func = MbarrierFunc.EXPECT_TX
+            addr_str = operands[0].strip('[]')
+            inst.ra = parse_register(addr_str)
+            # tx_count comes from rb register
+            inst.rb = parse_register(operands[1])
+        elif '.inval' in mnemonic:
+            inst.func = MbarrierFunc.INVALIDATE
+            addr_str = operands[0].strip('[]')
+            inst.ra = parse_register(addr_str)
+        else:
+            raise ValueError(f"Unknown mbarrier operation: {mnemonic}")
+
+        return inst
+
+    def _parse_barrier_cluster(self, mnemonic: str, operands: List[str]) -> Instruction:
+        """Parse barrier.cluster instructions
+        Formats:
+        - barrier.cluster.arrive
+        - barrier.cluster.wait
+        - barrier.cluster.sync
+        - barrier.cluster.init count
+        """
+        inst = Instruction(opcode=Opcode.BARRIER_CLUSTER)
+
+        if '.arrive' in mnemonic:
+            inst.func = BarrierClusterFunc.ARRIVE
+        elif '.wait' in mnemonic:
+            inst.func = BarrierClusterFunc.WAIT
+        elif '.sync' in mnemonic:
+            inst.func = BarrierClusterFunc.SYNC
+        elif '.init' in mnemonic:
+            inst.func = BarrierClusterFunc.INIT
+            if operands:
+                inst.imm16 = parse_immediate(operands[0]) & 0xFFFF
+        else:
+            raise ValueError(f"Unknown barrier.cluster operation: {mnemonic}")
+
         return inst
 
     def _parse_fp32(self, func: int, operands: List[str]) -> Instruction:

@@ -1,0 +1,21 @@
+// Memory Test - Tests global memory load/store through SM pipeline
+// Output: mem[0x2000 + tid*4] = A[tid] = tid * 100
+
+.entry test_cpasync:
+    // Get thread ID
+    mov.u32 r0, %tid.x          // r0 = thread_id (0-31)
+
+    // Compute byte offset (4 bytes per element)
+    shl.b32 r1, r0, 2           // r1 = tid * 4
+
+    // Load A[tid] from global memory
+    ld.global.s32 r2, [r1]      // r2 = A[tid]
+
+    // Compute output address (0x2000 + tid*4)
+    mov.u32 r3, 0x2000          // r3 = output base
+    add.s32 r3, r3, r1          // r3 = 0x2000 + tid*4
+
+    // Store result to global memory
+    st.global.s32 [r3], r2      // out[tid] = r2
+
+    exit

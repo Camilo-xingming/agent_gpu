@@ -1,31 +1,32 @@
 // RalphGPU Example: Vector Addition
 // C[i] = A[i] + B[i]
 //
-// 假设:
-// - A数组起始地址: 0x0000
-// - B数组起始地址: 0x1000
-// - C数组起始地址: 0x2000
+// Memory layout:
+// - A array: 0x0000 - 0x007F (32 elements * 4 bytes)
+// - B array: 0x1000 - 0x107F (32 elements * 4 bytes)
+// - C array: 0x2000 - 0x207F (32 elements * 4 bytes)
 
 .entry vector_add:
-    // 获取线程ID
+    // Get thread ID
     mov.u32 r0, %tid.x          // r0 = threadIdx.x
 
-    // 计算字节偏移 (每个元素4字节)
+    // Compute byte offset (4 bytes per element)
     shl.b32 r1, r0, 2           // r1 = r0 * 4
 
-    // 加载 A[i]
+    // Load A[i] (base address 0x0000)
     ld.global.s32 r2, [r1]      // r2 = A[i]
 
-    // 加载 B[i] (偏移 0x1000)
-    add.s32 r3, r1, r10         // r3 = r1 + 0x1000 (假设r10=0x1000)
+    // Load B[i] (base address 0x1000)
+    mov.u32 r3, 0x1000          // r3 = base B
+    add.s32 r3, r1, r3          // r3 = offset + base
     ld.global.s32 r4, [r3]      // r4 = B[i]
 
-    // 计算 C[i] = A[i] + B[i]
+    // Compute C[i] = A[i] + B[i]
     add.s32 r5, r2, r4          // r5 = r2 + r4
 
-    // 存储结果到 C[i]
-    add.s32 r6, r1, r11         // r6 = r1 + 0x2000 (假设r11=0x2000)
+    // Store result to C[i] (base address 0x2000)
+    mov.u32 r6, 0x2000          // r6 = base C
+    add.s32 r6, r1, r6          // r6 = offset + base
     st.global.s32 [r6], r5      // C[i] = r5
 
-    // 返回 (NOP结束)
-    nop
+    exit

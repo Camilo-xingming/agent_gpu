@@ -360,6 +360,7 @@ module tb_ptx_tests;
     reg timeout;
     reg [31:0] result;
     integer num_instr;
+    integer num_warps;    // Number of warps in test
     real ipc;
     real throughput;
 
@@ -368,8 +369,9 @@ module tb_ptx_tests;
     //------------------------------------------------------------------------
     initial begin
         $display("============================================================");
-        $display("RalphGPU PTX Compiled Test Suite");
+        $display("RalphGPU PTX Compiled Test Suite (Multi-Warp Mode)");
         $display("Testing with compiled hex files from PTX assembler");
+        $display("Configuration: 4 warps (128 threads) per test");
         $display("============================================================");
         $display("");
 
@@ -381,6 +383,7 @@ module tb_ptx_tests;
         total_cycles = 0;
         min_cycles = 999999999;
         max_cycles = 0;
+        num_warps = 4;  // 128 threads / 32 threads per warp
 
         // Initial reset
         reset_dut();
@@ -394,7 +397,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_01_alu_basic.hex", instruction_mem);
         num_instr = 46;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -405,7 +408,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: ALU Basic | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -420,7 +423,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_02_alu_extended.hex", instruction_mem);
         num_instr = 43;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -431,7 +434,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: ALU Extended | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -446,7 +449,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_03_multiply.hex", instruction_mem);
         num_instr = 41;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -457,7 +460,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Multiply | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -472,7 +475,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_04_fp32_arith.hex", instruction_mem);
         num_instr = 39;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -483,7 +486,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: FP32 Arith | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -498,7 +501,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_05_fp32_special.hex", instruction_mem);
         num_instr = 40;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -509,7 +512,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: FP32 Special | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -524,7 +527,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_06_fp16_arith.hex", instruction_mem);
         num_instr = 39;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -535,7 +538,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: FP16 Arith | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -550,7 +553,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_07_memory_global.hex", instruction_mem);
         num_instr = 43;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -561,7 +564,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Global Memory | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -576,7 +579,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_08_memory_shared.hex", instruction_mem);
         num_instr = 47;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -587,7 +590,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Shared Memory | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -602,7 +605,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_09_atomic.hex", instruction_mem);
         num_instr = 76;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -613,7 +616,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Atomics | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -628,7 +631,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_10_cvt.hex", instruction_mem);
         num_instr = 53;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -639,7 +642,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: CVT | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -654,7 +657,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_11_special_regs.hex", instruction_mem);
         num_instr = 26;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -665,7 +668,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Special Regs | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -680,7 +683,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_12_setp_compare.hex", instruction_mem);
         num_instr = 40;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -691,7 +694,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: SETP Compare | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -706,7 +709,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_13_video_ops.hex", instruction_mem);
         num_instr = 92;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -717,7 +720,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Video SIMD | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -732,7 +735,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_14_wmma.hex", instruction_mem);
         num_instr = 47;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -743,7 +746,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: WMMA | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -758,7 +761,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_15_control_flow.hex", instruction_mem);
         num_instr = 39;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -769,7 +772,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Control Flow | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -790,7 +793,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_20_mem_consistency_mp.hex", instruction_mem);
         num_instr = 32;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -801,7 +804,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Message Passing | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -816,7 +819,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_21_mem_consistency_sb.hex", instruction_mem);
         num_instr = 40;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -827,7 +830,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Store Buffering | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -842,7 +845,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_22_mem_consistency_coherence.hex", instruction_mem);
         num_instr = 39;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -853,7 +856,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Coherence | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -868,7 +871,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_23_mem_consistency_atomicity.hex", instruction_mem);
         num_instr = 21;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -879,7 +882,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Atomicity | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
@@ -900,7 +903,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_30_perf_alu_throughput.hex", instruction_mem);
         num_instr = 104;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -911,7 +914,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             throughput = (100.0 * num_instr) / test_cycles;
             $display("[PASS] Test %0d: ALU Throughput | Cycles: %0d | IPC: %0.3f | MIPS: %0.2f", test_num, test_cycles, ipc, throughput);
         end else begin
@@ -927,7 +930,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_31_perf_fp_throughput.hex", instruction_mem);
         num_instr = 75;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(32'h2004 - GMEM_BASE) >> 2];  // FP test uses 0x2004 for marker
         test_pass = !timeout && (result == PASS_MARKER);
@@ -938,7 +941,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             throughput = (100.0 * num_instr) / test_cycles;
             $display("[PASS] Test %0d: FP32 Throughput | Cycles: %0d | IPC: %0.3f | MIPS: %0.2f", test_num, test_cycles, ipc, throughput);
         end else begin
@@ -954,7 +957,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_32_perf_memory_latency.hex", instruction_mem);
         num_instr = 50;
-        launch_kernel(0, 1, 1, 1, 32, 1, 1);
+        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
@@ -965,7 +968,7 @@ module tb_ptx_tests;
         if (test_cycles > max_cycles) max_cycles = test_cycles;
         if (test_pass) begin
             passed_tests = passed_tests + 1;
-            ipc = (1.0 * num_instr) / test_cycles;
+            ipc = (1.0 * num_warps * num_instr) / test_cycles;
             $display("[PASS] Test %0d: Memory Latency | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;

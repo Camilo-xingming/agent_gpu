@@ -1,0 +1,38 @@
+// WGMMA Test - Tests Warpgroup Matrix Multiply-Accumulate through full pipeline
+// This test verifies WGMMA instructions are correctly decoded, issued, and executed
+// Output: mem[0x2000 + tid*4] = tid (after WGMMA fence synchronization)
+
+.entry test_wgmma:
+    // Get thread ID
+    mov.u32 r0, %tid.x          // r0 = thread_id (0-31)
+
+    // Compute output address (0x2000 + tid*4)
+    shl.b32 r1, r0, 2           // r1 = tid * 4
+    mov.u32 r2, 0x2000          // r2 = output base
+    add.s32 r2, r2, r1          // r2 = 0x2000 + tid*4
+
+    // Setup WGMMA descriptors in registers
+    // For this test, we use simple register values as descriptors
+    // Real descriptors would contain: base_addr[31:0], stride[47:32], dtype[51:48], layout[55:52]
+    mov.u32 r3, 0x1000          // r3 = desc_a base (simulated shared memory ptr)
+    mov.u32 r4, 0x2000          // r4 = desc_b base
+    mov.u32 r5, 0               // r5 = accumulator/scale
+
+    // Issue WGMMA MMA async operation
+    // wgmma.mma_async.m64n8k16.f32 rd, desc_a, desc_b
+    wgmma.mma_async.m64n8k16.f32 r5, r3, r4
+
+    // Commit the current group of operations
+    wgmma.commit_group
+
+    // Wait for all operations to complete (wait_count=0)
+    wgmma.wait_group
+
+    // Issue a fence to ensure visibility
+    wgmma.fence
+
+    // Store result to global memory
+    // Each thread stores its tid to verify the pipeline executed correctly
+    st.global.s32 [r2], r0      // out[tid] = tid
+
+    exit

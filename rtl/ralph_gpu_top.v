@@ -189,6 +189,7 @@ module ralph_gpu_top #(
 
             streaming_multiprocessor_v2 #(
                 .SM_ID (sm),
+                .INIT_WARPS (4),    // Enable 4 warps for dual-issue
                 .ICACHE_BYPASS (1)  // Bypass icache for simpler testbench
             ) u_sm (
                 .clk           (clk),
@@ -302,22 +303,20 @@ module ralph_gpu_top #(
     assign imem_req  = imem_accept;
     assign imem_addr = imem_accept ? sm_imem_addr[imem_arb_sel] : 32'b0;
 
+`ifdef SIMULATION
     // Debug: trace imem interface - print first clock only
     reg imem_debug_done;
     initial begin
         imem_debug_done = 0;
-        `ifdef SIMULATION
         $display("[GPU_TOP] Module initialized - NUM_SM=%0d", NUM_SM);
-        `endif
     end
     always @(posedge clk) begin
         if (!imem_debug_done) begin
-            `ifdef SIMULATION
             $display("[GPU_TOP-CLK] First clock edge! sm_req[0]=%b", sm_imem_req[0]);
-            `endif
             imem_debug_done <= 1;
         end
     end
+`endif
 
     integer sm_i;
     always @(*) begin

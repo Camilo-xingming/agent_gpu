@@ -1,0 +1,19 @@
+// Barrier Test - Tests bar.sync instruction
+// Output: mem[0x2000 + tid*4] = tid (WITH barrier)
+
+.entry test_barrier:
+    // Get thread ID
+    mov.u32 r0, %tid.x          // r0 = thread_id (0-31)
+
+    // Compute output address (0x2000 + tid*4)
+    shl.b32 r1, r0, 2           // r1 = tid * 4
+    mov.u32 r2, 0x2000          // r2 = output base
+    add.s32 r2, r2, r1          // r2 = 0x2000 + tid*4
+
+    // Barrier
+    bar.sync 0
+
+    // Store result to global memory
+    st.global.s32 [r2], r0      // out[tid] = tid
+
+    exit

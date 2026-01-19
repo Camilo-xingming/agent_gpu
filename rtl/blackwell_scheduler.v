@@ -1,0 +1,299 @@
+//============================================================================
+// RalphGPU - Blackwell-Style Multi-Scheduler
+// Configurable number of parallel schedulers (1-4)
+// Each scheduler manages a subset of warps: warp_id % NUM_SCHEDULERS
+// Compatible interface with advanced_warp_scheduler for drop-in replacement
+//============================================================================
+
+`include "gpu_defines.vh"
+
+module blackwell_scheduler #(
+    parameter NUM_WARPS      = 8,
+    parameter NUM_SCHEDULERS = `NUM_SCHEDULERS,  // Configurable: 1, 2, or 4 (Blackwell uses 4)
+    parameter INST_WIDTH     = 32,
+    parameter SCOREBOARD_DEPTH = 16              // For compatibility
+)(
+    input  wire                     clk,
+    input  wire                     rst_n,
+
+    //------------------------------------------------------------------------
+    // Warp Status Interface (same as advanced_warp_scheduler)
+    //------------------------------------------------------------------------
+    input  wire [NUM_WARPS-1:0]     warp_valid,
+    input  wire [NUM_WARPS-1:0]     warp_ready,         // Not stalled
+    input  wire [NUM_WARPS-1:0]     warp_diverged,      // In divergent execution
+    input  wire [NUM_WARPS-1:0]     warp_at_barrier,
+
+    //------------------------------------------------------------------------
+    // Instruction Buffer Interface (same as advanced_warp_scheduler)
+    //------------------------------------------------------------------------
+    input  wire [INST_WIDTH-1:0]    warp_inst [0:NUM_WARPS-1],
+    input  wire [NUM_WARPS-1:0]     warp_inst_valid,
+    output wire [NUM_WARPS-1:0]     warp_inst_consume,
+
+    //------------------------------------------------------------------------
+    // Decoded Instruction Info (same as advanced_warp_scheduler)
+    //------------------------------------------------------------------------
+    input  wire [4:0]               warp_rd [0:NUM_WARPS-1],
+    input  wire [4:0]               warp_rs1 [0:NUM_WARPS-1],
+    input  wire [4:0]               warp_rs2 [0:NUM_WARPS-1],
+    input  wire [4:0]               warp_rs3 [0:NUM_WARPS-1],
+    input  wire [NUM_WARPS-1:0]     warp_is_compute,
+    input  wire [NUM_WARPS-1:0]     warp_is_tensor,
+    input  wire [NUM_WARPS-1:0]     warp_is_memory,
+    input  wire [NUM_WARPS-1:0]     warp_is_branch,
+    input  wire [NUM_WARPS-1:0]     warp_writes_reg,
+
+    //------------------------------------------------------------------------
+    // Execution Unit Availability (compatible interface)
+    //------------------------------------------------------------------------
+    input  wire                     compute_pipe0_ready,
+    input  wire                     compute_pipe1_ready,
+    input  wire                     tensor_pipe_ready,
+    input  wire                     memory_pipe_ready,
+    input  wire                     branch_unit_ready,
+
+    //------------------------------------------------------------------------
+    // Issue Outputs (NUM_SCHEDULERS outputs, compatible with NUM_ISSUE=2)
+    //------------------------------------------------------------------------
+    output wire [NUM_SCHEDULERS-1:0]              issue_valid,
+    output wire [$clog2(NUM_WARPS)-1:0]           issue_warp_id [0:NUM_SCHEDULERS-1],
+    output wire [INST_WIDTH-1:0]                  issue_inst [0:NUM_SCHEDULERS-1],
+    output wire [2:0]                             issue_pipe [0:NUM_SCHEDULERS-1],
+
+    //------------------------------------------------------------------------
+    // Writeback Interface (for scoreboard clearing)
+    //------------------------------------------------------------------------
+    input  wire                     wb_valid,
+    input  wire [$clog2(NUM_WARPS)-1:0] wb_warp_id,
+    input  wire [4:0]               wb_rd,
+
+    //------------------------------------------------------------------------
+    // Statistics (compatible)
+    //------------------------------------------------------------------------
+    output wire [31:0]              stat_cycles,
+    output wire [31:0]              stat_single_issue,
+    output wire [31:0]              stat_dual_issue,
+    output wire [31:0]              stat_stalls
+);
+
+    localparam WARP_W = $clog2(NUM_WARPS);
+    localparam WARPS_PER_SCHED = (NUM_WARPS + NUM_SCHEDULERS - 1) / NUM_SCHEDULERS;
+
+    //------------------------------------------------------------------------
+    // Pipe Encoding (compatible with advanced_warp_scheduler)
+    //------------------------------------------------------------------------
+    localparam PIPE_COMPUTE0 = 3'd0;
+    localparam PIPE_COMPUTE1 = 3'd1;
+    localparam PIPE_TENSOR   = 3'd2;
+    localparam PIPE_MEMORY   = 3'd3;
+    localparam PIPE_BRANCH   = 3'd4;
+
+    //------------------------------------------------------------------------
+    // Per-Warp Scoreboard
+    //------------------------------------------------------------------------
+    reg [31:0] scoreboard [0:NUM_WARPS-1];
+
+    //------------------------------------------------------------------------
+    // Per-Warp Hazard Detection
+    //------------------------------------------------------------------------
+    wire [NUM_WARPS-1:0] warp_has_hazard;
+    genvar w;
+    generate
+        for (w = 0; w < NUM_WARPS; w = w + 1) begin : gen_hazard
+            wire raw_hazard = scoreboard[w][warp_rs1[w]] ||
+                             scoreboard[w][warp_rs2[w]] ||
+                             scoreboard[w][warp_rs3[w]];
+            wire waw_hazard = warp_writes_reg[w] && scoreboard[w][warp_rd[w]];
+            assign warp_has_hazard[w] = raw_hazard || waw_hazard;
+        end
+    endgenerate
+
+    // Warp is eligible if: valid, ready, has instruction, no hazard, not diverged, not at barrier
+    wire [NUM_WARPS-1:0] warp_eligible = warp_valid & warp_ready & warp_inst_valid &
+                                          ~warp_has_hazard & ~warp_diverged & ~warp_at_barrier;
+
+    //------------------------------------------------------------------------
+    // Per-Scheduler Warp Selection
+    // Blackwell: Each scheduler handles warps where (warp_id % NUM_SCHEDULERS == scheduler_id)
+    //------------------------------------------------------------------------
+    reg [NUM_SCHEDULERS-1:0] issue_valid_r;
+    reg [WARP_W-1:0]         issue_warp_r [0:NUM_SCHEDULERS-1];
+    reg [INST_WIDTH-1:0]     issue_inst_r [0:NUM_SCHEDULERS-1];
+    reg [2:0]                issue_pipe_r [0:NUM_SCHEDULERS-1];
+    reg [NUM_WARPS-1:0]      issue_consume_r;
+
+    // Round-robin pointer per scheduler (for fairness within assigned warps)
+    reg [WARP_W-1:0] sched_rr_ptr [0:NUM_SCHEDULERS-1];
+
+    // Compute pipe assignment: scheduler 0 -> pipe0, scheduler 1 -> pipe1, etc.
+    wire [NUM_SCHEDULERS-1:0] compute_pipe_ready;
+    generate
+        if (NUM_SCHEDULERS >= 1) assign compute_pipe_ready[0] = compute_pipe0_ready;
+        if (NUM_SCHEDULERS >= 2) assign compute_pipe_ready[1] = compute_pipe1_ready;
+        // For NUM_SCHEDULERS > 2, share pipes (round-robin or priority)
+        if (NUM_SCHEDULERS >= 3) assign compute_pipe_ready[2] = compute_pipe0_ready; // Share with pipe0
+        if (NUM_SCHEDULERS >= 4) assign compute_pipe_ready[3] = compute_pipe1_ready; // Share with pipe1
+    endgenerate
+
+    // Scheduler selection logic
+    integer s, sw;
+    always @(*) begin
+        issue_valid_r = 0;
+        issue_consume_r = 0;
+        for (s = 0; s < NUM_SCHEDULERS; s = s + 1) begin
+            issue_warp_r[s] = 0;
+            issue_inst_r[s] = 0;
+            issue_pipe_r[s] = PIPE_COMPUTE0;
+        end
+
+        // Each scheduler selects from its assigned warps
+        for (s = 0; s < NUM_SCHEDULERS; s = s + 1) begin
+            // Iterate through warps assigned to this scheduler
+            for (sw = 0; sw < WARPS_PER_SCHED; sw = sw + 1) begin
+                // Calculate warp ID for this scheduler
+                // Warp assignment: scheduler s handles warps s, s+NUM_SCHEDULERS, s+2*NUM_SCHEDULERS, ...
+                if (!issue_valid_r[s]) begin
+                    // Use round-robin starting point for fairness
+                    integer warp_idx;
+                    warp_idx = s + ((sched_rr_ptr[s] + sw) % WARPS_PER_SCHED) * NUM_SCHEDULERS;
+
+                    if (warp_idx < NUM_WARPS && warp_eligible[warp_idx]) begin
+                        // Priority order: Branch > Memory > Tensor > Compute
+                        // This ensures long-latency ops get dispatched early
+                        if (warp_is_branch[warp_idx] && branch_unit_ready) begin
+                            issue_valid_r[s] = 1'b1;
+                            issue_warp_r[s] = warp_idx[WARP_W-1:0];
+                            issue_inst_r[s] = warp_inst[warp_idx];
+                            issue_pipe_r[s] = PIPE_BRANCH;
+                            issue_consume_r[warp_idx] = 1'b1;
+                        end else if (warp_is_memory[warp_idx] && memory_pipe_ready) begin
+                            issue_valid_r[s] = 1'b1;
+                            issue_warp_r[s] = warp_idx[WARP_W-1:0];
+                            issue_inst_r[s] = warp_inst[warp_idx];
+                            issue_pipe_r[s] = PIPE_MEMORY;
+                            issue_consume_r[warp_idx] = 1'b1;
+                        end else if (warp_is_tensor[warp_idx] && tensor_pipe_ready) begin
+                            issue_valid_r[s] = 1'b1;
+                            issue_warp_r[s] = warp_idx[WARP_W-1:0];
+                            issue_inst_r[s] = warp_inst[warp_idx];
+                            issue_pipe_r[s] = PIPE_TENSOR;
+                            issue_consume_r[warp_idx] = 1'b1;
+                        end else if (warp_is_compute[warp_idx] && compute_pipe_ready[s]) begin
+                            issue_valid_r[s] = 1'b1;
+                            issue_warp_r[s] = warp_idx[WARP_W-1:0];
+                            issue_inst_r[s] = warp_inst[warp_idx];
+                            // Map scheduler to compute pipe
+                            issue_pipe_r[s] = (s % 2 == 0) ? PIPE_COMPUTE0 : PIPE_COMPUTE1;
+                            issue_consume_r[warp_idx] = 1'b1;
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    assign warp_inst_consume = issue_consume_r;
+
+    //------------------------------------------------------------------------
+    // Scoreboard Update
+    //------------------------------------------------------------------------
+    integer sb_w, sb_s;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            for (sb_w = 0; sb_w < NUM_WARPS; sb_w = sb_w + 1) begin
+                scoreboard[sb_w] <= 0;
+            end
+            for (sb_s = 0; sb_s < NUM_SCHEDULERS; sb_s = sb_s + 1) begin
+                sched_rr_ptr[sb_s] <= 0;
+            end
+        end else begin
+            // Set scoreboard on issue
+            // Note: R0 is a normal register in GPU (not hardwired zero like RISC-V)
+            // NOP/BAR_SYNC/etc. won't set scoreboard because warp_writes_reg=0 for them
+            for (sb_s = 0; sb_s < NUM_SCHEDULERS; sb_s = sb_s + 1) begin
+                if (issue_valid_r[sb_s] && warp_writes_reg[issue_warp_r[sb_s]]) begin
+                    scoreboard[issue_warp_r[sb_s]][warp_rd[issue_warp_r[sb_s]]] <= 1'b1;
+                end
+                // Update round-robin pointer for fairness
+                if (issue_valid_r[sb_s]) begin
+                    sched_rr_ptr[sb_s] <= (sched_rr_ptr[sb_s] + 1) % WARPS_PER_SCHED;
+                end
+            end
+
+            // Clear scoreboard on writeback
+            if (wb_valid) begin
+                scoreboard[wb_warp_id][wb_rd] <= 1'b0;
+            end
+        end
+    end
+
+    //------------------------------------------------------------------------
+    // Statistics
+    //------------------------------------------------------------------------
+    reg [31:0] cycle_count;
+    reg [31:0] single_issue_count;
+    reg [31:0] dual_issue_count;
+    reg [31:0] stall_count;
+
+    wire [3:0] num_issued = issue_valid_r[0] + issue_valid_r[1] +
+                            ((NUM_SCHEDULERS > 2) ? issue_valid_r[2] : 1'b0) +
+                            ((NUM_SCHEDULERS > 3) ? issue_valid_r[3] : 1'b0);
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            cycle_count <= 0;
+            single_issue_count <= 0;
+            dual_issue_count <= 0;
+            stall_count <= 0;
+        end else begin
+            cycle_count <= cycle_count + 1;
+
+            // Count issue patterns
+            if (num_issued == 0) begin
+                stall_count <= stall_count + 1;
+            end else if (num_issued == 1) begin
+                single_issue_count <= single_issue_count + 1;
+            end else begin
+                // 2 or more issues = dual/multi issue
+                dual_issue_count <= dual_issue_count + 1;
+            end
+
+            // Debug output
+            `ifdef SIMULATION
+            if (cycle_count < 50 && num_issued > 0) begin
+                $display("[%0t BLACKWELL_SCHED] cycle=%0d issue_valid=%b consume=%b num_issued=%0d",
+                         $time, cycle_count, issue_valid_r, issue_consume_r, num_issued);
+                $display("  eligible=%b inst_valid=%b hazard=%b",
+                         warp_eligible, warp_inst_valid, warp_has_hazard);
+                if (issue_valid_r[0])
+                    $display("  sched0: warp=%0d pipe=%0d inst=0x%08x",
+                             issue_warp_r[0], issue_pipe_r[0], issue_inst_r[0]);
+                if (issue_valid_r[1])
+                    $display("  sched1: warp=%0d pipe=%0d inst=0x%08x",
+                             issue_warp_r[1], issue_pipe_r[1], issue_inst_r[1]);
+            end
+            `endif
+        end
+    end
+
+    assign stat_cycles = cycle_count;
+    assign stat_single_issue = single_issue_count;
+    assign stat_dual_issue = dual_issue_count;
+    assign stat_stalls = stall_count;
+
+    //------------------------------------------------------------------------
+    // Output Assignments
+    //------------------------------------------------------------------------
+    assign issue_valid = issue_valid_r;
+
+    generate
+        genvar i;
+        for (i = 0; i < NUM_SCHEDULERS; i = i + 1) begin : gen_issue_out
+            assign issue_warp_id[i] = issue_warp_r[i];
+            assign issue_inst[i] = issue_inst_r[i];
+            assign issue_pipe[i] = issue_pipe_r[i];
+        end
+    endgenerate
+
+endmodule
