@@ -1,0 +1,66 @@
+// Trigonometric Function Test: sin.f32
+// Tests sin function at various angles
+//
+// Test values:
+//   x = 0.0      -> sin(0) = 0.0
+//   x = 0.5236   -> sin(π/6) ≈ 0.5
+//   x = 0.7854   -> sin(π/4) ≈ 0.707
+//   x = 1.0472   -> sin(π/3) ≈ 0.866
+//   x = 1.5708   -> sin(π/2) = 1.0
+//
+// FP32 Hex values:
+//   0.0    = 0x00000000
+//   0.5236 = 0x3F060A92 (π/6)
+//   0.7854 = 0x3F490FDB (π/4)
+//   1.0472 = 0x3F860A92 (π/3)
+//   1.5708 = 0x3FC90FDB (π/2)
+
+.entry trig_sin:
+    // Load test value: x = π/4 ≈ 0.7854 (45 degrees)
+    // FP32: 0x3F490FDB
+    mov.u32 r1, 0x3F49
+    shl.b32 r1, r1, 16        // r1 = 0x3F490000
+    mov.u32 r2, 0x0FDB
+    or.b32 r1, r1, r2         // r1 = 0x3F490FDB (π/4)
+
+    // Load test value: x = π/6 ≈ 0.5236 (30 degrees)
+    // FP32: 0x3F060A92
+    mov.u32 r3, 0x3F06
+    shl.b32 r3, r3, 16        // r3 = 0x3F060000
+    mov.u32 r4, 0x0A92
+    or.b32 r3, r3, r4         // r3 = 0x3F060A92 (π/6)
+
+    // Load test value: x = π/2 ≈ 1.5708 (90 degrees)
+    // FP32: 0x3FC90FDB
+    mov.u32 r5, 0x3FC9
+    shl.b32 r5, r5, 16        // r5 = 0x3FC90000
+    mov.u32 r6, 0x0FDB
+    or.b32 r5, r5, r6         // r5 = 0x3FC90FDB (π/2)
+
+    // Compute sin(π/4) ≈ 0.707
+    sin.f32 r10, r1           // r10 = sin(π/4) ≈ 0.707 = 0x3F3504F3
+
+    // Compute sin(π/6) ≈ 0.5
+    sin.f32 r11, r3           // r11 = sin(π/6) ≈ 0.5 = 0x3F000000
+
+    // Compute sin(π/2) = 1.0
+    sin.f32 r12, r5           // r12 = sin(π/2) = 1.0 = 0x3F800000
+
+    // Sum all results for verification
+    add.f32 r15, r10, r11     // r15 = 0.707 + 0.5 = 1.207
+    add.f32 r15, r15, r12     // r15 = 1.207 + 1.0 = 2.207
+
+    // Store results
+    mov.u32 r20, 0x1000
+    st.global.u32 [r20], r15  // Sum of sin values
+
+    mov.u32 r21, 0x1004
+    st.global.u32 [r21], r10  // sin(π/4)
+
+    mov.u32 r22, 0x1008
+    st.global.u32 [r22], r11  // sin(π/6)
+
+    mov.u32 r23, 0x100c
+    st.global.u32 [r23], r12  // sin(π/2)
+
+    exit

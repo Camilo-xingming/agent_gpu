@@ -1,0 +1,70 @@
+// LLM Operator: Simplified Softmax
+// Computes softmax for 2 elements: softmax(x) = exp(x) / sum(exp(x))
+// Using ex2 (2^x) as approximation: exp(x) ≈ 2^(x * 1.4427)
+//
+// Input: x0 = 1.0, x1 = 2.0
+// log2(e) ≈ 1.4427 = 0x3FB8AA3B
+// x0 * log2e = 1.4427, x1 * log2e = 2.8854
+// exp(x0) = 2^1.4427 ≈ 2.718, exp(x1) = 2^2.8854 ≈ 7.389
+// sum = 2.718 + 7.389 = 10.107
+// softmax(x0) = 2.718 / 10.107 ≈ 0.269
+// softmax(x1) = 7.389 / 10.107 ≈ 0.731
+//
+// Store sum of softmax outputs (should be ~1.0 = 0x3F800000)
+
+.entry llm_softmax:
+    // Load constants: 1.0f = 0x3F800000, 2.0f = 0x40000000
+    // log2(e) = 1.4427f ≈ 0x3FB8AA3B (use 0x3FB8 as 16-bit approx -> need shift)
+
+    // Load x0 = 1.0f (0x3F800000) using shift+or
+    mov.u32 r1, 0x3F80        // high 16 bits
+    shl.b32 r1, r1, 16        // shift to upper half
+    // r1 = 0x3F800000 = 1.0f
+
+    // Load x1 = 2.0f (0x40000000)
+    mov.u32 r2, 0x4000
+    shl.b32 r2, r2, 16
+    // r2 = 0x40000000 = 2.0f
+
+    // Load log2(e) ≈ 1.4427f = 0x3FB8AA3B
+    // Simplified: use 1.5f = 0x3FC00000 as approximation
+    mov.u32 r3, 0x3FC0
+    shl.b32 r3, r3, 16
+    // r3 = 0x3FC00000 = 1.5f (approx log2(e))
+
+    // Compute x0 * log2(e) -> r4
+    mul.f32 r4, r1, r3        // r4 = 1.0 * 1.5 = 1.5
+
+    // Compute x1 * log2(e) -> r5
+    mul.f32 r5, r2, r3        // r5 = 2.0 * 1.5 = 3.0
+
+    // Compute exp(x0) = 2^(x0 * log2e) -> r6
+    ex2.f32 r6, r4            // r6 = 2^1.5 ≈ 2.828
+
+    // Compute exp(x1) = 2^(x1 * log2e) -> r7
+    ex2.f32 r7, r5            // r7 = 2^3.0 = 8.0
+
+    // Compute sum = exp(x0) + exp(x1) -> r8
+    add.f32 r8, r6, r7        // r8 = 2.828 + 8.0 = 10.828
+
+    // Compute softmax(x0) = exp(x0) / sum -> r9
+    div.f32 r9, r6, r8        // r9 ≈ 0.261
+
+    // Compute softmax(x1) = exp(x1) / sum -> r10
+    div.f32 r10, r7, r8       // r10 ≈ 0.739
+
+    // Verify: sum of softmax should be 1.0
+    add.f32 r11, r9, r10      // r11 should be ~1.0
+
+    // Store results
+    mov.u32 r20, 0x1000
+    st.global.u32 [r20], r11  // Store sum (should be ~1.0)
+
+    // Store individual softmax values for verification
+    mov.u32 r21, 0x1004
+    st.global.u32 [r21], r9   // softmax(x0)
+
+    mov.u32 r22, 0x1008
+    st.global.u32 [r22], r10  // softmax(x1)
+
+    exit

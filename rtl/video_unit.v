@@ -148,41 +148,62 @@ module video_unit (
     //------------------------------------------------------------------------
     // DP4A - 4-element dot product with accumulate (key for INT8 ML)
     // result = c + sum(a[i] * b[i]) for i in 0..3 (4 bytes each)
+    // Uses registered operands (op_a_r, op_b_r, op_c_r) for pipeline alignment
     //------------------------------------------------------------------------
     wire signed [31:0] dp4a_signed_result;
     wire [31:0] dp4a_unsigned_result;
 
-    // Signed DP4A
-    wire signed [17:0] prod0_s = $signed({{8{a_byte0[7]}}, a_byte0}) * $signed({{8{b_byte0[7]}}, b_byte0});
-    wire signed [17:0] prod1_s = $signed({{8{a_byte1[7]}}, a_byte1}) * $signed({{8{b_byte1[7]}}, b_byte1});
-    wire signed [17:0] prod2_s = $signed({{8{a_byte2[7]}}, a_byte2}) * $signed({{8{b_byte2[7]}}, b_byte2});
-    wire signed [17:0] prod3_s = $signed({{8{a_byte3[7]}}, a_byte3}) * $signed({{8{b_byte3[7]}}, b_byte3});
+    // Registered byte extraction (from pipeline stage 1)
+    wire [7:0] a_byte0_r = op_a_r[7:0];
+    wire [7:0] a_byte1_r = op_a_r[15:8];
+    wire [7:0] a_byte2_r = op_a_r[23:16];
+    wire [7:0] a_byte3_r = op_a_r[31:24];
 
-    assign dp4a_signed_result = c_signed + prod0_s + prod1_s + prod2_s + prod3_s;
+    wire [7:0] b_byte0_r = op_b_r[7:0];
+    wire [7:0] b_byte1_r = op_b_r[15:8];
+    wire [7:0] b_byte2_r = op_b_r[23:16];
+    wire [7:0] b_byte3_r = op_b_r[31:24];
 
-    // Unsigned DP4A
-    wire [17:0] prod0_u = {10'b0, a_byte0} * {10'b0, b_byte0};
-    wire [17:0] prod1_u = {10'b0, a_byte1} * {10'b0, b_byte1};
-    wire [17:0] prod2_u = {10'b0, a_byte2} * {10'b0, b_byte2};
-    wire [17:0] prod3_u = {10'b0, a_byte3} * {10'b0, b_byte3};
+    wire signed [31:0] c_signed_r = $signed(op_c_r);
 
-    assign dp4a_unsigned_result = operand_c + prod0_u + prod1_u + prod2_u + prod3_u;
+    // Signed DP4A (using registered operands)
+    wire signed [17:0] prod0_s = $signed({{8{a_byte0_r[7]}}, a_byte0_r}) * $signed({{8{b_byte0_r[7]}}, b_byte0_r});
+    wire signed [17:0] prod1_s = $signed({{8{a_byte1_r[7]}}, a_byte1_r}) * $signed({{8{b_byte1_r[7]}}, b_byte1_r});
+    wire signed [17:0] prod2_s = $signed({{8{a_byte2_r[7]}}, a_byte2_r}) * $signed({{8{b_byte2_r[7]}}, b_byte2_r});
+    wire signed [17:0] prod3_s = $signed({{8{a_byte3_r[7]}}, a_byte3_r}) * $signed({{8{b_byte3_r[7]}}, b_byte3_r});
+
+    assign dp4a_signed_result = c_signed_r + prod0_s + prod1_s + prod2_s + prod3_s;
+
+    // Unsigned DP4A (using registered operands)
+    wire [17:0] prod0_u = {10'b0, a_byte0_r} * {10'b0, b_byte0_r};
+    wire [17:0] prod1_u = {10'b0, a_byte1_r} * {10'b0, b_byte1_r};
+    wire [17:0] prod2_u = {10'b0, a_byte2_r} * {10'b0, b_byte2_r};
+    wire [17:0] prod3_u = {10'b0, a_byte3_r} * {10'b0, b_byte3_r};
+
+    assign dp4a_unsigned_result = op_c_r + prod0_u + prod1_u + prod2_u + prod3_u;
 
     //------------------------------------------------------------------------
     // DP2A - 2-element dot product with accumulate (16-bit elements)
+    // Uses registered operands for pipeline alignment
     //------------------------------------------------------------------------
     wire signed [31:0] dp2a_signed_result;
     wire [31:0] dp2a_unsigned_result;
 
-    wire signed [33:0] prod_h0_s = $signed({{16{a_half0[15]}}, a_half0}) * $signed({{16{b_half0[15]}}, b_half0});
-    wire signed [33:0] prod_h1_s = $signed({{16{a_half1[15]}}, a_half1}) * $signed({{16{b_half1[15]}}, b_half1});
+    // Registered half-word extraction
+    wire [15:0] a_half0_r = op_a_r[15:0];
+    wire [15:0] a_half1_r = op_a_r[31:16];
+    wire [15:0] b_half0_r = op_b_r[15:0];
+    wire [15:0] b_half1_r = op_b_r[31:16];
 
-    assign dp2a_signed_result = c_signed + prod_h0_s[31:0] + prod_h1_s[31:0];
+    wire signed [33:0] prod_h0_s = $signed({{16{a_half0_r[15]}}, a_half0_r}) * $signed({{16{b_half0_r[15]}}, b_half0_r});
+    wire signed [33:0] prod_h1_s = $signed({{16{a_half1_r[15]}}, a_half1_r}) * $signed({{16{b_half1_r[15]}}, b_half1_r});
 
-    wire [33:0] prod_h0_u = {16'b0, a_half0} * {16'b0, b_half0};
-    wire [33:0] prod_h1_u = {16'b0, a_half1} * {16'b0, b_half1};
+    assign dp2a_signed_result = c_signed_r + prod_h0_s[31:0] + prod_h1_s[31:0];
 
-    assign dp2a_unsigned_result = operand_c + prod_h0_u[31:0] + prod_h1_u[31:0];
+    wire [33:0] prod_h0_u = {16'b0, a_half0_r} * {16'b0, b_half0_r};
+    wire [33:0] prod_h1_u = {16'b0, a_half1_r} * {16'b0, b_half1_r};
+
+    assign dp2a_unsigned_result = op_c_r + prod_h0_u[31:0] + prod_h1_u[31:0];
 
     //------------------------------------------------------------------------
     // SIMD 4x8-bit operations
@@ -327,14 +348,16 @@ module video_unit (
                     //----------------------------------------------------
                     // Dot Product instructions (critical for INT8 ML)
                     //----------------------------------------------------
-                    `VIDEO_DP4A: begin
+                    `VIDEO_DP4A,
+                    `VIDEO_DP4A_ALU: begin
                         if (is_signed_r)
                             result <= dp4a_signed_result;
                         else
                             result <= dp4a_unsigned_result;
                     end
 
-                    `VIDEO_DP2A: begin
+                    `VIDEO_DP2A,
+                    `VIDEO_DP2A_ALU: begin
                         if (is_signed_r)
                             result <= dp2a_signed_result;
                         else

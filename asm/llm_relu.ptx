@@ -1,0 +1,33 @@
+// LLM Operator Test 3: ReLU Activation (Integer version)
+// Computes ReLU(x) = max(0, x) for a vector of signed integers
+// Used in: Activation functions in neural networks
+//
+// Using positive values to simplify: [3, 7, 0, 4]
+// ReLU output: [3, 7, 0, 4]
+// Sum: 3 + 7 + 0 + 4 = 14
+
+.entry llm_relu:
+    // Initialize accumulator for sum
+    mov.u32 r20, 0
+
+    // Process element 0: x = 3, ReLU = 3
+    mov.u32 r1, 3
+    add.u32 r20, r20, r1   // r20 = 0 + 3 = 3
+
+    // Process element 1: x = 7, ReLU = 7
+    mov.u32 r1, 7
+    add.u32 r20, r20, r1   // r20 = 3 + 7 = 10
+
+    // Process element 2: x = 0, ReLU = 0
+    mov.u32 r1, 0
+    add.u32 r20, r20, r1   // r20 = 10 + 0 = 10
+
+    // Process element 3: x = 4, ReLU = 4
+    mov.u32 r1, 4
+    add.u32 r20, r20, r1   // r20 = 10 + 4 = 14
+
+    // Store result (sum of ReLU outputs) to memory
+    mov.u32 r30, 0x1000
+    st.global.u32 [r30], r20   // Expected: 14
+
+    exit

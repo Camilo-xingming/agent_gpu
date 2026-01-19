@@ -4362,6 +4362,8 @@ module streaming_multiprocessor_v2 #(
                         wb_rd <= fpu32_wbq_rd;
                         wb_data <= fpu32_wbq_data;
                         wb_mask <= fpu32_wbq_mask;
+                        $display("[SM%0d] FPU32_WB: rd=R%0d warp=%0d mask=0x%08x data[0]=0x%08x",
+                                 SM_ID, fpu32_wbq_rd, fpu32_wbq_warp, fpu32_wbq_mask, fpu32_wbq_data[31:0]);
                     end
                     4'd3: begin  // FPU64 (truncated)
                         wb_warp_id <= fpu64_wbq_warp;
@@ -4380,6 +4382,8 @@ module streaming_multiprocessor_v2 #(
                         wb_rd <= sfu_wbq_rd;
                         wb_data <= sfu_wbq_data;
                         wb_mask <= sfu_wbq_mask;
+                        $display("[SM%0d] SFU_WB: rd=R%0d warp=%0d mask=0x%08x data[0]=0x%08x",
+                                 SM_ID, sfu_wbq_rd, sfu_wbq_warp, sfu_wbq_mask, sfu_wbq_data[31:0]);
                     end
                     4'd6: begin  // Tensor (variable latency)
                         wb_warp_id <= tensor_wbq_warp;

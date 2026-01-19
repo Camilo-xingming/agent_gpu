@@ -1,0 +1,55 @@
+// Trigonometric Function Test: cos.f32
+// Tests cos function at various angles
+//
+// Test values:
+//   x = 0.0      -> cos(0) = 1.0
+//   x = 0.5236   -> cos(π/6) ≈ 0.866
+//   x = 0.7854   -> cos(π/4) ≈ 0.707
+//   x = 1.0472   -> cos(π/3) ≈ 0.5
+//   x = 1.5708   -> cos(π/2) ≈ 0.0
+
+.entry trig_cos:
+    // Load test value: x = π/4 ≈ 0.7854 (45 degrees)
+    // FP32: 0x3F490FDB
+    mov.u32 r1, 0x3F49
+    shl.b32 r1, r1, 16        // r1 = 0x3F490000
+    mov.u32 r2, 0x0FDB
+    or.b32 r1, r1, r2         // r1 = 0x3F490FDB (π/4)
+
+    // Load test value: x = π/6 ≈ 0.5236 (30 degrees)
+    // FP32: 0x3F060A92
+    mov.u32 r3, 0x3F06
+    shl.b32 r3, r3, 16        // r3 = 0x3F060000
+    mov.u32 r4, 0x0A92
+    or.b32 r3, r3, r4         // r3 = 0x3F060A92 (π/6)
+
+    // Load test value: x = 0.0 (0 degrees)
+    mov.u32 r5, 0x0000        // r5 = 0.0
+
+    // Compute cos(π/4) ≈ 0.707
+    cos.f32 r10, r1           // r10 = cos(π/4) ≈ 0.707 = 0x3F3504F3
+
+    // Compute cos(π/6) ≈ 0.866
+    cos.f32 r11, r3           // r11 = cos(π/6) ≈ 0.866 = 0x3F5DB3D7
+
+    // Compute cos(0) = 1.0
+    cos.f32 r12, r5           // r12 = cos(0) = 1.0 = 0x3F800000
+
+    // Sum all results for verification
+    add.f32 r15, r10, r11     // r15 = 0.707 + 0.866 = 1.573
+    add.f32 r15, r15, r12     // r15 = 1.573 + 1.0 = 2.573
+
+    // Store results
+    mov.u32 r20, 0x1000
+    st.global.u32 [r20], r15  // Sum of cos values
+
+    mov.u32 r21, 0x1004
+    st.global.u32 [r21], r10  // cos(π/4)
+
+    mov.u32 r22, 0x1008
+    st.global.u32 [r22], r11  // cos(π/6)
+
+    mov.u32 r23, 0x100c
+    st.global.u32 [r23], r12  // cos(0)
+
+    exit

@@ -1,0 +1,40 @@
+// LLM Operator Test 4: Simplified Attention Score Computation
+// Computes Q*K^T for a single query and key vector using dp4a
+// Used in: Self-attention mechanism in transformers
+//
+// Q = [1, 2, 1, 2] -> 0x02010201, K = [2, 1, 2, 1] -> 0x01020102
+// Score = Q . K = 1*2 + 2*1 + 1*2 + 2*1 = 8
+// Add second part: Q2 = [3, 4, 0, 0] = 0x0403, K2 = [1, 1, 0, 0] = 0x0101
+// = 3*1 + 4*1 + 0 + 0 + 8 = 15
+
+.entry llm_attention_score:
+    // Build Q = 0x02010201 using shift+or (use r1 for result)
+    mov.u32 r1, 0x0201      // low half
+    mov.u32 r2, 0x0201      // high half
+    shl.b32 r2, r2, 16      // shift high half
+    or.b32 r1, r1, r2       // r1 = 0x02010201
+
+    // Build K = 0x01020102 using shift+or (use r3 for result)
+    mov.u32 r3, 0x0102      // low half
+    mov.u32 r4, 0x0102      // high half
+    shl.b32 r4, r4, 16      // shift high half
+    or.b32 r3, r3, r4       // r3 = 0x01020102
+
+    // Initialize score accumulator
+    mov.u32 r5, 0
+
+    // First dp4a: score = 1*2 + 2*1 + 1*2 + 2*1 + 0 = 8
+    dp4a.s32.s32 r0, r1, r3, r5
+
+    // Pack Q2 = [3,4,0,0] -> 0x0403, K2 = [1,1,0,0] -> 0x0101
+    mov.u32 r1, 0x0403
+    mov.u32 r2, 0x0101
+
+    // Second dp4a: score = 3*1 + 4*1 + 0 + 0 + 8 = 15
+    dp4a.s32.s32 r0, r1, r2, r0
+
+    // Store attention score to memory
+    mov.u32 r6, 0x1000
+    st.global.u32 [r6], r0   // Expected: 15
+
+    exit

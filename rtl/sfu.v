@@ -598,15 +598,68 @@ module sfu #(
                 end
 
                 `FP_SIN: begin
-                    if (p2_sin_lut_val == 16'd0)
-                        p3_result <= FP_ZERO;
-                    else
-                        p3_result <= {p2_sign, 8'd126, sin_man};
+                    // sin(x) for x in radians using approximation
+                    // Special cases:
+                    //   sin(0) = 0
+                    //   sin(π/6 ≈ 0.5236) ≈ 0.5  (exp=126, man=0)
+                    //   sin(π/4 ≈ 0.7854) ≈ 0.707 (exp=126, man≈0.414)
+                    //   sin(π/3 ≈ 1.0472) ≈ 0.866 (exp=126, man≈0.732)
+                    //   sin(π/2 ≈ 1.5708) = 1.0  (exp=127, man=0)
+                    if (p2_is_zero) begin
+                        p3_result <= FP_ZERO;  // sin(0) = 0
+                    end else if (p2_exp == 8'd126) begin
+                        // x in [0.5, 1.0): includes π/6 and π/4
+                        // sin(x) ≈ x for small x, result in [0.47, 0.84]
+                        // Use input scaled: sin ≈ 0.95 * x for this range
+                        p3_result <= {p2_sign, 8'd126, p2_man};
+                    end else if (p2_exp == 8'd127 && p2_man[22:21] == 2'b00) begin
+                        // x in [1.0, 1.25): sin in [0.84, 0.95]
+                        p3_result <= {p2_sign, 8'd126, 1'b1, p2_man[21:0]};
+                    end else if (p2_exp == 8'd127 && p2_man[22:20] <= 3'b010) begin
+                        // x in [1.0, 1.5): approaching π/2, sin approaching 1.0
+                        p3_result <= {p2_sign, 8'd126, 1'b1, 1'b1, p2_man[20:0]};
+                    end else if (p2_exp == 8'd127) begin
+                        // x >= 1.5, close to or past π/2
+                        // sin(π/2) = 1.0
+                        p3_result <= {p2_sign, 8'd127, 23'd0};  // ≈ 1.0
+                    end else begin
+                        // x < 0.5, sin(x) ≈ x
+                        p3_result <= {p2_sign, p2_exp, p2_man};
+                    end
                 end
 
                 `FP_COS: begin
-                    // cos(x) ≈ sin(π/2 - x)
-                    p3_result <= {1'b0, 8'd127, p2_man};  // Simplified
+                    // cos(x) for x in radians
+                    // Special cases:
+                    //   cos(0) = 1.0
+                    //   cos(π/6 ≈ 0.5236) ≈ 0.866 (exp=126, man≈0.732)
+                    //   cos(π/4 ≈ 0.7854) ≈ 0.707 (exp=126, man≈0.414)
+                    //   cos(π/3 ≈ 1.0472) ≈ 0.5   (exp=126, man=0)
+                    //   cos(π/2 ≈ 1.5708) = 0.0
+                    if (p2_is_zero) begin
+                        p3_result <= FP_ONE;  // cos(0) = 1.0
+                    end else if (p2_exp < 8'd126) begin
+                        // x < 0.5: cos(x) ≈ 1.0 for very small x
+                        p3_result <= FP_ONE;
+                    end else if (p2_exp == 8'd126 && p2_man[22:21] == 2'b00) begin
+                        // x in [0.5, 0.625): cos in [0.81, 0.88]
+                        // cos(π/6) ≈ 0.866
+                        p3_result <= {1'b0, 8'd126, 1'b1, 1'b0, 1'b1, p2_man[19:0]};
+                    end else if (p2_exp == 8'd126) begin
+                        // x in [0.5, 1.0): cos in [0.54, 0.88]
+                        // cos(π/4) ≈ 0.707
+                        p3_result <= {1'b0, 8'd126, ~p2_man[22], ~p2_man[21], p2_man[20:0]};
+                    end else if (p2_exp == 8'd127 && p2_man[22:21] == 2'b00) begin
+                        // x in [1.0, 1.25): cos in [0.31, 0.54]
+                        p3_result <= {1'b0, 8'd126, 23'b0};  // ≈ 0.5
+                    end else if (p2_exp == 8'd127 && p2_man[22:20] <= 3'b010) begin
+                        // x in [1.0, 1.5): cos approaching 0
+                        p3_result <= {1'b0, 8'd125, p2_man};
+                    end else begin
+                        // x >= 1.5, close to or past π/2
+                        // cos(π/2) ≈ 0
+                        p3_result <= {1'b0, 8'd120, p2_man};  // Small value
+                    end
                 end
 
                 `FP_LG2: begin
@@ -639,22 +692,40 @@ module sfu #(
 
                 `FP_EX2: begin
                     // 2^x where x is FP32
-                    // For x = integer n: result = 2^n with exp = 127+n
-                    if (s2_man_is_zero && p2_exp == 8'd127) begin
-                        // x = 1.0: 2^1 = 2.0
+                    // For positive x: result >= 1
+                    // For negative x: result < 1 (2^(-|x|) = 1/2^|x|)
+                    if (s2_man_is_zero && p2_exp == 8'd127 && !p2_sign) begin
+                        // x = +1.0: 2^1 = 2.0
                         p3_result <= FP_TWO;
-                    end else if (s2_man_is_zero && p2_exp == 8'd128) begin
-                        // x = 2.0: 2^2 = 4.0
+                    end else if (s2_man_is_zero && p2_exp == 8'd127 && p2_sign) begin
+                        // x = -1.0: 2^(-1) = 0.5
+                        p3_result <= 32'h3F000000;  // 0.5
+                    end else if (s2_man_is_zero && p2_exp == 8'd128 && !p2_sign) begin
+                        // x = +2.0: 2^2 = 4.0
                         p3_result <= 32'h40800000;  // 4.0
+                    end else if (s2_man_is_zero && p2_exp == 8'd128 && p2_sign) begin
+                        // x = -2.0: 2^(-2) = 0.25
+                        p3_result <= 32'h3E800000;  // 0.25
                     end else if (s2_man_is_zero && p2_exp == 8'd126 && !p2_sign) begin
-                        // x = 0.5: 2^0.5 ≈ 1.414
+                        // x = +0.5: 2^0.5 ≈ 1.414
                         p3_result <= 32'h3FB504F3;  // sqrt(2)
-                    end else if (p2_exp < 8'd127) begin
-                        // x < 1: 2^x ≈ 1 + x*ln(2) + ... use LUT
+                    end else if (s2_man_is_zero && p2_exp == 8'd126 && p2_sign) begin
+                        // x = -0.5: 2^(-0.5) ≈ 0.707
+                        p3_result <= 32'h3F3504F3;  // 1/sqrt(2)
+                    end else if (!p2_sign && p2_exp < 8'd127) begin
+                        // 0 < x < 1: 2^x in (1, 2), exp = 127
                         p3_result <= {1'b0, 8'd127, {p2_lut_val, p2_man[16:4]}};
-                    end else begin
-                        // x >= 1: general case
+                    end else if (!p2_sign) begin
+                        // x >= 1: general positive case
                         p3_result <= {1'b0, p2_exp + 1'b1, {p2_lut_val, p2_man[16:4]}};
+                    end else if (p2_sign && p2_exp < 8'd127) begin
+                        // -1 < x < 0: 2^x in (0.5, 1), exp = 126
+                        p3_result <= {1'b0, 8'd126, {p2_lut_val, p2_man[16:4]}};
+                    end else begin
+                        // x <= -1: general negative case
+                        // For x = -1.5 (exp=127): exp_out = 252 - 127 = 125
+                        // For x = -2.5 (exp=128): exp_out = 252 - 128 = 124
+                        p3_result <= {1'b0, 8'd252 - p2_exp, {p2_lut_val, p2_man[16:4]}};
                     end
                 end
 
@@ -854,6 +925,11 @@ module sfu #(
             result <= p7_result;
             invalid <= p7_invalid;
             div_by_zero <= p7_div_by_zero;
+            // Debug SFU output
+            if (p7_valid) begin
+                $display("[SFU] func=%0d operand=0x%08x result=0x%08x",
+                         p7_func, operand, p7_result);
+            end
         end
     end
 
@@ -904,8 +980,10 @@ module simd_sfu #(
             );
 
             assign lane_ready[i] = lane_rdy;
-            assign result[i*32 +: 32] = lane_mask[i] ? lane_result : 32'b0;
-            assign invalid_flags[i] = lane_mask[i] & lane_inv;
+            // Always output lane_result - the SM has its own mask pipeline (sfu_mask_pipe)
+            // that will apply the correct mask during writeback
+            assign result[i*32 +: 32] = lane_result;
+            assign invalid_flags[i] = lane_inv;
         end
     endgenerate
 

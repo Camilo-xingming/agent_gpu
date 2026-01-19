@@ -1,0 +1,48 @@
+// Trigonometric Function Test: tan = sin/cos
+// Tests tangent function computed as sin(x)/cos(x)
+//
+// Test values:
+//   x = π/4 ≈ 0.7854 -> tan(π/4) = 1.0
+//   x = π/6 ≈ 0.5236 -> tan(π/6) ≈ 0.577
+//
+// tan(x) = sin(x) / cos(x)
+
+.entry trig_tan:
+    // Load test value: x = π/4 ≈ 0.7854 (45 degrees)
+    // FP32: 0x3F490FDB
+    mov.u32 r1, 0x3F49
+    shl.b32 r1, r1, 16        // r1 = 0x3F490000
+    mov.u32 r2, 0x0FDB
+    or.b32 r1, r1, r2         // r1 = 0x3F490FDB (π/4)
+
+    // Load test value: x = π/6 ≈ 0.5236 (30 degrees)
+    // FP32: 0x3F060A92
+    mov.u32 r3, 0x3F06
+    shl.b32 r3, r3, 16        // r3 = 0x3F060000
+    mov.u32 r4, 0x0A92
+    or.b32 r3, r3, r4         // r3 = 0x3F060A92 (π/6)
+
+    // === tan(π/4) = sin(π/4) / cos(π/4) ===
+    sin.f32 r5, r1            // r5 = sin(π/4) ≈ 0.707
+    cos.f32 r6, r1            // r6 = cos(π/4) ≈ 0.707
+    div.f32 r10, r5, r6       // r10 = tan(π/4) ≈ 1.0
+
+    // === tan(π/6) = sin(π/6) / cos(π/6) ===
+    sin.f32 r7, r3            // r7 = sin(π/6) ≈ 0.5
+    cos.f32 r8, r3            // r8 = cos(π/6) ≈ 0.866
+    div.f32 r11, r7, r8       // r11 = tan(π/6) ≈ 0.577
+
+    // Sum for verification
+    add.f32 r15, r10, r11     // r15 = 1.0 + 0.577 = 1.577
+
+    // Store results
+    mov.u32 r20, 0x1000
+    st.global.u32 [r20], r15  // Sum of tan values
+
+    mov.u32 r21, 0x1004
+    st.global.u32 [r21], r10  // tan(π/4) = 1.0
+
+    mov.u32 r22, 0x1008
+    st.global.u32 [r22], r11  // tan(π/6) ≈ 0.577
+
+    exit

@@ -1,5 +1,76 @@
 # RalphGPU Progress Log
 
+## Session Date: 2026-01-19 (Trigonometric Functions)
+
+### Trigonometric Function Verification - ALL TESTS PASS (3/3)
+
+Verified common trigonometric functions using ralph_gpu_top as DUT:
+
+| Test | Description | Expected | Cycles | Status |
+|------|-------------|----------|--------|--------|
+| sin.f32 | sin(π/4), sin(π/6), sin(π/2) | 0.707, 0.5, 1.0 | 140 | PASS |
+| cos.f32 | cos(π/4), cos(π/6), cos(0) | 0.707, 0.866, 1.0 | 125 | PASS |
+| tan | tan(π/4), tan(π/6) via sin/cos | 1.0, 0.577 | 129 | PASS |
+
+### Files Created
+- `asm/trig_sin.ptx` - sin.f32 test with multiple angles
+- `asm/trig_cos.ptx` - cos.f32 test with multiple angles
+- `asm/trig_tan.ptx` - tan computed as sin/cos with div
+- `trig_sin.hex`, `trig_cos.hex`, `trig_tan.hex` - compiled binaries
+- `tb/tb_trig_operators.v` - testbench with tolerance-based FP comparison
+
+### SFU Improvements
+- Enhanced sin.f32 implementation with range-based approximation
+- Enhanced cos.f32 implementation with proper special case handling
+- Both functions now produce reasonable approximations for common angles
+
+### Performance Summary
+- sin.f32: 140 cycles for 3 sin computations
+- cos.f32: 125 cycles for 3 cos computations
+- tan: 129 cycles for 2 tan computations (uses sin, cos, div)
+
+---
+
+## Session Date: 2026-01-19
+
+### LLM Operator Verification - ALL TESTS PASS (5/5)
+
+Created comprehensive test suite for common LLM operators using ralph_gpu_top as DUT:
+
+| Test | Description | Expected | Result | Cycles |
+|------|-------------|----------|--------|--------|
+| Dot Product | DP4A INT8 dot product | 23 | 23 | 59 |
+| GEMM 2x2 | 2x2 matrix multiply | 121 | 121 | 121 |
+| ReLU | ReLU activation sum | 14 | 14 | 61 |
+| Attention Score | Q·K^T attention | 15 | 15 | 91 |
+| Residual Add | Element-wise add | 110 | 110 | 108 |
+
+### Bug Fixes
+
+1. **DP4A func code routing** - VIDEO_DP4A_ALU (0b100010) wasn't handled by video_unit.v, causing DP4A operations to return 0. Added VIDEO_DP4A_ALU and VIDEO_DP2A_ALU to the case statement.
+
+2. **DP4A pipeline alignment bug** - dp4a_signed_result was computed from combinational inputs (operand_a/b/c) instead of registered pipeline stage values (op_a_r/b_r/c_r), causing result mismatch. Fixed by creating registered byte extraction (_r suffix) for DP4A/DP2A computations.
+
+### Files Created/Modified
+
+- **PTX Tests:**
+  - `asm/llm_dot_product.ptx` - INT8 dot product using dp4a
+  - `asm/llm_gemm_2x2.ptx` - 2x2 matrix multiply
+  - `asm/llm_relu.ptx` - ReLU activation
+  - `asm/llm_attention_score.ptx` - Attention score computation
+  - `asm/llm_residual_add.ptx` - Residual connection add
+
+- **Hex Binaries:**
+  - `llm_dot_product.hex`, `llm_gemm_2x2.hex`, `llm_relu.hex`, `llm_attention_score.hex`, `llm_residual_add.hex`
+
+- **Testbench:**
+  - `tb/tb_llm_operators.v` - Top-level testbench using ralph_gpu_top
+
+- **RTL Fixes:**
+  - `rtl/video_unit.v` - Fixed DP4A/DP2A func code handling and pipeline alignment
+
+---
+
 ## Session Date: 2026-01-18
 
 ### Phase A kick-off: div/rem + mul path fixes

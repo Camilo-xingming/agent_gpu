@@ -1,0 +1,84 @@
+// LLM Operator: RMSNorm (Root Mean Square Layer Normalization)
+// Used in: LLaMA, Mistral, and other modern LLMs
+// RMSNorm(x) = x / sqrt(mean(x^2)) * gamma
+// Simplified (gamma=1): RMSNorm(x) = x * rsqrt(mean(x^2))
+//
+// Input: x = [1.0, 2.0, 3.0, 4.0]
+// mean(x^2) = (1 + 4 + 9 + 16) / 4 = 30/4 = 7.5
+// rsqrt(7.5) = 1/sqrt(7.5) ≈ 0.365
+// y0 = 1.0 * 0.365 ≈ 0.365
+// y1 = 2.0 * 0.365 ≈ 0.730
+// y2 = 3.0 * 0.365 ≈ 1.095
+// y3 = 4.0 * 0.365 ≈ 1.461
+// Verification: sum(y^2) = 4.0 (equals n)
+
+.entry llm_rmsnorm:
+    // Load input values: x = [1.0, 2.0, 3.0, 4.0]
+
+    // x0 = 1.0f
+    mov.u32 r1, 0x3F80
+    shl.b32 r1, r1, 16        // r1 = 1.0f
+
+    // x1 = 2.0f
+    mov.u32 r2, 0x4000
+    shl.b32 r2, r2, 16        // r2 = 2.0f
+
+    // x2 = 3.0f
+    mov.u32 r3, 0x4040
+    shl.b32 r3, r3, 16        // r3 = 3.0f
+
+    // x3 = 4.0f
+    mov.u32 r4, 0x4080
+    shl.b32 r4, r4, 16        // r4 = 4.0f
+
+    // Load n = 4.0f for division
+    mov.u32 r5, 0x4080
+    shl.b32 r5, r5, 16        // r5 = 4.0f
+
+    // Compute x^2 for each element
+    mul.f32 r6, r1, r1        // r6 = 1.0^2 = 1.0
+    mul.f32 r7, r2, r2        // r7 = 2.0^2 = 4.0
+    mul.f32 r8, r3, r3        // r8 = 3.0^2 = 9.0
+    mul.f32 r9, r4, r4        // r9 = 4.0^2 = 16.0
+
+    // Compute sum(x^2)
+    add.f32 r10, r6, r7       // r10 = 1.0 + 4.0 = 5.0
+    add.f32 r10, r10, r8      // r10 = 5.0 + 9.0 = 14.0
+    add.f32 r10, r10, r9      // r10 = 14.0 + 16.0 = 30.0
+
+    // Compute mean(x^2) = sum(x^2) / n
+    div.f32 r11, r10, r5      // r11 = 30.0 / 4.0 = 7.5
+
+    // Compute rsqrt(mean(x^2))
+    rsqrt.f32 r12, r11        // r12 = rsqrt(7.5) ≈ 0.365
+
+    // Normalize: y = x * rsqrt(mean(x^2))
+    mul.f32 r13, r1, r12      // y0 = 1.0 * 0.365 ≈ 0.365
+    mul.f32 r14, r2, r12      // y1 = 2.0 * 0.365 ≈ 0.730
+    mul.f32 r15, r3, r12      // y2 = 3.0 * 0.365 ≈ 1.095
+    mul.f32 r16, r4, r12      // y3 = 4.0 * 0.365 ≈ 1.461
+
+    // Verify: sum(y^2) should equal n = 4.0
+    mul.f32 r17, r13, r13     // y0^2
+    mul.f32 r18, r14, r14     // y1^2
+    mul.f32 r19, r15, r15     // y2^2
+    mul.f32 r20, r16, r16     // y3^2
+
+    add.f32 r21, r17, r18
+    add.f32 r21, r21, r19
+    add.f32 r21, r21, r20     // r21 = sum(y^2) ≈ 4.0
+
+    // Store results
+    mov.u32 r25, 0x1000
+    st.global.u32 [r25], r21  // sum(y^2), should be ~4.0
+
+    mov.u32 r25, 0x1004
+    st.global.u32 [r25], r11  // mean(x^2) = 7.5
+
+    mov.u32 r25, 0x1008
+    st.global.u32 [r25], r12  // rsqrt(mean(x^2)) ≈ 0.365
+
+    mov.u32 r25, 0x100c
+    st.global.u32 [r25], r13  // y0 (first normalized value)
+
+    exit

@@ -1,0 +1,48 @@
+// LLM Operator Test 5: Residual Addition
+// Computes output = input + residual (element-wise)
+// Used in: Skip connections in transformer layers
+//
+// input    = [10, 20, 30, 40]
+// residual = [1, 2, 3, 4]
+// output   = [11, 22, 33, 44]
+// checksum = 11 + 22 + 33 + 44 = 110
+
+.entry llm_residual_add:
+    // Load input values
+    mov.u32 r1, 10   // input[0]
+    mov.u32 r2, 20   // input[1]
+    mov.u32 r3, 30   // input[2]
+    mov.u32 r4, 40   // input[3]
+
+    // Load residual values
+    mov.u32 r5, 1    // residual[0]
+    mov.u32 r6, 2    // residual[1]
+    mov.u32 r7, 3    // residual[2]
+    mov.u32 r8, 4    // residual[3]
+
+    // Compute output = input + residual
+    add.u32 r10, r1, r5   // output[0] = 10 + 1 = 11
+    add.u32 r11, r2, r6   // output[1] = 20 + 2 = 22
+    add.u32 r12, r3, r7   // output[2] = 30 + 3 = 33
+    add.u32 r13, r4, r8   // output[3] = 40 + 4 = 44
+
+    // Compute checksum
+    add.u32 r20, r10, r11  // 11 + 22 = 33
+    add.u32 r20, r20, r12  // 33 + 33 = 66
+    add.u32 r20, r20, r13  // 66 + 44 = 110
+
+    // Store checksum to memory
+    mov.u32 r30, 0x1000
+    st.global.u32 [r30], r20   // Expected: 110
+
+    // Store individual outputs
+    mov.u32 r30, 0x1004
+    st.global.u32 [r30], r10   // output[0] = 11
+    mov.u32 r30, 0x1008
+    st.global.u32 [r30], r11   // output[1] = 22
+    mov.u32 r30, 0x100C
+    st.global.u32 [r30], r12   // output[2] = 33
+    mov.u32 r30, 0x1010
+    st.global.u32 [r30], r13   // output[3] = 44
+
+    exit
