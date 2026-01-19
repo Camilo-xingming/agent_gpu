@@ -925,11 +925,13 @@ module sfu #(
             result <= p7_result;
             invalid <= p7_invalid;
             div_by_zero <= p7_div_by_zero;
-            // Debug SFU output
+            // Debug SFU output (simulation only)
+            `ifdef SIMULATION
             if (p7_valid) begin
                 $display("[SFU] func=%0d operand=0x%08x result=0x%08x",
                          p7_func, operand, p7_result);
             end
+            `endif
         end
     end
 

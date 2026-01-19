@@ -1270,8 +1270,10 @@ module streaming_multiprocessor_v2 #(
         end else begin
             // Debug first few fetch cycles
             if (fetch_debug_cnt < 5) begin
+                `ifdef SIMULATION
                 $display("[SM%0d FETCH] fetch_req=%b icache_ready=%b fetch_fire=%b",
                          SM_ID, fetch_req, icache_ready, fetch_fire);
+                `endif
                 fetch_debug_cnt <= fetch_debug_cnt + 1;
             end
             // Round-robin update on successful fetch request
@@ -1359,11 +1361,17 @@ module streaming_multiprocessor_v2 #(
     `ifdef DEBUG_FETCH
     always @(posedge clk) begin
         if (fetch_fire)
+            `ifdef SIMULATION
             $display("[%0t SM%0d FETCH] fetch_fire: warp=%0d pc=0x%08h imem_req=%b", $time, SM_ID, fetch_warp_id, warp_fetch_pc[fetch_warp_id], imem_req);
+            `endif
         if (icache_valid)
+            `ifdef SIMULATION
             $display("[%0t SM%0d FETCH] icache_valid: pipe_valid=%b imem_data=0x%016h icache_data=0x%08h", $time, SM_ID, fetch_pipe_valid, imem_data, icache_data);
+            `endif
         if (fill_valid)
+            `ifdef SIMULATION
             $display("[%0t SM%0d FETCH] fill_valid: warp=%0d early=%b delayed=%b", $time, SM_ID, fill_warp_id, early_response_valid, delayed_response_valid);
+            `endif
     end
     `endif
 
@@ -1550,8 +1558,10 @@ module streaming_multiprocessor_v2 #(
     // DEBUG: Scheduler output
     always @(posedge clk) begin
         if (|warp_inst_buf_valid)
+            `ifdef SIMULATION
             $display("[%0t SM%0d SCHED] issue0_fire=%b buf_valid=%b sched_mask=%b",
                      $time, SM_ID, issue0_fire, warp_inst_buf_valid, sched_issue_valid_mask);
+            `endif
     end
 
     // We reuse the 'dec0' pipeline registers to hold the scheduled instructions
@@ -1564,9 +1574,11 @@ module streaming_multiprocessor_v2 #(
         end else begin
             // Debug: trace issue0_fire
             if (issue0_fire)
+                `ifdef SIMULATION
                 $display("[%0t SM%0d] SCHED: warp=%0d pc=0x%04x inst=0x%08x branch_flush=%b",
                          $time, SM_ID, sched_issue_warp_id[0], warp_pc[sched_issue_warp_id[0]],
                          sched_issue_inst[0], branch_flush_dec0);
+                `endif
             // Flush decode stage if branch taken for same warp
             if (branch_flush_dec0) begin
                 dec0_valid <= 0;
@@ -1906,8 +1918,10 @@ module streaming_multiprocessor_v2 #(
         end else begin
             // Debug: always trace - unconditional
             if (dec_valid || issue_valid)
+                `ifdef SIMULATION
                 $display("[%0t SM%0d] ISSUE_STAGE: dec_valid=%b dec0_valid=%b issue_valid=%b rst_n=%b",
                          $time, SM_ID, dec_valid, dec0_valid, issue_valid, rst_n);
+                `endif
             // Issue stage triggers when decoder output is valid (dec_valid)
             // This ensures decoder has finished processing before we latch its outputs
             // Suppress issue if branch flush is active for this warp
@@ -1916,8 +1930,10 @@ module streaming_multiprocessor_v2 #(
             if (dec_valid && !branch_flush_dec0) begin
                 // With the new scheduler flow, always use lane 0's decoder output
                 // (the old lane0_ready-based selection doesn't apply here)
+                `ifdef SIMULATION
                 $display("[%0t SM%0d] DECODE->ISSUE: dec0_pc=0x%04x opcode=0x%02x warp_pc=0x%04x",
                          $time, SM_ID, dec0_pc, dec_opcode, warp_pc[dec0_warp_id]);
+                `endif
                 begin
                     issue_warp_id <= dec0_warp_id;
                     issue_pc <= dec0_pc;
@@ -1963,9 +1979,11 @@ module streaming_multiprocessor_v2 #(
 
                     // Handle decode-stage reconvergence: update mask and pop stack
                     if (dec0_at_reconverge) begin
+                        `ifdef SIMULATION
                         $display("[SM%0d] DECODE RECONVERGENCE at PC=0x%04x: merging mask=0x%08x with waiting=0x%08x -> 0x%08x",
                                  SM_ID, dec0_pc, warp_mask[dec0_warp_id],
                                  sm_div_stack_mask[dec0_warp_id][dec0_top_idx], dec0_merged_mask);
+                        `endif
                         warp_mask[dec0_warp_id] <= dec0_merged_mask;
                         sm_div_stack_ptr[dec0_warp_id] <= dec0_div_ptr - 2'd1;
                     end
@@ -2433,8 +2451,10 @@ module streaming_multiprocessor_v2 #(
         end else begin
             alu_valid_pipe <= alu_issue;
             // DEBUG: trace every cycle for first 20 cycles of activity
+            `ifdef SIMULATION
             $display("[%0t SM%0d] ALU_PIPE_DBG: alu_issue=%b alu_valid_pipe=%b issue_valid=%b issue_alu_op=%b",
                      $time, SM_ID, alu_issue, alu_valid_pipe, issue_valid, issue_alu_op);
+            `endif
             if (alu_issue) begin
                 alu_warp_pipe <= alu_issue_warp;
                 alu_rd_pipe <= alu_issue_rd;
@@ -2442,12 +2462,18 @@ module streaming_multiprocessor_v2 #(
                 alu_result_pipe <= alu_result;
                 // DEBUG: trace ALU ops (increased limit for loop debugging)
                 if (alu_debug_cnt < 50) begin
+                    `ifdef SIMULATION
                     $display("[SM%0d] ALU: rd=R%0d ra=R%0d func=%0d imm=%b",
                         SM_ID, alu_issue_rd, issue_ra, alu_issue_func, alu_issue_use_imm);
+                    `endif
+                    `ifdef SIMULATION
                     $display("        op_a: lane0=0x%08x lane1=0x%08x lane15=0x%08x",
                         alu_op_a[31:0], alu_op_a[63:32], alu_op_a[511:480]);
+                    `endif
+                    `ifdef SIMULATION
                     $display("        result: lane0=0x%08x lane1=0x%08x lane15=0x%08x",
                         alu_result[31:0], alu_result[63:32], alu_result[511:480]);
+                    `endif
                     alu_debug_cnt <= alu_debug_cnt + 1;
                 end
             end
@@ -2529,10 +2555,14 @@ module streaming_multiprocessor_v2 #(
                 special_mask_pipe <= special_issue_mask;
                 special_result_pipe <= special_result;
                 // DEBUG - show per-lane values to verify %tid.x
+                `ifdef SIMULATION
                 $display("[SM%0d] MOV_SPECIAL issued: warp=%0d rd=R%0d ra=%0d is_tid_x=%b",
                     SM_ID, special_issue_warp, special_issue_rd, special_issue_ra, special_is_tid_x);
+                `endif
+                `ifdef SIMULATION
                 $display("        lane0=0x%08h lane1=0x%08h lane31=0x%08h",
                     special_result[31:0], special_result[63:32], special_result[1023:992]);
+                `endif
             end
         end
     end
@@ -2542,8 +2572,10 @@ module streaming_multiprocessor_v2 #(
     // DEBUG: special writeback
     always @(posedge clk) begin
         if (special_valid_out) begin
+            `ifdef SIMULATION
             $display("[SM%0d] MOV_SPECIAL result ready: warp=%0d rd=R%0d value=0x%08h",
                 SM_ID, special_warp_pipe, special_rd_pipe, special_result_pipe[31:0]);
+            `endif
         end
     end
 
@@ -2726,9 +2758,13 @@ module streaming_multiprocessor_v2 #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) fp16_dbg_cnt <= 0;
         else if (fp16_issue && fp16_dbg_cnt < 10) begin
+            `ifdef SIMULATION
             $display("[%0t SM%0d FP16_ISSUE] func=%0d rd=R%0d ra=R%0d rb=R%0d mask=0x%08x",
                      $time, SM_ID, fp16_issue_func, fp16_issue_rd, issue_ra, issue_rb, fp16_issue_mask);
+            `endif
+            `ifdef SIMULATION
             $display("  op_a[0]=0x%08x op_b[0]=0x%08x", fp16_op_a[31:0], fp16_op_b[31:0]);
+            `endif
             fp16_dbg_cnt <= fp16_dbg_cnt + 1;
         end
     end
@@ -2865,8 +2901,10 @@ module streaming_multiprocessor_v2 #(
             mem_mask_pending <= issue_mask;
             `ifdef SIMULATION
             if (mem_pend_dbg_cnt < 10) begin
+                `ifdef SIMULATION
                 $display("[%0t SM%0d MEM_PEND] SET rd=R%0d warp=%0d mask=0x%08x",
                          $time, SM_ID, issue_rd, issue_warp_id, issue_mask);
+                `endif
                 mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 1;
             end
             `endif
@@ -2874,8 +2912,10 @@ module streaming_multiprocessor_v2 #(
             mem_pending_valid <= 1'b0;
             `ifdef SIMULATION
             if (mem_pend_dbg_cnt < 10) begin
+                `ifdef SIMULATION
                 $display("[%0t SM%0d MEM_PEND] CLEAR (resp_valid) pending_was=%b latched=%b",
                          $time, SM_ID, mem_pending_valid, gmem_resp_latched);
+                `endif
                 mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 1;
             end
             `endif
@@ -2910,7 +2950,9 @@ module streaming_multiprocessor_v2 #(
                 store_warp_pending <= issue_warp_id;
                 store_mask_pending <= issue_mask;
                 if (store_issue_debug_cnt < 4) begin
+                    `ifdef SIMULATION
                     $display("[SM%0d] Store registered: warp=%0d mask=0x%04x", SM_ID, issue_warp_id, issue_mask[15:0]);
+                    `endif
                     store_issue_debug_cnt <= store_issue_debug_cnt + 1;
                 end
             end else if (wb_found && (wb_sel == 4'd7) && store_pending_valid &&
@@ -3254,8 +3296,10 @@ module streaming_multiprocessor_v2 #(
     // DEBUG: track ALU WBQ pushes
     always @(posedge clk) begin
         if (alu_wbq_push) begin
+            `ifdef SIMULATION
             $display("[SM%0d] ALU_WBQ_PUSH: rd=R%0d mask=0x%08x data[0]=0x%08x empty=%b full=%b",
                      SM_ID, alu_rd_pipe, alu_mask_pipe, alu_result_pipe[31:0], alu_wbq_empty, alu_wbq_full);
+            `endif
         end
     end
     assign mul_wbq_push = mul_valid_out;
@@ -3889,14 +3933,22 @@ module streaming_multiprocessor_v2 #(
             gmem_debug_cnt <= 0;
             gmem_store_cnt <= 0;
         end else if (gmem_req_valid && issue_mem_read && gmem_debug_cnt < 4) begin
+            `ifdef SIMULATION
             $display("[SM%0d] LOAD issued: ra=R%0d mask=0x%04x", SM_ID, issue_ra, issue_mask[15:0]);
+            `endif
+            `ifdef SIMULATION
             $display("        lane0=0x%08x lane1=0x%08x lane15=0x%08x",
                 rf_rd_data_a[31:0], rf_rd_data_a[63:32], rf_rd_data_a[511:480]);
+            `endif
             gmem_debug_cnt <= gmem_debug_cnt + 1;
         end else if (gmem_req_valid && issue_mem_write && gmem_store_cnt < 4) begin
+            `ifdef SIMULATION
             $display("[SM%0d] STORE issued: ra=R%0d rb=R%0d mask=0x%04x", SM_ID, issue_ra, issue_rb, issue_mask[15:0]);
+            `endif
+            `ifdef SIMULATION
             $display("        addr lane0=0x%08x data lane0=0x%08x",
                 rf_rd_data_a[31:0], rf_rd_data_b[31:0]);
+            `endif
             gmem_store_cnt <= gmem_store_cnt + 1;
         end
     end
@@ -4135,8 +4187,10 @@ module streaming_multiprocessor_v2 #(
                 gmem_resp_mask <= mem_mask_pending;
                 `ifdef SIMULATION
                 if (latch_dbg_cnt < 10) begin
+                    `ifdef SIMULATION
                     $display("[%0t SM%0d GMEM_LATCH] CAPTURED rd=R%0d warp=%0d data[0]=0x%08x",
                              $time, SM_ID, mem_rd_pending, mem_warp_pending, gmem_resp_rdata[31:0]);
+                    `endif
                     latch_dbg_cnt <= latch_dbg_cnt + 1;
                 end
                 `endif
@@ -4144,7 +4198,9 @@ module streaming_multiprocessor_v2 #(
                 gmem_resp_latched <= 1'b0;  // Clear latch when writeback consumes it
                 `ifdef SIMULATION
                 if (latch_dbg_cnt < 10) begin
+                    `ifdef SIMULATION
                     $display("[%0t SM%0d GMEM_LATCH] CONSUMED rd=R%0d", $time, SM_ID, gmem_resp_rd);
+                    `endif
                     latch_dbg_cnt <= latch_dbg_cnt + 1;
                 end
                 `endif
@@ -4340,7 +4396,9 @@ module streaming_multiprocessor_v2 #(
                 wb_arb_priority <= (wb_sel + 1) % 17;  // Advance for fairness (17 FU sources)
 
                 // DEBUG: trace which FU is causing writebacks
+                `ifdef SIMULATION
                 $display("[SM%0d] WB_SEL: wb_sel=%0d fu_ready=%014b", SM_ID, wb_sel, fu_ready);
+                `endif
 
                 case (wb_sel)
                     4'd0: begin  // ALU (1-cycle pipeline for proper timing)
@@ -4348,8 +4406,10 @@ module streaming_multiprocessor_v2 #(
                         wb_rd <= alu_wbq_rd;
                         wb_data <= alu_wbq_data;
                         wb_mask <= alu_wbq_mask;
+                        `ifdef SIMULATION
                         $display("[SM%0d] ALU_WB: rd=R%0d warp=%0d mask=0x%08x data[0]=0x%08x",
                                  SM_ID, alu_wbq_rd, alu_wbq_warp, alu_wbq_mask, alu_wbq_data[31:0]);
+                        `endif
                     end
                     4'd1: begin  // MUL (1-cycle pipeline)
                         wb_warp_id <= mul_wbq_warp;
@@ -4362,8 +4422,10 @@ module streaming_multiprocessor_v2 #(
                         wb_rd <= fpu32_wbq_rd;
                         wb_data <= fpu32_wbq_data;
                         wb_mask <= fpu32_wbq_mask;
+                        `ifdef SIMULATION
                         $display("[SM%0d] FPU32_WB: rd=R%0d warp=%0d mask=0x%08x data[0]=0x%08x",
                                  SM_ID, fpu32_wbq_rd, fpu32_wbq_warp, fpu32_wbq_mask, fpu32_wbq_data[31:0]);
+                        `endif
                     end
                     4'd3: begin  // FPU64 (truncated)
                         wb_warp_id <= fpu64_wbq_warp;
@@ -4382,8 +4444,10 @@ module streaming_multiprocessor_v2 #(
                         wb_rd <= sfu_wbq_rd;
                         wb_data <= sfu_wbq_data;
                         wb_mask <= sfu_wbq_mask;
+                        `ifdef SIMULATION
                         $display("[SM%0d] SFU_WB: rd=R%0d warp=%0d mask=0x%08x data[0]=0x%08x",
                                  SM_ID, sfu_wbq_rd, sfu_wbq_warp, sfu_wbq_mask, sfu_wbq_data[31:0]);
+                        `endif
                     end
                     4'd6: begin  // Tensor (variable latency)
                         wb_warp_id <= tensor_wbq_warp;
@@ -4392,7 +4456,9 @@ module streaming_multiprocessor_v2 #(
                         wb_mask <= tensor_wbq_mask;
                     end
                     4'd7: begin  // Memory - use latched values
+                        `ifdef SIMULATION
                         // $display("[%0t SM%0d CASE7] ...", $time, SM_ID, ...); // Debug disabled
+                        `endif
                         if (smem_resp_latched) begin
                             wb_warp_id <= smem_resp_warp;
                             wb_rd <= smem_resp_rd;
@@ -4441,40 +4507,50 @@ module streaming_multiprocessor_v2 #(
                         // Texture returns 128-bit result (RGBA 4x32-bit), replicate across lanes
                         wb_data <= {(NUM_LANES/4){tex_result_latched}};
                         wb_mask <= tex_mask_pending;
+                        `ifdef SIMULATION
                         $display("[SM%0d] TEX_WB: rd=R%0d warp=%0d mask=0x%08x result=0x%032x",
                                  SM_ID, tex_rd_pending, tex_warp_pending, tex_mask_pending, tex_result_latched);
+                        `endif
                     end
                     4'd13: begin  // Video SIMD unit (VADD4/VSUB4/DP4A/DP2A/etc)
                         wb_warp_id <= video_wbq_warp;
                         wb_rd <= video_wbq_rd;
                         wb_data <= video_wbq_data;
                         wb_mask <= video_wbq_mask;
+                        `ifdef SIMULATION
                         $display("[SM%0d] VIDEO_WB: rd=R%0d warp=%0d mask=0x%08x data[0]=0x%08x",
                                  SM_ID, video_wbq_rd, video_wbq_warp, video_wbq_mask, video_wbq_data[31:0]);
+                        `endif
                     end
                     4'd14: begin  // Cache policy (createpolicy token result)
                         wb_warp_id <= cache_policy_wb_warp;
                         wb_rd <= cache_policy_wb_rd;
                         wb_data <= {NUM_LANES{cache_policy_token_r}};  // Replicate token to all lanes
                         wb_mask <= cache_policy_wb_mask;
+                        `ifdef SIMULATION
                         $display("[SM%0d] CACHE_POLICY_WB: rd=R%0d warp=%0d mask=0x%08x token=0x%08x",
                                  SM_ID, cache_policy_wb_rd, cache_policy_wb_warp, cache_policy_wb_mask, cache_policy_token_r);
+                        `endif
                     end
                     4'd15: begin  // Stack (alloca/stacksave result)
                         wb_warp_id <= stack_wb_warp;
                         wb_rd <= stack_wb_rd;
                         wb_data <= {NUM_LANES{stack_result_r}};  // Replicate stack pointer to all lanes
                         wb_mask <= stack_wb_mask;
+                        `ifdef SIMULATION
                         $display("[SM%0d] STACK_WB: rd=R%0d warp=%0d mask=0x%08x ptr=0x%08x",
                                  SM_ID, stack_wb_rd, stack_wb_warp, stack_wb_mask, stack_result_r);
+                        `endif
                     end
                     5'd16: begin  // Multimem (distributed shared memory load result)
                         wb_warp_id <= multimem_wb_warp;
                         wb_rd <= multimem_wb_rd;
                         wb_data <= {NUM_LANES{multimem_result_r}};  // Replicate result to all lanes
                         wb_mask <= multimem_wb_mask;
+                        `ifdef SIMULATION
                         $display("[SM%0d] MULTIMEM_WB: rd=R%0d warp=%0d mask=0x%08x data=0x%08x",
                                  SM_ID, multimem_wb_rd, multimem_wb_warp, multimem_wb_mask, multimem_result_r);
+                        `endif
                     end
                 endcase
             end else begin
@@ -4493,14 +4569,20 @@ module streaming_multiprocessor_v2 #(
     `ifdef DEBUG_MEMWB
     always @(posedge clk) begin
         if (gmem_resp_valid)
+            `ifdef SIMULATION
             $display("[%0t SM%0d MEM_RESP] valid, gmem_latched=%b smem_latched=%b store_pend=%b, mem_rd=%0d, mem_warp=%0d",
                      $time, SM_ID, gmem_resp_latched, smem_resp_latched, store_pending_valid, mem_rd_pending, mem_warp_pending);
+            `endif
         if (gmem_resp_latched || smem_resp_latched)
+            `ifdef SIMULATION
             $display("[%0t SM%0d LATCH] gmem_latched=%b (rd=%0d warp=%0d) smem_latched=%b wb_found=%b wb_sel=%0d",
                      $time, SM_ID, gmem_resp_latched, gmem_resp_rd, gmem_resp_warp, smem_resp_latched, wb_found, wb_sel);
+            `endif
         if (wb_valid && wb_sel == 4'd7)
+            `ifdef SIMULATION
             $display("[%0t SM%0d WB_MEM] warp=%0d rd=R%0d gmem_latched=%b smem_latched=%b data=0x%08h",
                      $time, SM_ID, wb_warp_id, wb_rd, gmem_resp_latched, smem_resp_latched, wb_data[31:0]);
+            `endif
     end
     `endif
 
@@ -4509,33 +4591,43 @@ module streaming_multiprocessor_v2 #(
     always @(posedge clk) begin
         // Track all writes to R1 (loop counter)
         if (rf_wr_en && wb_rd == 5'd1) begin
+            `ifdef SIMULATION
             $display("[%0t R1_WRITE] warp=%0d data=0x%08h from %s",
                      $time, wb_warp_id, wb_data[31:0],
                      wb_sel == 4'd0 ? "ALU" : "OTHER");
+            `endif
         end
         // Debug: trace all writebacks
         if (rf_wr_en) begin
+            `ifdef SIMULATION
             $display("[%0t WB] rd=R%0d data=0x%08h sel=%0d", $time, wb_rd, wb_data[31:0], wb_sel);
+            `endif
         end
         // Track all writes to R23
         if (rf_wr_en && wb_rd == 5'd23) begin
+            `ifdef SIMULATION
             $display("[%0t R23_WRITE] warp=%0d wb_sel=%0d data=0x%08h from %s",
                      $time, wb_warp_id, wb_sel, wb_data[31:0],
                      wb_sel == 4'd0 ? "ALU" :
                      wb_sel == 4'd1 ? "MUL" :
                      wb_sel == 4'd2 ? "FPU32" :
                      wb_sel == 4'd4 ? "FP16" : "OTHER");
+            `endif
         end
 
         // Track CVT instructions
         if (alu_issue && issue_func[5:0] == 6'd40) begin  // CVT_F32_F16 = 40
+            `ifdef SIMULATION
             $display("[%0t CVT_ISSUE] rd=R%0d ra=R%0d operand_a[15:0]=0x%04h",
                      $time, alu_issue_rd, dec_ra, alu_op_a[15:0]);
+            `endif
         end
 
         // Track ALU result for CVT
         if (alu_valid_pipe && alu_rd_pipe == 5'd23) begin
+            `ifdef SIMULATION
             $display("[%0t ALU_R23_RESULT] alu_result_pipe=0x%08h", $time, alu_result_pipe[31:0]);
+            `endif
         end
     end
     `endif
@@ -4588,8 +4680,10 @@ module streaming_multiprocessor_v2 #(
         end else begin
             // Kernel start - allocate initial warps with proper masks
             if (kernel_start) begin
+                `ifdef SIMULATION
                 $display("[SM%0d] kernel_start: block_dim=(%0d,%0d,%0d) kernel_pc=0x%08h",
                          SM_ID, block_dim_x, block_dim_y, block_dim_z, kernel_pc);
+                `endif
 
                 init_total_threads = block_dim_x * block_dim_y * block_dim_z;
 
@@ -4616,8 +4710,10 @@ module streaming_multiprocessor_v2 #(
                         warp_fetch_pc[w] <= kernel_pc;
                         warp_mask[w] <= init_computed_mask;
 
+                        `ifdef SIMULATION
                         $display("[SM%0d] Warp %0d initialized: mask=0x%08h (total_threads=%0d)",
                                  SM_ID, w, init_computed_mask, init_total_threads);
+                        `endif
                     end else begin
                         warp_valid[w] <= 1'b0;
                         warp_active[w] <= 1'b0;
@@ -4659,10 +4755,12 @@ module streaming_multiprocessor_v2 #(
 
             // Branch handling (uses combinational simple_branch_taken for immediate response)
             if (issue_valid && issue_branch_op) begin
+                `ifdef SIMULATION
                 $display("[%0t SM%0d] BRANCH: pc=0x%04x opcode=0x%02x type=%0d ra=R%0d imm16=0x%04x target=0x%04x zero=%b taken=%b diverge=%b rf_rd_a=0x%08h",
                          $time, SM_ID, issue_pc, issue_opcode, issue_rd[4:3], issue_ra, issue_imm16,
                          issue_pc + {{16{issue_imm16[15]}}, issue_imm16},
                          alu_zero[0], branch_taken_combined, threads_diverge, rf_rd_data_a[31:0]);
+                `endif
                 // For divergent branches, keep stall set for one more cycle to let pipeline flush
                 // For non-divergent branches, clear stall immediately
                 if (!threads_diverge) begin
@@ -4672,9 +4770,13 @@ module streaming_multiprocessor_v2 #(
             end
             // Handle non-divergent branch taken
             if (branch_taken_combined) begin
+                `ifdef SIMULATION
                 $display("[SM%0d] BRANCH TAKEN: new_pc=0x%04x (flushing pipeline)", SM_ID, branch_target_combined);
+                `endif
+                `ifdef SIMULATION
                 $display("[SM%0d]   flush_dec0=%b (dec0_warp=%0d dec0_valid=%b) flush_dec1=%b issue_warp=%0d",
                          SM_ID, branch_flush_dec0, dec0_warp_id, dec0_valid, branch_flush_dec1, issue_warp_id);
+                `endif
                 warp_pc[issue_warp_id] <= branch_target_combined;
                 warp_fetch_pc[issue_warp_id] <= branch_target_combined;
                 warp_mask[issue_warp_id] <= issue_mask;
@@ -4686,12 +4788,18 @@ module streaming_multiprocessor_v2 #(
             // Handle divergent branch (not-taken-first strategy)
             // Not-taken threads execute fall-through, taken threads pushed to stack
             if (divergent_branch) begin
+                `ifdef SIMULATION
                 $display("[SM%0d] DIVERGENT BRANCH: pc=0x%04x target=0x%04x",
                          SM_ID, issue_pc, simple_branch_target);
+                `endif
+                `ifdef SIMULATION
                 $display("[SM%0d]   taken_mask=0x%08x not_taken_mask=0x%08x",
                          SM_ID, taken_lanes, not_taken_lanes);
+                `endif
+                `ifdef SIMULATION
                 $display("[SM%0d]   pushing: reconverge_pc=0x%04x waiting_mask=0x%08x",
                          SM_ID, simple_branch_target, taken_lanes);
+                `endif
 
                 // Push {branch_target, taken_lanes} to divergence stack
                 sm_div_stack_pc[issue_warp_id][curr_div_ptr] <= simple_branch_target;
@@ -4716,8 +4824,10 @@ module streaming_multiprocessor_v2 #(
             // Note: Reconvergence is now handled at decode stage (dec0_at_reconverge)
             // to ensure the instruction uses the merged mask
             if (sm_at_reconverge) begin
+                `ifdef SIMULATION
                 $display("[SM%0d] ISSUE RECONVERGE (verify): PC=0x%04x issue_mask=0x%08x",
                          SM_ID, issue_pc, issue_mask);
+                `endif
             end
 
             // Branch predictor update (when branch resolves)
@@ -4781,8 +4891,10 @@ module streaming_multiprocessor_v2 #(
                 // Mark sync pending and stall the warp
                 warp_sync_pending[issue_warp_id] <= 1'b1;
                 warp_stalled_sync[issue_warp_id] <= 1'b1;
+                `ifdef SIMULATION
                 $display("[SM%0d] bar.warp.sync: warp=%0d membermask=0x%08x arriving=0x%08x",
                          SM_ID, issue_warp_id, rf_rd_data_a[31:0], issue_mask);
+                `endif
             end
 
             // Handle bar.warp.sync from issue slot 1
@@ -4791,8 +4903,10 @@ module streaming_multiprocessor_v2 #(
                 warp_sync_arrived[issue1_warp_id] <= warp_sync_arrived[issue1_warp_id] | issue1_mask;
                 warp_sync_pending[issue1_warp_id] <= 1'b1;
                 warp_stalled_sync[issue1_warp_id] <= 1'b1;
+                `ifdef SIMULATION
                 $display("[SM%0d] bar.warp.sync: warp=%0d membermask=0x%08x arriving=0x%08x",
                          SM_ID, issue1_warp_id, rf1_rd_data_a[31:0], issue1_mask);
+                `endif
             end
 
             // Check for warp-level sync completion and release
@@ -4805,7 +4919,9 @@ module streaming_multiprocessor_v2 #(
                         warp_stalled_sync[w] <= 1'b0;
                         warp_sync_pending[w] <= 1'b0;
                         warp_sync_arrived[w] <= 32'b0;  // Reset for next barrier
+                        `ifdef SIMULATION
                         $display("[SM%0d] bar.warp.sync COMPLETE: warp=%0d", SM_ID, w);
+                        `endif
                     end
                 end
             end
@@ -4822,8 +4938,10 @@ module streaming_multiprocessor_v2 #(
                         cluster_barrier_thread_count <= rf_rd_data_a[15:0];
                         cluster_local_arrive_count <= 16'b0;
                         cluster_barrier_complete <= 1'b0;
+                        `ifdef SIMULATION
                         $display("[SM%0d] barrier.cluster.init: warp=%0d thread_count=%0d",
                                  SM_ID, issue_warp_id, rf_rd_data_a[15:0]);
+                        `endif
                     end
                     `CLUSTER_BARRIER_ARRIVE: begin
                         // Signal arrival at cluster barrier (non-blocking)
@@ -4831,15 +4949,19 @@ module streaming_multiprocessor_v2 #(
                         cluster_barrier_id[issue_warp_id] <= issue_imm16[7:0];
                         // Increment local arrive count by active thread count
                         cluster_local_arrive_count <= cluster_local_arrive_count + $countones(issue_mask);
+                        `ifdef SIMULATION
                         $display("[SM%0d] barrier.cluster.arrive: warp=%0d barrier_id=%0d",
                                  SM_ID, issue_warp_id, issue_imm16[7:0]);
+                        `endif
                     end
                     `CLUSTER_BARRIER_WAIT: begin
                         // Wait for all threads to arrive (blocking)
                         if (!cluster_barrier_complete) begin
                             cluster_barrier_pending[issue_warp_id] <= 1'b1;
+                            `ifdef SIMULATION
                             $display("[SM%0d] barrier.cluster.wait: warp=%0d STALLED",
                                      SM_ID, issue_warp_id);
+                            `endif
                         end
                     end
                     `CLUSTER_BARRIER_SYNC: begin
@@ -4850,8 +4972,10 @@ module streaming_multiprocessor_v2 #(
                         if (!cluster_barrier_complete) begin
                             cluster_barrier_pending[issue_warp_id] <= 1'b1;
                         end
+                        `ifdef SIMULATION
                         $display("[SM%0d] barrier.cluster.sync: warp=%0d barrier_id=%0d",
                                  SM_ID, issue_warp_id, issue_imm16[7:0]);
+                        `endif
                     end
                     default: ;  // Unknown barrier.cluster operation
                 endcase
@@ -4864,21 +4988,27 @@ module streaming_multiprocessor_v2 #(
                         cluster_barrier_thread_count <= rf1_rd_data_a[15:0];
                         cluster_local_arrive_count <= 16'b0;
                         cluster_barrier_complete <= 1'b0;
+                        `ifdef SIMULATION
                         $display("[SM%0d] barrier.cluster.init: warp=%0d thread_count=%0d",
                                  SM_ID, issue1_warp_id, rf1_rd_data_a[15:0]);
+                        `endif
                     end
                     `CLUSTER_BARRIER_ARRIVE: begin
                         cluster_barrier_arrived[issue1_warp_id] <= 1'b1;
                         cluster_barrier_id[issue1_warp_id] <= issue1_imm16[7:0];
                         cluster_local_arrive_count <= cluster_local_arrive_count + $countones(issue1_mask);
+                        `ifdef SIMULATION
                         $display("[SM%0d] barrier.cluster.arrive: warp=%0d barrier_id=%0d",
                                  SM_ID, issue1_warp_id, issue1_imm16[7:0]);
+                        `endif
                     end
                     `CLUSTER_BARRIER_WAIT: begin
                         if (!cluster_barrier_complete) begin
                             cluster_barrier_pending[issue1_warp_id] <= 1'b1;
+                            `ifdef SIMULATION
                             $display("[SM%0d] barrier.cluster.wait: warp=%0d STALLED",
                                      SM_ID, issue1_warp_id);
+                            `endif
                         end
                     end
                     `CLUSTER_BARRIER_SYNC: begin
@@ -4888,8 +5018,10 @@ module streaming_multiprocessor_v2 #(
                         if (!cluster_barrier_complete) begin
                             cluster_barrier_pending[issue1_warp_id] <= 1'b1;
                         end
+                        `ifdef SIMULATION
                         $display("[SM%0d] barrier.cluster.sync: warp=%0d barrier_id=%0d",
                                  SM_ID, issue1_warp_id, issue1_imm16[7:0]);
+                        `endif
                     end
                     default: ;
                 endcase
@@ -4905,7 +5037,9 @@ module streaming_multiprocessor_v2 #(
                     if (cluster_barrier_pending[w]) begin
                         cluster_barrier_pending[w] <= 1'b0;
                         cluster_barrier_arrived[w] <= 1'b0;
+                        `ifdef SIMULATION
                         $display("[SM%0d] barrier.cluster COMPLETE: releasing warp=%0d", SM_ID, w);
+                        `endif
                     end
                 end
                 // Reset for next barrier
