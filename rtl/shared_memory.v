@@ -192,7 +192,9 @@ module shared_memory #(
 `ifdef SIMULATION
     always @(posedge clk) begin
         if (req_valid && req_write && async_wr_en) begin
+            `ifdef SIMULATION
             $display("WARNING: [%0t] Simultaneous normal and async writes to shared memory", $time);
+            `endif
         end
     end
 `endif

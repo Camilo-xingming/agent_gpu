@@ -928,8 +928,10 @@ module sfu #(
             // Debug SFU output (simulation only)
             `ifdef SIMULATION
             if (p7_valid) begin
+                `ifdef SIMULATION
                 $display("[SFU] func=%0d operand=0x%08x result=0x%08x",
                          p7_func, operand, p7_result);
+                `endif
             end
             `endif
         end

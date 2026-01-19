@@ -312,7 +312,9 @@ module decoder (
 
                 `OP_ST_GLOBAL: begin
                     mem_write <= 1'b1;
+                    `ifdef SIMULATION
                     $display("[DECODER] ST_GLOBAL: inst=0x%08h ra=R%0d rb=R%0d", instruction, ra, rb);
+                    `endif
                 end
 
                 `OP_LD_SHARED: begin
@@ -329,7 +331,9 @@ module decoder (
                 `OP_MOV_SPECIAL: begin
                     special_reg <= 1'b1;
                     reg_write   <= 1'b1;
+                    `ifdef SIMULATION
                     $display("[DECODER] MOV_SPECIAL detected: inst=0x%08h rd=R%0d sreg=%0d", instruction, rd, ra);
+                    `endif
                 end
 
                 `OP_BAR_SYNC: begin

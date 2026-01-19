@@ -274,8 +274,10 @@ module fp16_unit (
 
             `ifdef SIMULATION
             if (valid_r1)
+                `ifdef SIMULATION
                 $display("[%0t FP16_STAGE1] func_r=%0d op_a_r=0x%08x op_b_r=0x%08x",
                          $time, func_r, op_a_r, op_b_r);
+                `endif
             `endif
 
             // Pipeline stage 3: Output
@@ -287,8 +289,10 @@ module fp16_unit (
 
             `ifdef SIMULATION
             if (valid_r2)
+                `ifdef SIMULATION
                 $display("[%0t FP16_STAGE2] func_r2=%0d op_a_r2=0x%08x op_b_r2=0x%08x",
                          $time, func_r2, op_a_r2, op_b_r2);
+                `endif
             `endif
 
             if (valid_r2) begin

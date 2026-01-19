@@ -1557,11 +1557,11 @@ module streaming_multiprocessor_v2 #(
 
     // DEBUG: Scheduler output
     always @(posedge clk) begin
+        `ifdef SIMULATION
         if (|warp_inst_buf_valid)
-            `ifdef SIMULATION
             $display("[%0t SM%0d SCHED] issue0_fire=%b buf_valid=%b sched_mask=%b",
                      $time, SM_ID, issue0_fire, warp_inst_buf_valid, sched_issue_valid_mask);
-            `endif
+        `endif
     end
 
     // We reuse the 'dec0' pipeline registers to hold the scheduled instructions
@@ -1573,12 +1573,12 @@ module streaming_multiprocessor_v2 #(
             dec1_valid <= 0;
         end else begin
             // Debug: trace issue0_fire
+            `ifdef SIMULATION
             if (issue0_fire)
-                `ifdef SIMULATION
                 $display("[%0t SM%0d] SCHED: warp=%0d pc=0x%04x inst=0x%08x branch_flush=%b",
                          $time, SM_ID, sched_issue_warp_id[0], warp_pc[sched_issue_warp_id[0]],
                          sched_issue_inst[0], branch_flush_dec0);
-                `endif
+            `endif
             // Flush decode stage if branch taken for same warp
             if (branch_flush_dec0) begin
                 dec0_valid <= 0;

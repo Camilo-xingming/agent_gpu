@@ -159,14 +159,22 @@ module advanced_warp_scheduler #(
         end else if (warp_schedulable[0] && warp_has_hazard[0]) begin
             stall_cycle_cnt <= stall_cycle_cnt + 1;
             if (stall_cycle_cnt < 20 || stall_cycle_cnt[7:0] == 8'hFF) begin
+                `ifdef SIMULATION
                 $display("[%0t SCHED_HAZARD] warp0: schedulable=%b hasHazard=%b eligible=%b",
                          $time, warp_schedulable[0], warp_has_hazard[0], warp_eligible[0]);
+                `endif
+                `ifdef SIMULATION
                 $display("  rs1=R%0d rs2=R%0d rs3=R%0d rd=R%0d writes_reg=%b",
                          warp_rs1[0], warp_rs2[0], warp_rs3[0], warp_rd[0], warp_writes_reg[0]);
+                `endif
+                `ifdef SIMULATION
                 $display("  scoreboard[0]=%032b", scoreboard[0]);
+                `endif
+                `ifdef SIMULATION
                 $display("  RAW: sb[rs1]=%b sb[rs2]=%b sb[rs3]=%b  WAW: sb[rd]=%b",
                          scoreboard[0][warp_rs1[0]], scoreboard[0][warp_rs2[0]],
                          scoreboard[0][warp_rs3[0]], scoreboard[0][warp_rd[0]]);
+                `endif
             end
         end else begin
             stall_cycle_cnt <= 0;

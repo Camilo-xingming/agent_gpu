@@ -306,11 +306,15 @@ module ralph_gpu_top #(
     reg imem_debug_done;
     initial begin
         imem_debug_done = 0;
+        `ifdef SIMULATION
         $display("[GPU_TOP] Module initialized - NUM_SM=%0d", NUM_SM);
+        `endif
     end
     always @(posedge clk) begin
         if (!imem_debug_done) begin
+            `ifdef SIMULATION
             $display("[GPU_TOP-CLK] First clock edge! sm_req[0]=%b", sm_imem_req[0]);
+            `endif
             imem_debug_done <= 1;
         end
     end
