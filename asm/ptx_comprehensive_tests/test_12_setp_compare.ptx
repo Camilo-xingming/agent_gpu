@@ -1,0 +1,76 @@
+// Test 12: Set Predicate / Comparison Operations
+// Tests: setp.eq, setp.ne, setp.lt, setp.le, setp.gt, setp.ge
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_setp_compare:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Test SETP.EQ: 10 == 10 -> true (p0=1)
+    mov.u32 r1, 10
+    mov.u32 r2, 10
+    setp.eq.s32 p0, r1, r2
+    @!p0 bra FAIL
+
+    // Test SETP.EQ: 10 == 20 -> false (p0=0)
+    mov.u32 r2, 20
+    setp.eq.s32 p0, r1, r2
+    @p0 bra FAIL
+
+    // Test SETP.NE: 10 != 20 -> true
+    setp.ne.s32 p0, r1, r2
+    @!p0 bra FAIL
+
+    // Test SETP.NE: 10 != 10 -> false
+    mov.u32 r2, 10
+    setp.ne.s32 p0, r1, r2
+    @p0 bra FAIL
+
+    // Test SETP.LT: 5 < 10 -> true
+    mov.u32 r1, 5
+    mov.u32 r2, 10
+    setp.lt.s32 p0, r1, r2
+    @!p0 bra FAIL
+
+    // Test SETP.LT: 10 < 5 -> false
+    setp.lt.s32 p0, r2, r1
+    @p0 bra FAIL
+
+    // Test SETP.LE: 5 <= 10 -> true
+    setp.le.s32 p0, r1, r2
+    @!p0 bra FAIL
+
+    // Test SETP.LE: 10 <= 10 -> true
+    setp.le.s32 p0, r2, r2
+    @!p0 bra FAIL
+
+    // Test SETP.GT: 10 > 5 -> true
+    setp.gt.s32 p0, r2, r1
+    @!p0 bra FAIL
+
+    // Test SETP.GT: 5 > 10 -> false
+    setp.gt.s32 p0, r1, r2
+    @p0 bra FAIL
+
+    // Test SETP.GE: 10 >= 5 -> true
+    setp.ge.s32 p0, r2, r1
+    @!p0 bra FAIL
+
+    // Test SETP.GE: 10 >= 10 -> true
+    setp.ge.s32 p0, r2, r2
+    @!p0 bra FAIL
+
+    // Success
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

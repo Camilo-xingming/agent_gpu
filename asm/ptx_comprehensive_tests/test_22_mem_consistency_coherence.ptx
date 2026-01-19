@@ -1,0 +1,83 @@
+// Test 22: Memory Consistency - Coherence (CoRR)
+// PTX 9.1 Memory Model: Tests coherence axiom
+// If two loads on same thread read same location, they must agree with write order
+// Thread 0: write x=1, write x=2
+// Thread 1: load x twice
+// If first load sees 2, second load cannot see 1
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_mem_consistency_coherence:
+    mov.u32 r0, %tid.x
+
+    // Memory locations
+    mov.u32 r10, 0x1000      // x address
+    mov.u32 r11, 0x1008      // first_read
+    mov.u32 r12, 0x100C      // second_read
+    mov.u32 r14, 0x2000      // result
+
+    // Initialize
+    mov.u32 r1, 0
+    st.global.u32 [r10], r1
+    bar.sync 0
+
+    // Thread 0: Writer
+    bra.nz r0, READER
+
+WRITER:
+    mov.u32 r1, 1
+    st.global.u32 [r10], r1   // x = 1
+    membar.cta
+    mov.u32 r1, 2
+    st.global.u32 [r10], r1   // x = 2
+    bra BARRIER
+
+READER:
+    // Only thread 1 reads
+    sub.s32 r2, r0, 1
+    bra.nz r2, BARRIER
+
+    // Small delay to let writer proceed
+    mov.u32 r5, 10
+DELAY:
+    sub.s32 r5, r5, 1
+    bra.nz r5, DELAY
+
+    // First read
+    ld.global.u32 r1, [r10]
+    st.global.u32 [r11], r1
+
+    // Second read
+    ld.global.u32 r2, [r10]
+    st.global.u32 [r12], r2
+
+BARRIER:
+    bar.sync 0
+
+    // Only thread 0 verifies
+    bra.nz r0, DONE
+
+    ld.global.u32 r1, [r11]   // first_read
+    ld.global.u32 r2, [r12]   // second_read
+
+    // Coherence check: if first=2, second cannot be 1
+    // We check: NOT (first==2 AND second==1)
+    sub.s32 r3, r1, 2
+    bra.nz r3, SUCCESS        // first != 2, OK
+    sub.s32 r3, r2, 1
+    bra.nz r3, SUCCESS        // second != 1, OK
+
+    // Violation: first=2, second=1
+    bra FAIL
+
+SUCCESS:
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r14], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r14], r21
+
+DONE:
+    exit
+.end

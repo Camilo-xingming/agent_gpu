@@ -1,0 +1,55 @@
+// Test 11: Special Register Operations
+// Tests: %tid, %ctaid, %ntid, %laneid, %warpid, %smid
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_special_regs:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Test TID.x (should be 0 for lane 0)
+    mov.u32 r1, %tid.x
+    bra.nz r1, FAIL
+
+    // Test TID.y (should be 0 for single-dim launch)
+    mov.u32 r1, %tid.y
+    bra.nz r1, FAIL
+
+    // Test TID.z (should be 0 for single-dim launch)
+    mov.u32 r1, %tid.z
+    bra.nz r1, FAIL
+
+    // Test CTAID.x (block ID, should be 0 for first block)
+    mov.u32 r1, %ctaid.x
+    bra.nz r1, FAIL
+
+    // Test LANEID (should be 0)
+    mov.u32 r1, %laneid
+    bra.nz r1, FAIL
+
+    // Test NTID.x (block dimension, should be >= 1)
+    mov.u32 r1, %ntid.x
+    sub.s32 r2, r1, 0
+    bra.z r2, FAIL            // NTID should not be 0
+
+    // Test WARPID (should be 0 for first warp)
+    mov.u32 r1, %warpid
+    bra.nz r1, FAIL
+
+    // Test SMID (SM ID, valid if >= 0)
+    mov.u32 r1, %smid
+    // Just read, no validation needed
+
+    // Success
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

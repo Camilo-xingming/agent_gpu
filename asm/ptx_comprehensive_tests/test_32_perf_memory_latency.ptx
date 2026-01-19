@@ -1,0 +1,81 @@
+// Test 32: Performance - Memory Latency (Pointer Chasing)
+// Measures memory load latency using pointer chasing
+// Each load depends on the previous load result
+// This serializes memory accesses to measure true latency
+// Success marker: 0xCAFE at 0x2004
+
+.entry test_perf_memory_latency:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Set up pointer chain in memory
+    // addr[0] = 0x1004, addr[1] = 0x1008, ..., addr[N-1] = 0x1000 (circular)
+    mov.u32 r10, 0x1000      // base address
+    mov.u32 r1, 0x1004
+    st.global.u32 [r10], r1   // [0x1000] = 0x1004
+
+    mov.u32 r10, 0x1004
+    mov.u32 r1, 0x1008
+    st.global.u32 [r10], r1   // [0x1004] = 0x1008
+
+    mov.u32 r10, 0x1008
+    mov.u32 r1, 0x100C
+    st.global.u32 [r10], r1   // [0x1008] = 0x100C
+
+    mov.u32 r10, 0x100C
+    mov.u32 r1, 0x1010
+    st.global.u32 [r10], r1   // [0x100C] = 0x1010
+
+    mov.u32 r10, 0x1010
+    mov.u32 r1, 0x1014
+    st.global.u32 [r10], r1   // [0x1010] = 0x1014
+
+    mov.u32 r10, 0x1014
+    mov.u32 r1, 0x1018
+    st.global.u32 [r10], r1   // [0x1014] = 0x1018
+
+    mov.u32 r10, 0x1018
+    mov.u32 r1, 0x101C
+    st.global.u32 [r10], r1   // [0x1018] = 0x101C
+
+    mov.u32 r10, 0x101C
+    mov.u32 r1, 0x1000
+    st.global.u32 [r10], r1   // [0x101C] = 0x1000 (circular)
+
+    membar.cta                // ensure writes are visible
+
+    // Pointer chasing: 8 dependent loads
+    mov.u32 r10, 0x1000      // start address
+    ld.global.u32 r10, [r10] // load 1: r10 = [0x1000] = 0x1004
+    ld.global.u32 r10, [r10] // load 2: r10 = [0x1004] = 0x1008
+    ld.global.u32 r10, [r10] // load 3: r10 = [0x1008] = 0x100C
+    ld.global.u32 r10, [r10] // load 4: r10 = [0x100C] = 0x1010
+    ld.global.u32 r10, [r10] // load 5: r10 = [0x1010] = 0x1014
+    ld.global.u32 r10, [r10] // load 6: r10 = [0x1014] = 0x1018
+    ld.global.u32 r10, [r10] // load 7: r10 = [0x1018] = 0x101C
+    ld.global.u32 r10, [r10] // load 8: r10 = [0x101C] = 0x1000
+
+    // Verify final pointer is back to start
+    mov.u32 r11, 0x1000
+    sub.s32 r30, r10, r11
+    bra.nz r30, FAIL
+
+    // Store result (8 pointer chase iterations)
+    mov.u32 r21, 8
+    mov.u32 r20, 0x2000
+    st.global.u32 [r20], r21
+
+    // Success marker
+    mov.u32 r21, 0xCAFE
+    mov.u32 r20, 0x2004
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r21, 0xDEAD
+    mov.u32 r20, 0x2004
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

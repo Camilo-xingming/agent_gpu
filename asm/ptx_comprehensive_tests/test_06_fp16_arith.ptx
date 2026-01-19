@@ -1,0 +1,63 @@
+// Test 06: FP16 Arithmetic Operations
+// Tests: add.f16, sub.f16, mul.f16, fma.f16
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_fp16_arith:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // FP16 format: 1 sign + 5 exp + 10 mantissa
+    // 1.0h = 0x3C00, 2.0h = 0x4000, 3.0h = 0x4200
+    // 4.0h = 0x4400, 5.0h = 0x4500, 6.0h = 0x4600
+
+    // Test FP16 ADD: 1.0 + 2.0 = 3.0
+    mov.u32 r1, 0x3C00       // 1.0h
+    mov.u32 r2, 0x4000       // 2.0h
+    add.f16 r3, r1, r2       // r3 = 3.0h
+    mov.u32 r4, 0x4200       // 3.0h expected
+    and.b32 r3, r3, 0xFFFF
+    sub.s32 r30, r3, r4
+    bra.nz r30, FAIL
+
+    // Test FP16 SUB: 5.0 - 2.0 = 3.0
+    mov.u32 r1, 0x4500       // 5.0h
+    mov.u32 r2, 0x4000       // 2.0h
+    sub.f16 r3, r1, r2       // r3 = 3.0h
+    mov.u32 r4, 0x4200       // 3.0h expected
+    and.b32 r3, r3, 0xFFFF
+    sub.s32 r30, r3, r4
+    bra.nz r30, FAIL
+
+    // Test FP16 MUL: 2.0 * 3.0 = 6.0
+    mov.u32 r1, 0x4000       // 2.0h
+    mov.u32 r2, 0x4200       // 3.0h
+    mul.f16 r3, r1, r2       // r3 = 6.0h
+    mov.u32 r4, 0x4600       // 6.0h expected
+    and.b32 r3, r3, 0xFFFF
+    sub.s32 r30, r3, r4
+    bra.nz r30, FAIL
+
+    // Test FP16 FMA: 2.0 * 2.0 + 1.0 = 5.0
+    mov.u32 r1, 0x4000       // 2.0h
+    mov.u32 r2, 0x4000       // 2.0h
+    mov.u32 r3, 0x3C00       // 1.0h
+    fma.f16 r4, r1, r2, r3   // r4 = 5.0h
+    mov.u32 r5, 0x4500       // 5.0h expected
+    and.b32 r4, r4, 0xFFFF
+    sub.s32 r30, r4, r5
+    bra.nz r30, FAIL
+
+    // Success
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

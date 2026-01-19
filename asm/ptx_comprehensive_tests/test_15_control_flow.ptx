@@ -1,0 +1,72 @@
+// Test 15: Control Flow Operations
+// Tests: bra (branch), @pred conditional, bar.sync
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_control_flow:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Test unconditional branch
+    mov.u32 r1, 0
+    bra AFTER_SKIP
+    mov.u32 r1, 1            // Should be skipped
+AFTER_SKIP:
+    bra.nz r1, FAIL          // r1 should still be 0
+
+    // Test conditional branch with true condition
+    mov.u32 r1, 5
+    mov.u32 r2, 5
+    setp.eq.s32 p0, r1, r2
+    @p0 bra COND_TRUE
+    bra FAIL                 // Should not reach here
+COND_TRUE:
+
+    // Test conditional branch with false condition
+    mov.u32 r1, 5
+    mov.u32 r2, 10
+    setp.eq.s32 p0, r1, r2
+    @p0 bra FAIL             // Should not branch
+    // Fall through is correct
+
+    // Test loop with counter
+    mov.u32 r1, 0            // counter
+    mov.u32 r2, 5            // limit
+LOOP_START:
+    add.s32 r1, r1, 1
+    setp.lt.s32 p0, r1, r2
+    @p0 bra LOOP_START
+
+    // Verify counter = 5
+    sub.s32 r30, r1, 5
+    bra.nz r30, FAIL
+
+    // Test bra.nz (branch if not zero)
+    mov.u32 r1, 0
+    bra.nz r1, FAIL          // Should not branch (r1=0)
+
+    mov.u32 r1, 1
+    bra.nz r1, BRANCH_TAKEN  // Should branch (r1=1)
+    bra FAIL
+BRANCH_TAKEN:
+
+    // Test bra.z (branch if zero) - simulated with setp
+    mov.u32 r1, 0
+    setp.eq.s32 p0, r1, 0
+    @p0 bra ZERO_BRANCH
+    bra FAIL
+ZERO_BRANCH:
+
+    // Success
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

@@ -1,0 +1,74 @@
+// Test 20: Memory Consistency - Message Passing Pattern
+// PTX 9.1 Memory Model: Release-Acquire synchronization
+// This tests the classic message passing pattern:
+// Thread 0: store data, release-store flag
+// Thread 1: acquire-load flag, load data
+// If flag is seen as 1, data must be seen as written value
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_mem_consistency_mp:
+    mov.u32 r0, %tid.x
+
+    // Memory locations
+    // 0x1000 = data, 0x1004 = flag, 0x2000 = result
+    mov.u32 r10, 0x1000      // data address
+    mov.u32 r11, 0x1004      // flag address
+    mov.u32 r12, 0x2000      // result address
+
+    // Initialize
+    mov.u32 r1, 0
+    st.global.u32 [r10], r1   // data = 0
+    st.global.u32 [r11], r1   // flag = 0
+    bar.sync 0                // sync all threads
+
+    // Thread 0: Producer - write data then signal
+    bra.nz r0, CONSUMER
+
+PRODUCER:
+    // Store data value
+    mov.u32 r1, 42
+    st.global.u32 [r10], r1   // data = 42
+
+    // Memory fence to ensure data is visible before flag
+    membar.cta
+
+    // Signal by setting flag
+    mov.u32 r1, 1
+    st.global.u32 [r11], r1   // flag = 1 (release)
+    bra CHECK
+
+CONSUMER:
+    // Thread 1+: Spin on flag
+    mov.u32 r2, 1
+SPIN_WAIT:
+    ld.global.u32 r3, [r11]   // acquire-load flag
+    sub.s32 r4, r3, r2
+    bra.nz r4, SPIN_WAIT
+
+    // Flag is 1, now load data (should see 42)
+    membar.cta                // acquire fence
+    ld.global.u32 r5, [r10]   // load data
+
+    // Verify data is 42
+    sub.s32 r30, r5, 42
+    bra.nz r30, FAIL
+
+CHECK:
+    bar.sync 0                // sync all threads before result
+
+    // Only thread 0 writes success
+    bra.nz r0, DONE
+
+    // Write success marker
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r12], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

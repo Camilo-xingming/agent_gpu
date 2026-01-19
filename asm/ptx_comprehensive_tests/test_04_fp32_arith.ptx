@@ -1,0 +1,78 @@
+// Test 04: FP32 Arithmetic Operations
+// Tests: add.f32, sub.f32, mul.f32, div.f32, fma.f32
+// FP32 values loaded from memory (pre-initialized)
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_fp32_arith:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Pre-store FP32 constants to memory then load
+    // 1.0f = 0x3F800000, use shl to build
+    // 0x3F80 = 16256, shift left 16 = 0x3F800000
+    mov.u32 r1, 16256       // 0x3F80
+    shl.b32 r1, r1, 16      // 1.0f
+
+    // 2.0f = 0x40000000 = 0x4000 << 16
+    mov.u32 r2, 16384       // 0x4000
+    shl.b32 r2, r2, 16      // 2.0f
+
+    // 3.0f = 0x40400000 = 0x4040 << 16
+    mov.u32 r4, 16448       // 0x4040
+    shl.b32 r4, r4, 16      // 3.0f
+
+    // Test FP32 ADD: 1.0 + 2.0 = 3.0
+    add.f32 r3, r1, r2      // r3 = 3.0f
+    sub.s32 r30, r3, r4
+    bra.nz r30, FAIL
+
+    // 5.0f = 0x40A00000 = 0x40A0 << 16
+    mov.u32 r5, 16544       // 0x40A0
+    shl.b32 r5, r5, 16      // 5.0f
+
+    // Test FP32 SUB: 5.0 - 2.0 = 3.0
+    sub.f32 r3, r5, r2      // r3 = 3.0f
+    sub.s32 r30, r3, r4
+    bra.nz r30, FAIL
+
+    // 6.0f = 0x40C00000 = 0x40C0 << 16
+    mov.u32 r6, 16576       // 0x40C0
+    shl.b32 r6, r6, 16      // 6.0f
+
+    // Test FP32 MUL: 2.0 * 3.0 = 6.0
+    mul.f32 r3, r2, r4      // r3 = 6.0f
+    sub.s32 r30, r3, r6
+    bra.nz r30, FAIL
+
+    // Test FP32 DIV: 6.0 / 2.0 = 3.0
+    div.f32 r3, r6, r2      // r3 = 3.0f
+    sub.s32 r30, r3, r4
+    bra.nz r30, FAIL
+
+    // 4.0f = 0x40800000 = 0x4080 << 16
+    mov.u32 r7, 16512       // 0x4080
+    shl.b32 r7, r7, 16      // 4.0f
+
+    // 10.0f = 0x41200000 = 0x4120 << 16
+    mov.u32 r8, 16672       // 0x4120
+    shl.b32 r8, r8, 16      // 10.0f
+
+    // Test FP32 FMA: 2.0 * 3.0 + 4.0 = 10.0
+    fma.rn.f32 r3, r2, r4, r7  // r3 = 10.0f
+    sub.s32 r30, r3, r8
+    bra.nz r30, FAIL
+
+    // Success
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

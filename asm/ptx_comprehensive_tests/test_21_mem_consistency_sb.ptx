@@ -1,0 +1,90 @@
+// Test 21: Memory Consistency - Store Buffering Pattern
+// PTX 9.1 Memory Model: Tests fence.sc semantics
+// Classic store buffering litmus test:
+// Thread 0: store x=1, fence, load y
+// Thread 1: store y=1, fence, load x
+// With fence.sc, at least one thread must see the other's store
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_mem_consistency_sb:
+    mov.u32 r0, %tid.x
+
+    // Memory locations
+    // 0x1000 = x, 0x1004 = y, 0x1008 = result0, 0x100C = result1
+    mov.u32 r10, 0x1000      // x address
+    mov.u32 r11, 0x1004      // y address
+    mov.u32 r12, 0x1008      // result0 address
+    mov.u32 r13, 0x100C      // result1 address
+    mov.u32 r14, 0x2000      // final result
+
+    // Initialize x=0, y=0
+    mov.u32 r1, 0
+    st.global.u32 [r10], r1
+    st.global.u32 [r11], r1
+    st.global.u32 [r12], r1
+    st.global.u32 [r13], r1
+    bar.sync 0
+
+    // Thread 0
+    sub.s32 r2, r0, 0
+    bra.nz r2, THREAD1
+
+THREAD0:
+    // Store x = 1
+    mov.u32 r1, 1
+    st.global.u32 [r10], r1
+
+    // Sequential consistency fence
+    membar.gl                 // fence.sc equivalent
+
+    // Load y -> result0
+    ld.global.u32 r3, [r11]
+    st.global.u32 [r12], r3
+    bra BARRIER
+
+THREAD1:
+    // Only thread 1 executes this
+    sub.s32 r2, r0, 1
+    bra.nz r2, BARRIER
+
+    // Store y = 1
+    mov.u32 r1, 1
+    st.global.u32 [r11], r1
+
+    // Sequential consistency fence
+    membar.gl                 // fence.sc equivalent
+
+    // Load x -> result1
+    ld.global.u32 r3, [r10]
+    st.global.u32 [r13], r3
+
+BARRIER:
+    bar.sync 0
+
+    // Only thread 0 checks result
+    bra.nz r0, DONE
+
+    // Load results
+    ld.global.u32 r1, [r12]   // result0 = what thread0 saw for y
+    ld.global.u32 r2, [r13]   // result1 = what thread1 saw for x
+
+    // With SC fences, we cannot have both r1=0 AND r2=0
+    // At least one must see 1
+    add.s32 r3, r1, r2        // r3 = result0 + result1
+    bra.nz r3, SUCCESS        // if r3 != 0, at least one saw the store
+
+    // Both are 0 - consistency violation!
+    bra FAIL
+
+SUCCESS:
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r14], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r14], r21
+
+DONE:
+    exit
+.end

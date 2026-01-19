@@ -1,0 +1,69 @@
+// Test 07: Global Memory Operations
+// Tests: ld.global, st.global, load-store chain
+// Uses 16-bit immediates only
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_memory_global:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Initialize base addresses (within 16-bit range)
+    mov.u32 r10, 0x1000      // Load address
+    mov.u32 r11, 0x1100      // Store address
+
+    // Test 1: Store a value, then load it back
+    // Build 0xDEAD using shift (0xDEAD = 57005)
+    mov.u32 r1, 57005        // 0xDEAD
+    st.global.u32 [r10], r1
+    ld.global.u32 r2, [r10]
+    sub.s32 r30, r2, r1
+    bra.nz r30, FAIL
+
+    // Test 2: Multiple stores, multiple loads
+    mov.u32 r1, 100
+    mov.u32 r2, 200
+    mov.u32 r3, 300
+    st.global.u32 [r10], r1
+    add.s32 r12, r10, 4
+    st.global.u32 [r12], r2
+    add.s32 r13, r10, 8
+    st.global.u32 [r13], r3
+
+    // Load back and verify
+    ld.global.u32 r4, [r10]
+    sub.s32 r30, r4, 100
+    bra.nz r30, FAIL
+
+    ld.global.u32 r5, [r12]
+    sub.s32 r30, r5, 200
+    bra.nz r30, FAIL
+
+    ld.global.u32 r6, [r13]
+    sub.s32 r30, r6, 300
+    bra.nz r30, FAIL
+
+    // Test 3: Load-modify-store pattern
+    mov.u32 r1, 1000
+    st.global.u32 [r11], r1
+    ld.global.u32 r2, [r11]
+    add.s32 r2, r2, 500       // r2 = 1500
+    st.global.u32 [r11], r2
+    ld.global.u32 r3, [r11]
+    mov.u32 r4, 1500
+    sub.s32 r30, r3, r4
+    bra.nz r30, FAIL
+
+    // Success
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

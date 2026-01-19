@@ -1,0 +1,78 @@
+// Test 05: FP32 Special Functions
+// Tests: rcp, sqrt, min, max, abs, neg
+// FP32 values built via shift operations
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_fp32_special:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Build FP32 constants
+    // 2.0f = 0x40000000 = 0x4000 << 16
+    mov.u32 r1, 16384       // 0x4000
+    shl.b32 r1, r1, 16      // 2.0f
+
+    // 0.5f = 0x3F000000 = 0x3F00 << 16
+    mov.u32 r4, 16128       // 0x3F00
+    shl.b32 r4, r4, 16      // 0.5f
+
+    // Test FP32 RCP: 1/2.0 = 0.5
+    rcp.f32 r3, r1          // r3 = 0.5f
+    sub.s32 r30, r3, r4
+    bra.nz r30, FAIL
+
+    // 4.0f = 0x40800000 = 0x4080 << 16
+    mov.u32 r5, 16512       // 0x4080
+    shl.b32 r5, r5, 16      // 4.0f
+
+    // Test FP32 SQRT: sqrt(4.0) = 2.0
+    sqrt.f32 r3, r5         // r3 = 2.0f
+    sub.s32 r30, r3, r1
+    bra.nz r30, FAIL
+
+    // 3.0f = 0x40400000 = 0x4040 << 16
+    mov.u32 r6, 16448       // 0x4040
+    shl.b32 r6, r6, 16      // 3.0f
+
+    // 5.0f = 0x40A00000 = 0x40A0 << 16
+    mov.u32 r7, 16544       // 0x40A0
+    shl.b32 r7, r7, 16      // 5.0f
+
+    // Test FP32 MIN: min(3.0, 5.0) = 3.0
+    min.f32 r3, r6, r7      // r3 = 3.0f
+    sub.s32 r30, r3, r6
+    bra.nz r30, FAIL
+
+    // Test FP32 MAX: max(3.0, 5.0) = 5.0
+    max.f32 r3, r6, r7      // r3 = 5.0f
+    sub.s32 r30, r3, r7
+    bra.nz r30, FAIL
+
+    // -3.0f = 0xC0400000 = 0xC040 << 16
+    mov.u32 r8, 49216       // 0xC040
+    shl.b32 r8, r8, 16      // -3.0f
+
+    // Test FP32 ABS: abs(-3.0) = 3.0
+    abs.f32 r3, r8          // r3 = 3.0f
+    sub.s32 r30, r3, r6
+    bra.nz r30, FAIL
+
+    // Test FP32 NEG: neg(3.0) = -3.0
+    neg.f32 r3, r6          // r3 = -3.0f
+    sub.s32 r30, r3, r8
+    bra.nz r30, FAIL
+
+    // Success
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

@@ -1,0 +1,78 @@
+// Test 14: WMMA (Warp Matrix Multiply-Accumulate) Operations
+// Tests: wmma.mma basic
+// Uses 16-bit immediates only
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_wmma:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // WMMA M16N16K16 test
+    // Matrix A (16x16 FP16), Matrix B (16x16 FP16), Matrix C (16x16 FP32)
+    // This test just verifies the instruction executes without error
+
+    // Initialize fragment registers with identity-like values
+    // Two FP16 1.0 values = 0x3C003C00 = 0x3C00 << 16 | 0x3C00
+    mov.u32 r1, 15360       // 0x3C00
+    shl.b32 r1, r1, 16
+    mov.u32 r28, 15360      // 0x3C00
+    or.b32 r1, r1, r28      // 0x3C003C00
+
+    mov.u32 r2, 15360
+    shl.b32 r2, r2, 16
+    mov.u32 r28, 15360
+    or.b32 r2, r2, r28      // 0x3C003C00
+
+    mov.u32 r3, 15360
+    shl.b32 r3, r3, 16
+    mov.u32 r28, 15360
+    or.b32 r3, r3, r28      // 0x3C003C00
+
+    mov.u32 r4, 15360
+    shl.b32 r4, r4, 16
+    mov.u32 r28, 15360
+    or.b32 r4, r4, r28      // 0x3C003C00
+
+    mov.u32 r5, 15360       // B matrix fragments
+    shl.b32 r5, r5, 16
+    mov.u32 r28, 15360
+    or.b32 r5, r5, r28      // 0x3C003C00
+
+    mov.u32 r6, 15360
+    shl.b32 r6, r6, 16
+    mov.u32 r28, 15360
+    or.b32 r6, r6, r28      // 0x3C003C00
+
+    mov.u32 r7, 15360
+    shl.b32 r7, r7, 16
+    mov.u32 r28, 15360
+    or.b32 r7, r7, r28      // 0x3C003C00
+
+    mov.u32 r8, 15360
+    shl.b32 r8, r8, 16
+    mov.u32 r28, 15360
+    or.b32 r8, r8, r28      // 0x3C003C00
+
+    mov.u32 r9, 0            // C accumulator (FP32 zero)
+    mov.u32 r10, 0
+    mov.u32 r11, 0
+    mov.u32 r12, 0
+
+    // Execute WMMA MMA
+    wmma.mma.sync.m16n16k16.f32.f16 r9, r1, r5, r9
+
+    // The operation should complete - we just verify no crash
+    // Store success marker
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

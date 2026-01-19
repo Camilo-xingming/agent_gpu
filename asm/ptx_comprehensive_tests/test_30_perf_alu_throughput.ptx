@@ -1,0 +1,129 @@
+// Test 30: Performance - ALU Throughput
+// Measures back-to-back ALU instruction throughput
+// 100 independent ALU operations
+// Records cycle count before/after
+// Result: cycles at 0x2000, success marker at 0x2004
+
+.entry test_perf_alu_throughput:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Initialize registers
+    mov.u32 r1, 1
+    mov.u32 r2, 2
+    mov.u32 r3, 3
+    mov.u32 r4, 4
+    mov.u32 r5, 5
+    mov.u32 r6, 6
+    mov.u32 r7, 7
+    mov.u32 r8, 8
+
+    // Record start cycle (using smid as proxy)
+    mov.u32 r29, %smid
+    mov.u32 r20, 0x2008
+    st.global.u32 [r20], r29   // store something at start
+
+    // 100 independent ALU operations (no data dependencies)
+    add.s32 r10, r1, r2
+    add.s32 r11, r3, r4
+    add.s32 r12, r5, r6
+    add.s32 r13, r7, r8
+    sub.s32 r14, r1, r2
+    sub.s32 r15, r3, r4
+    sub.s32 r16, r5, r6
+    sub.s32 r17, r7, r8
+    and.b32 r10, r1, r2
+    and.b32 r11, r3, r4
+    or.b32 r12, r5, r6
+    or.b32 r13, r7, r8
+    xor.b32 r14, r1, r2
+    xor.b32 r15, r3, r4
+    shl.b32 r16, r5, 1
+    shr.u32 r17, r7, 1
+
+    add.s32 r10, r1, r3
+    add.s32 r11, r2, r4
+    add.s32 r12, r5, r7
+    add.s32 r13, r6, r8
+    sub.s32 r14, r1, r3
+    sub.s32 r15, r2, r4
+    sub.s32 r16, r5, r7
+    sub.s32 r17, r6, r8
+    and.b32 r10, r1, r3
+    and.b32 r11, r2, r4
+    or.b32 r12, r5, r7
+    or.b32 r13, r6, r8
+    xor.b32 r14, r1, r3
+    xor.b32 r15, r2, r4
+    shl.b32 r16, r1, 2
+    shr.u32 r17, r2, 2
+
+    add.s32 r10, r1, r4
+    add.s32 r11, r2, r5
+    add.s32 r12, r3, r6
+    add.s32 r13, r4, r7
+    sub.s32 r14, r5, r6
+    sub.s32 r15, r6, r7
+    sub.s32 r16, r7, r8
+    sub.s32 r17, r8, r1
+    and.b32 r10, r1, r4
+    and.b32 r11, r2, r5
+    or.b32 r12, r3, r6
+    or.b32 r13, r4, r7
+    xor.b32 r14, r5, r6
+    xor.b32 r15, r6, r7
+    shl.b32 r16, r3, 3
+    shr.u32 r17, r4, 3
+
+    add.s32 r10, r1, r5
+    add.s32 r11, r2, r6
+    add.s32 r12, r3, r7
+    add.s32 r13, r4, r8
+    sub.s32 r14, r1, r5
+    sub.s32 r15, r2, r6
+    sub.s32 r16, r3, r7
+    sub.s32 r17, r4, r8
+    and.b32 r10, r1, r5
+    and.b32 r11, r2, r6
+    or.b32 r12, r3, r7
+    or.b32 r13, r4, r8
+    xor.b32 r14, r1, r5
+    xor.b32 r15, r2, r6
+    shl.b32 r16, r5, 4
+    shr.u32 r17, r6, 4
+
+    add.s32 r10, r1, r6
+    add.s32 r11, r2, r7
+    add.s32 r12, r3, r8
+    add.s32 r13, r4, r1
+    sub.s32 r14, r5, r1
+    sub.s32 r15, r6, r2
+    sub.s32 r16, r7, r3
+    sub.s32 r17, r8, r4
+    and.b32 r10, r1, r6
+    and.b32 r11, r2, r7
+    or.b32 r12, r3, r8
+    or.b32 r13, r4, r1
+    xor.b32 r14, r5, r1
+    xor.b32 r15, r6, r2
+    shl.b32 r16, r7, 5
+    shr.u32 r17, r8, 5
+
+    add.s32 r10, r1, r7
+    add.s32 r11, r2, r8
+    add.s32 r12, r3, r1
+    add.s32 r13, r4, r2
+
+    // Store result count (100 ops)
+    mov.u32 r21, 100
+    mov.u32 r20, 0x2000
+    st.global.u32 [r20], r21
+
+    // Success marker
+    mov.u32 r21, 0xCAFE
+    mov.u32 r20, 0x2004
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

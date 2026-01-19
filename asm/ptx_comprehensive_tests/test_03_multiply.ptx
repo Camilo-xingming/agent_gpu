@@ -1,0 +1,66 @@
+// Test 03: Multiply Operations
+// Tests: mul.lo, mul.hi, mad.lo, mul24, mad24
+// Uses 16-bit immediates only
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_multiply:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Test MUL.LO
+    mov.u32 r1, 100
+    mov.u32 r2, 50
+    mul.lo.s32 r3, r1, r2   // r3 = 5000
+    mov.u32 r4, 5000
+    sub.s32 r30, r3, r4
+    bra.nz r30, FAIL
+
+    // Test MUL.HI (high 32 bits of 64-bit result)
+    // Build 0x10000 via shift: 1 << 16 = 65536
+    mov.u32 r1, 1
+    shl.b32 r1, r1, 16      // r1 = 65536 = 0x10000
+    mul.hi.u32 r3, r1, r1   // 65536^2 = 0x100000000, hi = 1
+    sub.s32 r30, r3, 1
+    bra.nz r30, FAIL
+
+    // Test MAD.LO (multiply-add low)
+    mov.u32 r1, 10
+    mov.u32 r2, 20
+    mov.u32 r3, 100
+    mad.lo.s32 r4, r1, r2, r3  // r4 = 10*20 + 100 = 300
+    sub.s32 r30, r4, 300
+    bra.nz r30, FAIL
+
+    // Test MUL24 (24-bit multiply)
+    mov.u32 r1, 1000
+    mov.u32 r2, 500
+    mul24.lo.s32 r3, r1, r2    // r3 = 500000
+    // 500000 = 0x7A120, verify with computation
+    mov.u32 r4, 31250
+    shl.b32 r5, r4, 4       // 31250 * 16 = 500000
+    sub.s32 r30, r3, r5
+    bra.nz r30, FAIL
+
+    // Test MAD24 (24-bit multiply-add)
+    mov.u32 r1, 100
+    mov.u32 r2, 100
+    mov.u32 r3, 1000
+    mad24.lo.s32 r4, r1, r2, r3  // r4 = 100*100 + 1000 = 11000
+    mov.u32 r5, 11000
+    sub.s32 r30, r4, r5
+    bra.nz r30, FAIL
+
+    // Success
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

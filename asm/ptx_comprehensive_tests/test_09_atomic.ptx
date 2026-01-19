@@ -1,0 +1,106 @@
+// Test 09: Atomic Operations
+// Tests: atom.add, atom.min, atom.max, atom.and, atom.or, atom.xor, atom.exch, atom.cas
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_atomic:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    mov.u32 r10, 0x1000      // Atomic operation address
+
+    // Test ATOM.ADD: 100 + 50 = 150
+    mov.u32 r1, 100
+    st.global.u32 [r10], r1
+    mov.u32 r2, 50
+    atom.add.s32 r3, [r10], r2  // r3 = old value (100), [r10] = 150
+    sub.s32 r30, r3, 100
+    bra.nz r30, FAIL
+    ld.global.u32 r4, [r10]
+    sub.s32 r30, r4, 150
+    bra.nz r30, FAIL
+
+    // Test ATOM.MIN: min(150, 75) = 75
+    mov.u32 r1, 75
+    atom.min.s32 r3, [r10], r1  // r3 = 150, [r10] = 75
+    sub.s32 r30, r3, 150
+    bra.nz r30, FAIL
+    ld.global.u32 r4, [r10]
+    sub.s32 r30, r4, 75
+    bra.nz r30, FAIL
+
+    // Test ATOM.MAX: max(75, 200) = 200
+    mov.u32 r1, 200
+    atom.max.s32 r3, [r10], r1  // r3 = 75, [r10] = 200
+    sub.s32 r30, r3, 75
+    bra.nz r30, FAIL
+    ld.global.u32 r4, [r10]
+    sub.s32 r30, r4, 200
+    bra.nz r30, FAIL
+
+    // Test ATOM.AND: 0xFF00 & 0xF0F0 = 0xF000
+    mov.u32 r1, 0xFF00
+    st.global.u32 [r10], r1
+    mov.u32 r2, 0xF0F0
+    atom.and.b32 r3, [r10], r2
+    mov.u32 r4, 0xFF00
+    sub.s32 r30, r3, r4
+    bra.nz r30, FAIL
+    ld.global.u32 r4, [r10]
+    mov.u32 r5, 0xF000
+    sub.s32 r30, r4, r5
+    bra.nz r30, FAIL
+
+    // Test ATOM.OR: 0xF000 | 0x0FFF = 0xFFFF
+    mov.u32 r1, 0x0FFF
+    atom.or.b32 r3, [r10], r1
+    ld.global.u32 r4, [r10]
+    mov.u32 r5, 0xFFFF
+    sub.s32 r30, r4, r5
+    bra.nz r30, FAIL
+
+    // Test ATOM.XOR: 0xFFFF ^ 0x00FF = 0xFF00
+    mov.u32 r1, 0x00FF
+    atom.xor.b32 r3, [r10], r1
+    ld.global.u32 r4, [r10]
+    mov.u32 r5, 0xFF00
+    sub.s32 r30, r4, r5
+    bra.nz r30, FAIL
+
+    // Test ATOM.EXCH: exchange with 0xBEEF
+    mov.u32 r1, 0xBEEF
+    atom.exch.b32 r3, [r10], r1
+    mov.u32 r5, 0xFF00
+    sub.s32 r30, r3, r5       // old value
+    bra.nz r30, FAIL
+    ld.global.u32 r4, [r10]
+    mov.u32 r5, 0xBEEF
+    sub.s32 r30, r4, r5       // new value
+    bra.nz r30, FAIL
+
+    // Test ATOM.CAS: compare-and-swap
+    // [r10] = 0xBEEF, compare=0xBEEF, swap=0xCAFE
+    mov.u32 r1, 0xBEEF        // compare value
+    mov.u32 r2, 0xCAFE        // swap value
+    atom.cas.b32 r3, [r10], r1, r2
+    mov.u32 r5, 0xBEEF
+    sub.s32 r30, r3, r5       // old value
+    bra.nz r30, FAIL
+    ld.global.u32 r4, [r10]
+    mov.u32 r5, 0xCAFE
+    sub.s32 r30, r4, r5       // new value
+    bra.nz r30, FAIL
+
+    // Success
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

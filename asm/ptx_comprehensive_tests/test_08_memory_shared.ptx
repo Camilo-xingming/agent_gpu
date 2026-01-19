@@ -1,0 +1,75 @@
+// Test 08: Shared Memory Operations
+// Tests: ld.shared, st.shared
+// Uses 16-bit immediates only
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_memory_shared:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Initialize shared memory base address
+    mov.u32 r10, 0x0000      // Shared memory offset
+
+    // Test 1: Store to shared, load back
+    // Build 0xCAFEBABE via shift: 0xCAFE << 16 | 0xBABE
+    mov.u32 r1, 51966        // 0xCAFE
+    shl.b32 r1, r1, 16       // 0xCAFE0000
+    mov.u32 r29, 47806       // 0xBABE
+    or.b32 r1, r1, r29       // 0xCAFEBABE
+    st.shared.u32 [r10], r1
+    ld.shared.u32 r2, [r10]
+    sub.s32 r30, r2, r1
+    bra.nz r30, FAIL
+
+    // Test 2: Multiple shared memory locations
+    mov.u32 r1, 111
+    mov.u32 r2, 222
+    mov.u32 r3, 333
+    mov.u32 r4, 444
+
+    st.shared.u32 [r10], r1
+    add.s32 r11, r10, 4
+    st.shared.u32 [r11], r2
+    add.s32 r12, r10, 8
+    st.shared.u32 [r12], r3
+    add.s32 r13, r10, 12
+    st.shared.u32 [r13], r4
+
+    // Load and verify
+    ld.shared.u32 r5, [r10]
+    sub.s32 r30, r5, 111
+    bra.nz r30, FAIL
+
+    ld.shared.u32 r6, [r11]
+    sub.s32 r30, r6, 222
+    bra.nz r30, FAIL
+
+    ld.shared.u32 r7, [r12]
+    sub.s32 r30, r7, 333
+    bra.nz r30, FAIL
+
+    ld.shared.u32 r8, [r13]
+    sub.s32 r30, r8, 444
+    bra.nz r30, FAIL
+
+    // Test 3: Compute using shared memory
+    ld.shared.u32 r1, [r10]
+    ld.shared.u32 r2, [r11]
+    add.s32 r3, r1, r2        // 111 + 222 = 333
+    sub.s32 r30, r3, 333
+    bra.nz r30, FAIL
+
+    // Success
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

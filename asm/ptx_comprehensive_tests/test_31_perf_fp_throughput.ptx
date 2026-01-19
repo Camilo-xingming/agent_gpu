@@ -1,0 +1,112 @@
+// Test 31: Performance - FP32 Throughput
+// Measures back-to-back FP32 instruction throughput
+// 50 independent FP32 operations
+// Uses 16-bit immediates only (shifts for FP32 values)
+// Success marker: 0xCAFE at 0x2004
+
+.entry test_perf_fp_throughput:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Initialize FP32 values using shift operations
+    // 1.0f = 0x3F800000 = 0x3F80 << 16
+    mov.u32 r1, 16256       // 0x3F80
+    shl.b32 r1, r1, 16      // 1.0f
+
+    // 2.0f = 0x40000000 = 0x4000 << 16
+    mov.u32 r2, 16384       // 0x4000
+    shl.b32 r2, r2, 16      // 2.0f
+
+    // 3.0f = 0x40400000 = 0x4040 << 16
+    mov.u32 r3, 16448       // 0x4040
+    shl.b32 r3, r3, 16      // 3.0f
+
+    // 4.0f = 0x40800000 = 0x4080 << 16
+    mov.u32 r4, 16512       // 0x4080
+    shl.b32 r4, r4, 16      // 4.0f
+
+    // 5.0f = 0x40A00000 = 0x40A0 << 16
+    mov.u32 r5, 16544       // 0x40A0
+    shl.b32 r5, r5, 16      // 5.0f
+
+    // 6.0f = 0x40C00000 = 0x40C0 << 16
+    mov.u32 r6, 16576       // 0x40C0
+    shl.b32 r6, r6, 16      // 6.0f
+
+    // 7.0f = 0x40E00000 = 0x40E0 << 16
+    mov.u32 r7, 16608       // 0x40E0
+    shl.b32 r7, r7, 16      // 7.0f
+
+    // 8.0f = 0x41000000 = 0x4100 << 16
+    mov.u32 r8, 16640       // 0x4100
+    shl.b32 r8, r8, 16      // 8.0f
+
+    // 50 independent FP32 operations
+    add.f32 r10, r1, r2
+    add.f32 r11, r3, r4
+    add.f32 r12, r5, r6
+    add.f32 r13, r7, r8
+    sub.f32 r14, r1, r2
+    sub.f32 r15, r3, r4
+    sub.f32 r16, r5, r6
+    sub.f32 r17, r7, r8
+    mul.f32 r10, r1, r2
+    mul.f32 r11, r3, r4
+
+    add.f32 r12, r1, r3
+    add.f32 r13, r2, r4
+    add.f32 r14, r5, r7
+    add.f32 r15, r6, r8
+    sub.f32 r16, r1, r3
+    sub.f32 r17, r2, r4
+    mul.f32 r10, r5, r7
+    mul.f32 r11, r6, r8
+    min.f32 r12, r1, r2
+    max.f32 r13, r3, r4
+
+    add.f32 r14, r1, r4
+    add.f32 r15, r2, r5
+    add.f32 r16, r3, r6
+    add.f32 r17, r4, r7
+    sub.f32 r10, r5, r6
+    sub.f32 r11, r6, r7
+    mul.f32 r12, r7, r8
+    mul.f32 r13, r8, r1
+    min.f32 r14, r5, r6
+    max.f32 r15, r7, r8
+
+    add.f32 r16, r1, r5
+    add.f32 r17, r2, r6
+    add.f32 r10, r3, r7
+    add.f32 r11, r4, r8
+    sub.f32 r12, r1, r5
+    sub.f32 r13, r2, r6
+    mul.f32 r14, r3, r7
+    mul.f32 r15, r4, r8
+    abs.f32 r16, r1
+    neg.f32 r17, r2
+
+    add.f32 r10, r1, r6
+    add.f32 r11, r2, r7
+    add.f32 r12, r3, r8
+    add.f32 r13, r4, r1
+    sub.f32 r14, r5, r1
+    sub.f32 r15, r6, r2
+    mul.f32 r16, r7, r3
+    mul.f32 r17, r8, r4
+    rcp.f32 r10, r1
+    sqrt.f32 r11, r4
+
+    // Store result count (50 ops)
+    mov.u32 r21, 50
+    mov.u32 r20, 0x2000
+    st.global.u32 [r20], r21
+
+    // Success marker
+    mov.u32 r21, 0xCAFE
+    mov.u32 r20, 0x2004
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

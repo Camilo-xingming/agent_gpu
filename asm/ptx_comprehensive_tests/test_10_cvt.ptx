@@ -1,0 +1,86 @@
+// Test 10: Type Conversion Operations
+// Tests: cvt.s32.f32, cvt.f32.s32, cvt.f32.f16, cvt.f16.f32
+// Uses 16-bit immediates only (shifts for larger values)
+// Success marker: 0xCAFE at 0x2000
+
+.entry test_cvt:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // Test CVT.S32.F32: 10.0f -> 10
+    // 10.0f = 0x41200000 = 0x4120 << 16
+    mov.u32 r1, 16672       // 0x4120
+    shl.b32 r1, r1, 16      // 10.0f
+    cvt.s32.f32 r2, r1       // r2 = 10
+    sub.s32 r30, r2, 10
+    bra.nz r30, FAIL
+
+    // Test CVT.F32.S32: 10 -> 10.0f
+    mov.u32 r1, 10
+    cvt.f32.s32 r2, r1       // r2 = 10.0f = 0x41200000
+    // Build expected 0x41200000
+    mov.u32 r3, 16672       // 0x4120
+    shl.b32 r3, r3, 16      // 0x41200000
+    sub.s32 r30, r2, r3
+    bra.nz r30, FAIL
+
+    // Test CVT.U32.F32: 100.0f -> 100
+    // 100.0f = 0x42C80000 = 0x42C8 << 16
+    mov.u32 r1, 17096       // 0x42C8
+    shl.b32 r1, r1, 16      // 100.0f
+    cvt.u32.f32 r2, r1       // r2 = 100
+    sub.s32 r30, r2, 100
+    bra.nz r30, FAIL
+
+    // Test CVT.F32.U32: 100 -> 100.0f
+    mov.u32 r1, 100
+    cvt.f32.u32 r2, r1       // r2 = 100.0f = 0x42C80000
+    mov.u32 r3, 17096       // 0x42C8
+    shl.b32 r3, r3, 16      // 0x42C80000
+    sub.s32 r30, r2, r3
+    bra.nz r30, FAIL
+
+    // Test CVT.F32.F16: 2.0h -> 2.0f
+    // 2.0h = 0x4000, 2.0f = 0x40000000
+    mov.u32 r1, 0x4000       // 2.0h (within 16-bit)
+    cvt.f32.f16 r2, r1       // r2 = 2.0f
+    mov.u32 r3, 16384       // 0x4000
+    shl.b32 r3, r3, 16      // 0x40000000 = 2.0f
+    sub.s32 r30, r2, r3
+    bra.nz r30, FAIL
+
+    // Test CVT.F16.F32: 4.0f -> 4.0h
+    // 4.0f = 0x40800000 = 0x4080 << 16, 4.0h = 0x4400
+    mov.u32 r1, 16512       // 0x4080
+    shl.b32 r1, r1, 16      // 4.0f
+    cvt.f16.f32 r2, r1       // r2 = 4.0h
+    mov.u32 r28, 0xFFFF
+    and.b32 r2, r2, r28
+    mov.u32 r3, 0x4400
+    sub.s32 r30, r2, r3
+    bra.nz r30, FAIL
+
+    // Test negative conversion: -5 -> -5.0f -> -5
+    // -5 = 0xFFFFFFFB, build via subtraction
+    mov.u32 r1, 0
+    mov.u32 r28, 5
+    sub.s32 r1, r1, r28      // r1 = -5
+    cvt.f32.s32 r2, r1       // r2 = -5.0f = 0xC0A00000
+    cvt.s32.f32 r3, r2       // r3 = -5
+    sub.s32 r30, r3, r1
+    bra.nz r30, FAIL
+
+    // Success
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end
