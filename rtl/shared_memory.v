@@ -29,7 +29,16 @@ module shared_memory #(
     input  wire                     async_wr_en,
     input  wire [ADDR_WIDTH-1:0]    async_wr_addr,
     input  wire [127:0]             async_wr_data,  // Up to 16 bytes
-    input  wire [4:0]               async_wr_size   // Size in bytes: 4, 8, or 16 (5 bits to hold 16)
+    input  wire [4:0]               async_wr_size,  // Size in bytes: 4, 8, or 16 (5 bits to hold 16)
+
+    // WGMMA wide read ports (512-bit = 16 words each)
+    // These provide high-bandwidth reads for tensor operations
+    input  wire                     wgmma_rd_en,        // WGMMA read enable
+    input  wire [ADDR_WIDTH-1:0]    wgmma_rd_addr_a,    // Base address for matrix A tile
+    input  wire [ADDR_WIDTH-1:0]    wgmma_rd_addr_b,    // Base address for matrix B tile
+    output reg  [511:0]             wgmma_rd_data_a,    // 512-bit data for matrix A (16 x 32-bit)
+    output reg  [511:0]             wgmma_rd_data_b,    // 512-bit data for matrix B (16 x 32-bit)
+    output reg                      wgmma_rd_valid      // Read data valid (1 cycle latency)
 );
 
     //------------------------------------------------------------------------
@@ -183,6 +192,60 @@ module shared_memory #(
             assign resp_rdata[lane*DATA_WIDTH +: DATA_WIDTH] = read_data[lane];
         end
     endgenerate
+
+    //------------------------------------------------------------------------
+    // WGMMA Wide Read Port (512-bit = 16 words)
+    // Reads 16 consecutive words from shared memory for tensor operations
+    // Uses word-aligned addressing (addr is word offset, not byte offset)
+    // Data is read from 16 consecutive words starting at base address
+    //------------------------------------------------------------------------
+
+    // Calculate word addresses for 16-word reads (matrix A)
+    wire [ADDR_WIDTH-1:0] wgmma_addr_a [0:15];
+    wire [BANK_SEL_W-1:0] wgmma_bank_a [0:15];
+    wire [BANK_ADDR_W-1:0] wgmma_baddr_a [0:15];
+
+    // Calculate word addresses for 16-word reads (matrix B)
+    wire [ADDR_WIDTH-1:0] wgmma_addr_b [0:15];
+    wire [BANK_SEL_W-1:0] wgmma_bank_b [0:15];
+    wire [BANK_ADDR_W-1:0] wgmma_baddr_b [0:15];
+
+    genvar w;
+    generate
+        for (w = 0; w < 16; w = w + 1) begin : wgmma_addr_gen
+            // Matrix A addresses (16 consecutive words)
+            assign wgmma_addr_a[w] = wgmma_rd_addr_a + w[ADDR_WIDTH-1:0];
+            assign wgmma_bank_a[w] = wgmma_addr_a[w][BANK_SEL_W-1:0];
+            assign wgmma_baddr_a[w] = wgmma_addr_a[w][ADDR_WIDTH-1:BANK_SEL_W];
+
+            // Matrix B addresses (16 consecutive words)
+            assign wgmma_addr_b[w] = wgmma_rd_addr_b + w[ADDR_WIDTH-1:0];
+            assign wgmma_bank_b[w] = wgmma_addr_b[w][BANK_SEL_W-1:0];
+            assign wgmma_baddr_b[w] = wgmma_addr_b[w][ADDR_WIDTH-1:BANK_SEL_W];
+        end
+    endgenerate
+
+    // WGMMA read operation (combinational with registered output)
+    integer wgmma_i;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            wgmma_rd_data_a <= 512'b0;
+            wgmma_rd_data_b <= 512'b0;
+            wgmma_rd_valid <= 1'b0;
+        end else begin
+            wgmma_rd_valid <= wgmma_rd_en;
+            if (wgmma_rd_en) begin
+                // Read 16 words for matrix A
+                for (wgmma_i = 0; wgmma_i < 16; wgmma_i = wgmma_i + 1) begin
+                    wgmma_rd_data_a[wgmma_i*32 +: 32] <= bank_mem[wgmma_bank_a[wgmma_i]][wgmma_baddr_a[wgmma_i]];
+                end
+                // Read 16 words for matrix B
+                for (wgmma_i = 0; wgmma_i < 16; wgmma_i = wgmma_i + 1) begin
+                    wgmma_rd_data_b[wgmma_i*32 +: 32] <= bank_mem[wgmma_bank_b[wgmma_i]][wgmma_baddr_b[wgmma_i]];
+                end
+            end
+        end
+    end
 
     //------------------------------------------------------------------------
     // Write Collision Detection (Simulation Only)

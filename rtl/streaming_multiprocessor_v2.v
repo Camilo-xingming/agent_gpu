@@ -546,6 +546,18 @@ module streaming_multiprocessor_v2 #(
     reg  [NUM_WARPS-1:0]  warp_stalled_wgmma;         // Warps waiting on WGMMA wait_group
     reg  [3:0]            wgmma_wait_threshold [0:NUM_WARPS-1];  // Per-warp wait threshold
 
+    // WGMMA-SMEM Interface Signals
+    wire                  wgmma_smem_rd_en;           // WGMMA shared memory read enable
+    wire [13:0]           wgmma_smem_addr_a;          // Base address for matrix A tile
+    wire [13:0]           wgmma_smem_addr_b;          // Base address for matrix B tile
+    wire [511:0]          wgmma_smem_data_a;          // 512-bit data from SMEM for matrix A
+    wire [511:0]          wgmma_smem_data_b;          // 512-bit data from SMEM for matrix B
+    wire                  wgmma_smem_rd_valid;        // SMEM read data valid
+
+    // WGMMA Accumulator Interface
+    reg  [1023:0]         wgmma_accum_reg [0:7];      // 8 accumulator registers per warpgroup
+    wire [2:0]            wgmma_accum_idx;            // Accumulator index from descriptor
+
     // Texture Unit Signals (tex/txq/suld/sust/sured)
     wire                  tex_valid_in;
     wire                  tex_valid_out;
@@ -3906,6 +3918,39 @@ module streaming_multiprocessor_v2 #(
     wire [31:0] wgmma_scale_d = issue_wgmma ? rf_rd_data_c[31:0] : rf1_rd_data_c[31:0];
     wire [3:0]  wgmma_wait_count = issue_wgmma ? issue_imm16[3:0] : issue1_imm16[3:0];
 
+    // Extract shared memory base addresses from descriptors
+    // Descriptor format: [31:0] = base_addr (word address in shared memory)
+    // The descriptor's base_addr field contains the SMEM address for the matrix tile
+    assign wgmma_smem_addr_a = wgmma_desc_a[13:0];  // 14-bit SMEM address for matrix A
+    assign wgmma_smem_addr_b = wgmma_desc_b[13:0];  // 14-bit SMEM address for matrix B
+
+    // WGMMA reads from SMEM when a MMA operation is starting
+    // Only enable SMEM read for actual MMA operations (not fence/commit/wait)
+    wire wgmma_is_mma_op = (wgmma_func == `WGMMA_M64N8K16)  || (wgmma_func == `WGMMA_M64N16K16) ||
+                           (wgmma_func == `WGMMA_M64N32K16) || (wgmma_func == `WGMMA_M64N64K16) ||
+                           (wgmma_func == `WGMMA_M64N128K16) || (wgmma_func == `WGMMA_M64N256K16);
+    assign wgmma_smem_rd_en = wgmma_valid_in && wgmma_is_mma_op;
+
+    // Accumulator index from descriptor (use bits from scale_d or imm16)
+    // Typically the accumulator index is encoded in the instruction immediate
+    assign wgmma_accum_idx = issue_wgmma ? issue_imm16[6:4] : issue1_imm16[6:4];
+
+    // WGMMA Accumulator register file management
+    integer wgmma_acc_i;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            for (wgmma_acc_i = 0; wgmma_acc_i < 8; wgmma_acc_i = wgmma_acc_i + 1) begin
+                wgmma_accum_reg[wgmma_acc_i] <= 1024'b0;
+            end
+        end else if (wgmma_done) begin
+            // Write back WGMMA result to accumulator register
+            wgmma_accum_reg[wgmma_accum_idx] <= wgmma_accum_out;
+        end
+    end
+
+    // Select current accumulator value for WGMMA input
+    wire [1023:0] wgmma_accum_in = wgmma_accum_reg[wgmma_accum_idx];
+
     wgmma #(
         .WARPGROUP_SIZE(4),
         .THREADS_PER_WARP(NUM_LANES),
@@ -3922,10 +3967,10 @@ module streaming_multiprocessor_v2 #(
         .desc_a         (wgmma_desc_a),
         .desc_b         (wgmma_desc_b),
         .scale_d        (wgmma_scale_d),
-        // Data interface (TODO: wire to shared memory for actual data)
-        .data_a         (512'b0),               // Placeholder - needs shared memory path
-        .data_b         (512'b0),               // Placeholder - needs shared memory path
-        .accum_in       (1024'b0),              // Placeholder - needs accumulator register
+        // Data interface - now wired to shared memory!
+        .data_a         (wgmma_smem_data_a),        // From shared memory read port
+        .data_b         (wgmma_smem_data_b),        // From shared memory read port
+        .accum_in       (wgmma_accum_in),           // From accumulator register file
         .accum_out      (wgmma_accum_out),
         // Status outputs
         .ready          (wgmma_ready),
@@ -3957,7 +4002,14 @@ module streaming_multiprocessor_v2 #(
         .async_wr_en  (ace_smem_wr_en),
         .async_wr_addr(ace_smem_wr_addr),
         .async_wr_data(ace_smem_wr_data),
-        .async_wr_size(ace_smem_wr_size)
+        .async_wr_size(ace_smem_wr_size),
+        // WGMMA wide read ports (512-bit for tensor operations)
+        .wgmma_rd_en    (wgmma_smem_rd_en),
+        .wgmma_rd_addr_a(wgmma_smem_addr_a),
+        .wgmma_rd_addr_b(wgmma_smem_addr_b),
+        .wgmma_rd_data_a(wgmma_smem_data_a),
+        .wgmma_rd_data_b(wgmma_smem_data_b),
+        .wgmma_rd_valid (wgmma_smem_rd_valid)
     );
 
     //------------------------------------------------------------------------
