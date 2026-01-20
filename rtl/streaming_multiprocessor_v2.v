@@ -1316,6 +1316,14 @@ module streaming_multiprocessor_v2 #(
             for (fp_i = 0; fp_i < FETCH_PIPE_DEPTH; fp_i = fp_i + 1) begin
                 fetch_pipe_warp[fp_i] <= 0;
             end
+        end else if (kernel_start) begin
+            // Clear fetch pipeline state on kernel start
+            warp_fetch_pending <= 0;
+            fetch_pipe_valid <= 0;
+            fetch_pipe_pc_bit2 <= 0;
+            for (fp_i = 0; fp_i < FETCH_PIPE_DEPTH; fp_i = fp_i + 1) begin
+                fetch_pipe_warp[fp_i] <= 0;
+            end
         end else begin
             // Shift pipeline (valid, warp ID, and PC bit 2)
             fetch_pipe_valid[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_valid[FETCH_PIPE_DEPTH-2:0];
@@ -1406,6 +1414,10 @@ module streaming_multiprocessor_v2 #(
              end
              warp_inst_buf_valid <= 0;
         end else begin
+            // Clear instruction buffer on new kernel start (prevents stale instructions)
+            if (kernel_start) begin
+                warp_inst_buf_valid <= 0;
+            end else begin
             // Debug: trace consume/fill
             `ifdef SIMULATION
             if (|warp_inst_consume || |warp_fill)
@@ -1440,6 +1452,7 @@ module streaming_multiprocessor_v2 #(
             if (fetch_fire) begin
                 warp_fetch_pc[fetch_warp_id] <= warp_fetch_pc[fetch_warp_id] + 4;
             end
+            end // end of else (not kernel_start)
         end
     end
 
@@ -5014,11 +5027,21 @@ module streaming_multiprocessor_v2 #(
                     cluster_barrier_pending[w] <= 1'b0;
                     cluster_barrier_arrived[w] <= 1'b0;
                     cluster_barrier_id[w] <= 8'b0;
+                    // Reset all stall signals (prevents stale state from previous kernel)
+                    warp_stalled_mem[w] <= 1'b0;
+                    warp_stalled_fu[w] <= 1'b0;
+                    warp_stalled_sync[w] <= 1'b0;
+                    warp_stalled_async[w] <= 1'b0;
+                    warp_stalled_branch[w] <= 1'b0;
                 end
                 // Reset cluster barrier shared state on kernel start
                 cluster_barrier_thread_count <= 16'b0;
                 cluster_local_arrive_count <= 16'b0;
                 cluster_barrier_complete <= 1'b0;
+                `ifdef SIMULATION
+                $display("[%0t SM%0d] KERNEL_START_DONE: warp_valid=0x%04b fetch_valid_arb=%b imem_ready=%b",
+                         $time, SM_ID, warp_valid, fetch_valid_arb, imem_ready);
+                `endif
             end
 
             // NOTE: Fetch PC is advanced in the instruction buffer fill logic (line 1083)
@@ -5472,6 +5495,35 @@ module streaming_multiprocessor_v2 #(
             grid_dim_regs[2] <= grid_dim_z;
         end
     end
+
+    //========================================================================
+    // Debug: Track warp_valid and fetch state after kernel_start
+    //========================================================================
+    `ifdef SIMULATION
+    reg [7:0] post_kernel_debug_cnt;
+    reg kernel_started_dbg;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            post_kernel_debug_cnt <= 0;
+            kernel_started_dbg <= 0;
+        end else begin
+            if (kernel_start) begin
+                kernel_started_dbg <= 1;
+                post_kernel_debug_cnt <= 0;
+            end
+            if (kernel_started_dbg && post_kernel_debug_cnt < 30) begin
+                $display("[%0t SM%0d POST_START] cycle=%0d warp_valid=%04b warp_ready=%04b fetch_req=%b imem_ready=%b buf_valid=%04b",
+                         $time, SM_ID, post_kernel_debug_cnt,
+                         warp_valid, warp_ready, fetch_req, imem_ready, warp_inst_buf_valid);
+                $display("  stalls: mem=%04b fu=%04b sync=%04b async=%04b branch=%04b exit=%04b mbar=%04b wgmma=%04b cluster=%04b",
+                         warp_stalled_mem, warp_stalled_fu, warp_stalled_sync, warp_stalled_async,
+                         warp_stalled_branch, warp_exit_pending, mbarrier_warp_blocked,
+                         warp_stalled_wgmma, cluster_barrier_pending);
+                post_kernel_debug_cnt <= post_kernel_debug_cnt + 1;
+            end
+        end
+    end
+    `endif
 
 endmodule
 
