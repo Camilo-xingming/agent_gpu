@@ -3618,9 +3618,13 @@ module streaming_multiprocessor_v2 #(
                                                   issue_func == `CPASYNC_WAIT_ALL)) ||
                                (issue1_cpasync && (issue1_func == `CPASYNC_COMMIT ||
                                                    issue1_func == `CPASYNC_WAIT ||
-                                                   issue1_func == `CPASYNC_WAIT_ALL)));
+                                                   issue1_func == `CPASYNC_WAIT_ALL)) ||
+                               // st.async operations
+                               issue_st_async || issue1_st_async);
     wire [5:0]  ace_func = issue_cpasync ? issue_func :
-                           issue1_cpasync ? issue1_func : 6'b0;
+                           issue1_cpasync ? issue1_func :
+                           issue_st_async ? st_async_func :
+                           issue1_st_async ? issue1_func : 6'b0;
     // Source address from register (lane 0 for simplicity - real impl would be per-lane)
     wire [31:0] ace_src_addr = issue_cpasync ? rf_rd_data_a[31:0] :
                                issue1_cpasync ? rf1_rd_data_a[31:0] : 32'b0;
@@ -3649,10 +3653,39 @@ module streaming_multiprocessor_v2 #(
     // TMA busy status
     wire ace_tma_busy;
 
+    // st.async Interface signals
+    // For st.async: global address from ra, shared memory address from imm16, data from rb
+    wire ace_is_store = (issue_st_async && (st_async_func == `ST_ASYNC_GLOBAL)) ||
+                        (issue1_st_async && (issue1_func == `ST_ASYNC_GLOBAL));
+    wire [31:0] ace_store_gmem_addr = issue_st_async ? st_async_addr :
+                                      issue1_st_async ? rf1_rd_data_a[0] : 32'b0;
+    wire [127:0] ace_store_data = issue_st_async ? {96'b0, st_async_data} :
+                                  issue1_st_async ? {96'b0, rf1_rd_data_b[0]} : 128'b0;
+
     // Global memory response for async_copy_engine
     // We create a simple arbiter: ACE gets priority when it has pending requests
     wire        ace_gmem_resp_valid;
     wire [127:0] ace_gmem_resp_data;
+
+    // Global memory write interface for st.async
+    wire        ace_gmem_wr_valid;
+    wire [31:0] ace_gmem_wr_addr;
+    wire [127:0] ace_gmem_wr_data;
+    wire [4:0]  ace_gmem_wr_size;
+    wire        ace_gmem_wr_done;  // Tie high for now (instant completion)
+
+    // Shared memory read interface for st.async.global (if reading from SMEM)
+    wire        ace_smem_rd_en;
+    wire [13:0] ace_smem_rd_addr;
+    wire [127:0] ace_smem_rd_data = 128'b0;  // TODO: Connect to shared memory read
+    wire        ace_smem_rd_valid = ace_smem_rd_en;  // Instant read for now
+
+    // Simple global memory write done signal (instant completion for simulation)
+    assign ace_gmem_wr_done = ace_gmem_wr_valid;
+
+    // Determine the opcode for ACE (cp.async or st.async)
+    wire [5:0] ace_opcode = (issue_cpasync || issue1_cpasync) ? `OP_CPASYNC :
+                            (issue_st_async || issue1_st_async) ? `OP_ST_ASYNC : 6'b0;
 
     async_copy_engine #(
         .MAX_GROUPS(8),
@@ -3663,6 +3696,7 @@ module streaming_multiprocessor_v2 #(
         .clk            (clk),
         .rst_n          (rst_n),
         // Control interface
+        .opcode         (ace_opcode),
         .func           (ace_func),
         .valid_in       (ace_valid_in),
         .src_addr       (ace_src_addr),
@@ -3674,23 +3708,38 @@ module streaming_multiprocessor_v2 #(
         .tensor_desc    (ace_tensor_desc),
         .tensor_coord_x (ace_tensor_coord_x),
         .tensor_coord_y (ace_tensor_coord_y),
+        // st.async Interface
+        .is_store       (ace_is_store),
+        .store_gmem_addr(ace_store_gmem_addr),
+        .store_data     (ace_store_data),
         // Status outputs
         .ready          (ace_ready),
         .done           (ace_done),
         .pending_count  (ace_pending_count),
         .tma_busy       (ace_tma_busy),
-        // Global memory interface
+        // Global memory read interface
         .gmem_req_valid (ace_gmem_req_valid),
         .gmem_req_addr  (ace_gmem_req_addr),
         .gmem_req_size  (ace_gmem_req_size),
         .gmem_req_cache (ace_gmem_req_cache),
         .gmem_resp_valid(ace_gmem_resp_valid),
         .gmem_resp_data (ace_gmem_resp_data),
-        // Shared memory write interface
+        // Global memory write interface (st.async)
+        .gmem_wr_valid  (ace_gmem_wr_valid),
+        .gmem_wr_addr   (ace_gmem_wr_addr),
+        .gmem_wr_data   (ace_gmem_wr_data),
+        .gmem_wr_size   (ace_gmem_wr_size),
+        .gmem_wr_done   (ace_gmem_wr_done),
+        // Shared memory write interface (cp.async)
         .smem_wr_en     (ace_smem_wr_en),
         .smem_wr_addr   (ace_smem_wr_addr),
         .smem_wr_data   (ace_smem_wr_data),
-        .smem_wr_size   (ace_smem_wr_size)
+        .smem_wr_size   (ace_smem_wr_size),
+        // Shared memory read interface (st.async.global)
+        .smem_rd_en     (ace_smem_rd_en),
+        .smem_rd_addr   (ace_smem_rd_addr),
+        .smem_rd_data   (ace_smem_rd_data),
+        .smem_rd_valid  (ace_smem_rd_valid)
     );
 
     //------------------------------------------------------------------------
