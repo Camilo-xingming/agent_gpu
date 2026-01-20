@@ -1998,7 +1998,7 @@ module streaming_multiprocessor_v2 #(
             // This ensures decoder has finished processing before we latch its outputs
             // Suppress issue if branch flush is active for this warp
             issue_valid <= dec_valid && !branch_flush_dec0;
-            issue1_valid <= dec1_dec_valid && !branch_flush_dec1;  // Use decoder 1's valid output
+            issue1_valid <= dec1_dec_valid && !branch_flush_dec1;  // Set from decoder output
             if (dec_valid && !branch_flush_dec0) begin
                 // With the new scheduler flow, always use lane 0's decoder output
                 // (the old lane0_ready-based selection doesn't apply here)
@@ -2062,7 +2062,9 @@ module streaming_multiprocessor_v2 #(
                 end
             end
 
-            if (issue1_fire) begin
+            // Slot 1: capture decoder outputs when decoder output is valid (NOT at issue1_fire time)
+            // This matches the timing of issue1_valid which is set from dec1_dec_valid
+            if (dec1_dec_valid && !branch_flush_dec1) begin
                 issue1_warp_id <= dec1_warp_id;
                 issue1_pc <= dec1_pc;
                 issue1_opcode <= dec1_opcode;
