@@ -707,6 +707,136 @@ class FP64TestGenerator:
         return tests
 
 
+class CVTTestGenerator:
+    """Generate CVT (type conversion) test cases
+
+    Covers: s32<->f32, u32<->f32, f16<->f32, f32<->f64
+    """
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def fp16_to_uint16(self, f: float) -> int:
+        return struct.unpack('H', struct.pack('e', f))[0]
+
+    def fp64_to_uint64(self, f: float) -> tuple:
+        bits = struct.unpack('Q', struct.pack('d', f))[0]
+        return (bits & 0xFFFFFFFF, (bits >> 32) & 0xFFFFFFFF)
+
+    def gen_cvt_s32_f32_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate cvt.s32.f32 (float to signed int) tests"""
+        tests = []
+        test_values = [
+            (3.7, 3),    # 3.7 -> 3
+            (-2.5, -2),  # -2.5 -> -2 (truncation)
+            (100.9, 100),
+        ]
+
+        for i, (f_val, expected) in enumerate(test_values[:count]):
+            f_bits = struct.unpack('I', struct.pack('f', f_val))[0]
+            expected_bits = expected & 0xFFFFFFFF
+
+            tests.append(TestCase(
+                name=f"cvt_s32_f32_{i:03d}",
+                category="cvt",
+                ptx_code=[
+                    f"mov.u32 r1, {f_bits}",
+                    "cvt.s32.f32 r2, r1",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={2: expected_bits}
+            ))
+        return tests
+
+    def gen_cvt_f32_s32_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate cvt.f32.s32 (signed int to float) tests"""
+        tests = []
+        test_values = [
+            (42, 42.0),
+            (-10, -10.0),
+            (1000000, 1000000.0),
+        ]
+
+        for i, (i_val, expected) in enumerate(test_values[:count]):
+            i_bits = i_val & 0xFFFFFFFF
+            expected_bits = struct.unpack('I', struct.pack('f', expected))[0]
+
+            tests.append(TestCase(
+                name=f"cvt_f32_s32_{i:03d}",
+                category="cvt",
+                ptx_code=[
+                    f"mov.u32 r1, {i_bits}",
+                    "cvt.f32.s32 r2, r1",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={2: expected_bits}
+            ))
+        return tests
+
+    def gen_cvt_f16_f32_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate cvt.f16.f32 (f32 to f16) tests"""
+        tests = []
+        test_values = [
+            (1.0, 1.0),
+            (0.5, 0.5),
+            (2.25, 2.25),
+        ]
+
+        for i, (f32_val, f16_val) in enumerate(test_values[:count]):
+            f32_bits = struct.unpack('I', struct.pack('f', f32_val))[0]
+            f16_bits = self.fp16_to_uint16(f16_val)
+
+            tests.append(TestCase(
+                name=f"cvt_f16_f32_{i:03d}",
+                category="cvt",
+                ptx_code=[
+                    f"mov.u32 r1, {f32_bits}",
+                    "cvt.f16.f32 r2, r1",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={2: f16_bits}
+            ))
+        return tests
+
+    def gen_cvt_f32_f16_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate cvt.f32.f16 (f16 to f32) tests"""
+        tests = []
+        test_values = [
+            (1.0, 1.0),
+            (0.5, 0.5),
+            (3.5, 3.5),
+        ]
+
+        for i, (f16_val, f32_val) in enumerate(test_values[:count]):
+            f16_bits = self.fp16_to_uint16(f16_val)
+            f32_bits = struct.unpack('I', struct.pack('f', f32_val))[0]
+
+            tests.append(TestCase(
+                name=f"cvt_f32_f16_{i:03d}",
+                category="cvt",
+                ptx_code=[
+                    f"mov.u32 r1, {f16_bits}",
+                    "cvt.f32.f16 r2, r1",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={2: f32_bits}
+            ))
+        return tests
+
+    def gen_all_cvt_tests(self) -> List[TestCase]:
+        """Generate all CVT test cases"""
+        tests = []
+        tests.extend(self.gen_cvt_s32_f32_tests(3))
+        tests.extend(self.gen_cvt_f32_s32_tests(3))
+        tests.extend(self.gen_cvt_f16_f32_tests(3))
+        tests.extend(self.gen_cvt_f32_f16_tests(3))
+        return tests
+
+
 class MemoryTestGenerator:
     """Generate memory operation test cases (LD/ST global and shared)"""
 
@@ -1693,10 +1823,22 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(fp64_tests)} FP64 tests")
 
+    # Generate CVT tests
+    cvt_gen = CVTTestGenerator(seed=42)
+    cvt_tests = cvt_gen.gen_all_cvt_tests()
+    print(f"Generated {len(cvt_tests)} CVT tests")
+
+    success_count = 0
+    for test in cvt_tests:
+        if write_test_case(test, output_dir / "cvt"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(cvt_tests)} CVT tests")
+
     # Summary
     total_tests = (len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) +
                    len(div_tests) + len(special_tests) + len(atom_tests) + len(sync_tests) +
-                   len(param_tests) + len(membar_tests) + len(sfu_tests) + len(fp16_tests) + len(fp64_tests))
+                   len(param_tests) + len(membar_tests) + len(sfu_tests) + len(fp16_tests) +
+                   len(fp64_tests) + len(cvt_tests))
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -1721,7 +1863,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "fp16", "fp64", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "fp16", "fp64", "cvt", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -1800,6 +1942,11 @@ def main():
             tests = gen.gen_all_fp64_tests()
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "fp64"))
             print(f"Generated {success}/{len(tests)} FP64 tests")
+        elif args.gen == "cvt":
+            gen = CVTTestGenerator(seed=args.seed)
+            tests = gen.gen_all_cvt_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "cvt"))
+            print(f"Generated {success}/{len(tests)} CVT tests")
     else:
         parser.print_help()
 

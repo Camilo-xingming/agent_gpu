@@ -115,6 +115,21 @@ class Fp64Func(IntEnum):
     MIN = 0b000111
     MAX = 0b001000
 
+# CVT 功能码
+class CvtFunc(IntEnum):
+    S32_F32 = 0b000000  # cvt.s32.f32 - FP32 to signed int32
+    U32_F32 = 0b000001  # cvt.u32.f32 - FP32 to unsigned int32
+    F32_S32 = 0b000010  # cvt.f32.s32 - signed int32 to FP32
+    F32_U32 = 0b000011  # cvt.f32.u32 - unsigned int32 to FP32
+    F32_F64 = 0b000100  # cvt.f32.f64 - FP64 to FP32
+    F64_F32 = 0b000101  # cvt.f64.f32 - FP32 to FP64
+    F32_F16 = 0b101000  # cvt.f32.f16 - FP16 to FP32
+    F16_F32 = 0b101001  # cvt.f16.f32 - FP32 to FP16
+    S64_F64 = 0b001000  # cvt.s64.f64 - FP64 to signed int64
+    U64_F64 = 0b001001  # cvt.u64.f64 - FP64 to unsigned int64
+    F64_S64 = 0b001010  # cvt.f64.s64 - signed int64 to FP64
+    F64_U64 = 0b001011  # cvt.f64.u64 - unsigned int64 to FP64
+
 # Video功能码 (DP4A/DP2A)
 class VideoFunc(IntEnum):
     DP4A_S32_S32 = 0b010000
@@ -396,6 +411,97 @@ class RalphGPUSimulator:
 
         return self.fp64_to_uint64(result)
 
+    def execute_cvt(self, func: int, src_lo: int, src_hi: int = 0) -> tuple:
+        """Execute CVT (type conversion) operations
+
+        Args:
+            func: CvtFunc conversion type
+            src_lo: Lower 32 bits of source (or full 32-bit source)
+            src_hi: Higher 32 bits of source (for 64-bit sources)
+
+        Returns:
+            (result_lo, result_hi) tuple (result_hi may be 0 for 32-bit results)
+        """
+        try:
+            if func == CvtFunc.S32_F32:
+                # FP32 to signed int32
+                f = self.uint_to_float(src_lo)
+                result = int(f) & 0xFFFFFFFF
+                return (result, 0)
+
+            elif func == CvtFunc.U32_F32:
+                # FP32 to unsigned int32
+                f = self.uint_to_float(src_lo)
+                result = max(0, int(f)) & 0xFFFFFFFF
+                return (result, 0)
+
+            elif func == CvtFunc.F32_S32:
+                # Signed int32 to FP32
+                s = src_lo if src_lo < 0x80000000 else src_lo - 0x100000000
+                f = float(s)
+                return (self.float_to_uint(f), 0)
+
+            elif func == CvtFunc.F32_U32:
+                # Unsigned int32 to FP32
+                f = float(src_lo)
+                return (self.float_to_uint(f), 0)
+
+            elif func == CvtFunc.F32_F16:
+                # FP16 to FP32
+                f16 = self.uint16_to_fp16(src_lo)
+                f32 = float(f16)
+                return (self.float_to_uint(f32), 0)
+
+            elif func == CvtFunc.F16_F32:
+                # FP32 to FP16
+                f32 = self.uint_to_float(src_lo)
+                f16_bits = self.fp16_to_uint16(f32)
+                return (f16_bits, 0)
+
+            elif func == CvtFunc.F32_F64:
+                # FP64 to FP32
+                f64 = self.uint64_to_fp64(src_lo, src_hi)
+                f32 = float(f64)  # Python auto-converts
+                return (self.float_to_uint(f32), 0)
+
+            elif func == CvtFunc.F64_F32:
+                # FP32 to FP64
+                f32 = self.uint_to_float(src_lo)
+                f64 = float(f32)
+                return self.fp64_to_uint64(f64)
+
+            elif func == CvtFunc.S64_F64:
+                # FP64 to signed int64
+                f64 = self.uint64_to_fp64(src_lo, src_hi)
+                i64 = int(f64)
+                return (i64 & 0xFFFFFFFF, (i64 >> 32) & 0xFFFFFFFF)
+
+            elif func == CvtFunc.U64_F64:
+                # FP64 to unsigned int64
+                f64 = self.uint64_to_fp64(src_lo, src_hi)
+                u64 = max(0, int(f64))
+                return (u64 & 0xFFFFFFFF, (u64 >> 32) & 0xFFFFFFFF)
+
+            elif func == CvtFunc.F64_S64:
+                # Signed int64 to FP64
+                i64 = (src_hi << 32) | src_lo
+                if i64 >= 0x8000000000000000:
+                    i64 -= 0x10000000000000000
+                f64 = float(i64)
+                return self.fp64_to_uint64(f64)
+
+            elif func == CvtFunc.F64_U64:
+                # Unsigned int64 to FP64
+                u64 = (src_hi << 32) | src_lo
+                f64 = float(u64)
+                return self.fp64_to_uint64(f64)
+
+            else:
+                return (0, 0)
+
+        except Exception:
+            return (0, 0)
+
     def execute_fp32_arith(self, func: int, a: int, b: int, c: int = 0) -> int:
         """Execute FP32 arithmetic operations"""
         fa = self.uint_to_float(a)
@@ -615,6 +721,15 @@ class RalphGPUSimulator:
                 result_lo, result_hi = self.execute_fp64_arith(func, a_lo, a_hi, b_lo, b_hi, c_lo, c_hi)
                 thread.registers[rd] = result_lo
                 if rd + 1 < 32:
+                    thread.registers[rd + 1] = result_hi
+
+            elif opcode == Opcode.CVT:
+                # CVT uses ra (and ra+1 for 64-bit sources), writes to rd (and rd+1 for 64-bit results)
+                src_lo = thread.registers[ra]
+                src_hi = thread.registers[ra + 1] if ra + 1 < 32 else 0
+                result_lo, result_hi = self.execute_cvt(func, src_lo, src_hi)
+                thread.registers[rd] = result_lo
+                if result_hi != 0 and rd + 1 < 32:
                     thread.registers[rd + 1] = result_hi
 
             elif opcode == Opcode.FP32_SPECIAL:

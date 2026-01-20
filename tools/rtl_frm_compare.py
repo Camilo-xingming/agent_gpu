@@ -159,9 +159,9 @@ def compare_test(test_path: Path) -> ComparisonResult:
         )
 
     # Determine if this is a floating-point test (for ULP tolerance)
-    # Includes FP32, SFU, FP16, and FP64 tests
+    # Includes FP32, SFU, FP16, FP64, and CVT tests
     test_path = str(hex_file).lower()
-    is_fp_test = "fp32" in test_path or "sfu" in test_path or "fp16" in test_path or "fp64" in test_path
+    is_fp_test = "fp32" in test_path or "sfu" in test_path or "fp16" in test_path or "fp64" in test_path or "cvt" in test_path
 
     # Compare FRM results with expected
     errors = []
