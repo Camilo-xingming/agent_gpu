@@ -95,22 +95,24 @@ module griddep_unit #(
     // Dependency satisfaction check
     //------------------------------------------------------------------------
     wire dep_check_result;
-    reg [3:0] check_grid_idx;
+    localparam GRID_IDX_W = $clog2(MAX_GRIDS);
+    reg [GRID_IDX_W-1:0] check_grid_idx;
 
     // Token to check - use wait_token in WAIT_DEP state, saved_src_a in EXECUTE
     wire [TOKEN_WIDTH-1:0] token_to_check = (state == ST_WAIT_DEP) ? wait_token : saved_src_a[TOKEN_WIDTH-1:0];
 
     // Find grid by token
+    localparam INVALID_GRID = {GRID_IDX_W{1'b1}};  // All 1s = invalid
     always @(*) begin
-        check_grid_idx = 4'hF;  // Invalid
+        check_grid_idx = INVALID_GRID;  // Invalid
         for (integer i = 0; i < MAX_GRIDS; i = i + 1) begin
             if (current_tokens[i] == token_to_check && grid_active[i]) begin
-                check_grid_idx = i[3:0];
+                check_grid_idx = i[GRID_IDX_W-1:0];
             end
         end
     end
 
-    assign dep_check_result = (check_grid_idx != 4'hF) ?
+    assign dep_check_result = (check_grid_idx != INVALID_GRID) ?
                               dep_satisfied[check_grid_idx] || grid_completed[check_grid_idx] :
                               1'b1;  // No such grid = dependency satisfied
 
@@ -197,7 +199,7 @@ module griddep_unit #(
                             signal_complete <= 1'b1;
                             signal_grid_id <= grid_id;
                             signal_token <= grid_token;
-                            grid_completed[grid_id] <= 1'b1;
+                            grid_completed[grid_id[GRID_IDX_W-1:0]] <= 1'b1;
                             result <= {28'b0, grid_id};
                             result_valid <= 1'b1;
                             done <= 1'b1;
