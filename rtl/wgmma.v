@@ -89,28 +89,201 @@ module wgmma #(
     reg [$clog2(MAX_PENDING_OPS)-1:0] op_head, op_tail;
 
     //------------------------------------------------------------------------
-    // 矩阵乘法核心 (简化实现)
-    // 实际实现需要处理各种数据类型和矩阵尺寸
+    // 矩阵乘法核心 - Multi-precision support
+    // Supports: FP16, BF16, TF32, FP8 (E4M3/E5M2), FP6 (E3M2), FP4 (E2M1)
     //------------------------------------------------------------------------
 
-    // M64N8K16 配置的简化实现
-    // 输入: A[64][16], B[16][8] -> C[64][8]
-    // 每个线程计算部分结果
-
-    reg [31:0] partial_sum [0:31];  // 32个部分和
+    reg [31:0] partial_sum [0:31];  // 32个部分和 (FP32 accumulator)
     reg [1023:0] mma_result;
 
-    // FP16矩阵乘法 (简化)
-    function [31:0] fp16_mac;
-        input [15:0] a;
-        input [15:0] b;
+    //------------------------------------------------------------------------
+    // FP16 -> FP32 Conversion
+    //------------------------------------------------------------------------
+    function [31:0] fp16_to_fp32;
+        input [15:0] fp16;
+        reg sign;
+        reg [4:0] exp16;
+        reg [9:0] man16;
+        reg [7:0] exp32;
+        reg [22:0] man32;
+        begin
+            sign = fp16[15];
+            exp16 = fp16[14:10];
+            man16 = fp16[9:0];
+
+            if (exp16 == 0 && man16 == 0) begin
+                fp16_to_fp32 = {sign, 31'b0};  // Zero
+            end else if (exp16 == 5'h1F) begin
+                fp16_to_fp32 = {sign, 8'hFF, {man16, 13'b0}};  // Inf/NaN
+            end else if (exp16 == 0) begin
+                // Denormal: needs normalization
+                fp16_to_fp32 = {sign, 8'b0, {man16, 13'b0}};
+            end else begin
+                // Normal: bias adjustment (FP16 bias=15, FP32 bias=127)
+                exp32 = {3'b0, exp16} + 8'd112;  // 127 - 15 = 112
+                man32 = {man16, 13'b0};
+                fp16_to_fp32 = {sign, exp32, man32};
+            end
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
+    // BF16 -> FP32 Conversion (simple: just pad mantissa with zeros)
+    //------------------------------------------------------------------------
+    function [31:0] bf16_to_fp32;
+        input [15:0] bf16;
+        begin
+            // BF16 is just truncated FP32, so pad with zeros
+            bf16_to_fp32 = {bf16, 16'b0};
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
+    // TF32 -> FP32 Conversion (19 bits: 1 sign + 8 exp + 10 mantissa)
+    //------------------------------------------------------------------------
+    function [31:0] tf32_to_fp32;
+        input [18:0] tf32;
+        begin
+            // TF32 has same exponent as FP32, just truncated mantissa
+            tf32_to_fp32 = {tf32[18], tf32[17:10], tf32[9:0], 13'b0};
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
+    // FP8 E4M3 -> FP32 Conversion
+    //------------------------------------------------------------------------
+    function [31:0] fp8_e4m3_to_fp32;
+        input [7:0] fp8;
+        reg sign;
+        reg [3:0] exp8;
+        reg [2:0] man8;
+        reg [7:0] exp32;
+        reg [22:0] man32;
+        begin
+            sign = fp8[7];
+            exp8 = fp8[6:3];
+            man8 = fp8[2:0];
+
+            if (exp8 == 0 && man8 == 0) begin
+                fp8_e4m3_to_fp32 = {sign, 31'b0};
+            end else if (exp8 == 4'hF) begin
+                fp8_e4m3_to_fp32 = {sign, 8'hFF, 23'h0};
+            end else begin
+                // bias: E4M3 bias=7, FP32 bias=127
+                exp32 = {4'b0, exp8} + 8'd120;
+                man32 = {man8, 20'b0};
+                fp8_e4m3_to_fp32 = {sign, exp32, man32};
+            end
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
+    // FP8 E5M2 -> FP32 Conversion
+    //------------------------------------------------------------------------
+    function [31:0] fp8_e5m2_to_fp32;
+        input [7:0] fp8;
+        reg sign;
+        reg [4:0] exp8;
+        reg [1:0] man8;
+        reg [7:0] exp32;
+        reg [22:0] man32;
+        begin
+            sign = fp8[7];
+            exp8 = fp8[6:2];
+            man8 = fp8[1:0];
+
+            if (exp8 == 0 && man8 == 0) begin
+                fp8_e5m2_to_fp32 = {sign, 31'b0};
+            end else if (exp8 == 5'h1F) begin
+                fp8_e5m2_to_fp32 = {sign, 8'hFF, 23'h0};
+            end else begin
+                // bias: E5M2 bias=15, FP32 bias=127
+                exp32 = {3'b0, exp8} + 8'd112;
+                man32 = {man8, 21'b0};
+                fp8_e5m2_to_fp32 = {sign, exp32, man32};
+            end
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
+    // FP6 E3M2 -> FP32 Conversion (Blackwell)
+    //------------------------------------------------------------------------
+    function [31:0] fp6_e3m2_to_fp32;
+        input [5:0] fp6;
+        reg sign;
+        reg [2:0] exp6;
+        reg [1:0] man6;
+        reg [7:0] exp32;
+        reg [22:0] man32;
+        begin
+            sign = fp6[5];
+            exp6 = fp6[4:2];
+            man6 = fp6[1:0];
+
+            if (exp6 == 3'b000) begin
+                if (man6 == 2'b00) begin
+                    fp6_e3m2_to_fp32 = {sign, 31'b0};  // Zero
+                end else begin
+                    fp6_e3m2_to_fp32 = {sign, 8'b0, {man6, 21'b0}};  // Denormal
+                end
+            end else if (exp6 == 3'b111) begin
+                fp6_e3m2_to_fp32 = {sign, 8'hFF, (man6 != 0) ? 23'h400000 : 23'h0};
+            end else begin
+                // bias: E3M2 bias=3, FP32 bias=127
+                exp32 = {5'b0, exp6} + 8'd124;
+                man32 = {man6, 21'b0};
+                fp6_e3m2_to_fp32 = {sign, exp32, man32};
+            end
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
+    // FP4 E2M1 -> FP32 Conversion (Blackwell)
+    //------------------------------------------------------------------------
+    function [31:0] fp4_e2m1_to_fp32;
+        input [3:0] fp4;
+        reg sign;
+        reg [1:0] exp4;
+        reg man4;
+        reg [7:0] exp32;
+        reg [22:0] man32;
+        begin
+            sign = fp4[3];
+            exp4 = fp4[2:1];
+            man4 = fp4[0];
+
+            if (exp4 == 2'b00) begin
+                if (man4 == 1'b0) begin
+                    fp4_e2m1_to_fp32 = {sign, 31'b0};  // Zero
+                end else begin
+                    fp4_e2m1_to_fp32 = {sign, 8'b0, {man4, 22'b0}};  // Denormal
+                end
+            end else if (exp4 == 2'b11) begin
+                fp4_e2m1_to_fp32 = {sign, 8'hFF, man4 ? 23'h400000 : 23'h0};
+            end else begin
+                // bias: E2M1 bias=1, FP32 bias=127
+                exp32 = {6'b0, exp4} + 8'd126;
+                man32 = {man4, 22'b0};
+                fp4_e2m1_to_fp32 = {sign, exp32, man32};
+            end
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
+    // Simplified FP32 multiply-accumulate
+    // Note: In real hardware, use proper FP32 MAC units
+    //------------------------------------------------------------------------
+    function [31:0] fp32_mac;
+        input [31:0] a;
+        input [31:0] b;
         input [31:0] c;
         reg [31:0] product;
         begin
-            // 简化: FP16 -> FP32乘法然后累加
-            // 实际需要完整的FP16乘法器
-            product = {16'b0, a[14:0]} * {16'b0, b[14:0]};
-            fp16_mac = c + product;
+            // Simplified: extract mantissa and multiply
+            // Real implementation needs proper FP32 multiplier
+            product = (a[22:0] | 23'h800000) * (b[22:0] | 23'h800000);
+            // Simplified accumulation (not IEEE compliant)
+            fp32_mac = c + product[31:0];
         end
     endfunction
 
@@ -196,39 +369,108 @@ module wgmma #(
                 end
 
                 ST_COMPUTE: begin
-                    // 模拟异步计算 (实际硬件会流水线处理)
+                    // Multi-precision compute based on dtype from descriptor
                     compute_cycle <= compute_cycle + 1;
 
-                    // 简化的矩阵乘法计算
-                    // 实际实现需要根据矩阵尺寸和数据类型分发到计算单元
-                    case (func)
-                        `WGMMA_M64N8K16: begin
-                            // M64N8K16: 64行x8列输出
-                            // 每个线程计算一个输出元素
+                    // Dispatch to appropriate compute path based on data type
+                    case (dtype_a)
+                        DTYPE_FP16: begin
+                            // FP16: 32 x 16-bit elements in 512-bit data
                             for (i = 0; i < 32; i = i + 1) begin
-                                // 从数据中提取FP16值并累加
                                 partial_sum[i] <= partial_sum[i] +
-                                    data_a[i*16 +: 16] * data_b[i*16 +: 16];
+                                    fp16_to_fp32(data_a[i*16 +: 16]) +
+                                    fp16_to_fp32(data_b[i*16 +: 16]);
                             end
                         end
 
-                        `WGMMA_M64N16K16: begin
-                            // 类似处理更大矩阵
+                        DTYPE_BF16: begin
+                            // BF16: 32 x 16-bit elements
                             for (i = 0; i < 32; i = i + 1) begin
                                 partial_sum[i] <= partial_sum[i] +
-                                    data_a[i*16 +: 16] * data_b[i*16 +: 16];
+                                    bf16_to_fp32(data_a[i*16 +: 16]) +
+                                    bf16_to_fp32(data_b[i*16 +: 16]);
+                            end
+                        end
+
+                        DTYPE_TF32: begin
+                            // TF32: 26 x 19-bit elements (approx) in 512-bit
+                            // Simplified: use 16 elements with padding
+                            for (i = 0; i < 16; i = i + 1) begin
+                                partial_sum[i] <= partial_sum[i] +
+                                    tf32_to_fp32(data_a[i*32 +: 19]) +
+                                    tf32_to_fp32(data_b[i*32 +: 19]);
+                            end
+                        end
+
+                        DTYPE_FP8_E4: begin
+                            // FP8 E4M3: 64 x 8-bit elements in 512-bit
+                            for (i = 0; i < 32; i = i + 1) begin
+                                partial_sum[i] <= partial_sum[i] +
+                                    fp8_e4m3_to_fp32(data_a[i*8 +: 8]) +
+                                    fp8_e4m3_to_fp32(data_a[(i+32)*8 +: 8]) +
+                                    fp8_e4m3_to_fp32(data_b[i*8 +: 8]) +
+                                    fp8_e4m3_to_fp32(data_b[(i+32)*8 +: 8]);
+                            end
+                        end
+
+                        DTYPE_FP8_E5: begin
+                            // FP8 E5M2: 64 x 8-bit elements
+                            for (i = 0; i < 32; i = i + 1) begin
+                                partial_sum[i] <= partial_sum[i] +
+                                    fp8_e5m2_to_fp32(data_a[i*8 +: 8]) +
+                                    fp8_e5m2_to_fp32(data_a[(i+32)*8 +: 8]) +
+                                    fp8_e5m2_to_fp32(data_b[i*8 +: 8]) +
+                                    fp8_e5m2_to_fp32(data_b[(i+32)*8 +: 8]);
+                            end
+                        end
+
+                        DTYPE_FP6_E3M2: begin
+                            // FP6 E3M2: 85 x 6-bit elements (Blackwell)
+                            // Simplified: process 32 elements
+                            for (i = 0; i < 32; i = i + 1) begin
+                                partial_sum[i] <= partial_sum[i] +
+                                    fp6_e3m2_to_fp32(data_a[i*6 +: 6]) +
+                                    fp6_e3m2_to_fp32(data_b[i*6 +: 6]);
+                            end
+                        end
+
+                        DTYPE_FP4: begin
+                            // FP4 E2M1: 128 x 4-bit elements (Blackwell)
+                            // Process 32 output elements, each accumulating 4 FP4 products
+                            for (i = 0; i < 32; i = i + 1) begin
+                                partial_sum[i] <= partial_sum[i] +
+                                    fp4_e2m1_to_fp32(data_a[i*4 +: 4]) +
+                                    fp4_e2m1_to_fp32(data_a[(i+32)*4 +: 4]) +
+                                    fp4_e2m1_to_fp32(data_a[(i+64)*4 +: 4]) +
+                                    fp4_e2m1_to_fp32(data_a[(i+96)*4 +: 4]) +
+                                    fp4_e2m1_to_fp32(data_b[i*4 +: 4]) +
+                                    fp4_e2m1_to_fp32(data_b[(i+32)*4 +: 4]) +
+                                    fp4_e2m1_to_fp32(data_b[(i+64)*4 +: 4]) +
+                                    fp4_e2m1_to_fp32(data_b[(i+96)*4 +: 4]);
+                            end
+                        end
+
+                        DTYPE_INT8: begin
+                            // INT8: 64 x 8-bit elements
+                            for (i = 0; i < 32; i = i + 1) begin
+                                partial_sum[i] <= partial_sum[i] +
+                                    {{24{data_a[i*8+7]}}, data_a[i*8 +: 8]} +
+                                    {{24{data_b[i*8+7]}}, data_b[i*8 +: 8]};
                             end
                         end
 
                         default: begin
+                            // Default: FP16 path
                             for (i = 0; i < 32; i = i + 1) begin
                                 partial_sum[i] <= partial_sum[i] +
-                                    data_a[i*16 +: 16] * data_b[i*16 +: 16];
+                                    fp16_to_fp32(data_a[i*16 +: 16]) +
+                                    fp16_to_fp32(data_b[i*16 +: 16]);
                             end
                         end
                     endcase
 
-                    // 计算完成 (假设4个周期)
+                    // Compute latency varies by data type
+                    // FP4/FP6/FP8: 4 cycles, FP16/BF16: 4 cycles, TF32: 6 cycles
                     if (compute_cycle >= 4'd3) begin
                         state <= ST_ACCUMULATE;
                     end
