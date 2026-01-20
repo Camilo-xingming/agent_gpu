@@ -103,6 +103,18 @@ class Fp16Func(IntEnum):
     MIN = 0b000110
     MAX = 0b000111
 
+# FP64 功能码
+class Fp64Func(IntEnum):
+    ADD = 0b000000
+    SUB = 0b000001
+    MUL = 0b000010
+    DIV = 0b000011
+    FMA = 0b000100
+    NEG = 0b000101
+    ABS = 0b000110
+    MIN = 0b000111
+    MAX = 0b001000
+
 # Video功能码 (DP4A/DP2A)
 class VideoFunc(IntEnum):
     DP4A_S32_S32 = 0b010000
@@ -333,6 +345,57 @@ class RalphGPUSimulator:
 
         return self.fp16_to_uint16(result)
 
+    def uint64_to_fp64(self, lo: int, hi: int) -> float:
+        """Convert two 32-bit registers to FP64
+
+        FP64 is stored as register pair: hi (bits 63:32), lo (bits 31:0)
+        """
+        bits = ((hi & 0xFFFFFFFF) << 32) | (lo & 0xFFFFFFFF)
+        return struct.unpack('d', struct.pack('Q', bits))[0]
+
+    def fp64_to_uint64(self, f: float) -> tuple:
+        """Convert FP64 to two 32-bit register values (lo, hi)"""
+        bits = struct.unpack('Q', struct.pack('d', f))[0]
+        lo = bits & 0xFFFFFFFF
+        hi = (bits >> 32) & 0xFFFFFFFF
+        return (lo, hi)
+
+    def execute_fp64_arith(self, func: int, a_lo: int, a_hi: int,
+                           b_lo: int, b_hi: int, c_lo: int = 0, c_hi: int = 0) -> tuple:
+        """Execute FP64 arithmetic operations
+
+        FP64 values use register pairs. Returns (result_lo, result_hi).
+        """
+        fa = self.uint64_to_fp64(a_lo, a_hi)
+        fb = self.uint64_to_fp64(b_lo, b_hi)
+        fc = self.uint64_to_fp64(c_lo, c_hi)
+
+        try:
+            if func == Fp64Func.ADD:
+                result = fa + fb
+            elif func == Fp64Func.SUB:
+                result = fa - fb
+            elif func == Fp64Func.MUL:
+                result = fa * fb
+            elif func == Fp64Func.DIV:
+                result = fa / fb if fb != 0 else float('inf') if fa >= 0 else float('-inf')
+            elif func == Fp64Func.FMA:
+                result = fa * fb + fc
+            elif func == Fp64Func.NEG:
+                result = -fa
+            elif func == Fp64Func.ABS:
+                result = abs(fa)
+            elif func == Fp64Func.MIN:
+                result = min(fa, fb)
+            elif func == Fp64Func.MAX:
+                result = max(fa, fb)
+            else:
+                result = 0.0
+        except:
+            result = float('nan')
+
+        return self.fp64_to_uint64(result)
+
     def execute_fp32_arith(self, func: int, a: int, b: int, c: int = 0) -> int:
         """Execute FP32 arithmetic operations"""
         fa = self.uint_to_float(a)
@@ -539,6 +602,20 @@ class RalphGPUSimulator:
                 b = thread.registers[rb] & 0xFFFF
                 c = thread.registers[rc] & 0xFFFF
                 thread.registers[rd] = self.execute_fp16_arith(func, a, b, c)
+
+            elif opcode == Opcode.FP64_ARITH:
+                # FP64 uses register pairs: even reg = lo, even+1 = hi
+                # ra, rb, rd encode the even register number
+                a_lo = thread.registers[ra]
+                a_hi = thread.registers[ra + 1] if ra + 1 < 32 else 0
+                b_lo = thread.registers[rb]
+                b_hi = thread.registers[rb + 1] if rb + 1 < 32 else 0
+                c_lo = thread.registers[rc]
+                c_hi = thread.registers[rc + 1] if rc + 1 < 32 else 0
+                result_lo, result_hi = self.execute_fp64_arith(func, a_lo, a_hi, b_lo, b_hi, c_lo, c_hi)
+                thread.registers[rd] = result_lo
+                if rd + 1 < 32:
+                    thread.registers[rd + 1] = result_hi
 
             elif opcode == Opcode.FP32_SPECIAL:
                 a = thread.registers[ra]

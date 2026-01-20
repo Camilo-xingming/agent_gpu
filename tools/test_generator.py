@@ -590,6 +590,123 @@ class FP16TestGenerator:
         return tests
 
 
+class FP64TestGenerator:
+    """Generate FP64 (double-precision) test cases
+
+    FP64 values use register pairs: rd:rd+1 where rd holds low 32 bits and rd+1 holds high 32 bits.
+    Uses IEEE 754 double-precision format.
+    """
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def fp64_to_uint64(self, f: float) -> tuple:
+        """Convert float64 to (lo, hi) 32-bit values"""
+        bits = struct.unpack('Q', struct.pack('d', f))[0]
+        lo = bits & 0xFFFFFFFF
+        hi = (bits >> 32) & 0xFFFFFFFF
+        return (lo, hi)
+
+    def gen_fp64_add_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate add.f64 test cases"""
+        tests = []
+        test_values = [
+            (1.0, 2.0, 3.0),
+            (0.5, 0.25, 0.75),
+            (1e10, 2e10, 3e10),
+        ]
+
+        for i, (a, b, expected) in enumerate(test_values[:count]):
+            a_lo, a_hi = self.fp64_to_uint64(a)
+            b_lo, b_hi = self.fp64_to_uint64(b)
+            exp_lo, exp_hi = self.fp64_to_uint64(expected)
+
+            # Use register pairs: r0:r1 for A, r2:r3 for B, r4:r5 for result
+            tests.append(TestCase(
+                name=f"fp64_add_{i:03d}",
+                category="fp64",
+                ptx_code=[
+                    f"mov.u32 r0, {a_lo}",
+                    f"mov.u32 r1, {a_hi}",
+                    f"mov.u32 r2, {b_lo}",
+                    f"mov.u32 r3, {b_hi}",
+                    "add.f64 r4, r0, r2",  # r4:r5 = r0:r1 + r2:r3
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={4: exp_lo, 5: exp_hi}
+            ))
+        return tests
+
+    def gen_fp64_sub_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate sub.f64 test cases"""
+        tests = []
+        test_values = [
+            (5.0, 2.0, 3.0),
+            (1.0, 0.5, 0.5),
+            (1e10, 3e9, 7e9),
+        ]
+
+        for i, (a, b, expected) in enumerate(test_values[:count]):
+            a_lo, a_hi = self.fp64_to_uint64(a)
+            b_lo, b_hi = self.fp64_to_uint64(b)
+            exp_lo, exp_hi = self.fp64_to_uint64(expected)
+
+            tests.append(TestCase(
+                name=f"fp64_sub_{i:03d}",
+                category="fp64",
+                ptx_code=[
+                    f"mov.u32 r0, {a_lo}",
+                    f"mov.u32 r1, {a_hi}",
+                    f"mov.u32 r2, {b_lo}",
+                    f"mov.u32 r3, {b_hi}",
+                    "sub.f64 r4, r0, r2",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={4: exp_lo, 5: exp_hi}
+            ))
+        return tests
+
+    def gen_fp64_mul_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate mul.f64 test cases"""
+        tests = []
+        test_values = [
+            (2.0, 3.0, 6.0),
+            (0.5, 4.0, 2.0),
+            (1e5, 1e5, 1e10),
+        ]
+
+        for i, (a, b, expected) in enumerate(test_values[:count]):
+            a_lo, a_hi = self.fp64_to_uint64(a)
+            b_lo, b_hi = self.fp64_to_uint64(b)
+            exp_lo, exp_hi = self.fp64_to_uint64(expected)
+
+            tests.append(TestCase(
+                name=f"fp64_mul_{i:03d}",
+                category="fp64",
+                ptx_code=[
+                    f"mov.u32 r0, {a_lo}",
+                    f"mov.u32 r1, {a_hi}",
+                    f"mov.u32 r2, {b_lo}",
+                    f"mov.u32 r3, {b_hi}",
+                    "mul.f64 r4, r0, r2",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={4: exp_lo, 5: exp_hi}
+            ))
+        return tests
+
+    def gen_all_fp64_tests(self) -> List[TestCase]:
+        """Generate all FP64 test cases"""
+        tests = []
+        tests.extend(self.gen_fp64_add_tests(3))
+        tests.extend(self.gen_fp64_sub_tests(3))
+        tests.extend(self.gen_fp64_mul_tests(3))
+        return tests
+
+
 class MemoryTestGenerator:
     """Generate memory operation test cases (LD/ST global and shared)"""
 
@@ -1565,10 +1682,21 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(fp16_tests)} FP16 tests")
 
+    # Generate FP64 tests
+    fp64_gen = FP64TestGenerator(seed=42)
+    fp64_tests = fp64_gen.gen_all_fp64_tests()
+    print(f"Generated {len(fp64_tests)} FP64 tests")
+
+    success_count = 0
+    for test in fp64_tests:
+        if write_test_case(test, output_dir / "fp64"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(fp64_tests)} FP64 tests")
+
     # Summary
     total_tests = (len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) +
                    len(div_tests) + len(special_tests) + len(atom_tests) + len(sync_tests) +
-                   len(param_tests) + len(membar_tests) + len(sfu_tests) + len(fp16_tests))
+                   len(param_tests) + len(membar_tests) + len(sfu_tests) + len(fp16_tests) + len(fp64_tests))
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -1593,7 +1721,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "fp16", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "fp16", "fp64", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -1667,6 +1795,11 @@ def main():
             tests = gen.gen_all_fp16_tests()
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "fp16"))
             print(f"Generated {success}/{len(tests)} FP16 tests")
+        elif args.gen == "fp64":
+            gen = FP64TestGenerator(seed=args.seed)
+            tests = gen.gen_all_fp64_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "fp64"))
+            print(f"Generated {success}/{len(tests)} FP64 tests")
     else:
         parser.print_help()
 

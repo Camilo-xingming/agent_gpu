@@ -3,6 +3,17 @@ build/
 *.vvp
 *.vcd
 
+# Simulation binaries and logs (root level only)
+/a.out
+/*.out
+/*.log
+/sim/
+/sim_*
+/tb_*
+
+# Test hex files (root level only)
+/*.hex
+
 # Editor files
 *.swp
 *~
