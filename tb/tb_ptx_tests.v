@@ -166,26 +166,38 @@ module tb_ptx_tests;
     reg [31:0] instruction_mem [0:4095];  // 16KB instruction memory
     reg [31:0] global_mem [0:16383];      // 64KB global memory
 
-    // Instruction fetch pipeline
-    reg [31:0] pending_imem_addr;
-    reg        pending_imem_req;
+    // Instruction fetch pipeline with request FIFO (supports multiple outstanding requests)
+    localparam IMEM_FIFO_DEPTH = 8;
+    reg [31:0] imem_fifo_addr [0:IMEM_FIFO_DEPTH-1];
+    reg [2:0]  imem_fifo_head;
+    reg [2:0]  imem_fifo_tail;
+    wire       imem_fifo_empty = (imem_fifo_head == imem_fifo_tail);
+    wire       imem_fifo_full = ((imem_fifo_tail + 1) % IMEM_FIFO_DEPTH == imem_fifo_head);
+    reg        imem_resp_pending;  // 1-cycle response latency
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             imem_valid <= 1'b0;
             imem_data <= 64'b0;
-            pending_imem_req <= 1'b0;
-            pending_imem_addr <= 32'b0;
+            imem_fifo_head <= 0;
+            imem_fifo_tail <= 0;
+            imem_resp_pending <= 0;
         end else begin
-            if (imem_req) begin
-                pending_imem_req <= 1'b1;
-                pending_imem_addr <= imem_addr;
-                imem_valid <= 1'b0;
-            end else if (pending_imem_req) begin
-                imem_data <= {instruction_mem[(pending_imem_addr >> 2) + 1],
-                              instruction_mem[pending_imem_addr >> 2]};
+            // Enqueue new requests
+            if (imem_req && !imem_fifo_full) begin
+                imem_fifo_addr[imem_fifo_tail] <= imem_addr;
+                imem_fifo_tail <= (imem_fifo_tail + 1) % IMEM_FIFO_DEPTH;
+            end
+
+            // Dequeue and respond (1-cycle latency)
+            if (!imem_fifo_empty && !imem_resp_pending) begin
+                imem_resp_pending <= 1'b1;
+            end else if (imem_resp_pending) begin
+                imem_data <= {instruction_mem[(imem_fifo_addr[imem_fifo_head] >> 2) + 1],
+                              instruction_mem[imem_fifo_addr[imem_fifo_head] >> 2]};
                 imem_valid <= 1'b1;
-                pending_imem_req <= 1'b0;
+                imem_fifo_head <= (imem_fifo_head + 1) % IMEM_FIFO_DEPTH;
+                imem_resp_pending <= 1'b0;
             end else begin
                 imem_valid <= 1'b0;
             end

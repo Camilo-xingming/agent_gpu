@@ -1240,7 +1240,7 @@ module streaming_multiprocessor_v2 #(
 
     // Fetch pipeline stages for tracking responses
     // Stage 0: fetch request sent, Stage 1: response expected
-    localparam FETCH_PIPE_DEPTH = 2;  // Support 2 in-flight fetches
+    localparam FETCH_PIPE_DEPTH = 8;  // Support up to 8 in-flight fetches (2x NUM_WARPS)
     reg [WARP_ID_W-1:0] fetch_pipe_warp [0:FETCH_PIPE_DEPTH-1];
     reg [FETCH_PIPE_DEPTH-1:0] fetch_pipe_valid;
 
@@ -1281,7 +1281,7 @@ module streaming_multiprocessor_v2 #(
             fetch_debug_cnt <= 0;
         end else begin
             // Debug first few fetch cycles
-            if (fetch_debug_cnt < 20) begin
+            if (fetch_debug_cnt < 60) begin
                 `ifdef SIMULATION
                 $display("[SM%0d FETCH] req=%b ready=%b fire=%b warp_valid=%04b needs_fetch=%04b pending=%04b buf_valid=%04b",
                          SM_ID, fetch_req, icache_ready, fetch_fire,

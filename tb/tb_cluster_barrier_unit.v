@@ -1,407 +1,363 @@
 //============================================================================
-// RalphGPU - Cluster Barrier Unit Test
-// Tests barrier.cluster operations for cross-SM synchronization
-// Verifies: init, arrive, wait, sync (combined arrive+wait)
+// RalphGPU - Cluster Barrier Unit Testbench
+// Tests barrier.cluster multi-SM synchronization
 //============================================================================
 
-`timescale 1ns / 1ps
+`timescale 1ns/1ps
+
+`include "gpu_defines.vh"
 
 module tb_cluster_barrier_unit;
 
-    `include "../rtl/gpu_defines.vh"
+    //------------------------------------------------------------------------
+    // Parameters
+    //------------------------------------------------------------------------
+    parameter NUM_SM = 4;
+    parameter NUM_BARRIERS = 16;
+    parameter BARRIER_ID_W = 4;
+    parameter THREAD_COUNT_W = 16;
 
-    parameter CLK_PERIOD = 10;
-    parameter NUM_WARPS = 4;
-    parameter NUM_LANES = 32;
-
+    //------------------------------------------------------------------------
+    // Clock and Reset
+    //------------------------------------------------------------------------
     reg clk;
     reg rst_n;
 
-    // Test tracking
+    //------------------------------------------------------------------------
+    // DUT Interface
+    //------------------------------------------------------------------------
+    reg  [NUM_SM-1:0]            sm_arrive_valid;
+    reg  [BARRIER_ID_W-1:0]      sm_arrive_barrier_id [0:NUM_SM-1];
+    reg  [THREAD_COUNT_W-1:0]    sm_arrive_count [0:NUM_SM-1];
+
+    reg  [NUM_SM-1:0]            sm_wait_valid;
+    reg  [BARRIER_ID_W-1:0]      sm_wait_barrier_id [0:NUM_SM-1];
+    wire [NUM_SM-1:0]            sm_wait_complete;
+
+    reg  [NUM_SM-1:0]            sm_init_valid;
+    reg  [BARRIER_ID_W-1:0]      sm_init_barrier_id [0:NUM_SM-1];
+    reg  [THREAD_COUNT_W-1:0]    sm_init_count [0:NUM_SM-1];
+
+    wire [NUM_BARRIERS-1:0]      barrier_active;
+    wire [NUM_BARRIERS-1:0]      barrier_complete;
+
+    //------------------------------------------------------------------------
+    // DUT Instantiation
+    //------------------------------------------------------------------------
+    cluster_barrier_unit #(
+        .NUM_SM(NUM_SM),
+        .NUM_BARRIERS(NUM_BARRIERS),
+        .BARRIER_ID_W(BARRIER_ID_W),
+        .THREAD_COUNT_W(THREAD_COUNT_W)
+    ) dut (
+        .clk(clk),
+        .rst_n(rst_n),
+        .sm_arrive_valid(sm_arrive_valid),
+        .sm_arrive_barrier_id(sm_arrive_barrier_id),
+        .sm_arrive_count(sm_arrive_count),
+        .sm_wait_valid(sm_wait_valid),
+        .sm_wait_barrier_id(sm_wait_barrier_id),
+        .sm_wait_complete(sm_wait_complete),
+        .sm_init_valid(sm_init_valid),
+        .sm_init_barrier_id(sm_init_barrier_id),
+        .sm_init_count(sm_init_count),
+        .barrier_active(barrier_active),
+        .barrier_complete(barrier_complete)
+    );
+
+    //------------------------------------------------------------------------
+    // Clock Generation
+    //------------------------------------------------------------------------
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;
+    end
+
+    //------------------------------------------------------------------------
+    // Test Variables
+    //------------------------------------------------------------------------
     integer test_num;
     integer pass_count;
     integer fail_count;
+    integer i;
 
-    // Cluster barrier state (mirrors SM implementation)
-    reg  [NUM_WARPS-1:0] cluster_barrier_pending;
-    reg  [NUM_WARPS-1:0] cluster_barrier_arrived;
-    reg  [7:0]           cluster_barrier_id [0:NUM_WARPS-1];
-    reg  [15:0]          cluster_barrier_thread_count;
-    reg  [15:0]          cluster_local_arrive_count;
-    reg                  cluster_barrier_complete;
-
-    // Issue interface
-    reg issue_valid;
-    reg issue_barrier_cluster_op;
-    reg [5:0] issue_func;
-    reg [1:0] issue_warp_id;
-    reg [31:0] issue_mask;      // Active thread mask
-    reg [15:0] issue_imm16;     // Contains barrier_id
-    reg [15:0] rf_rd_data_a;    // Thread count for init
-
-    // Clock generation
-    initial begin
-        clk = 0;
-        forever #(CLK_PERIOD/2) clk = ~clk;
-    end
-
-    // Cluster barrier logic (copied from SM)
-    integer w;
-    function [15:0] countones;
-        input [31:0] mask;
-        integer i;
-        begin
-            countones = 0;
-            for (i = 0; i < 32; i = i + 1)
-                if (mask[i]) countones = countones + 1;
-        end
-    endfunction
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            cluster_barrier_pending <= {NUM_WARPS{1'b0}};
-            cluster_barrier_arrived <= {NUM_WARPS{1'b0}};
-            cluster_barrier_thread_count <= 16'b0;
-            cluster_local_arrive_count <= 16'b0;
-            cluster_barrier_complete <= 1'b0;
-            for (w = 0; w < NUM_WARPS; w = w + 1) begin
-                cluster_barrier_id[w] <= 8'b0;
-            end
-        end else begin
-            // Handle barrier.cluster operations
-            if (issue_valid && issue_barrier_cluster_op) begin
-                case (issue_func)
-                    `CLUSTER_BARRIER_INIT: begin
-                        // Initialize cluster barrier with expected thread count
-                        cluster_barrier_thread_count <= rf_rd_data_a[15:0];
-                        cluster_local_arrive_count <= 16'b0;
-                        cluster_barrier_complete <= 1'b0;
-                        // Reset all warp states
-                        cluster_barrier_pending <= {NUM_WARPS{1'b0}};
-                        cluster_barrier_arrived <= {NUM_WARPS{1'b0}};
-                        for (w = 0; w < NUM_WARPS; w = w + 1) begin
-                            cluster_barrier_id[w] <= 8'b0;
-                        end
-                    end
-
-                    `CLUSTER_BARRIER_ARRIVE: begin
-                        // Signal arrival (non-blocking)
-                        cluster_barrier_arrived[issue_warp_id] <= 1'b1;
-                        cluster_barrier_id[issue_warp_id] <= issue_imm16[7:0];
-                        cluster_local_arrive_count <= cluster_local_arrive_count + countones(issue_mask);
-                    end
-
-                    `CLUSTER_BARRIER_WAIT: begin
-                        // Wait for all (blocking)
-                        if (!cluster_barrier_complete) begin
-                            cluster_barrier_pending[issue_warp_id] <= 1'b1;
-                        end
-                    end
-
-                    `CLUSTER_BARRIER_SYNC: begin
-                        // Combined arrive + wait
-                        cluster_barrier_arrived[issue_warp_id] <= 1'b1;
-                        cluster_barrier_id[issue_warp_id] <= issue_imm16[7:0];
-                        cluster_local_arrive_count <= cluster_local_arrive_count + countones(issue_mask);
-                        if (!cluster_barrier_complete) begin
-                            cluster_barrier_pending[issue_warp_id] <= 1'b1;
-                        end
-                    end
-                endcase
-            end
-
-            // Check for cluster barrier completion
-            // In single-SM mode: complete when local count >= expected count
-            if (cluster_local_arrive_count >= cluster_barrier_thread_count &&
-                cluster_barrier_thread_count > 0) begin
-                cluster_barrier_complete <= 1'b1;
-                // Release all pending warps
-                cluster_barrier_pending <= {NUM_WARPS{1'b0}};
-            end
-        end
-    end
-
-    // Test task: Check result
-    task check_result;
-        input [255:0] test_name;
-        input [31:0] expected;
-        input [31:0] actual;
-        begin
-            if (expected == actual) begin
-                $display("[PASS] Test %0d: %0s", test_num, test_name);
-                pass_count = pass_count + 1;
-            end else begin
-                $display("[FAIL] Test %0d: %0s - expected 0x%h, got 0x%h",
-                         test_num, test_name, expected, actual);
-                fail_count = fail_count + 1;
-            end
-            test_num = test_num + 1;
-        end
-    endtask
-
-    // Issue barrier.cluster operation
-    task issue_cluster_barrier;
-        input [5:0] op_func;
-        input [1:0] warp;
-        input [31:0] mask;
-        input [15:0] count_or_id;
-        begin
-            @(posedge clk);
-            issue_valid <= 1'b1;
-            issue_barrier_cluster_op <= 1'b1;
-            issue_func <= op_func;
-            issue_warp_id <= warp;
-            issue_mask <= mask;
-            issue_imm16 <= count_or_id;
-            rf_rd_data_a <= count_or_id;
-            @(posedge clk);
-            issue_valid <= 1'b0;
-            issue_barrier_cluster_op <= 1'b0;
-        end
-    endtask
-
-    initial begin
-        $display("============================================================");
-        $display("RalphGPU Cluster Barrier Unit Test");
-        $display("============================================================");
-
-        // Initialize
+    //------------------------------------------------------------------------
+    // Test Tasks
+    //------------------------------------------------------------------------
+    task reset_dut;
+    begin
         rst_n = 0;
-        issue_valid = 0;
-        issue_barrier_cluster_op = 0;
-        issue_func = 0;
-        issue_warp_id = 0;
-        issue_mask = 32'hFFFFFFFF;
-        issue_imm16 = 0;
-        rf_rd_data_a = 0;
-        test_num = 1;
+        sm_arrive_valid = 0;
+        sm_wait_valid = 0;
+        sm_init_valid = 0;
+        for (i = 0; i < NUM_SM; i = i + 1) begin
+            sm_arrive_barrier_id[i] = 0;
+            sm_arrive_count[i] = 0;
+            sm_wait_barrier_id[i] = 0;
+            sm_init_barrier_id[i] = 0;
+            sm_init_count[i] = 0;
+        end
+        #20;
+        rst_n = 1;
+        #10;
+    end
+    endtask
+
+    task init_barrier;
+        input [BARRIER_ID_W-1:0] barrier_id;
+        input [THREAD_COUNT_W-1:0] thread_count;
+        input integer sm_id;
+    begin
+        @(posedge clk);
+        sm_init_valid[sm_id] = 1;
+        sm_init_barrier_id[sm_id] = barrier_id;
+        sm_init_count[sm_id] = thread_count;
+        @(posedge clk);
+        sm_init_valid = 0;
+        #10;
+    end
+    endtask
+
+    task arrive_barrier;
+        input [BARRIER_ID_W-1:0] barrier_id;
+        input [THREAD_COUNT_W-1:0] count;
+        input integer sm_id;
+    begin
+        @(posedge clk);
+        sm_arrive_valid[sm_id] = 1;
+        sm_arrive_barrier_id[sm_id] = barrier_id;
+        sm_arrive_count[sm_id] = count;
+        @(posedge clk);
+        sm_arrive_valid = 0;
+        #10;
+    end
+    endtask
+
+    task check_wait;
+        input [BARRIER_ID_W-1:0] barrier_id;
+        input integer sm_id;
+        output reg complete;
+    begin
+        @(posedge clk);
+        sm_wait_valid[sm_id] = 1;
+        sm_wait_barrier_id[sm_id] = barrier_id;
+        @(posedge clk);
+        complete = sm_wait_complete[sm_id];
+        sm_wait_valid = 0;
+        #10;
+    end
+    endtask
+
+    //------------------------------------------------------------------------
+    // Main Test Sequence
+    //------------------------------------------------------------------------
+    reg wait_result;
+
+    initial begin
+        $display("============================================================");
+        $display("RalphGPU Cluster Barrier Unit Testbench");
+        $display("============================================================");
+
+        test_num = 0;
         pass_count = 0;
         fail_count = 0;
 
-        #100;
-        rst_n = 1;
-        #50;
+        reset_dut();
 
-        //==================================================================
-        // Test 1: Reset state
-        //==================================================================
-        check_result("No warps pending after reset", 0, cluster_barrier_pending);
-        check_result("No warps arrived after reset", 0, cluster_barrier_arrived);
-        check_result("Zero thread count", 0, cluster_barrier_thread_count);
-        check_result("Barrier not complete", 0, cluster_barrier_complete);
+        //====================================================================
+        // Test 1: Simple barrier with 4 SMs, 32 threads each
+        //====================================================================
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] Simple 4-SM barrier (128 threads total)", test_num);
 
-        //==================================================================
-        // Test 2: Initialize barrier (32 threads expected)
-        //==================================================================
-        $display("\n--- Test: Barrier Init (32 threads) ---");
+        init_barrier(4'd0, 16'd128, 0);
+        $display("  Barrier 0 initialized for 128 threads");
 
-        issue_cluster_barrier(`CLUSTER_BARRIER_INIT, 2'd0, 32'hFFFFFFFF, 16'd32);
+        arrive_barrier(4'd0, 16'd32, 0);
+        $display("  SM0 arrived with 32 threads");
 
-        @(posedge clk);
-        check_result("Thread count set to 32", 32, cluster_barrier_thread_count);
-        check_result("Arrive count reset", 0, cluster_local_arrive_count);
-        check_result("Not complete after init", 0, cluster_barrier_complete);
-
-        //==================================================================
-        // Test 3: Single warp arrive (32 threads)
-        //==================================================================
-        $display("\n--- Test: Single Warp Arrive ---");
-
-        issue_cluster_barrier(`CLUSTER_BARRIER_ARRIVE, 2'd0, 32'hFFFFFFFF, 16'd0);
-
-        @(posedge clk);
-        @(posedge clk);
-        check_result("Warp 0 arrived", 1, cluster_barrier_arrived[0]);
-        check_result("Arrive count = 32", 32, cluster_local_arrive_count);
-        check_result("Barrier complete", 1, cluster_barrier_complete);
-
-        //==================================================================
-        // Test 4: Initialize for multi-warp (64 threads)
-        //==================================================================
-        $display("\n--- Test: Multi-Warp Barrier (64 threads) ---");
-
-        issue_cluster_barrier(`CLUSTER_BARRIER_INIT, 2'd0, 32'hFFFFFFFF, 16'd64);
-
-        @(posedge clk);
-        @(posedge clk);  // Extra cycle for state to settle
-        @(posedge clk);  // One more cycle
-        check_result("Thread count = 64", 64, cluster_barrier_thread_count);
-        check_result("Arrive count reset", 0, cluster_local_arrive_count);
-        // Note: complete may briefly be 1 until arrive_count check runs
-        $display("Complete status after init: %0d (should be 0)", cluster_barrier_complete);
-
-        //==================================================================
-        // Test 5: First warp arrives (32 threads)
-        //==================================================================
-        $display("\n--- Test: First Warp of Two ---");
-
-        issue_cluster_barrier(`CLUSTER_BARRIER_ARRIVE, 2'd0, 32'hFFFFFFFF, 16'd1);
-
-        @(posedge clk);
-        check_result("Warp 0 arrived", 1, cluster_barrier_arrived[0]);
-        check_result("Arrive count = 32", 32, cluster_local_arrive_count);
-        // Complete depends on timing - don't check strict value
-        $display("Barrier complete status: %0d (expecting 0 with 32/64 arrived)", cluster_barrier_complete);
-
-        //==================================================================
-        // Test 6: Second warp arrives (completes barrier)
-        //==================================================================
-        $display("\n--- Test: Second Warp Completes ---");
-
-        issue_cluster_barrier(`CLUSTER_BARRIER_ARRIVE, 2'd1, 32'hFFFFFFFF, 16'd1);
-
-        @(posedge clk);
-        @(posedge clk);
-        check_result("Warp 1 arrived", 1, cluster_barrier_arrived[1]);
-        check_result("Arrive count = 64", 64, cluster_local_arrive_count);
-        check_result("Barrier complete", 1, cluster_barrier_complete);
-
-        //==================================================================
-        // Test 7: barrier.cluster.wait
-        //==================================================================
-        $display("\n--- Test: Barrier Wait ---");
-
-        // Reset for new barrier
-        issue_cluster_barrier(`CLUSTER_BARRIER_INIT, 2'd0, 32'hFFFFFFFF, 16'd64);
-        @(posedge clk);
-        @(posedge clk);
-
-        // Warp 0 arrives and waits (sync)
-        issue_cluster_barrier(`CLUSTER_BARRIER_SYNC, 2'd0, 32'hFFFFFFFF, 16'd2);
-        @(posedge clk);
-
-        // Note: pending may be cleared in same cycle if barrier completes
-        // Check arrived first (more stable)
-        check_result("Warp 0 arrived", 1, cluster_barrier_arrived[0]);
-        // Pending may already be cleared if count reached
-        $display("Warp 0 pending status: %0d (may be 0 if barrier complete)", cluster_barrier_pending[0]);
-
-        // Warp 1 arrives and waits
-        issue_cluster_barrier(`CLUSTER_BARRIER_SYNC, 2'd1, 32'hFFFFFFFF, 16'd2);
-        @(posedge clk);
-        @(posedge clk);
-
-        check_result("Barrier complete", 1, cluster_barrier_complete);
-        check_result("All warps released", 0, cluster_barrier_pending);
-
-        //==================================================================
-        // Test 8: Partial thread mask
-        //==================================================================
-        $display("\n--- Test: Partial Thread Mask ---");
-
-        issue_cluster_barrier(`CLUSTER_BARRIER_INIT, 2'd0, 32'hFFFFFFFF, 16'd16);
-        @(posedge clk);
-
-        // Only 16 threads arrive
-        issue_cluster_barrier(`CLUSTER_BARRIER_ARRIVE, 2'd0, 32'h0000FFFF, 16'd3);
-        @(posedge clk);
-        @(posedge clk);
-
-        check_result("Arrive count = 16", 16, cluster_local_arrive_count);
-        check_result("Barrier complete with 16", 1, cluster_barrier_complete);
-
-        //==================================================================
-        // Test 9: Multiple barriers with different IDs
-        //==================================================================
-        $display("\n--- Test: Barrier IDs ---");
-
-        issue_cluster_barrier(`CLUSTER_BARRIER_INIT, 2'd0, 32'hFFFFFFFF, 16'd32);
-        @(posedge clk);
-
-        // Warp 0 uses barrier ID 5
-        issue_cluster_barrier(`CLUSTER_BARRIER_ARRIVE, 2'd0, 32'hFFFFFFFF, 16'h0005);
-        @(posedge clk);
-
-        check_result("Barrier ID 0 = 5", 5, cluster_barrier_id[0]);
-
-        //==================================================================
-        // Test 10: Four warps barrier
-        //==================================================================
-        $display("\n--- Test: Four Warps Barrier (128 threads) ---");
-
-        issue_cluster_barrier(`CLUSTER_BARRIER_INIT, 2'd0, 32'hFFFFFFFF, 16'd128);
-        @(posedge clk);
-
-        // All 4 warps sync
-        issue_cluster_barrier(`CLUSTER_BARRIER_SYNC, 2'd0, 32'hFFFFFFFF, 16'd10);
-        @(posedge clk);
-        check_result("After warp 0: count=32", 32, cluster_local_arrive_count);
-
-        issue_cluster_barrier(`CLUSTER_BARRIER_SYNC, 2'd1, 32'hFFFFFFFF, 16'd10);
-        @(posedge clk);
-        check_result("After warp 1: count=64", 64, cluster_local_arrive_count);
-
-        issue_cluster_barrier(`CLUSTER_BARRIER_SYNC, 2'd2, 32'hFFFFFFFF, 16'd10);
-        @(posedge clk);
-        check_result("After warp 2: count=96", 96, cluster_local_arrive_count);
-
-        issue_cluster_barrier(`CLUSTER_BARRIER_SYNC, 2'd3, 32'hFFFFFFFF, 16'd10);
-        @(posedge clk);
-        @(posedge clk);
-        check_result("After warp 3: count=128", 128, cluster_local_arrive_count);
-        check_result("Four warp barrier complete", 1, cluster_barrier_complete);
-        check_result("All 4 warps released", 0, cluster_barrier_pending);
-
-        //==================================================================
-        // Test 11: Wait before all arrive
-        //==================================================================
-        $display("\n--- Test: Wait Before Complete ---");
-
-        issue_cluster_barrier(`CLUSTER_BARRIER_INIT, 2'd0, 32'hFFFFFFFF, 16'd64);
-        @(posedge clk);
-        @(posedge clk);
-
-        // Warp 2 issues wait without arriving first
-        issue_cluster_barrier(`CLUSTER_BARRIER_WAIT, 2'd2, 32'hFFFFFFFF, 16'd0);
-        @(posedge clk);
-
-        // Check arrived status (should be false)
-        check_result("Warp 2 not arrived", 0, cluster_barrier_arrived[2]);
-        // Pending status depends on whether barrier is complete
-        $display("Warp 2 pending status: %0d", cluster_barrier_pending[2]);
-
-        // Now complete the barrier
-        issue_cluster_barrier(`CLUSTER_BARRIER_ARRIVE, 2'd0, 32'hFFFFFFFF, 16'd0);
-        issue_cluster_barrier(`CLUSTER_BARRIER_ARRIVE, 2'd1, 32'hFFFFFFFF, 16'd0);
-        @(posedge clk);
-        @(posedge clk);
-
-        check_result("Barrier complete", 1, cluster_barrier_complete);
-        check_result("Warp 2 released", 0, cluster_barrier_pending[2]);
-
-        //==================================================================
-        // Results Summary
-        //==================================================================
-        #100;
-        $display("\n============================================================");
-        $display("Cluster Barrier Unit Test Results");
-        $display("============================================================");
-        $display("Tests passed: %0d", pass_count);
-        $display("Tests failed: %0d", fail_count);
-        $display("============================================================");
-
-        if (fail_count == 0) begin
-            $display("ALL TESTS PASSED!");
-        end else begin
-            $display("SOME TESTS FAILED!");
+        check_wait(4'd0, 0, wait_result);
+        if (!wait_result) begin
+            $display("  Wait incomplete (expected - only 32/128)");
         end
+
+        arrive_barrier(4'd0, 16'd32, 1);
+        arrive_barrier(4'd0, 16'd32, 2);
+        arrive_barrier(4'd0, 16'd32, 3);
+        $display("  All SMs arrived");
+
+        #10;
+        check_wait(4'd0, 0, wait_result);
+        if (wait_result) begin
+            $display("  [PASS] Barrier complete after all SMs arrived");
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] Barrier should be complete");
+            fail_count = fail_count + 1;
+        end
+
+        //====================================================================
+        // Test 2: Multiple barriers concurrently
+        //====================================================================
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] Multiple concurrent barriers", test_num);
+
+        init_barrier(4'd1, 16'd64, 0);
+        init_barrier(4'd2, 16'd64, 0);
+
+        arrive_barrier(4'd1, 16'd32, 0);
+        arrive_barrier(4'd1, 16'd32, 1);
+        arrive_barrier(4'd2, 16'd32, 2);
+        arrive_barrier(4'd2, 16'd32, 3);
+
+        #10;
+        check_wait(4'd1, 0, wait_result);
+        if (wait_result) begin
+            $display("  [PASS] Barrier 1 complete");
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] Barrier 1 should be complete");
+            fail_count = fail_count + 1;
+        end
+
+        test_num = test_num + 1;
+        check_wait(4'd2, 2, wait_result);
+        if (wait_result) begin
+            $display("  [PASS] Barrier 2 complete");
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] Barrier 2 should be complete");
+            fail_count = fail_count + 1;
+        end
+
+        //====================================================================
+        // Test 3: Partial arrival
+        //====================================================================
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] Partial arrival - incomplete barrier", test_num);
+
+        init_barrier(4'd3, 16'd100, 0);
+        arrive_barrier(4'd3, 16'd50, 0);
+
+        check_wait(4'd3, 0, wait_result);
+        if (!wait_result) begin
+            $display("  [PASS] Barrier correctly incomplete (50/100)");
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] Barrier should not be complete yet");
+            fail_count = fail_count + 1;
+        end
+
+        //====================================================================
+        // Test 4: Simultaneous arrivals
+        //====================================================================
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] Simultaneous arrivals from all SMs", test_num);
+
+        init_barrier(4'd4, 16'd128, 0);
+
+        @(posedge clk);
+        sm_arrive_valid = 4'b1111;
+        for (i = 0; i < NUM_SM; i = i + 1) begin
+            sm_arrive_barrier_id[i] = 4'd4;
+            sm_arrive_count[i] = 16'd32;
+        end
+        @(posedge clk);
+        sm_arrive_valid = 0;
+
+        #10;
+        check_wait(4'd4, 0, wait_result);
+        if (wait_result) begin
+            $display("  [PASS] Barrier complete after simultaneous arrival");
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] Barrier should be complete");
+            fail_count = fail_count + 1;
+        end
+
+        //====================================================================
+        // Test 5: Single-thread barrier
+        //====================================================================
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] Single-thread barrier", test_num);
+
+        init_barrier(4'd5, 16'd1, 0);
+        arrive_barrier(4'd5, 16'd1, 0);
+
+        check_wait(4'd5, 0, wait_result);
+        if (wait_result) begin
+            $display("  [PASS] Single-thread barrier complete");
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] Single-thread barrier should be complete");
+            fail_count = fail_count + 1;
+        end
+
+        //====================================================================
+        // Test 6: Large thread count
+        //====================================================================
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] Large thread count barrier", test_num);
+
+        init_barrier(4'd6, 16'd4096, 0);
+        arrive_barrier(4'd6, 16'd1024, 0);
+        arrive_barrier(4'd6, 16'd1024, 1);
+        arrive_barrier(4'd6, 16'd1024, 2);
+        arrive_barrier(4'd6, 16'd1024, 3);
+
+        #10;
+        check_wait(4'd6, 0, wait_result);
+        if (wait_result) begin
+            $display("  [PASS] Large barrier complete");
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] Large barrier should be complete");
+            fail_count = fail_count + 1;
+        end
+
+        //====================================================================
+        // Test 7: Wait from different SM
+        //====================================================================
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] Wait from different SM than arrive", test_num);
+
+        init_barrier(4'd7, 16'd64, 0);
+        arrive_barrier(4'd7, 16'd32, 0);
+        arrive_barrier(4'd7, 16'd32, 1);
+
+        check_wait(4'd7, 2, wait_result);
+        if (wait_result) begin
+            $display("  [PASS] SM2 can wait on barrier it didn't arrive at");
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] SM2 should see barrier complete");
+            fail_count = fail_count + 1;
+        end
+
+        //====================================================================
+        // Summary
+        //====================================================================
+        #50;
+        $display("\n============================================================");
+        $display("Test Summary: %0d passed, %0d failed out of %0d tests",
+                 pass_count, fail_count, test_num);
         $display("============================================================");
 
-        #100;
+        if (fail_count == 0)
+            $display("ALL TESTS PASSED!");
+        else
+            $display("SOME TESTS FAILED!");
+
         $finish;
     end
 
-    // Timeout
+    //------------------------------------------------------------------------
+    // Timeout watchdog
+    //------------------------------------------------------------------------
     initial begin
         #50000;
         $display("ERROR: Test timeout!");
         $finish;
-    end
-
-    // VCD dump
-    initial begin
-        $dumpfile("tb_cluster_barrier_unit.vcd");
-        $dumpvars(0, tb_cluster_barrier_unit);
     end
 
 endmodule
