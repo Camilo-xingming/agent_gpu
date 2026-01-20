@@ -153,6 +153,23 @@ This file contains summaries of completed and verified Minimal Verifiable Units 
 
 ---
 
+## MVU-016: FRM Core Memory & Sync
+**Completed**: 2026-01-20
+**Scope**: BAR_SYNC, MEMBAR, CTAState for block-level synchronization
+**Tools**: tools/gpu_simulator.py
+**Features**:
+- CTAState class for CTA/block-level state tracking
+- barrier_arrive() method for tracking thread arrivals at barriers
+- flush_writes() for membar memory ordering
+- BAR_SYNC handler: barrier_id, thread_count, warp stall support
+- MEMBAR handler: scope (CTA/GL/SYS), sequencing point
+- WarpState.at_barrier flag for multi-warp scheduling
+**Tests**: 75/75 pass (existing tests continue to pass)
+**Verification**: RTL-FRM comparison + Gemini review (PASS)
+**Process**: Direct implementation, Gemini reviewed (PASS after enhancement)
+
+---
+
 ## Regression Summary
 - All archived MVUs continue to pass in regression testing
 - Total unique test cases: 375+

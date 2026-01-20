@@ -40,6 +40,8 @@ class Opcode(IntEnum):
     SHFL = 0b011100
     VOTE = 0b011101
     REDUX = 0b011110
+    # Memory barrier
+    MEMBAR = 0b100100
     # Video/DP
     VIDEO = 0b100101
     # Move immediate
@@ -110,6 +112,12 @@ class AtomicFunc(IntEnum):
     MIN = 6
     MAX = 7
 
+# MEMBAR功能码
+class MembarFunc(IntEnum):
+    CTA = 0b00  # membar.cta - CTA level
+    GL = 0b01   # membar.gl - Global level
+    SYS = 0b10  # membar.sys - System level
+
 # 特殊寄存器
 class SpecialReg(IntEnum):
     TID_X = 0
@@ -141,10 +149,42 @@ class WarpState:
     warp_id: int
     threads: List[ThreadState] = field(default_factory=list)
     pc: int = 0
+    at_barrier: bool = False  # Warp is waiting at a barrier
 
     def __post_init__(self):
         if not self.threads:
             self.threads = [ThreadState(tid=i) for i in range(32)]
+
+
+@dataclass
+class CTAState:
+    """CTA/Block状态 - tracks block-level synchronization"""
+    block_id: tuple = (0, 0, 0)
+    warps: List[WarpState] = field(default_factory=list)
+    # Barrier tracking: barrier_id -> (arrived_count, target_count)
+    barriers: Dict[int, tuple] = field(default_factory=dict)
+    # Memory visibility tracking (for membar)
+    pending_writes: List[tuple] = field(default_factory=list)
+
+    def barrier_arrive(self, barrier_id: int, thread_count: int, total_threads: int) -> bool:
+        """Thread arrives at barrier. Returns True if barrier should release."""
+        if barrier_id not in self.barriers:
+            self.barriers[barrier_id] = (0, total_threads)
+        arrived, target = self.barriers[barrier_id]
+        arrived += thread_count
+        if arrived >= target:
+            # Barrier releases - reset for next use
+            self.barriers[barrier_id] = (0, target)
+            return True
+        else:
+            self.barriers[barrier_id] = (arrived, target)
+            return False
+
+    def flush_writes(self, scope: int):
+        """Flush pending writes for membar (no-op in instant FRM)"""
+        # In FRM, memory operations are instantaneous
+        # This is a placeholder for future cache/memory modeling
+        self.pending_writes.clear()
 
 
 class RalphGPUSimulator:
@@ -168,6 +208,7 @@ class RalphGPUSimulator:
         self.block_dim = (32, 1, 1)
         self.grid_dim = (1, 1, 1)
         self.current_block_id = (0, 0, 0)
+        self.current_cta: Optional[CTAState] = None
 
         # 统计
         self.cycle_count = 0
@@ -522,6 +563,39 @@ class RalphGPUSimulator:
                 if take_branch:
                     warp.pc = target_pc - 1  # -1 because warp.pc is incremented after the loop
 
+            elif opcode == Opcode.BAR_SYNC:
+                # Block-level barrier synchronization
+                # bar.sync barrier_id, thread_count
+                # barrier_id = ra, thread_count = rb (0 = all threads in CTA)
+                if thread.tid == 0:
+                    barrier_id = ra
+                    thread_count_reg = thread.registers[rb] if rb else 0
+                    total_threads = self.block_dim[0] * self.block_dim[1] * self.block_dim[2]
+
+                    # Count active threads in this warp arriving at barrier
+                    active_count = sum(1 for t in warp.threads if t.active)
+
+                    # Use CTA state for proper tracking if available
+                    if self.current_cta:
+                        target = thread_count_reg if thread_count_reg > 0 else total_threads
+                        released = self.current_cta.barrier_arrive(barrier_id, active_count, target)
+                        if not released:
+                            # In multi-warp mode, warp would stall here
+                            warp.at_barrier = True
+                    # Single-warp mode: barrier always releases immediately
+                    # (all 32 threads arrive together)
+
+            elif opcode == Opcode.MEMBAR:
+                # Memory barrier - ensures memory ordering
+                # func encodes scope: CTA=0, GL=1, SYS=2
+                if thread.tid == 0:
+                    scope = func & 0x3
+                    # Flush any pending writes to ensure visibility
+                    if self.current_cta:
+                        self.current_cta.flush_writes(scope)
+                    # In FRM, memory operations are instantaneous
+                    # This enforces a sequencing point for correctness
+
         warp.pc += 1
         self.cycle_count += 1
 
@@ -550,9 +624,13 @@ class RalphGPUSimulator:
                 block_idx // (self.grid_dim[0] * self.grid_dim[1])
             )
 
+            # Create CTA state for this block
+            self.current_cta = CTAState(block_id=self.current_block_id)
+
             # 创建Warp
             warp = WarpState(warp_id=0)
             warp.pc = entry_pc
+            self.current_cta.warps.append(warp)
 
             # 执行直到完成
             while self.execute_warp(warp, sm_id=0):
