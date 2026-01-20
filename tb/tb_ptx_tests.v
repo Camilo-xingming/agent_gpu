@@ -166,17 +166,31 @@ module tb_ptx_tests;
     reg [31:0] instruction_mem [0:4095];  // 16KB instruction memory
     reg [31:0] global_mem [0:16383];      // 64KB global memory
 
-    // Instruction fetch - SAME-CYCLE response (combinatorial)
-    // The SM's fetch pipeline expects same-cycle responses when ICACHE_BYPASS=1
-    // This is the simplest model that works with the SM's same_cycle_hit logic
-    always @(*) begin
-        if (imem_req) begin
-            imem_data = {instruction_mem[(imem_addr >> 2) + 1],
-                         instruction_mem[imem_addr >> 2]};
-            imem_valid = 1'b1;
+    // Instruction fetch - 1-CYCLE response (registered)
+    // GPU top has a queue to track which SM made each request
+    // Response must come at least 1 cycle after request for queue to fill
+    reg [31:0] imem_req_addr_d;
+    reg        imem_req_pending;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            imem_req_pending <= 1'b0;
+            imem_req_addr_d <= 32'b0;
+            imem_valid <= 1'b0;
+            imem_data <= 64'b0;
         end else begin
-            imem_data = 64'b0;
-            imem_valid = 1'b0;
+            if (imem_req) begin
+                imem_req_addr_d <= imem_addr;
+                imem_req_pending <= 1'b1;
+            end
+            if (imem_req_pending) begin
+                imem_data <= {instruction_mem[(imem_req_addr_d >> 2) + 1],
+                              instruction_mem[imem_req_addr_d >> 2]};
+                imem_valid <= 1'b1;
+                imem_req_pending <= 1'b0;
+            end else begin
+                imem_valid <= 1'b0;
+            end
         end
     end
 
