@@ -120,12 +120,8 @@ module decoder (
 
     // 控制信号 - DPX/Sparse (Phase 5.2/5.3)
     output reg         dpx_op,              // DPX operations (dynamic programming)
-    output reg         sparse_mma_op,       // Sparse MMA operations (2:4 sparsity)
-
-    // 控制信号 - Address Space/Cache (Phase 4.2)
-    output reg         isspacep_op,         // isspacep operations (address space query)
-    output reg         mapa_op,             // mapa operations (address mapping)
-    output reg         getctarank_op        // getctarank operations (CTA rank in cluster)
+    output reg         sparse_mma_op        // Sparse MMA operations (2:4 sparsity)
+    // cache_policy_op declared earlier at line 102
 );
 
     //------------------------------------------------------------------------
@@ -216,9 +212,7 @@ module decoder (
             red_async_op <= 1'b0;
             dpx_op <= 1'b0;
             sparse_mma_op <= 1'b0;
-            isspacep_op <= 1'b0;
-            mapa_op <= 1'b0;
-            getctarank_op <= 1'b0;
+            cache_policy_op <= 1'b0;
         end else if (valid_in) begin
             valid_out <= 1'b1;
 
@@ -295,9 +289,7 @@ module decoder (
             red_async_op <= 1'b0;
             dpx_op <= 1'b0;
             sparse_mma_op <= 1'b0;
-            isspacep_op <= 1'b0;
-            mapa_op <= 1'b0;
-            getctarank_op <= 1'b0;
+            cache_policy_op <= 1'b0;
 
             // 根据OPCODE设置控制信号
             case (inst_opcode)
@@ -851,36 +843,19 @@ module decoder (
                 end
 
                 //============================================================
-                // Phase 4.2: Address Space Query Instructions
+                // Phase 4.2: Cache Policy and Address Space Instructions
+                // Consolidated: createpolicy, applypriority, discard, isspacep, mapa, getctarank
                 //============================================================
-                `OP_ISSPACEP: begin
-                    // isspacep - Test if address belongs to specific address space
-                    // Result is a predicate (1 if in space, 0 otherwise)
-                    isspacep_op <= 1'b1;
-                    pred_write <= 1'b1;  // Writes predicate result
-                    reg_write <= 1'b1;   // Also writes 0/1 to register
-                    `ifdef SIMULATION
-                    $display("[DECODER] ISSPACEP: func=%0d addr=R%0d", inst_func, inst_ra);
-                    `endif
-                end
-
-                `OP_MAPA: begin
-                    // mapa - Map address between address spaces
-                    // Returns mapped address in destination register
-                    mapa_op <= 1'b1;
+                `OP_CACHE_POLICY: begin
+                    // All cache policy and address space operations use func codes
+                    cache_policy_op <= 1'b1;
                     reg_write <= 1'b1;
+                    // isspacep also writes predicate
+                    if (inst_func == `CACHE_ISSPACEP) begin
+                        pred_write <= 1'b1;
+                    end
                     `ifdef SIMULATION
-                    $display("[DECODER] MAPA: func=%0d src=R%0d dst=R%0d", inst_func, inst_ra, inst_rd);
-                    `endif
-                end
-
-                `OP_GETCTARANK: begin
-                    // getctarank - Get CTA rank within cluster
-                    // Returns CTA ID in destination register
-                    getctarank_op <= 1'b1;
-                    reg_write <= 1'b1;
-                    `ifdef SIMULATION
-                    $display("[DECODER] GETCTARANK: dst=R%0d", inst_rd);
+                    $display("[DECODER] CACHE_POLICY: func=%0d", inst_func);
                     `endif
                 end
 

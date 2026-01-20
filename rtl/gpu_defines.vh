@@ -170,22 +170,38 @@
 `define OP_CACHE_POLICY 6'b110100   // Cache policy operations
 
 // Phase 4.2: Address Space Query Instructions (PTX ISA)
-`define OP_ISSPACEP     6'b110110   // isspacep - Test address space membership
-`define OP_MAPA         6'b110111   // mapa - Map address between spaces
-`define OP_GETCTARANK   6'b111110   // getctarank - Get CTA rank in cluster (reusing DPX func code)
+// Note: These use func codes within OP_CACHE_POLICY opcode to avoid collisions
+`define CACHE_ISSPACEP      6'b000100   // isspacep - Test address space membership (under OP_CACHE_POLICY)
+`define CACHE_MAPA          6'b000101   // mapa - Map address between spaces (under OP_CACHE_POLICY)
+`define CACHE_GETCTARANK    6'b000110   // getctarank - Get CTA rank in cluster (under OP_CACHE_POLICY)
 
-// isspacep function codes (for OP_ISSPACEP)
-`define ISSPACEP_GLOBAL  6'b000000   // isspacep.global - Test if address is in global memory
-`define ISSPACEP_SHARED  6'b000001   // isspacep.shared - Test if address is in shared memory
-`define ISSPACEP_LOCAL   6'b000010   // isspacep.local - Test if address is in local memory
-`define ISSPACEP_CONST   6'b000011   // isspacep.const - Test if address is in constant memory
-`define ISSPACEP_PARAM   6'b000100   // isspacep.param - Test if address is in parameter memory
+// Phase 4.3: Bulk Store and Grid Dependency (Hopper+)
+`define OP_ST_BULK      6'b100000   // st.bulk - Bulk store operations
+`define OP_GRIDDEPCTRL  6'b100001   // griddepcontrol - Grid dependency control
 
-// mapa function codes (for OP_MAPA)
+// isspacep space type codes (used in src_b[2:0] with CACHE_ISSPACEP)
+// 0=global, 1=shared, 2=local, 3=const, 4=param
+
+// mapa map type codes (used in src_b[2:0] with CACHE_MAPA)
+// 0=to_global, 1=to_shared, 2=from_shared, 3=to_local
+
+// Legacy defines for backward compatibility (deprecated)
 `define MAPA_TO_GLOBAL   6'b000000   // mapa.global - Map to global address
 `define MAPA_TO_SHARED   6'b000001   // mapa.shared - Map to shared address
 `define MAPA_FROM_SHARED 6'b000010   // mapa.to_generic - Map shared to generic pointer
 `define MAPA_TO_LOCAL    6'b000011   // mapa.local - Map to local address
+
+// st.bulk function codes (for OP_ST_BULK)
+`define ST_BULK_GLOBAL        6'b000000   // st.bulk.global - Bulk store to global memory
+`define ST_BULK_SHARED        6'b000001   // st.bulk.shared - Bulk store to shared memory
+`define ST_BULK_COMMIT        6'b000010   // st.bulk.commit - Commit bulk store group
+`define ST_BULK_WAIT          6'b000011   // st.bulk.wait - Wait for bulk store completion
+
+// griddepcontrol function codes (for OP_GRIDDEPCTRL)
+`define GRIDDEP_WAIT          6'b000000   // griddepcontrol.wait - Wait for grid dependency
+`define GRIDDEP_LAUNCH_DEP    6'b000001   // griddepcontrol.launch_dependent - Launch dependent grid
+`define GRIDDEP_SIGNAL        6'b000010   // griddepcontrol.signal - Signal grid completion
+`define GRIDDEP_GET_TOKEN     6'b000011   // griddepcontrol.get_token - Get dependency token
 
 // Phase 1.2: Async Store and Multimem Instructions (Hopper+)
 `define OP_ST_ASYNC     6'b111000   // st.async - Async store operations

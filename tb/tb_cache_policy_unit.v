@@ -1,6 +1,7 @@
 //============================================================================
 // RalphGPU - Cache Policy Unit Testbench
 // Tests cache policy management and address space query instructions
+// All operations use OP_CACHE_POLICY with different func codes
 //============================================================================
 
 `timescale 1ns/1ps
@@ -114,7 +115,7 @@ module tb_cache_policy_unit;
     //------------------------------------------------------------------------
     always @(posedge clk) begin
         if (cache_ctrl_valid && !cache_ctrl_done) begin
-            #20;  // Simulate cache operation latency
+            #20;
             cache_ctrl_done <= 1'b1;
             #10;
             cache_ctrl_done <= 1'b0;
@@ -143,21 +144,51 @@ module tb_cache_policy_unit;
     end
     endtask
 
+    task test_cache_op;
+        input [5:0] f;
+        input [DATA_WIDTH-1:0] addr;
+        input [DATA_WIDTH-1:0] operand;
+        input [2:0] level;
+        input [255:0] test_name;
+    begin
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] %s", test_num, test_name);
+
+        @(posedge clk);
+        valid_in <= 1;
+        opcode <= `OP_CACHE_POLICY;
+        func <= f;
+        src_a <= addr;
+        src_b <= operand;
+        cache_level <= level;
+        @(posedge clk);
+        valid_in <= 0;
+
+        wait(done);
+        @(posedge clk);
+
+        $display("  [PASS] Operation completed, result=0x%08x", result);
+        pass_count = pass_count + 1;
+        #10;
+    end
+    endtask
+
     task test_isspacep;
-        input [5:0] space_func;
+        input [2:0] space_type;
         input [DATA_WIDTH-1:0] addr;
         input expected_pred;
         input [255:0] test_name;
     begin
         test_num = test_num + 1;
         $display("\n[TEST %0d] %s", test_num, test_name);
-        $display("  Address: 0x%08x", addr);
+        $display("  Address: 0x%08x, space_type: %0d", addr, space_type);
 
         @(posedge clk);
         valid_in <= 1;
-        opcode <= `OP_ISSPACEP;
-        func <= space_func;
+        opcode <= `OP_CACHE_POLICY;
+        func <= `CACHE_ISSPACEP;
         src_a <= addr;
+        src_b <= {29'b0, space_type};
         @(posedge clk);
         valid_in <= 0;
 
@@ -176,19 +207,20 @@ module tb_cache_policy_unit;
     endtask
 
     task test_mapa;
-        input [5:0] map_func;
+        input [2:0] map_type;
         input [DATA_WIDTH-1:0] addr;
         input [255:0] test_name;
     begin
         test_num = test_num + 1;
         $display("\n[TEST %0d] %s", test_num, test_name);
-        $display("  Input address: 0x%08x", addr);
+        $display("  Input address: 0x%08x, map_type: %0d", addr, map_type);
 
         @(posedge clk);
         valid_in <= 1;
-        opcode <= `OP_MAPA;
-        func <= map_func;
+        opcode <= `OP_CACHE_POLICY;
+        func <= `CACHE_MAPA;
         src_a <= addr;
+        src_b <= {29'b0, map_type};
         @(posedge clk);
         valid_in <= 0;
 
@@ -196,35 +228,6 @@ module tb_cache_policy_unit;
         @(posedge clk);
 
         $display("  [PASS] Mapped to: 0x%08x", result);
-        pass_count = pass_count + 1;
-        #10;
-    end
-    endtask
-
-    task test_cache_policy;
-        input [5:0] policy_func;
-        input [DATA_WIDTH-1:0] addr;
-        input [DATA_WIDTH-1:0] policy;
-        input [2:0] level;
-        input [255:0] test_name;
-    begin
-        test_num = test_num + 1;
-        $display("\n[TEST %0d] %s", test_num, test_name);
-
-        @(posedge clk);
-        valid_in <= 1;
-        opcode <= `OP_CACHE_POLICY;
-        func <= policy_func;
-        src_a <= addr;
-        src_b <= policy;
-        cache_level <= level;
-        @(posedge clk);
-        valid_in <= 0;
-
-        wait(done);
-        @(posedge clk);
-
-        $display("  [PASS] Cache policy operation completed, result=0x%08x", result);
         pass_count = pass_count + 1;
         #10;
     end
@@ -247,52 +250,34 @@ module tb_cache_policy_unit;
         //====================================================================
         // ISSPACEP Tests - Address Space Queries
         //====================================================================
-        $display("\n--- Testing ISSPACEP (Address Space Queries) ---");
+        $display("\n--- Testing ISSPACEP ---");
 
-        // Test global address (below special spaces)
-        test_isspacep(`ISSPACEP_GLOBAL, 32'h00001000, 1'b1, "isspacep.global: global addr");
-
-        // Test shared memory address
-        test_isspacep(`ISSPACEP_SHARED, SMEM_BASE + 32'h100, 1'b1, "isspacep.shared: shared addr");
-
-        // Test shared should be false for global address
-        test_isspacep(`ISSPACEP_SHARED, 32'h00001000, 1'b0, "isspacep.shared: global addr (expect false)");
-
-        // Test local memory address
-        test_isspacep(`ISSPACEP_LOCAL, LOCAL_BASE + 32'h200, 1'b1, "isspacep.local: local addr");
-
-        // Test constant memory address
-        test_isspacep(`ISSPACEP_CONST, CONST_BASE + 32'h300, 1'b1, "isspacep.const: const addr");
-
-        // Test parameter memory address
-        test_isspacep(`ISSPACEP_PARAM, PARAM_BASE + 32'h400, 1'b1, "isspacep.param: param addr");
-
-        // Cross-check: global address should not be in shared
-        test_isspacep(`ISSPACEP_GLOBAL, SMEM_BASE + 32'h100, 1'b0, "isspacep.global: shared addr (expect false)");
+        test_isspacep(3'd0, 32'h00001000, 1'b1, "isspacep.global: global addr");
+        test_isspacep(3'd1, SMEM_BASE + 32'h100, 1'b1, "isspacep.shared: shared addr");
+        test_isspacep(3'd1, 32'h00001000, 1'b0, "isspacep.shared: global addr (expect false)");
+        test_isspacep(3'd2, LOCAL_BASE + 32'h200, 1'b1, "isspacep.local: local addr");
+        test_isspacep(3'd3, CONST_BASE + 32'h300, 1'b1, "isspacep.const: const addr");
+        test_isspacep(3'd4, PARAM_BASE + 32'h400, 1'b1, "isspacep.param: param addr");
+        test_isspacep(3'd0, SMEM_BASE + 32'h100, 1'b0, "isspacep.global: shared addr (expect false)");
 
         //====================================================================
         // MAPA Tests - Address Mapping
         //====================================================================
-        $display("\n--- Testing MAPA (Address Mapping) ---");
+        $display("\n--- Testing MAPA ---");
 
-        test_mapa(`MAPA_TO_SHARED, 32'h00010000, "mapa.to_shared: global to shared");
-        test_mapa(`MAPA_FROM_SHARED, SMEM_BASE + 32'h1000, "mapa.from_shared: shared to generic");
-        test_mapa(`MAPA_TO_LOCAL, 32'h00020000, "mapa.to_local: global to local");
+        test_mapa(3'd1, 32'h00010000, "mapa.to_shared: global to shared");
+        test_mapa(3'd2, SMEM_BASE + 32'h1000, "mapa.from_shared: shared to generic");
+        test_mapa(3'd3, 32'h00020000, "mapa.to_local: global to local");
 
         //====================================================================
         // Cache Policy Tests
         //====================================================================
         $display("\n--- Testing Cache Policy Operations ---");
 
-        // Create policy tokens
-        test_cache_policy(`CACHE_CREATEPOLICY, 32'h0, 32'h0, 3'd0, "createpolicy: create token 1");
-        test_cache_policy(`CACHE_CREATEPOLICY, 32'h0, 32'h0, 3'd0, "createpolicy: create token 2");
-
-        // Apply priority to cache lines
-        test_cache_policy(`CACHE_APPLYPRIORITY, 32'h00001000, 32'h02, 3'd1, "applypriority: apply to L1");
-
-        // Discard cache lines
-        test_cache_policy(`CACHE_DISCARD, 32'h00002000, 32'h0, 3'd2, "discard: invalidate L2 lines");
+        test_cache_op(`CACHE_CREATEPOLICY, 32'h0, 32'h0, 3'd0, "createpolicy: create token 1");
+        test_cache_op(`CACHE_CREATEPOLICY, 32'h0, 32'h0, 3'd0, "createpolicy: create token 2");
+        test_cache_op(`CACHE_APPLYPRIORITY, 32'h00001000, 32'h02, 3'd1, "applypriority: apply to L1");
+        test_cache_op(`CACHE_DISCARD, 32'h00002000, 32'h0, 3'd2, "discard: invalidate L2 lines");
 
         //====================================================================
         // GETCTARANK Test
@@ -304,8 +289,8 @@ module tb_cache_policy_unit;
 
         @(posedge clk);
         valid_in <= 1;
-        opcode <= `OP_GETCTARANK;
-        func <= 6'b0;
+        opcode <= `OP_CACHE_POLICY;
+        func <= `CACHE_GETCTARANK;
         @(posedge clk);
         valid_in <= 0;
 

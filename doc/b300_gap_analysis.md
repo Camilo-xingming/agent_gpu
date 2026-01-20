@@ -66,7 +66,7 @@
 - **纹理/表面/视频**：模块存在但未与 SM 接线；tex/txq/suld/sust/sured 待实现。
 - **调度/吞吐**：单/双 issue，与 B300 的 4-way warp scheduler 不符；缺少指令压缩/宏融合；SM 数量/前端带宽不匹配。
 - **Debug/栈/控制**：✅已完成（alloca/stacksave/stackrestore、brkpt/trap/nanosleep/pmevent/setmaxnreg）。
-- **指令尾项**：FP half/mixed compare 未完成；~~mapa/getctarank/isspacep/createpolicy/applypriority/discard~~ ✅已完成。
+- **指令尾项**：✅大部分完成（FP half/mixed compare ✅在fp16_unit实现；mapa/getctarank/isspacep/createpolicy/applypriority/discard ✅已实现）。
 - **性能/功耗建模**：无细粒度性能计数/功耗/时钟域管理；与实际芯片时序/功耗差距大（仅功能仿真）。
 - **顶层可扩展性**：多 SM/cluster 测试有限；IMEM/L2 总线宽度与 B300 不匹配；无高吞吐互连模型。
 
@@ -76,5 +76,5 @@
 3) ~~**同步增强**~~ ✅大部分完成：bar.warp.sync ✅、barrier.cluster 已部分实现（单SM）、match.sync ✅、red.async ✅、elect.sync ✅已实现；griddepcontrol 待实现，含 cluster token/ID 管理。
 4) ~~**缓存策略面**~~ ✅已完成：createpolicy/applypriority/discard ✅已实现；isspacep ✅已实现；mapa ✅已实现；getctarank ✅已实现。
 5) **纹理/视频接线**：接入 tex/txq/suld/sust/sured，补 SIMD 视频饱和/舍入；连通 dp4a/dp2a。
-6) ~~**指令完整性**~~ ✅大部分完成：栈/调试指令 ✅已实现；FP half/mixed compare 待实现。
+6) ~~**指令完整性**~~ ✅已完成：栈/调试指令 ✅已实现；FP half/mixed compare ✅在fp16_unit实现。
 7) **多 SM/cluster 回归**：扩大顶层回归覆盖带宽、barrier.cluster、TMA+compute 混合场景，校准 IMEM/L2 宽度与吞吐。
