@@ -111,7 +111,12 @@ module decoder (
     output reg         multimem_op,     // multimem operations (distributed shared memory)
 
     // 控制信号 - Barrier Cluster (Phase 3.2)
-    output reg         barrier_cluster_op  // barrier.cluster operations (cross-SM sync)
+    output reg         barrier_cluster_op,  // barrier.cluster operations (cross-SM sync)
+
+    // 控制信号 - Warp Collective (Phase 5.1)
+    output reg         match_sync_op,       // match.sync operations (warp-level predicate matching)
+    output reg         elect_sync_op,       // elect.sync operations (warp-level leader election)
+    output reg         red_async_op         // red.async operations (async reduction to shared memory)
 );
 
     //------------------------------------------------------------------------
@@ -197,6 +202,9 @@ module decoder (
             st_async_op <= 1'b0;
             multimem_op <= 1'b0;
             barrier_cluster_op <= 1'b0;
+            match_sync_op <= 1'b0;
+            elect_sync_op <= 1'b0;
+            red_async_op <= 1'b0;
         end else if (valid_in) begin
             valid_out <= 1'b1;
 
@@ -268,6 +276,9 @@ module decoder (
             st_async_op <= 1'b0;
             multimem_op <= 1'b0;
             barrier_cluster_op <= 1'b0;
+            match_sync_op <= 1'b0;
+            elect_sync_op <= 1'b0;
+            red_async_op <= 1'b0;
 
             // 根据OPCODE设置控制信号
             case (inst_opcode)
@@ -741,6 +752,38 @@ module decoder (
                     alu_op    <= 1'b1;
                     use_imm   <= 1'b1;
                     reg_write <= 1'b1;
+                end
+
+                //============================================================
+                // Phase 5.1: Warp Collective Operations (Hopper+)
+                //============================================================
+                `OP_MATCH_SYNC: begin
+                    // match.sync membermask, a, b - Warp-level predicate matching
+                    // Returns mask of threads where Ra value matches Rb value
+                    // membermask from Ra, comparison value from Rb
+                    match_sync_op <= 1'b1;
+                    sync_op <= 1'b1;  // Requires warp synchronization
+                    reg_write <= 1'b1;  // Writes result mask to Rd
+                    pred_write <= 1'b1; // Also sets predicate
+                end
+
+                `OP_ELECT_SYNC: begin
+                    // elect.sync membermask - Warp-level leader election
+                    // Elects one thread from participating threads
+                    // membermask from Ra, result (lane id) to Rd
+                    elect_sync_op <= 1'b1;
+                    sync_op <= 1'b1;  // Requires warp synchronization
+                    reg_write <= 1'b1;  // Writes elected lane id to Rd
+                    pred_write <= 1'b1; // Sets predicate true for elected thread
+                end
+
+                `OP_RED_ASYNC: begin
+                    // red.async.op dst, src - Async reduction to shared memory
+                    // Performs reduction across participating threads asynchronously
+                    // Writes result to shared memory address in Ra
+                    red_async_op <= 1'b1;
+                    // Non-blocking: warp continues execution
+                    // Signals mbarrier when complete
                 end
 
                 `OP_NOP: begin

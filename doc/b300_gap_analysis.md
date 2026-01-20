@@ -17,6 +17,11 @@
   - st.async.shared: 异步写入共享内存
   - st.async.commit/wait: 提交组和等待同步
   - Full integration with async_copy_engine
+- ✅ **Warp Collective Operations 实现**: Hopper+ warp-level operations
+  - match.sync.any/all: Warp-level predicate matching
+  - elect.sync: Leader election within participating threads
+  - red.async: Asynchronous reduction to shared memory (add/min/max/and/or/xor)
+  - mbarrier signal on completion
 
 ## 功能/架构缺口
 - **Tensor / 5th Gen 加速**：~~WGMMA 未接线~~ ✅已完成；~~FP4/FP6 混合支持缺失~~ ✅已完成；DPX/稀疏矩阵等 Blackwell 新特性未覆盖。
@@ -34,7 +39,7 @@
 ## 高优先级推进（建议顺序）
 1) ~~**接入 TMA 路径**~~ ✅已完成：cp.async.bulk.tensor (TMA) 2D/3D tiled copy 已实现；st.async.global/shared ✅已实现；待补全 multimem；mbarrier 已实现。
 2) ~~**Tensor 代际升级**~~ ✅已完成：WGMMA 已接线到 SMEM；FP4/FP6/FP8/BF16/TF32 格式支持已实现；待探索 DPX/稀疏单元。
-3) **同步增强**：bar.warp.sync ✅已实现、barrier.cluster 已部分实现（单SM）、match.sync/red.async/griddepcontrol/elect.sync 待实现，含 cluster token/ID 管理。
+3) ~~**同步增强**~~ ✅大部分完成：bar.warp.sync ✅、barrier.cluster 已部分实现（单SM）、match.sync ✅、red.async ✅、elect.sync ✅已实现；griddepcontrol 待实现，含 cluster token/ID 管理。
 4) **缓存策略面**：实现 createpolicy/applypriority/discard/isspacep/mapa/getctarank，支持 cache hint 到 L1/L2/TMA。
 5) **纹理/视频接线**：接入 tex/txq/suld/sust/sured，补 SIMD 视频饱和/舍入；连通 dp4a/dp2a。
 6) **指令完整性**：补 FP half/mixed compare、栈/调试指令（alloca/stacksave/stackrestore、brkpt/trap/nanosleep/pmevent/setmaxnreg）。

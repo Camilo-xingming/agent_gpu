@@ -193,6 +193,26 @@
 `define CLUSTER_BARRIER_SYNC     6'b000010   // barrier.cluster.sync - Combined arrive + wait
 `define CLUSTER_BARRIER_INIT     6'b000011   // barrier.cluster.init - Initialize cluster barrier
 
+// Phase 5.1: Warp-level Collective Operations (Hopper+)
+`define OP_MATCH_SYNC   6'b111011   // match.sync - Warp-level predicate matching
+`define OP_ELECT_SYNC   6'b111100   // elect.sync - Warp-level leader election
+`define OP_RED_ASYNC    6'b111101   // red.async - Async reduction to shared memory
+
+// match.sync function codes (for OP_MATCH_SYNC)
+`define MATCH_ANY       6'b000000   // match.sync.any - Match any thread with same value
+`define MATCH_ALL       6'b000001   // match.sync.all - Match all threads must have same value
+
+// elect.sync function codes (for OP_ELECT_SYNC)
+`define ELECT_SYNC_ONE  6'b000000   // elect.sync.one - Elect one thread (leader election)
+
+// red.async function codes (for OP_RED_ASYNC)
+`define RED_ASYNC_ADD   6'b000000   // red.async.add - Async reduction add
+`define RED_ASYNC_MIN   6'b000001   // red.async.min - Async reduction min
+`define RED_ASYNC_MAX   6'b000010   // red.async.max - Async reduction max
+`define RED_ASYNC_AND   6'b000011   // red.async.and - Async reduction bitwise AND
+`define RED_ASYNC_OR    6'b000100   // red.async.or  - Async reduction bitwise OR
+`define RED_ASYNC_XOR   6'b000101   // red.async.xor - Async reduction bitwise XOR
+
 // Phase 6.2: Stack and Debug Instructions
 `define OP_STACK        6'b110101   // Stack operations (alloca/stacksave/stackrestore)
 `define OP_DEBUG        6'b110110   // Debug operations (brkpt/trap/pmevent)
