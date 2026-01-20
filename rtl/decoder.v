@@ -116,7 +116,11 @@ module decoder (
     // 控制信号 - Warp Collective (Phase 5.1)
     output reg         match_sync_op,       // match.sync operations (warp-level predicate matching)
     output reg         elect_sync_op,       // elect.sync operations (warp-level leader election)
-    output reg         red_async_op         // red.async operations (async reduction to shared memory)
+    output reg         red_async_op,        // red.async operations (async reduction to shared memory)
+
+    // 控制信号 - DPX/Sparse (Phase 5.2/5.3)
+    output reg         dpx_op,              // DPX operations (dynamic programming)
+    output reg         sparse_mma_op        // Sparse MMA operations (2:4 sparsity)
 );
 
     //------------------------------------------------------------------------
@@ -205,6 +209,8 @@ module decoder (
             match_sync_op <= 1'b0;
             elect_sync_op <= 1'b0;
             red_async_op <= 1'b0;
+            dpx_op <= 1'b0;
+            sparse_mma_op <= 1'b0;
         end else if (valid_in) begin
             valid_out <= 1'b1;
 
@@ -279,6 +285,8 @@ module decoder (
             match_sync_op <= 1'b0;
             elect_sync_op <= 1'b0;
             red_async_op <= 1'b0;
+            dpx_op <= 1'b0;
+            sparse_mma_op <= 1'b0;
 
             // 根据OPCODE设置控制信号
             case (inst_opcode)
@@ -784,6 +792,51 @@ module decoder (
                     red_async_op <= 1'b1;
                     // Non-blocking: warp continues execution
                     // Signals mbarrier when complete
+                end
+
+                //============================================================
+                // Phase 5.2: DPX Instructions (Blackwell Dynamic Programming)
+                //============================================================
+                `OP_DPX: begin
+                    // DPX operations for dynamic programming acceleration
+                    // Used in Viterbi, DTW, sequence alignment, Smith-Waterman
+                    // func field specifies operation: viaddmin, viaddmax, etc.
+                    dpx_op <= 1'b1;
+                    reg_write <= 1'b1;  // All DPX ops write result to Rd
+                    `ifdef SIMULATION
+                    $display("[DECODER] DPX: func=%0d rd=R%0d ra=R%0d rb=R%0d rc=R%0d",
+                             inst_func, inst_rd, inst_ra, inst_rb, inst_rc);
+                    `endif
+                end
+
+                //============================================================
+                // Phase 5.3: Sparse MMA Operations (Blackwell 2:4 Sparsity)
+                //============================================================
+                `OP_SPARSE_MMA: begin
+                    // Sparse matrix operations with 2:4 structured sparsity
+                    // 50% compression with 2 non-zero values per 4 elements
+                    sparse_mma_op <= 1'b1;
+                    reg_write <= 1'b1;  // MMA results written to accumulator registers
+                    case (inst_func)
+                        `SPARSE_COMPRESS: begin
+                            // Compress dense matrix to sparse format
+                            `ifdef SIMULATION
+                            $display("[DECODER] SPARSE_COMPRESS: compressing dense to 2:4 sparse");
+                            `endif
+                        end
+                        `SPARSE_DECOMPRESS: begin
+                            // Decompress sparse matrix to dense format
+                            `ifdef SIMULATION
+                            $display("[DECODER] SPARSE_DECOMPRESS: decompressing 2:4 sparse to dense");
+                            `endif
+                        end
+                        default: begin
+                            // Sparse MMA operations
+                            `ifdef SIMULATION
+                            $display("[DECODER] SPARSE_MMA: func=%0d", inst_func);
+                            `endif
+                        end
+                    endcase
                 end
 
                 `OP_NOP: begin

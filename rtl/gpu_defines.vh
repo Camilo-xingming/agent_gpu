@@ -213,6 +213,33 @@
 `define RED_ASYNC_OR    6'b000100   // red.async.or  - Async reduction bitwise OR
 `define RED_ASYNC_XOR   6'b000101   // red.async.xor - Async reduction bitwise XOR
 
+// Phase 5.2: DPX Instructions (Blackwell Dynamic Programming Extensions)
+`define OP_DPX          6'b111110   // DPX operations - Dynamic programming accelerator
+
+// DPX function codes (for OP_DPX)
+`define DPX_VIADDMIN    6'b000000   // viaddmin - add with min for Viterbi/DTW
+`define DPX_VIADDMAX    6'b000001   // viaddmax - add with max for sequence alignment
+`define DPX_VIMINABS    6'b000010   // viminabs - min of absolute values
+`define DPX_VIMAXABS    6'b000011   // vimaxabs - max of absolute values
+`define DPX_VIADDMINMAX 6'b000100   // viaddminmax - add with both min and max
+`define DPX_VIBMATCH    6'b000101   // vibmatch - bit match for pattern matching
+`define DPX_VIBSET      6'b000110   // vibset - bit set operations
+`define DPX_RELU        6'b000111   // relu - ReLU activation (max(0, x))
+`define DPX_TANH        6'b001000   // tanh approximation
+`define DPX_EXP2        6'b001001   // fast exp2 approximation
+
+// Phase 5.3: Sparse Tensor Operations (Blackwell 2:4 Structured Sparsity)
+`define OP_SPARSE_MMA   6'b111111   // Sparse MMA operations
+
+// Sparse MMA function codes (for OP_SPARSE_MMA)
+`define SPARSE_MMA_FP16     6'b000000   // Sparse FP16 MMA with 2:4 sparsity
+`define SPARSE_MMA_BF16     6'b000001   // Sparse BF16 MMA with 2:4 sparsity
+`define SPARSE_MMA_TF32     6'b000010   // Sparse TF32 MMA with 2:4 sparsity
+`define SPARSE_MMA_INT8     6'b000011   // Sparse INT8 MMA with 2:4 sparsity
+`define SPARSE_MMA_FP8      6'b000100   // Sparse FP8 MMA with 2:4 sparsity
+`define SPARSE_COMPRESS     6'b001000   // Compress dense to 2:4 sparse format
+`define SPARSE_DECOMPRESS   6'b001001   // Decompress 2:4 sparse to dense
+
 // Phase 6.2: Stack and Debug Instructions
 `define OP_STACK        6'b110101   // Stack operations (alloca/stacksave/stackrestore)
 `define OP_DEBUG        6'b110110   // Debug operations (brkpt/trap/pmevent)

@@ -28,9 +28,20 @@
   - multimem.red: Multicast reduction (add/min/max/and/or/xor)
   - Address format: [31:24]=target_mask, [23:0]=smem_addr
   - Cluster interconnect interface for cross-SM operations
+- ✅ **DPX Unit 实现**: Dynamic Programming Extensions (Blackwell)
+  - viaddmin/viaddmax: min/max(a+b, c) for Viterbi/sequence alignment
+  - viminabs/vimaxabs: min/max of absolute values
+  - viaddminmax: Dual min/max output for bidirectional DP
+  - vibmatch/vibset: Bit pattern matching and selection
+  - relu/tanh/exp2: Activation function approximations
+- ✅ **Sparse MMA Unit 实现**: 2:4 Structured Sparsity Support
+  - 50% compression with 2 non-zero values per 4 elements
+  - Sparse compress/decompress operations
+  - Sparse MMA for FP16/BF16/TF32/INT8/FP8 formats
+  - Decompression pipeline for sparse-to-dense conversion
 
 ## 功能/架构缺口
-- **Tensor / 5th Gen 加速**：~~WGMMA 未接线~~ ✅已完成；~~FP4/FP6 混合支持缺失~~ ✅已完成；DPX/稀疏矩阵等 Blackwell 新特性未覆盖。
+- **Tensor / 5th Gen 加速**：~~WGMMA 未接线~~ ✅已完成；~~FP4/FP6 混合支持缺失~~ ✅已完成；~~DPX/稀疏矩阵~~ ✅已完成。
 - **TMA / Async Memory**：~~`OP_CPASYNC` 为固定延迟计数 stub~~ ✅TMA 2D/3D tiled copy 已实现；~~`st.async` 未实现~~ ✅st.async.global/shared 已实现；~~`multimem` 待实现~~ ✅multimem.ld/st/red 已实现；`st.bulk` 待实现；`mbarrier` ✅已实现、`cluster` 协同部分缺失。
 - **同步与集群**：仅有 `bar.sync`，缺 `bar.warp.sync`、`barrier.cluster`、`match.sync`、`red.async`、`griddepcontrol`、`elect.sync`、`mbarrier`；无 cluster 级 barrier/调度。
 - **缓存/策略控制**：cache policy 指令（createpolicy/applypriority/discard/prefetch hints）未落地；无动态缓存优先级/策略管理。
@@ -44,7 +55,7 @@
 
 ## 高优先级推进（建议顺序）
 1) ~~**接入 TMA 路径**~~ ✅已完成：cp.async.bulk.tensor (TMA) 2D/3D tiled copy 已实现；st.async.global/shared ✅已实现；multimem.ld/st/red ✅已实现；mbarrier 已实现。
-2) ~~**Tensor 代际升级**~~ ✅已完成：WGMMA 已接线到 SMEM；FP4/FP6/FP8/BF16/TF32 格式支持已实现；待探索 DPX/稀疏单元。
+2) ~~**Tensor 代际升级**~~ ✅已完成：WGMMA 已接线到 SMEM；FP4/FP6/FP8/BF16/TF32 格式支持已实现；DPX/稀疏单元 ✅已实现。
 3) ~~**同步增强**~~ ✅大部分完成：bar.warp.sync ✅、barrier.cluster 已部分实现（单SM）、match.sync ✅、red.async ✅、elect.sync ✅已实现；griddepcontrol 待实现，含 cluster token/ID 管理。
 4) **缓存策略面**：实现 createpolicy/applypriority/discard/isspacep/mapa/getctarank，支持 cache hint 到 L1/L2/TMA。
 5) **纹理/视频接线**：接入 tex/txq/suld/sust/sured，补 SIMD 视频饱和/舍入；连通 dp4a/dp2a。
