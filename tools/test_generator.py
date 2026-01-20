@@ -322,6 +322,179 @@ class MemoryTestGenerator:
         return tests
 
 
+class DivTestGenerator:
+    """Generate integer division and remainder test cases"""
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def gen_div_s32_tests(self, count: int = 10) -> List[TestCase]:
+        """Generate div.s32 (signed division) test cases"""
+        tests = []
+
+        # Edge cases first
+        edge_cases = [
+            (10, 3),      # Simple positive
+            (-10, 3),     # Negative dividend
+            (10, -3),     # Negative divisor
+            (-10, -3),    # Both negative
+            (0, 5),       # Zero dividend
+            (100, 1),     # Division by 1
+            (-100, 1),    # Negative divided by 1
+            (0x7FFFFFFF, 2),  # Large positive
+        ]
+
+        for i, (a_s, b_s) in enumerate(edge_cases[:count]):
+            a = a_s & 0xFFFFFFFF
+            b = b_s & 0xFFFFFFFF
+
+            # Python truncation toward zero (same as C/PTX)
+            if b_s != 0:
+                expected_s = int(a_s / b_s)  # Truncate toward zero
+            else:
+                expected_s = 0xFFFFFFFF if a_s >= 0 else 1
+
+            expected = expected_s & 0xFFFFFFFF
+
+            tests.append(TestCase(
+                name=f"div_s32_{i:03d}",
+                category="div",
+                ptx_code=[
+                    f"mov.u32 r1, {a}",
+                    f"mov.u32 r2, {b}",
+                    "div.s32 r3, r1, r2",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={3: expected}
+            ))
+
+        return tests
+
+    def gen_div_u32_tests(self, count: int = 10) -> List[TestCase]:
+        """Generate div.u32 (unsigned division) test cases"""
+        tests = []
+
+        edge_cases = [
+            (100, 3),      # Simple
+            (0, 5),        # Zero dividend
+            (100, 1),      # Division by 1
+            (0xFFFFFFFF, 2),  # Large number
+            (0x80000000, 2),  # Sign bit set
+            (1000, 10),
+            (255, 16),
+            (1024, 32),
+        ]
+
+        for i, (a, b) in enumerate(edge_cases[:count]):
+            if b != 0:
+                expected = a // b
+            else:
+                expected = 0xFFFFFFFF
+
+            tests.append(TestCase(
+                name=f"div_u32_{i:03d}",
+                category="div",
+                ptx_code=[
+                    f"mov.u32 r1, {a}",
+                    f"mov.u32 r2, {b}",
+                    "div.u32 r3, r1, r2",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={3: expected}
+            ))
+
+        return tests
+
+    def gen_rem_s32_tests(self, count: int = 10) -> List[TestCase]:
+        """Generate rem.s32 (signed remainder) test cases"""
+        tests = []
+
+        edge_cases = [
+            (10, 3),      # 10 % 3 = 1
+            (-10, 3),     # -10 % 3 = -1 (C/PTX truncation)
+            (10, -3),     # 10 % -3 = 1
+            (-10, -3),    # -10 % -3 = -1
+            (0, 5),       # 0 % 5 = 0
+            (7, 7),       # 7 % 7 = 0
+            (100, 10),    # 100 % 10 = 0
+            (-17, 5),     # -17 % 5 = -2
+        ]
+
+        for i, (a_s, b_s) in enumerate(edge_cases[:count]):
+            a = a_s & 0xFFFFFFFF
+            b = b_s & 0xFFFFFFFF
+
+            if b_s != 0:
+                # Remainder has same sign as dividend (truncation toward zero)
+                expected_s = a_s - int(a_s / b_s) * b_s
+            else:
+                expected_s = a_s
+
+            expected = expected_s & 0xFFFFFFFF
+
+            tests.append(TestCase(
+                name=f"rem_s32_{i:03d}",
+                category="div",
+                ptx_code=[
+                    f"mov.u32 r1, {a}",
+                    f"mov.u32 r2, {b}",
+                    "rem.s32 r3, r1, r2",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={3: expected}
+            ))
+
+        return tests
+
+    def gen_rem_u32_tests(self, count: int = 10) -> List[TestCase]:
+        """Generate rem.u32 (unsigned remainder) test cases"""
+        tests = []
+
+        edge_cases = [
+            (10, 3),      # 10 % 3 = 1
+            (100, 7),     # 100 % 7 = 2
+            (0, 5),       # 0 % 5 = 0
+            (255, 16),    # 255 % 16 = 15
+            (1000, 100),  # 1000 % 100 = 0
+            (0xFFFFFFFF, 10),  # Large % 10
+            (123, 123),   # n % n = 0
+            (50, 100),    # a < b: a % b = a
+        ]
+
+        for i, (a, b) in enumerate(edge_cases[:count]):
+            if b != 0:
+                expected = a % b
+            else:
+                expected = a
+
+            tests.append(TestCase(
+                name=f"rem_u32_{i:03d}",
+                category="div",
+                ptx_code=[
+                    f"mov.u32 r1, {a}",
+                    f"mov.u32 r2, {b}",
+                    "rem.u32 r3, r1, r2",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={3: expected}
+            ))
+
+        return tests
+
+    def gen_all_div_tests(self) -> List[TestCase]:
+        """Generate all DIV/REM test cases"""
+        tests = []
+        tests.extend(self.gen_div_s32_tests(8))
+        tests.extend(self.gen_div_u32_tests(8))
+        tests.extend(self.gen_rem_s32_tests(8))
+        tests.extend(self.gen_rem_u32_tests(8))
+        return tests
+
+
 class BranchTestGenerator:
     """Generate branch/control flow test cases"""
 
@@ -547,8 +720,19 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(branch_tests)} Branch tests")
 
+    # DIV/REM tests
+    div_gen = DivTestGenerator(seed=42)
+    div_tests = div_gen.gen_all_div_tests()
+    print(f"Generated {len(div_tests)} DIV/REM tests")
+
+    success_count = 0
+    for test in div_tests:
+        if write_test_case(test, output_dir / "div"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(div_tests)} DIV/REM tests")
+
     # Summary
-    total_tests = len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests)
+    total_tests = len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) + len(div_tests)
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -573,7 +757,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -607,6 +791,11 @@ def main():
             tests = gen.gen_all_branch_tests()
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "branch"))
             print(f"Generated {success}/{len(tests)} Branch tests")
+        elif args.gen == "div":
+            gen = DivTestGenerator(seed=args.seed)
+            tests = gen.gen_all_div_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "div"))
+            print(f"Generated {success}/{len(tests)} DIV/REM tests")
     else:
         parser.print_help()
 

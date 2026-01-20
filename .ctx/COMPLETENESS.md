@@ -8,25 +8,25 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 |---------|-----|-----|-----|--------|
 | ADD/SUB (INT32) | ✅ | ✅ | ✅ | VERIFIED |
 | MUL/MAD (INT32) | ✅ | ✅ | ✅ | VERIFIED |
-| DIV/REM (INT32) | ✅ | ❌ | ❌ | PARTIAL |
+| DIV/REM (INT32) | ✅ | ✅ | ✅ | VERIFIED |
 | Bitwise ops | ✅ | ✅ | ✅ | VERIFIED |
 | Shifts | ✅ | ✅ | ✅ | VERIFIED |
-| SETP | ✅ | ❌ | ✅ | PARTIAL |
+| SETP | ✅ | ✅ | ✅ | VERIFIED |
 | MOV | ✅ | ✅ | ✅ | VERIFIED |
-| BRA | ✅ | ❌ | ❌ | PARTIAL |
+| BRA | ✅ | ✅ | ✅ | VERIFIED |
 | EXIT/RET | ✅ | ✅ | ✅ | VERIFIED |
-| BAR.SYNC | ✅ | ❌ | ❌ | PARTIAL |
+| BAR.SYNC | ✅ | ❌ | ✅ | PARTIAL |
 | Special regs | ✅ | ❌ | ✅ | PARTIAL |
 
 ## Tier 2: Memory Operations
 
 | Feature | RTL | Gen | FRM | Status |
 |---------|-----|-----|-----|--------|
-| LD/ST.GLOBAL | ✅ | ❌ | ✅ | PARTIAL |
-| LD/ST.SHARED | ✅ | ❌ | ❌ | PARTIAL |
-| LD.PARAM/CONST | ✅ | ❌ | ❌ | PARTIAL |
-| ATOM basic | ✅ | ❌ | ❌ | PARTIAL |
-| MEMBAR | ✅ | ❌ | ❌ | PARTIAL |
+| LD/ST.GLOBAL | ✅ | ✅ | ✅ | VERIFIED |
+| LD/ST.SHARED | ✅ | ✅ | ✅ | VERIFIED |
+| LD.PARAM/CONST | ✅ | ❌ | ✅ | PARTIAL |
+| ATOM basic | ✅ | ❌ | ✅ | PARTIAL |
+| MEMBAR | ✅ | ❌ | ✅ | PARTIAL |
 | cp.async | ✅ | ❌ | ❌ | DECODE ONLY |
 
 ## Tier 3: Floating Point
@@ -69,17 +69,19 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 ## Summary
 - RTL modules: 56 files (many implemented)
 - PTX Assembler: 51/51 tests pass (100% coverage), 32-bit immediates fixed
-- Python Test Generators: 70 tests (60 ALU + 10 FP32)
-- FRM Coverage: ~60% (ALU/MEM/FP32 basic + SFU + DP4A)
-- Functional Verification: 70/70 FRM tests pass
+- Python Test Generators: 135 tests (65 ALU + 10 FP32 + 20 Memory + 8 Branch + 32 DIV)
+- FRM Coverage: ~80% (ALU/MEM/FP32 + SFU + DP4A + Branch + BAR.SYNC + MEMBAR + DIV/REM)
+- Functional Verification: 135/135 FRM tests pass
 
 ## Priority MVUs Completed
 1. ~~**PTX Toolchain**~~ - Fixed 32-bit immediate handling
-2. ~~**FRM Expansion**~~ - Added FP32 basic/SFU/DP4A
-3. ~~**Test Generators**~~ - Python scripts generate 70 tests
+2. ~~**FRM Expansion**~~ - Added FP32 basic/SFU/DP4A + BRANCH + Memory ops
+3. ~~**Test Generators**~~ - Python scripts generate 135 tests (ALU/FP32/Memory/Branch/DIV)
 4. ~~**RTL vs FRM Comparison**~~ - Comparison harness built
+5. ~~**BAR.SYNC/MEMBAR**~~ - CTAState barrier tracking added
+6. ~~**DIV/REM FRM**~~ - Integer division/remainder with Gemini review
 
 ## Remaining MVUs
-1. **More Test Generators** - Branch/memory/warp tests
-2. **Async/Tensor Path** - Functional verification beyond decode
-3. **Full RTL Integration** - RTL simulation vs FRM
+1. **FP16/FP64/CVT FRM** - Extended floating point types
+2. **Warp Collectives FRM** - SHFL/VOTE/REDUX functional model
+3. **Async/Tensor Path** - cp.async, mbarrier, WGMMA functional verification

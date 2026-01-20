@@ -185,7 +185,23 @@ This file contains summaries of completed and verified Minimal Verifiable Units 
 
 ---
 
+## MVU-018: DIV/REM Integer FRM Support
+**Completed**: 2026-01-20
+**Scope**: Integer division and remainder operations in FRM
+**Tools**: tools/gpu_simulator.py, tools/test_generator.py
+**Features**:
+- DIV handler in execute_warp for div.s32, div.u32, rem.s32, rem.u32
+- DivTestGenerator class with 32 test cases (8 each type)
+- Signed division truncates toward zero (PTX compliant)
+- Signed remainder has same sign as dividend (PTX compliant)
+- Division by zero handling (returns defined fallback values)
+**Tests**: 135/135 pass (65 ALU + 10 FP32 + 20 Memory + 8 Branch + 32 DIV)
+**Verification**: Gemini review PASS
+**Process**: Codex implemented, Gemini reviewed (PASS)
+
+---
+
 ## Regression Summary
 - All archived MVUs continue to pass in regression testing
-- Total unique test cases: 375+
+- Total unique test cases: 400+
 - Coverage: Tier 1-7 RTL, Tier 1/3 verified with generators

@@ -21,7 +21,8 @@
 | 9 | FRM branch model lacks per-thread divergence/reconvergence (thread0-only control) | ❌ PENDING |
 | 10 | BAR.SYNC/MEMBAR have no FRM semantics | ✅ FIXED (CTAState + barrier tracking added) |
 | 11 | Test generators missing branch/memory/warp cases | ✅ FIXED (MemoryTestGenerator + BranchTestGenerator added) |
-| 12 | FRM missing FP16/FP64/CVT and INT div/rem execution | ❌ PENDING |
+| 12 | FRM missing FP16/FP64/CVT execution | ❌ PENDING |
+| 13 | INT div/rem execution | ✅ FIXED (DIV/REM handler + 32 tests) |
 
 ### Gemini Issues
 | # | Issue | Status |
@@ -45,19 +46,21 @@
 10. ✅ Test Generator: Added BranchTestGenerator (bra, setp+predicated)
 11. ✅ Assembler: Fixed branch offset (bytes→instructions)
 12. ✅ Assembler: Fixed predicated branch encoding (rd[4]=1)
+13. ✅ FRM: Added DIV/REM handler (div.s32, div.u32, rem.s32, rem.u32)
+14. ✅ Test Generator: Added DivTestGenerator (32 tests)
 
 ### Test Coverage
 - PTX Assembler: 51/51 pass (100%)
-- Generated Tests: 103/103 pass (ALU 65 + FP32 10 + Memory 20 + Branch 8)
+- Generated Tests: 135/135 pass (ALU 65 + FP32 10 + Memory 20 + Branch 8 + DIV 32)
 - RTL Unit Tests: ALU 26/26, FPU 26/26, B300 145/145
 
 ## Next MVU (per PROCESS LOOP)
-**FRM Memory/Branch Fidelity** - Add per-thread branch divergence + reconvergence, BAR.SYNC/MEMBAR semantics, and LD/ST.shared/global coverage with matching generators/FRM
+**FP16/FP64/CVT FRM** - Add extended floating point types to FRM
 
 ## Pending Issues Summary
-- ❌ PENDING: 10 issues
+- ❌ PENDING: 9 issues
 - ⚠️ PARTIAL: 0 issues
-- ✅ FIXED: 7 issues
+- ✅ FIXED: 8 issues
 
 ## Next Action
 Continue PROCESS LOOP: ASK Codex/Gemini for next MVU priority

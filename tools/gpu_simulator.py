@@ -423,6 +423,42 @@ class RalphGPUSimulator:
                     c = thread.registers[rc]
                     thread.registers[rd] = ((a * b) + c) & 0xFFFFFFFF
 
+            elif opcode == Opcode.DIV:
+                a = thread.registers[ra] & 0xFFFFFFFF
+                b = thread.registers[rb] & 0xFFFFFFFF
+                if func == 0:  # div.s32 (signed division)
+                    # Convert to signed
+                    a_s = a if a < 0x80000000 else a - 0x100000000
+                    b_s = b if b < 0x80000000 else b - 0x100000000
+                    if b_s != 0:
+                        # Python integer division rounds toward negative infinity
+                        # PTX/C integer division truncates toward zero
+                        result = int(a_s / b_s)  # Use true division then truncate
+                    else:
+                        result = 0xFFFFFFFF if a_s >= 0 else 1  # Undefined, use INT_MAX/-1
+                    thread.registers[rd] = result & 0xFFFFFFFF
+                elif func == 1:  # div.u32 (unsigned division)
+                    if b != 0:
+                        result = a // b
+                    else:
+                        result = 0xFFFFFFFF  # Undefined, use UINT_MAX
+                    thread.registers[rd] = result & 0xFFFFFFFF
+                elif func == 2:  # rem.s32 (signed remainder)
+                    a_s = a if a < 0x80000000 else a - 0x100000000
+                    b_s = b if b < 0x80000000 else b - 0x100000000
+                    if b_s != 0:
+                        # Remainder has same sign as dividend (truncation toward zero)
+                        result = a_s - int(a_s / b_s) * b_s
+                    else:
+                        result = a_s  # Undefined, return dividend
+                    thread.registers[rd] = result & 0xFFFFFFFF
+                elif func == 3:  # rem.u32 (unsigned remainder)
+                    if b != 0:
+                        result = a % b
+                    else:
+                        result = a  # Undefined, return dividend
+                    thread.registers[rd] = result & 0xFFFFFFFF
+
             elif opcode == Opcode.MOV_SPECIAL:
                 thread.registers[rd] = self.get_special_reg(thread, warp, sm_id, ra)
 
