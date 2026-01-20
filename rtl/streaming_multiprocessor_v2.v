@@ -567,6 +567,10 @@ module streaming_multiprocessor_v2 #(
     wire                  tex_mem_write;
     wire [31:0]           tex_mem_addr;
     wire [127:0]          tex_mem_wdata;
+    reg                   tex_mem_pending;  // Track pending texture memory request
+    wire                  tex_mem_ready;    // Ready signal to texture unit
+    wire [127:0]          tex_mem_rdata;    // Read data to texture unit
+    wire                  tex_mem_valid;    // Response valid to texture unit
 
     // Global Memory Signals
     wire                  gmem_req_valid;
@@ -3318,14 +3322,14 @@ module streaming_multiprocessor_v2 #(
         // Store data for surface writes
         .store_data     ({tex_store_data[127:0]}),
 
-        // Memory interface - simplified (not connected to L2 in this phase)
+        // Memory interface - connected to global memory arbiter
         .mem_req        (tex_mem_req),
         .mem_write      (tex_mem_write),
         .mem_addr       (tex_mem_addr),
         .mem_wdata      (tex_mem_wdata),
-        .mem_ready      (1'b1),
-        .mem_rdata      (128'b0),
-        .mem_valid      (1'b0),
+        .mem_ready      (tex_mem_ready),
+        .mem_rdata      (tex_mem_rdata),
+        .mem_valid      (tex_mem_valid),
 
         .result         (tex_result),
         .valid_out      (tex_valid_out),
@@ -4103,17 +4107,26 @@ module streaming_multiprocessor_v2 #(
                                  (issue_mem_read || issue_mem_write);
     wire gmem_normal_req_write = issue_mem_write;
 
-    // Mux between normal and ACE requests
+    // Priority: Normal > ACE > Texture
     // ACE requests only when no normal request and ACE has pending work
     wire gmem_use_ace = ace_gmem_req_valid && !gmem_normal_req_valid && !ace_mem_pending;
+    // Texture requests only when no normal or ACE request
+    wire gmem_use_tex = tex_mem_req && !gmem_normal_req_valid && !gmem_use_ace && !tex_mem_pending;
 
-    assign gmem_req_valid = gmem_normal_req_valid || gmem_use_ace;
-    assign gmem_req_write = gmem_use_ace ? 1'b0 : gmem_normal_req_write;  // ACE only reads
+    assign gmem_req_valid = gmem_normal_req_valid || gmem_use_ace || gmem_use_tex;
+    assign gmem_req_write = gmem_use_ace ? 1'b0 :
+                            gmem_use_tex ? tex_mem_write :
+                            gmem_normal_req_write;
 
     // For ACE: replicate single address across all lanes (only lane 0 matters)
     wire [NUM_LANES*32-1:0] ace_replicated_addr = {NUM_LANES{ace_gmem_req_addr}};
-    assign gmem_req_addr = gmem_use_ace ? ace_replicated_addr : rf_rd_data_a;
-    assign gmem_req_wdata = rf_rd_data_b;  // ACE doesn't write
+    wire [NUM_LANES*32-1:0] tex_replicated_addr = {NUM_LANES{tex_mem_addr}};
+    assign gmem_req_addr = gmem_use_ace ? ace_replicated_addr :
+                           gmem_use_tex ? tex_replicated_addr :
+                           rf_rd_data_a;
+    // Write data: texture uses 128-bit width replicated to lanes 0-3
+    wire [SIMD_WIDTH-1:0] tex_wdata_extended = {{(SIMD_WIDTH-128){1'b0}}, tex_mem_wdata};
+    assign gmem_req_wdata = gmem_use_tex ? tex_wdata_extended : rf_rd_data_b;
 
     // Track ACE memory request state
     always @(posedge clk or negedge rst_n) begin
@@ -4127,17 +4140,37 @@ module streaming_multiprocessor_v2 #(
                 ace_mem_pending <= 1'b1;
                 ace_mem_addr_saved <= ace_gmem_req_addr;
                 ace_mem_size_saved <= ace_gmem_req_size;
-            end else if (ace_mem_pending && gmem_resp_valid) begin
-                // ACE response received
+            end else if (ace_mem_pending && gmem_resp_valid && !tex_mem_pending) begin
+                // ACE response received (only when not waiting for tex)
                 ace_mem_pending <= 1'b0;
+            end
+        end
+    end
+
+    // Track Texture memory request state
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            tex_mem_pending <= 1'b0;
+        end else begin
+            if (gmem_use_tex && gmem_req_ready) begin
+                // Texture request accepted
+                tex_mem_pending <= 1'b1;
+            end else if (tex_mem_pending && gmem_resp_valid && !ace_mem_pending) begin
+                // Texture response received (only when not waiting for ACE)
+                tex_mem_pending <= 1'b0;
             end
         end
     end
 
     // Route response to ACE when ACE request is pending
     // Extract 128-bit data from lane 0-3 of the response
-    assign ace_gmem_resp_valid = ace_mem_pending && gmem_resp_valid;
+    assign ace_gmem_resp_valid = ace_mem_pending && gmem_resp_valid && !tex_mem_pending;
     assign ace_gmem_resp_data = {gmem_resp_rdata[127:0]};  // First 128 bits (4 lanes)
+
+    // Route response to Texture unit
+    assign tex_mem_ready = !tex_mem_pending && gmem_req_ready;  // Ready when not pending
+    assign tex_mem_valid = tex_mem_pending && gmem_resp_valid && !ace_mem_pending;
+    assign tex_mem_rdata = gmem_resp_rdata[127:0];  // First 128 bits
 
     // DEBUG: trace first few load/store operations
     reg [3:0] gmem_debug_cnt;
