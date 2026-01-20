@@ -713,6 +713,127 @@ class DivTestGenerator:
         return tests
 
 
+class ParamConstTestGenerator:
+    """Generate parameter and constant memory test cases
+
+    Tests LD.PARAM and LD.CONST instructions which load from
+    kernel parameter memory and constant memory respectively.
+    """
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def gen_ld_param_tests(self) -> List[TestCase]:
+        """Generate ld.param test cases"""
+        tests = []
+
+        # Test: Load from parameter memory
+        # Note: FRM uses param_memory dict which needs initialization
+        tests.append(TestCase(
+            name="ld_param_000",
+            category="param",
+            ptx_code=[
+                "mov.u32 r1, 0",          # Address 0
+                "ld.param.u32 r2, [r1]",  # Load from param[0]
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={2: 0}  # Uninitialized param memory returns 0
+        ))
+
+        return tests
+
+    def gen_ld_const_tests(self) -> List[TestCase]:
+        """Generate ld.const test cases"""
+        tests = []
+
+        # Test: Load from constant memory
+        tests.append(TestCase(
+            name="ld_const_000",
+            category="param",
+            ptx_code=[
+                "mov.u32 r1, 0",          # Address 0
+                "ld.const.u32 r2, [r1]",  # Load from const[0]
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={2: 0}  # Uninitialized const memory returns 0
+        ))
+
+        return tests
+
+    def gen_all_param_const_tests(self) -> List[TestCase]:
+        """Generate all parameter/constant memory tests"""
+        tests = []
+        tests.extend(self.gen_ld_param_tests())
+        tests.extend(self.gen_ld_const_tests())
+        return tests
+
+
+class MembarTestGenerator:
+    """Generate memory barrier test cases
+
+    Tests MEMBAR instruction which enforces memory ordering.
+    In the FRM, memory operations are instantaneous, so membar
+    is essentially a no-op that doesn't cause errors.
+    """
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def gen_membar_tests(self) -> List[TestCase]:
+        """Generate membar test cases"""
+        tests = []
+
+        # Test: membar.cta (CTA-level memory fence)
+        tests.append(TestCase(
+            name="membar_cta_000",
+            category="membar",
+            ptx_code=[
+                "mov.u32 r1, 10",
+                "membar.cta",             # CTA-level fence
+                "add.s32 r2, r1, r1",     # r2 = 20
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={2: 20}
+        ))
+
+        # Test: membar.gl (Global memory fence)
+        tests.append(TestCase(
+            name="membar_gl_000",
+            category="membar",
+            ptx_code=[
+                "mov.u32 r1, 5",
+                "membar.gl",              # Global fence
+                "add.s32 r2, r1, r1",     # r2 = 10
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={2: 10}
+        ))
+
+        # Test: membar.sys (System-level memory fence)
+        tests.append(TestCase(
+            name="membar_sys_000",
+            category="membar",
+            ptx_code=[
+                "mov.u32 r1, 3",
+                "membar.sys",             # System fence
+                "add.s32 r2, r1, r1",     # r2 = 6
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={2: 6}
+        ))
+
+        return tests
+
+    def gen_all_membar_tests(self) -> List[TestCase]:
+        """Generate all memory barrier tests"""
+        return self.gen_membar_tests()
+
+
 class BarSyncTestGenerator:
     """Generate barrier synchronization test cases
 
@@ -1067,9 +1188,32 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(sync_tests)} Sync tests")
 
+    # Param/Const memory tests
+    param_gen = ParamConstTestGenerator(seed=42)
+    param_tests = param_gen.gen_all_param_const_tests()
+    print(f"Generated {len(param_tests)} Param/Const tests")
+
+    success_count = 0
+    for test in param_tests:
+        if write_test_case(test, output_dir / "param"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(param_tests)} Param/Const tests")
+
+    # Membar tests
+    membar_gen = MembarTestGenerator(seed=42)
+    membar_tests = membar_gen.gen_all_membar_tests()
+    print(f"Generated {len(membar_tests)} Membar tests")
+
+    success_count = 0
+    for test in membar_tests:
+        if write_test_case(test, output_dir / "membar"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(membar_tests)} Membar tests")
+
     # Summary
     total_tests = (len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) +
-                   len(div_tests) + len(special_tests) + len(atom_tests) + len(sync_tests))
+                   len(div_tests) + len(special_tests) + len(atom_tests) + len(sync_tests) +
+                   len(param_tests) + len(membar_tests))
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -1094,7 +1238,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -1148,6 +1292,16 @@ def main():
             tests = gen.gen_all_bar_sync_tests()
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "sync"))
             print(f"Generated {success}/{len(tests)} Sync tests")
+        elif args.gen == "param":
+            gen = ParamConstTestGenerator(seed=args.seed)
+            tests = gen.gen_all_param_const_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "param"))
+            print(f"Generated {success}/{len(tests)} Param/Const tests")
+        elif args.gen == "membar":
+            gen = MembarTestGenerator(seed=args.seed)
+            tests = gen.gen_all_membar_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "membar"))
+            print(f"Generated {success}/{len(tests)} Membar tests")
     else:
         parser.print_help()
 

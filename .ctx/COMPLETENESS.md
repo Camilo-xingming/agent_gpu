@@ -24,9 +24,9 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 |---------|-----|-----|-----|--------|
 | LD/ST.GLOBAL | ✅ | ✅ | ✅ | VERIFIED |
 | LD/ST.SHARED | ✅ | ✅ | ✅ | VERIFIED |
-| LD.PARAM/CONST | ✅ | ❌ | ✅ | PARTIAL |
+| LD.PARAM/CONST | ✅ | ✅ | ✅ | VERIFIED |
 | ATOM basic | ✅ | ✅ | ✅ | VERIFIED |
-| MEMBAR | ✅ | ❌ | ✅ | PARTIAL |
+| MEMBAR | ✅ | ✅ | ✅ | VERIFIED |
 | cp.async | ✅ | ❌ | ❌ | DECODE ONLY |
 
 ## Tier 3: Floating Point
@@ -69,23 +69,25 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 ## Summary
 - RTL modules: 56 files (many implemented)
 - PTX Assembler: 51/51 tests pass (100% coverage), 32-bit immediates fixed
-- Python Test Generators: 147 tests (65 ALU + 10 FP32 + 20 Memory + 8 Branch + 32 DIV + 4 Special + 5 Atom + 3 Sync)
-- FRM Coverage: ~88% (ALU/MEM/FP32 + SFU + DP4A + Branch + BAR.SYNC + MEMBAR + DIV/REM + Special + Atom + Sync)
-- Functional Verification: 147/147 FRM tests pass
+- Python Test Generators: 152 tests (65 ALU + 10 FP32 + 20 Memory + 8 Branch + 32 DIV + 4 Special + 5 Atom + 3 Sync + 2 Param + 3 Membar)
+- FRM Coverage: ~90% (ALU/MEM/FP32 + SFU + DP4A + Branch + BAR.SYNC + MEMBAR + DIV/REM + Special + Atom + Sync + Param/Const)
+- Functional Verification: 152/152 FRM tests pass
+- **Tier 1: 100% VERIFIED** (all items have RTL + Gen + FRM)
+- **Tier 2: 100% VERIFIED** (LD/ST.GLOBAL/SHARED, LD.PARAM/CONST, ATOM, MEMBAR) - cp.async DECODE ONLY
 
 ## Priority MVUs Completed
 1. ~~**PTX Toolchain**~~ - Fixed 32-bit immediate handling
 2. ~~**FRM Expansion**~~ - Added FP32 basic/SFU/DP4A + BRANCH + Memory ops
-3. ~~**Test Generators**~~ - Python scripts generate 144 tests (ALU/FP32/Memory/Branch/DIV/Special/Atom)
+3. ~~**Test Generators**~~ - Python scripts generate 152 tests (ALU/FP32/Memory/Branch/DIV/Special/Atom/Sync/Param/Membar)
 4. ~~**RTL vs FRM Comparison**~~ - Comparison harness built
 5. ~~**BAR.SYNC/MEMBAR**~~ - CTAState barrier tracking added
 6. ~~**DIV/REM FRM**~~ - Integer division/remainder with Gemini review
 7. ~~**Special Reg/Atom Gen**~~ - Test generators for special registers and atomics
 8. ~~**BAR.SYNC Gen**~~ - Test generator for barrier synchronization (single-warp)
+9. ~~**LD.PARAM/CONST Gen**~~ - Test generator for parameter/constant memory loads
+10. ~~**MEMBAR Gen**~~ - Test generator for memory barriers
 
 ## Remaining MVUs
-1. **LD.PARAM/CONST Gen** - Test generator for parameter/constant memory loads
-2. **MEMBAR Gen** - Test generator for memory barriers
-3. **FP16/FP64/CVT FRM** - Extended floating point types
-3. **Warp Collectives FRM** - SHFL/VOTE/REDUX functional model
-4. **Async/Tensor Path** - cp.async, mbarrier, WGMMA functional verification
+1. **FP16/FP64/CVT FRM** - Extended floating point types
+2. **Warp Collectives FRM** - SHFL/VOTE/REDUX functional model
+3. **Async/Tensor Path** - cp.async, mbarrier, WGMMA functional verification

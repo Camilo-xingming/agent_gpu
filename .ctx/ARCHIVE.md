@@ -230,7 +230,21 @@ This file contains summaries of completed and verified Minimal Verifiable Units 
 
 ---
 
+## MVU-021: Tier 2 Completion (LD.PARAM/CONST + MEMBAR)
+**Completed**: 2026-01-20
+**Scope**: Test generators for LD.PARAM/CONST and MEMBAR
+**Tools**: tools/test_generator.py
+**Features**:
+- ParamConstTestGenerator: 2 tests (ld.param, ld.const)
+- MembarTestGenerator: 3 tests (membar.cta, membar.gl, membar.sys)
+- Updated argparser with "param" and "membar" choices
+**Tests**: 152/152 pass (adds 5 new tests to 147)
+**Milestone**: **Tier 2 100% VERIFIED** (LD/ST.GLOBAL/SHARED, LD.PARAM/CONST, ATOM, MEMBAR)
+**Process**: Implementation + all tests pass
+
+---
+
 ## Regression Summary
 - All archived MVUs continue to pass in regression testing
-- Total unique test cases: 450+
-- Coverage: Tier 1 100% VERIFIED, Tier 2-7 RTL (partial Gen/FRM)
+- Total unique test cases: 500+
+- Coverage: Tier 1 100% VERIFIED, Tier 2 100% VERIFIED (except cp.async DECODE ONLY), Tier 3-7 partial

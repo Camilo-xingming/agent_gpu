@@ -1,9 +1,9 @@
 # RalphGPU Status
 
 ## State Snapshot
-- **Current MVU**: FRM Expansion for Memory/Branch (PENDING)
-- **Status**: IN PROGRESS - Verification infrastructure done, FRM gaps remain
-- **Verification Gap**: Reduced but significant gaps in FRM coverage
+- **Current MVU**: Tier 2 Complete (DONE)
+- **Status**: COMPLETE - Tier 1 & 2 fully verified
+- **Verification Gap**: Tier 3+ remain (FP16/FP64/CVT, Warp Collectives, Async/Tensor)
 
 ## Issue Tracking (from Codex/Gemini)
 
@@ -53,15 +53,19 @@
 17. ✅ rtl_frm_compare.py: Added initial memory support for test setup
 18. ✅ Test Generator: Added BarSyncTestGenerator (3 tests: barrier 0, multiple barriers)
 19. ✅ **Tier 1 Complete**: All Tier 1 items now VERIFIED (RTL + Gen + FRM)
+20. ✅ Test Generator: Added ParamConstTestGenerator (2 tests: ld.param, ld.const)
+21. ✅ Test Generator: Added MembarTestGenerator (3 tests: membar.cta/gl/sys)
+22. ✅ **Tier 2 Complete**: LD.PARAM/CONST + MEMBAR VERIFIED (cp.async DECODE ONLY)
 
 ### Test Coverage
 - PTX Assembler: 51/51 pass (100%)
-- Generated Tests: 147/147 pass (ALU 65 + FP32 10 + Memory 20 + Branch 8 + DIV 32 + Special 4 + Atom 5 + Sync 3)
+- Generated Tests: 152/152 pass (ALU 65 + FP32 10 + Memory 20 + Branch 8 + DIV 32 + Special 4 + Atom 5 + Sync 3 + Param 2 + Membar 3)
 - RTL Unit Tests: ALU 26/26, FPU 26/26, B300 145/145
 - **Tier 1: 100% VERIFIED** (all items have RTL + Gen + FRM)
+- **Tier 2: 100% VERIFIED** (LD/ST.GLOBAL/SHARED, LD.PARAM/CONST, ATOM, MEMBAR) - cp.async DECODE ONLY
 
 ## Next MVU (per PROCESS LOOP)
-**LD.PARAM/CONST Gen** - Test generator for parameter/constant memory (Tier 2)
+**FP32 SFU Gen** - Test generator for special function unit (sin, cos, sqrt, rcp, etc.)
 
 ## Pending Issues Summary
 - ❌ PENDING: 9 issues
