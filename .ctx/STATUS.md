@@ -56,16 +56,20 @@
 20. ✅ Test Generator: Added ParamConstTestGenerator (2 tests: ld.param, ld.const)
 21. ✅ Test Generator: Added MembarTestGenerator (3 tests: membar.cta/gl/sys)
 22. ✅ **Tier 2 Complete**: LD.PARAM/CONST + MEMBAR VERIFIED (cp.async DECODE ONLY)
+23. ✅ Test Generator: Added SFUTestGenerator (21 tests: sin, cos, sqrt, rcp, rsqrt, lg2, ex2)
+24. ✅ rtl_frm_compare.py: Added SFU path to ULP tolerance check
+25. ✅ **FP32 SFU Complete**: Tier 3 first item VERIFIED (Codex+Gemini consensus)
 
 ### Test Coverage
 - PTX Assembler: 51/51 pass (100%)
-- Generated Tests: 152/152 pass (ALU 65 + FP32 10 + Memory 20 + Branch 8 + DIV 32 + Special 4 + Atom 5 + Sync 3 + Param 2 + Membar 3)
+- Generated Tests: 173/173 pass (ALU 65 + FP32 10 + Memory 20 + Branch 8 + DIV 32 + Special 4 + Atom 5 + Sync 3 + Param 2 + Membar 3 + SFU 21)
 - RTL Unit Tests: ALU 26/26, FPU 26/26, B300 145/145
 - **Tier 1: 100% VERIFIED** (all items have RTL + Gen + FRM)
 - **Tier 2: 100% VERIFIED** (LD/ST.GLOBAL/SHARED, LD.PARAM/CONST, ATOM, MEMBAR) - cp.async DECODE ONLY
+- **Tier 3: FP32 SFU VERIFIED** (21 tests)
 
 ## Next MVU (per PROCESS LOOP)
-**FP32 SFU Gen** - Test generator for special function unit (sin, cos, sqrt, rcp, etc.)
+**MUST ASK Codex+Gemini** - FP16/FP64/CVT or Warp Collectives?
 
 ## Pending Issues Summary
 - ❌ PENDING: 9 issues

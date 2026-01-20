@@ -7,20 +7,20 @@ ISA AUTHORITY:
 - Public PTX ISA documentation + `.ctx/ISA_SUBSET.md`
 - NOT proprietary NVIDIA microarchitecture
 
-PROCESS LOOP (MUST FOLLOW):
+PROCESS LOOP (MUST FOLLOW - NO WORKAROUNDS):
 
-1. ASK - Consult Codex AND Gemini for next MVU:
+1. ASK - Consult BOTH Codex AND Gemini for next MVU (in parallel if possible):
    ```bash
-   # Gemini first:
-   cat .ctx/COMPLETENESS.md .ctx/STATUS.md prompt.md | gemini -m gemini-2.5-pro --yolo \
-     "Review TARGET and current status. What MVU is needed next? Be critical."
+   # Gemini (can run in background):
+   gemini -y "RalphGPU: Review COMPLETENESS.md status. What MVU is needed next? Be critical."
 
-   # Then Codex:
-   cat .ctx/COMPLETENESS.md .ctx/STATUS.md prompt.md | codex exec --full-auto \
-     "Review TARGET and status. What gaps exist? Propose next MVU."
+   # Codex (non-interactive):
+   codex exec "RalphGPU: Review status. What gaps exist? Propose next MVU. DO NOT make code changes."
    ```
-   - If agree → proceed to step 2
-   - If disagree → re-ask (max 3 rounds); else orchestrator decides
+   - **MANDATORY**: BOTH tools must be consulted before proceeding
+   - **CONSENSUS**: If both agree → proceed to step 2
+   - **DISAGREEMENT**: If disagree → re-ask (max 3 rounds); else pick higher-tier item
+   - **DOCUMENT**: Record both recommendations in progress.md
 
 2. IMPLEMENT - Codex writes code (NOT the orchestrator):
    ```bash
@@ -63,9 +63,12 @@ ISSUE TRACKING (MUST DO):
 - Do NOT declare MVU complete until ALL issues are addressed
 - Continue PROCESS LOOP until no PENDING issues remain
 
-CONTINUOUS EXECUTION:
-- After completing one MVU, immediately start next PROCESS LOOP
-- Keep iterating until DONE CONDITIONS met
+CONTINUOUS EXECUTION (MANDATORY - NO EXCEPTIONS):
+- This is an INFINITE LOOP - execute until DONE CONDITIONS met
+- After completing one MVU, IMMEDIATELY start next PROCESS LOOP
+- DO NOT wait for user input between iterations
+- DO NOT ask "should I continue?" or similar questions
+- Keep iterating automatically until DONE CONDITIONS met
 - Report BOTH completed AND pending items after each cycle
 
 DONE CONDITIONS:

@@ -1,5 +1,37 @@
 # RalphGPU Progress Log
 
+## Session Date: 2026-01-20 (Verification Infrastructure)
+
+### RALPH LOOP AI Consultation
+
+**MVU-021 Decision (LD.PARAM/CONST + MEMBAR):**
+- Based on STATUS.md priority from previous session
+- Note: Should have consulted Codex/Gemini first per PROCESS LOOP
+
+**MVU-022 Decision (FP32 SFU):**
+- **Gemini Recommendation:** FP32 SFU (PASS)
+  - Reasoning: Lowest effort/highest return - FRM exists, only needs Gen
+  - Strategic: Listed as "Next MVU" in STATUS.md
+  - Momentum: Completes first Tier 3 item
+- **Codex Recommendation:** FP32 SFU (PASS via `codex exec`)
+  - Reasoning: Only needs Gen work, fastest MVU uplift with minimal new surface area
+  - Unlocks broad set of math ops commonly used in shaders/kernels
+- **Decision:** CONSENSUS - Proceed with FP32 SFU
+
+### RALPH LOOP Process Reminder
+For each MVU decision, consult BOTH Codex and Gemini in parallel:
+1. `gemini -y "MVU priority query..."` (background)
+2. `codex "MVU priority query..."` (if interactive mode available)
+3. Compare recommendations, pick consensus or highest-priority
+
+### Test Infrastructure Status
+- **Tier 1:** 100% VERIFIED (11/11 items)
+- **Tier 2:** 100% VERIFIED (5/6 items, cp.async DECODE ONLY)
+- **FRM Tests:** 152/152 pass
+- **RTL Unit Tests:** ALU 26/26, FPU 26/26, B300 145/145
+
+---
+
 ## Session Date: 2026-01-20 (RAS/ECC and Verification)
 
 ### Phase 3: RAS/ECC Features and Verification

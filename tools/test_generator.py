@@ -13,6 +13,7 @@ import os
 import sys
 import random
 import struct
+import math
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional
@@ -254,6 +255,231 @@ class FP32TestGenerator:
                 initial_regs={},
                 expected_regs={3: expected_uint}
             ))
+        return tests
+
+
+class SFUTestGenerator:
+    """Generate FP32 Special Function Unit (SFU) test cases
+
+    Tests sin.f32, cos.f32, sqrt.f32, rcp.f32, rsqrt.f32, lg2.f32, ex2.f32.
+    Uses tolerance-based comparison due to FP approximations.
+    """
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def float_to_uint(self, f: float) -> int:
+        return struct.unpack('I', struct.pack('f', f))[0]
+
+    def uint_to_float(self, i: int) -> float:
+        return struct.unpack('f', struct.pack('I', i))[0]
+
+    def gen_sin_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate sin.f32 test cases"""
+        tests = []
+        # Test specific angles with known results
+        test_values = [
+            (0.0, 0.0),                           # sin(0) = 0
+            (math.pi / 6, 0.5),                   # sin(30°) = 0.5
+            (math.pi / 4, math.sqrt(2) / 2),      # sin(45°) ≈ 0.707
+            (math.pi / 2, 1.0),                   # sin(90°) = 1
+            (math.pi, 0.0),                       # sin(180°) = 0
+        ]
+
+        for i, (angle, expected) in enumerate(test_values[:count]):
+            angle_uint = self.float_to_uint(angle)
+            expected_uint = self.float_to_uint(expected)
+
+            tests.append(TestCase(
+                name=f"sfu_sin_{i:03d}",
+                category="sfu",
+                ptx_code=[
+                    f"mov.u32 r1, {angle_uint}",
+                    "sin.f32 r2, r1",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={2: expected_uint}
+            ))
+        return tests
+
+    def gen_cos_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate cos.f32 test cases"""
+        tests = []
+        test_values = [
+            (0.0, 1.0),                           # cos(0) = 1
+            (math.pi / 3, 0.5),                   # cos(60°) = 0.5
+            (math.pi / 4, math.sqrt(2) / 2),      # cos(45°) ≈ 0.707
+            (math.pi / 2, 0.0),                   # cos(90°) = 0
+            (math.pi, -1.0),                      # cos(180°) = -1
+        ]
+
+        for i, (angle, expected) in enumerate(test_values[:count]):
+            angle_uint = self.float_to_uint(angle)
+            expected_uint = self.float_to_uint(expected)
+
+            tests.append(TestCase(
+                name=f"sfu_cos_{i:03d}",
+                category="sfu",
+                ptx_code=[
+                    f"mov.u32 r1, {angle_uint}",
+                    "cos.f32 r2, r1",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={2: expected_uint}
+            ))
+        return tests
+
+    def gen_sqrt_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate sqrt.f32 test cases"""
+        tests = []
+        test_values = [
+            (1.0, 1.0),
+            (4.0, 2.0),
+            (9.0, 3.0),
+            (16.0, 4.0),
+            (2.0, math.sqrt(2)),
+        ]
+
+        for i, (val, expected) in enumerate(test_values[:count]):
+            val_uint = self.float_to_uint(val)
+            expected_uint = self.float_to_uint(expected)
+
+            tests.append(TestCase(
+                name=f"sfu_sqrt_{i:03d}",
+                category="sfu",
+                ptx_code=[
+                    f"mov.u32 r1, {val_uint}",
+                    "sqrt.f32 r2, r1",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={2: expected_uint}
+            ))
+        return tests
+
+    def gen_rcp_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate rcp.f32 (reciprocal) test cases"""
+        tests = []
+        test_values = [
+            (1.0, 1.0),
+            (2.0, 0.5),
+            (4.0, 0.25),
+            (0.5, 2.0),
+            (10.0, 0.1),
+        ]
+
+        for i, (val, expected) in enumerate(test_values[:count]):
+            val_uint = self.float_to_uint(val)
+            expected_uint = self.float_to_uint(expected)
+
+            tests.append(TestCase(
+                name=f"sfu_rcp_{i:03d}",
+                category="sfu",
+                ptx_code=[
+                    f"mov.u32 r1, {val_uint}",
+                    "rcp.f32 r2, r1",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={2: expected_uint}
+            ))
+        return tests
+
+    def gen_rsqrt_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate rsqrt.f32 (reciprocal sqrt) test cases"""
+        tests = []
+        test_values = [
+            (1.0, 1.0),
+            (4.0, 0.5),
+            (16.0, 0.25),
+            (0.25, 2.0),
+        ]
+
+        for i, (val, expected) in enumerate(test_values[:count]):
+            val_uint = self.float_to_uint(val)
+            expected_uint = self.float_to_uint(expected)
+
+            tests.append(TestCase(
+                name=f"sfu_rsqrt_{i:03d}",
+                category="sfu",
+                ptx_code=[
+                    f"mov.u32 r1, {val_uint}",
+                    "rsqrt.f32 r2, r1",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={2: expected_uint}
+            ))
+        return tests
+
+    def gen_lg2_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate lg2.f32 (log base 2) test cases"""
+        tests = []
+        test_values = [
+            (1.0, 0.0),
+            (2.0, 1.0),
+            (4.0, 2.0),
+            (8.0, 3.0),
+            (0.5, -1.0),
+        ]
+
+        for i, (val, expected) in enumerate(test_values[:count]):
+            val_uint = self.float_to_uint(val)
+            expected_uint = self.float_to_uint(expected)
+
+            tests.append(TestCase(
+                name=f"sfu_lg2_{i:03d}",
+                category="sfu",
+                ptx_code=[
+                    f"mov.u32 r1, {val_uint}",
+                    "lg2.f32 r2, r1",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={2: expected_uint}
+            ))
+        return tests
+
+    def gen_ex2_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate ex2.f32 (2^x) test cases"""
+        tests = []
+        test_values = [
+            (0.0, 1.0),
+            (1.0, 2.0),
+            (2.0, 4.0),
+            (3.0, 8.0),
+            (-1.0, 0.5),
+        ]
+
+        for i, (val, expected) in enumerate(test_values[:count]):
+            val_uint = self.float_to_uint(val)
+            expected_uint = self.float_to_uint(expected)
+
+            tests.append(TestCase(
+                name=f"sfu_ex2_{i:03d}",
+                category="sfu",
+                ptx_code=[
+                    f"mov.u32 r1, {val_uint}",
+                    "ex2.f32 r2, r1",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={2: expected_uint}
+            ))
+        return tests
+
+    def gen_all_sfu_tests(self) -> List[TestCase]:
+        """Generate all SFU test cases"""
+        tests = []
+        tests.extend(self.gen_sin_tests(3))
+        tests.extend(self.gen_cos_tests(3))
+        tests.extend(self.gen_sqrt_tests(3))
+        tests.extend(self.gen_rcp_tests(3))
+        tests.extend(self.gen_rsqrt_tests(3))
+        tests.extend(self.gen_lg2_tests(3))
+        tests.extend(self.gen_ex2_tests(3))
         return tests
 
 
@@ -1210,10 +1436,21 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(membar_tests)} Membar tests")
 
+    # SFU (Special Function Unit) tests
+    sfu_gen = SFUTestGenerator(seed=42)
+    sfu_tests = sfu_gen.gen_all_sfu_tests()
+    print(f"Generated {len(sfu_tests)} SFU tests")
+
+    success_count = 0
+    for test in sfu_tests:
+        if write_test_case(test, output_dir / "sfu"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(sfu_tests)} SFU tests")
+
     # Summary
     total_tests = (len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) +
                    len(div_tests) + len(special_tests) + len(atom_tests) + len(sync_tests) +
-                   len(param_tests) + len(membar_tests))
+                   len(param_tests) + len(membar_tests) + len(sfu_tests))
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -1238,7 +1475,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -1302,6 +1539,11 @@ def main():
             tests = gen.gen_all_membar_tests()
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "membar"))
             print(f"Generated {success}/{len(tests)} Membar tests")
+        elif args.gen == "sfu":
+            gen = SFUTestGenerator(seed=args.seed)
+            tests = gen.gen_all_sfu_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "sfu"))
+            print(f"Generated {success}/{len(tests)} SFU tests")
     else:
         parser.print_help()
 

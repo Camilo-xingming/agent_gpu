@@ -34,7 +34,7 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 | Feature | RTL | Gen | FRM | Status |
 |---------|-----|-----|-----|--------|
 | FP32 basic | ✅ | ✅ | ✅ | VERIFIED |
-| FP32 SFU | ✅ | ❌ | ✅ | PARTIAL |
+| FP32 SFU | ✅ | ✅ | ✅ | VERIFIED |
 | FP64 basic | ✅ | ❌ | ❌ | PARTIAL |
 | FP16 basic | ✅ | ❌ | ❌ | PARTIAL |
 | CVT | ✅ | ❌ | ❌ | PARTIAL |
@@ -69,16 +69,17 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 ## Summary
 - RTL modules: 56 files (many implemented)
 - PTX Assembler: 51/51 tests pass (100% coverage), 32-bit immediates fixed
-- Python Test Generators: 152 tests (65 ALU + 10 FP32 + 20 Memory + 8 Branch + 32 DIV + 4 Special + 5 Atom + 3 Sync + 2 Param + 3 Membar)
-- FRM Coverage: ~90% (ALU/MEM/FP32 + SFU + DP4A + Branch + BAR.SYNC + MEMBAR + DIV/REM + Special + Atom + Sync + Param/Const)
-- Functional Verification: 152/152 FRM tests pass
+- Python Test Generators: 173 tests (65 ALU + 10 FP32 + 20 Memory + 8 Branch + 32 DIV + 4 Special + 5 Atom + 3 Sync + 2 Param + 3 Membar + 21 SFU)
+- FRM Coverage: ~92% (ALU/MEM/FP32 + SFU + DP4A + Branch + BAR.SYNC + MEMBAR + DIV/REM + Special + Atom + Sync + Param/Const)
+- Functional Verification: 173/173 FRM tests pass
 - **Tier 1: 100% VERIFIED** (all items have RTL + Gen + FRM)
 - **Tier 2: 100% VERIFIED** (LD/ST.GLOBAL/SHARED, LD.PARAM/CONST, ATOM, MEMBAR) - cp.async DECODE ONLY
+- **Tier 3: FP32 SFU VERIFIED** (sin, cos, sqrt, rcp, rsqrt, lg2, ex2)
 
 ## Priority MVUs Completed
 1. ~~**PTX Toolchain**~~ - Fixed 32-bit immediate handling
 2. ~~**FRM Expansion**~~ - Added FP32 basic/SFU/DP4A + BRANCH + Memory ops
-3. ~~**Test Generators**~~ - Python scripts generate 152 tests (ALU/FP32/Memory/Branch/DIV/Special/Atom/Sync/Param/Membar)
+3. ~~**Test Generators**~~ - Python scripts generate 173 tests (ALU/FP32/Memory/Branch/DIV/Special/Atom/Sync/Param/Membar/SFU)
 4. ~~**RTL vs FRM Comparison**~~ - Comparison harness built
 5. ~~**BAR.SYNC/MEMBAR**~~ - CTAState barrier tracking added
 6. ~~**DIV/REM FRM**~~ - Integer division/remainder with Gemini review
@@ -86,6 +87,7 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 8. ~~**BAR.SYNC Gen**~~ - Test generator for barrier synchronization (single-warp)
 9. ~~**LD.PARAM/CONST Gen**~~ - Test generator for parameter/constant memory loads
 10. ~~**MEMBAR Gen**~~ - Test generator for memory barriers
+11. ~~**FP32 SFU Gen**~~ - Test generator for SFU (sin, cos, sqrt, rcp, rsqrt, lg2, ex2)
 
 ## Remaining MVUs
 1. **FP16/FP64/CVT FRM** - Extended floating point types

@@ -244,6 +244,24 @@ This file contains summaries of completed and verified Minimal Verifiable Units 
 
 ---
 
+## MVU-022: FP32 SFU Test Generator
+**Completed**: 2026-01-20
+**Scope**: Test generator for FP32 Special Function Unit operations
+**Tools**: tools/test_generator.py, tools/rtl_frm_compare.py
+**Features**:
+- SFUTestGenerator: 21 tests (sin, cos, sqrt, rcp, rsqrt, lg2, ex2 - 3 each)
+- Added SFU to ULP tolerance check in rtl_frm_compare.py
+- Updated argparser with "sfu" choice
+**AI Consultation**:
+- Gemini: FP32 SFU (PASS) - lowest effort, highest return
+- Codex: FP32 SFU (PASS) - fastest MVU uplift
+- **CONSENSUS**: Both agreed FP32 SFU is correct next MVU
+**Tests**: 173/173 pass (adds 21 SFU tests)
+**Milestone**: **Tier 3 FP32 SFU VERIFIED** - first Tier 3 item complete
+**Process**: Codex+Gemini consulted → Implementation → all tests pass
+
+---
+
 ## Regression Summary
 - All archived MVUs continue to pass in regression testing
 - Total unique test cases: 500+

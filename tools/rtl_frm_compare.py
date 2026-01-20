@@ -159,7 +159,9 @@ def compare_test(test_path: Path) -> ComparisonResult:
         )
 
     # Determine if this is an FP32 test (for ULP tolerance)
-    is_fp32_test = "fp32" in str(hex_file).lower()
+    # Also include SFU tests since they produce FP32 results
+    test_path = str(hex_file).lower()
+    is_fp32_test = "fp32" in test_path or "sfu" in test_path
 
     # Compare FRM results with expected
     errors = []
