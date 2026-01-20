@@ -393,8 +393,10 @@ module mbarrier_unit #(
                         end
 
                         `MBAR_TEST_WAIT: begin
-                            // Non-blocking test: return 1 if barrier complete, 0 otherwise
-                            if (barrier_complete[current_barrier]) begin
+                            // Non-blocking test: return 1 if barrier phase complete, 0 otherwise
+                            // Phase complete if barrier is valid AND current phase != requested phase
+                            if (barrier_valid[current_barrier] &&
+                                phase[current_barrier] != saved_count[0]) begin
                                 result <= 32'h1;
                             end else begin
                                 result <= 32'h0;
@@ -406,15 +408,16 @@ module mbarrier_unit #(
 
                         `MBAR_TRY_WAIT: begin
                             // Non-blocking wait: if not complete, stall the warp
-                            if (barrier_complete[current_barrier]) begin
-                                // Already complete
+                            if (barrier_valid[current_barrier] &&
+                                phase[current_barrier] != saved_count[0]) begin
+                                // Already complete (phase flipped)
                                 result <= 32'h1;
                                 result_valid <= 1'b1;
                             end else begin
                                 // Block the warp
                                 warp_blocked[saved_warp_id] <= 1'b1;
                                 warp_wait_barrier[saved_warp_id] <= current_barrier;
-                                warp_wait_phase[saved_warp_id] <= phase[current_barrier];
+                                warp_wait_phase[saved_warp_id] <= saved_count[0];
                                 result <= 32'h0;
                                 result_valid <= 1'b1;
                             end
