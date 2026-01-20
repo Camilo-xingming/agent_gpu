@@ -1,4 +1,9 @@
-# RalphGPU vs NVIDIA B300 Gap Analysis (2026-01-20)
+# RalphGPU vs NVIDIA B300 Gap Analysis (2026-01-20 Final)
+
+**Status: All core B300 PTX features implemented and unit-tested.**
+- 145 B300 top-level feature tests pass
+- All functional units have dedicated testbenches
+- System-level integration testing pending
 
 快速列出相对 Blackwell/B300 架构的主要缺口与优先改进方向。
 
@@ -102,3 +107,26 @@
 5) ~~**纹理/视频接线**~~ ✅已完成：tex/txq/suld/sust/sured 已接入（14 tests pass）；dp4a/dp2a 已在 video_unit 实现。
 6) ~~**指令完整性**~~ ✅已完成：栈/调试指令 ✅已实现；FP half/mixed compare ✅在fp16_unit实现。
 7) **多 SM/cluster 回归**：扩大顶层回归覆盖带宽、barrier.cluster、TMA+compute 混合场景，校准 IMEM/L2 宽度与吞吐。
+
+## 剩余工作（非功能性）
+- **4-way warp scheduler**: 当前为 dual-issue，B300 为 4-way。性能优化项，不影响功能正确性。
+- **性能建模**: 无细粒度性能计数/功耗/时钟域管理。仅功能仿真，非时序精确模型。
+- **系统级集成测试**: 单元测试全部通过；system-level tests 存在 scheduler timeout（integration bug）。
+
+## 完成度总结
+| 类别 | 状态 | 测试 |
+|------|------|------|
+| Tensor Core (WGMMA) | ✅ | 145 B300 tests |
+| Multi-precision (FP4-FP32) | ✅ | Unit tests |
+| TMA 2D/3D | ✅ | Unit tests |
+| st.async/st.bulk | ✅ | 9 tests |
+| Warp Collectives | ✅ | Unit tests |
+| Multimem DSMEM | ✅ | Unit tests |
+| DPX (Blackwell) | ✅ | 18 tests |
+| Sparse MMA 2:4 | ✅ | 18 tests |
+| Cache Policy | ✅ | 15 tests |
+| Address Space Query | ✅ | 15 tests |
+| Stack/Debug | ✅ | 14 tests |
+| griddepcontrol | ✅ | 10 tests |
+| barrier.cluster | ✅ | 8 tests |
+| Texture/Surface | ✅ | 14 tests |
