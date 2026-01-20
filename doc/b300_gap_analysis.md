@@ -22,10 +22,16 @@
   - elect.sync: Leader election within participating threads
   - red.async: Asynchronous reduction to shared memory (add/min/max/and/or/xor)
   - mbarrier signal on completion
+- ✅ **Multimem Unit 实现**: Distributed shared memory for Thread Block Clusters
+  - multimem.ld: Load from local/remote SM shared memory
+  - multimem.st: Multicast store to multiple SM shared memories
+  - multimem.red: Multicast reduction (add/min/max/and/or/xor)
+  - Address format: [31:24]=target_mask, [23:0]=smem_addr
+  - Cluster interconnect interface for cross-SM operations
 
 ## 功能/架构缺口
 - **Tensor / 5th Gen 加速**：~~WGMMA 未接线~~ ✅已完成；~~FP4/FP6 混合支持缺失~~ ✅已完成；DPX/稀疏矩阵等 Blackwell 新特性未覆盖。
-- **TMA / Async Memory**：~~`OP_CPASYNC` 为固定延迟计数 stub~~ ✅TMA 2D/3D tiled copy 已实现；~~`st.async` 未实现~~ ✅st.async.global/shared 已实现；`st.bulk/multimem` 待实现；`mbarrier` ✅已实现、`cluster` 协同部分缺失。
+- **TMA / Async Memory**：~~`OP_CPASYNC` 为固定延迟计数 stub~~ ✅TMA 2D/3D tiled copy 已实现；~~`st.async` 未实现~~ ✅st.async.global/shared 已实现；~~`multimem` 待实现~~ ✅multimem.ld/st/red 已实现；`st.bulk` 待实现；`mbarrier` ✅已实现、`cluster` 协同部分缺失。
 - **同步与集群**：仅有 `bar.sync`，缺 `bar.warp.sync`、`barrier.cluster`、`match.sync`、`red.async`、`griddepcontrol`、`elect.sync`、`mbarrier`；无 cluster 级 barrier/调度。
 - **缓存/策略控制**：cache policy 指令（createpolicy/applypriority/discard/prefetch hints）未落地；无动态缓存优先级/策略管理。
 - **内存带宽/规模**：L2/AXI 带宽与 B300（8TB/s HBM3e）差距大；共享存储容量远小于 256–304KB 级别。
@@ -37,7 +43,7 @@
 - **顶层可扩展性**：多 SM/cluster 测试有限；IMEM/L2 总线宽度与 B300 不匹配；无高吞吐互连模型。
 
 ## 高优先级推进（建议顺序）
-1) ~~**接入 TMA 路径**~~ ✅已完成：cp.async.bulk.tensor (TMA) 2D/3D tiled copy 已实现；st.async.global/shared ✅已实现；待补全 multimem；mbarrier 已实现。
+1) ~~**接入 TMA 路径**~~ ✅已完成：cp.async.bulk.tensor (TMA) 2D/3D tiled copy 已实现；st.async.global/shared ✅已实现；multimem.ld/st/red ✅已实现；mbarrier 已实现。
 2) ~~**Tensor 代际升级**~~ ✅已完成：WGMMA 已接线到 SMEM；FP4/FP6/FP8/BF16/TF32 格式支持已实现；待探索 DPX/稀疏单元。
 3) ~~**同步增强**~~ ✅大部分完成：bar.warp.sync ✅、barrier.cluster 已部分实现（单SM）、match.sync ✅、red.async ✅、elect.sync ✅已实现；griddepcontrol 待实现，含 cluster token/ID 管理。
 4) **缓存策略面**：实现 createpolicy/applypriority/discard/isspacep/mapa/getctarank，支持 cache hint 到 L1/L2/TMA。
