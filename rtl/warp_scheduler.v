@@ -119,7 +119,7 @@ module warp_state #(
 
     // 状态输出
     output reg  [NUM_WARPS-1:0]     warp_valid,
-    output reg  [NUM_WARPS-1:0]     warp_ready,
+    output wire [NUM_WARPS-1:0]     warp_ready,
     output reg  [NUM_WARPS-1:0]     warp_waiting,
     output wire [NUM_WARPS*PC_WIDTH-1:0] warp_pc_flat  // Packed array output
 );
@@ -141,7 +141,6 @@ module warp_state #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             warp_valid   <= {NUM_WARPS{1'b0}};
-            warp_ready   <= {NUM_WARPS{1'b0}};
             warp_waiting <= {NUM_WARPS{1'b0}};
             sync_pending <= {NUM_WARPS{1'b0}};
             for (i = 0; i < NUM_WARPS; i = i + 1) begin
@@ -151,14 +150,12 @@ module warp_state #(
             // 分配新Warp
             if (alloc_en) begin
                 warp_valid[alloc_warp_id] <= 1'b1;
-                warp_ready[alloc_warp_id] <= 1'b1;
                 pc_regs[alloc_warp_id]    <= alloc_pc;
             end
 
             // 释放Warp
             if (dealloc_en) begin
                 warp_valid[dealloc_warp_id]   <= 1'b0;
-                warp_ready[dealloc_warp_id]   <= 1'b0;
                 warp_waiting[dealloc_warp_id] <= 1'b0;
             end
 
@@ -182,8 +179,6 @@ module warp_state #(
     end
 
     // 准备好 = 有效 且 不在等待
-    always @(*) begin
-        warp_ready = warp_valid & ~warp_waiting;
-    end
+    assign warp_ready = warp_valid & ~warp_waiting;
 
 endmodule

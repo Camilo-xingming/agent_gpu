@@ -57,7 +57,26 @@ RTL_SRCS = \
     $(RTL_DIR)/blackwell_scheduler.v \
     $(RTL_DIR)/wgmma_tile_engine.v \
     $(RTL_DIR)/l2_interconnect.v \
-    $(RTL_DIR)/performance_counters.v
+    $(RTL_DIR)/performance_counters.v \
+    $(RTL_DIR)/tma_unit.v \
+    $(RTL_DIR)/cache_policy_unit.v \
+    $(RTL_DIR)/cluster_barrier_unit.v \
+    $(RTL_DIR)/cvt_unit.v \
+    $(RTL_DIR)/dpx_unit.v \
+    $(RTL_DIR)/dual_issue_scheduler.v \
+    $(RTL_DIR)/fma_int32.v \
+    $(RTL_DIR)/forwarding_unit.v \
+    $(RTL_DIR)/griddep_unit.v \
+    $(RTL_DIR)/l1_data_cache.v \
+    $(RTL_DIR)/l1_data_cache_optimized.v \
+    $(RTL_DIR)/l2_cache.v \
+    $(RTL_DIR)/memory_coalescing_unit.v \
+    $(RTL_DIR)/memory_controller.v \
+    $(RTL_DIR)/multimem_unit.v \
+    $(RTL_DIR)/st_bulk_unit.v \
+    $(RTL_DIR)/stack_debug_unit.v \
+    $(RTL_DIR)/tlb.v \
+    $(RTL_DIR)/warp_collective_unit.v
 
 # Testbench文件
 TB_SRCS = $(TB_DIR)/tb_ralph_gpu.v
