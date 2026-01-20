@@ -257,6 +257,188 @@ class FP32TestGenerator:
         return tests
 
 
+class MemoryTestGenerator:
+    """Generate memory operation test cases (LD/ST global and shared)"""
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def gen_ld_st_global_tests(self, count: int = 10) -> List[TestCase]:
+        """Generate ld.global and st.global test cases"""
+        tests = []
+
+        for i in range(count):
+            # Generate test value and address offset
+            value = random.randint(0, 0xFFFFFFFF)
+            addr_offset = i * 4  # Each test uses different address
+
+            # Test: store value to global memory, then load it back
+            tests.append(TestCase(
+                name=f"ld_st_global_{i:03d}",
+                category="memory",
+                ptx_code=[
+                    f"mov.u32 r1, {value}",      # Value to store
+                    f"mov.u32 r2, {addr_offset}", # Address
+                    "st.global.u32 [r2], r1",    # Store to global
+                    "ld.global.u32 r3, [r2]",    # Load from global
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={3: value},
+                initial_memory={addr_offset: 0},
+                expected_memory={addr_offset: value}
+            ))
+        return tests
+
+    def gen_ld_st_shared_tests(self, count: int = 10) -> List[TestCase]:
+        """Generate ld.shared and st.shared test cases"""
+        tests = []
+
+        for i in range(count):
+            value = random.randint(0, 0xFFFFFFFF)
+            addr_offset = i * 4
+
+            # Test: store value to shared memory, then load it back
+            tests.append(TestCase(
+                name=f"ld_st_shared_{i:03d}",
+                category="memory",
+                ptx_code=[
+                    f"mov.u32 r1, {value}",
+                    f"mov.u32 r2, {addr_offset}",
+                    "st.shared.u32 [r2], r1",
+                    "ld.shared.u32 r3, [r2]",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={3: value}
+            ))
+        return tests
+
+    def gen_all_memory_tests(self) -> List[TestCase]:
+        """Generate all memory test cases"""
+        tests = []
+        tests.extend(self.gen_ld_st_global_tests(10))
+        tests.extend(self.gen_ld_st_shared_tests(10))
+        return tests
+
+
+class BranchTestGenerator:
+    """Generate branch/control flow test cases"""
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def gen_unconditional_branch_tests(self, count: int = 5) -> List[TestCase]:
+        """Generate unconditional branch tests"""
+        tests = []
+
+        # Test 1: Simple forward branch (skip one instruction)
+        tests.append(TestCase(
+            name="bra_forward_000",
+            category="branch",
+            ptx_code=[
+                "mov.u32 r1, 100",        # r1 = 100
+                "bra skip1",              # Jump over next instruction
+                "mov.u32 r1, 999",        # Should be skipped
+                "skip1:",
+                "mov.u32 r2, 200",        # r2 = 200
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={1: 100, 2: 200}  # r1 should be 100, not 999
+        ))
+
+        # Test 2: Branch with computation
+        tests.append(TestCase(
+            name="bra_forward_001",
+            category="branch",
+            ptx_code=[
+                "mov.u32 r1, 10",
+                "mov.u32 r2, 20",
+                "add.s32 r3, r1, r2",     # r3 = 30
+                "bra done",
+                "mov.u32 r3, 0",          # Should be skipped
+                "done:",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 30}
+        ))
+
+        # Test 3: Multiple branches
+        tests.append(TestCase(
+            name="bra_chain_000",
+            category="branch",
+            ptx_code=[
+                "mov.u32 r1, 1",
+                "bra step2",
+                "mov.u32 r1, 0",          # Skipped
+                "step2:",
+                "add.s32 r1, r1, r1",     # r1 = 2
+                "bra step3",
+                "mov.u32 r1, 0",          # Skipped
+                "step3:",
+                "add.s32 r1, r1, r1",     # r1 = 4
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={1: 4}
+        ))
+
+        return tests
+
+    def gen_conditional_setp_tests(self, count: int = 5) -> List[TestCase]:
+        """Generate conditional tests using setp and predicated branch"""
+        tests = []
+
+        # Test: setp comparison followed by predicated branch (FRM supports @p bra)
+        test_cases = [
+            # (a, b, relation, expected_result if a rel b else alt)
+            (10, 5, "gt", 100, 200),   # 10 > 5: true, expect 100
+            (5, 10, "gt", 100, 200),   # 5 > 10: false, expect 200
+            (5, 5, "eq", 100, 200),    # 5 == 5: true, expect 100
+            (5, 10, "eq", 100, 200),   # 5 == 10: false, expect 200
+            (3, 10, "lt", 100, 200),   # 3 < 10: true, expect 100
+        ]
+
+        for i, (a, b, rel, val_true, val_false) in enumerate(test_cases):
+            expected = val_true if (
+                (rel == "gt" and a > b) or
+                (rel == "eq" and a == b) or
+                (rel == "lt" and a < b)
+            ) else val_false
+
+            # Use predicated branch pattern instead of predicated move
+            # (FRM supports @p bra, but not @p mov)
+            tests.append(TestCase(
+                name=f"setp_{rel}_{i:03d}",
+                category="branch",
+                ptx_code=[
+                    f"mov.u32 r1, {a}",
+                    f"mov.u32 r2, {b}",
+                    f"setp.{rel}.s32 p0, r1, r2",  # Set predicate p0
+                    f"mov.u32 r3, {val_false}",   # Default: false value
+                    f"@p0 bra set_true",          # Branch if condition true
+                    "bra done",                   # Skip to end
+                    "set_true:",
+                    f"mov.u32 r3, {val_true}",    # Set true value
+                    "done:",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={3: expected}
+            ))
+
+        return tests
+
+    def gen_all_branch_tests(self) -> List[TestCase]:
+        """Generate all branch test cases"""
+        tests = []
+        tests.extend(self.gen_unconditional_branch_tests())
+        tests.extend(self.gen_conditional_setp_tests())
+        return tests
+
+
 def write_test_case(test: TestCase, output_dir: Path):
     """Write a test case to PTX and expected results files"""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -343,8 +525,30 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(fp32_tests)} FP32 tests")
 
+    # Memory tests
+    mem_gen = MemoryTestGenerator(seed=42)
+    mem_tests = mem_gen.gen_all_memory_tests()
+    print(f"Generated {len(mem_tests)} Memory tests")
+
+    success_count = 0
+    for test in mem_tests:
+        if write_test_case(test, output_dir / "memory"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(mem_tests)} Memory tests")
+
+    # Branch tests
+    branch_gen = BranchTestGenerator(seed=42)
+    branch_tests = branch_gen.gen_all_branch_tests()
+    print(f"Generated {len(branch_tests)} Branch tests")
+
+    success_count = 0
+    for test in branch_tests:
+        if write_test_case(test, output_dir / "branch"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(branch_tests)} Branch tests")
+
     # Summary
-    total_tests = len(alu_tests) + len(fp32_tests)
+    total_tests = len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests)
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -369,7 +573,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -393,6 +597,16 @@ def main():
             tests = gen.gen_fp32_arith_tests(10)
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "fp32"))
             print(f"Generated {success}/{len(tests)} FP32 tests")
+        elif args.gen == "memory":
+            gen = MemoryTestGenerator(seed=args.seed)
+            tests = gen.gen_all_memory_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "memory"))
+            print(f"Generated {success}/{len(tests)} Memory tests")
+        elif args.gen == "branch":
+            gen = BranchTestGenerator(seed=args.seed)
+            tests = gen.gen_all_branch_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "branch"))
+            print(f"Generated {success}/{len(tests)} Branch tests")
     else:
         parser.print_help()
 

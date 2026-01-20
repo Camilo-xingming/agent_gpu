@@ -695,7 +695,13 @@ class PTXAssembler:
 
         # Add predicate if present
         if predicate is not None:
-            inst.rc = predicate[0] | (0x10 if predicate[1] else 0)
+            # For BRANCH instructions, predicate goes in rd[4]=1 and rc=predicate_reg
+            if inst.opcode == Opcode.BRANCH:
+                inst.rd = inst.rd | 0x10  # Set rd[4]=1 to indicate predicated branch
+                inst.rc = predicate[0] | (0x10 if predicate[1] else 0)
+            else:
+                # For other instructions, store in rc (may need future expansion)
+                inst.rc = predicate[0] | (0x10 if predicate[1] else 0)
 
         return inst
 
@@ -1370,8 +1376,9 @@ class PTXAssembler:
 
         # Calculate offset
         if target in self.labels:
-            # Offset is in bytes from current instruction
-            offset = self.labels[target] - self.current_addr
+            # Offset is in instruction count from current instruction
+            # (labels and current_addr are in bytes, convert to instructions)
+            offset = (self.labels[target] - self.current_addr) // 4
         else:
             offset = parse_immediate(target)
 

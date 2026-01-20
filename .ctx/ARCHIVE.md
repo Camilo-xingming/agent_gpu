@@ -170,6 +170,21 @@ This file contains summaries of completed and verified Minimal Verifiable Units 
 
 ---
 
+## MVU-017: Test Generators for Branch/Memory
+**Completed**: 2026-01-20
+**Scope**: Test generators for LD/ST (global/shared) and branch operations
+**Tools**: tools/test_generator.py, tools/ptx_assembler.py
+**Features**:
+- MemoryTestGenerator: gen_ld_st_global_tests(), gen_ld_st_shared_tests()
+- BranchTestGenerator: gen_unconditional_branch_tests(), gen_conditional_setp_tests()
+- Assembler fix: Branch offset now in instruction count (not bytes)
+- Assembler fix: Predicated branches set rd[4]=1 for FRM compatibility
+**Tests**: 103/103 pass (65 ALU + 10 FP32 + 20 Memory + 8 Branch)
+**Verification**: RTL-FRM comparison + Gemini review (PASS)
+**Process**: Implementation + bug fixes, Gemini reviewed (PASS)
+
+---
+
 ## Regression Summary
 - All archived MVUs continue to pass in regression testing
 - Total unique test cases: 375+

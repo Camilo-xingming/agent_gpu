@@ -20,7 +20,7 @@
 | 8 | Python test generators | ✅ FIXED |
 | 9 | FRM branch model lacks per-thread divergence/reconvergence (thread0-only control) | ❌ PENDING |
 | 10 | BAR.SYNC/MEMBAR have no FRM semantics | ✅ FIXED (CTAState + barrier tracking added) |
-| 11 | Test generators missing branch/memory/warp cases (ALU/FP32 only) | ❌ PENDING |
+| 11 | Test generators missing branch/memory/warp cases | ✅ FIXED (MemoryTestGenerator + BranchTestGenerator added) |
 | 12 | FRM missing FP16/FP64/CVT and INT div/rem execution | ❌ PENDING |
 
 ### Gemini Issues
@@ -41,20 +41,23 @@
 6. ✅ FRM: Added LD_PARAM, LD_CONST, ATOM (atomic ops)
 7. ✅ FRM: Added BAR_SYNC handler with CTAState barrier tracking
 8. ✅ FRM: Added MEMBAR handler with scope (CTA/GL/SYS)
+9. ✅ Test Generator: Added MemoryTestGenerator (LD/ST global/shared)
+10. ✅ Test Generator: Added BranchTestGenerator (bra, setp+predicated)
+11. ✅ Assembler: Fixed branch offset (bytes→instructions)
+12. ✅ Assembler: Fixed predicated branch encoding (rd[4]=1)
 
 ### Test Coverage
 - PTX Assembler: 51/51 pass (100%)
-- Generated Tests: 75/75 pass (ALU + FP32)
-- Generated FP32 Tests: 10/10 pass (100%)
+- Generated Tests: 103/103 pass (ALU 65 + FP32 10 + Memory 20 + Branch 8)
 - RTL Unit Tests: ALU 26/26, FPU 26/26, B300 145/145
 
 ## Next MVU (per PROCESS LOOP)
 **FRM Memory/Branch Fidelity** - Add per-thread branch divergence + reconvergence, BAR.SYNC/MEMBAR semantics, and LD/ST.shared/global coverage with matching generators/FRM
 
 ## Pending Issues Summary
-- ❌ PENDING: 11 issues
+- ❌ PENDING: 10 issues
 - ⚠️ PARTIAL: 0 issues
-- ✅ FIXED: 6 issues
+- ✅ FIXED: 7 issues
 
 ## Next Action
 Continue PROCESS LOOP: ASK Codex/Gemini for next MVU priority
