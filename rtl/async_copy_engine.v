@@ -25,10 +25,16 @@ module async_copy_engine #(
     input  wire [2:0]                   cache_hint,     // 缓存提示
     input  wire [3:0]                   wait_count,     // wait_group的等待数量
 
+    // TMA Interface (for cp.async.bulk.tensor)
+    input  wire [63:0]                  tensor_desc,    // Tensor descriptor
+    input  wire [31:0]                  tensor_coord_x, // X coordinate (byte offset)
+    input  wire [31:0]                  tensor_coord_y, // Y coordinate (row offset)
+
     // 状态输出
     output reg                          ready,
     output reg                          done,
     output reg  [3:0]                   pending_count,  // 当前组挂起数量
+    output wire                         tma_busy,       // TMA operation in progress
 
     // 全局内存接口
     output reg                          gmem_req_valid,
@@ -86,6 +92,48 @@ module async_copy_engine #(
     reg [3:0] bytes_remaining;
 
     //------------------------------------------------------------------------
+    // TMA Unit Integration
+    //------------------------------------------------------------------------
+    reg                         tma_start;
+    wire                        tma_req_valid;
+    wire [GLOBAL_ADDR_W-1:0]    tma_req_src_addr;
+    wire [SHARED_MEM_ADDR_W-1:0] tma_req_dst_addr;
+    wire [4:0]                  tma_req_size;
+    wire                        tma_done;
+    wire                        tma_busy_int;
+    wire [15:0]                 tma_bytes_copied;
+
+    // TMA request acceptance - accept when queue not full and not processing
+    wire tma_req_ready = (req_count < QUEUE_DEPTH) && (state == ST_IDLE || state == ST_ISSUE);
+
+    assign tma_busy = tma_busy_int;
+
+    tma_unit #(
+        .ADDR_W(GLOBAL_ADDR_W),
+        .SMEM_ADDR_W(SHARED_MEM_ADDR_W),
+        .TRANSFER_SIZE(16)
+    ) u_tma (
+        .clk(clk),
+        .rst_n(rst_n),
+        .start(tma_start),
+        .tensor_desc(tensor_desc),
+        .coord_x(tensor_coord_x),
+        .coord_y(tensor_coord_y),
+        .dst_base(dst_addr),
+        .req_valid(tma_req_valid),
+        .req_src_addr(tma_req_src_addr),
+        .req_dst_addr(tma_req_dst_addr),
+        .req_size(tma_req_size),
+        .req_ready(tma_req_ready),
+        .done(tma_done),
+        .busy(tma_busy_int),
+        .bytes_copied(tma_bytes_copied)
+    );
+
+    // TMA mode tracking
+    reg tma_active;
+
+    //------------------------------------------------------------------------
     // 主状态机
     //------------------------------------------------------------------------
     always @(posedge clk or negedge rst_n) begin
@@ -107,7 +155,10 @@ module async_copy_engine #(
             for (integer i = 0; i < MAX_GROUPS; i = i + 1) begin
                 group_pending[i] <= 5'd0;
             end
+            tma_start <= 1'b0;
+            tma_active <= 1'b0;
         end else begin
+            tma_start <= 1'b0;  // Default: deassert TMA start
             done <= 1'b0;
             gmem_req_valid <= 1'b0;
             smem_wr_en <= 1'b0;
@@ -183,11 +234,56 @@ module async_copy_engine #(
                                 done <= 1'b1;
                             end
 
+                            `CPASYNC_BULK_TENSOR: begin
+                                // TMA: Tensor Memory Accelerator bulk copy
+                                // Start TMA unit which will generate requests
+                                if (!tma_busy_int) begin
+                                    tma_start <= 1'b1;
+                                    tma_active <= 1'b1;
+                                    ready <= 1'b0;
+                                    `ifdef SIMULATION
+                                    $display("[ACE] TMA start: desc=0x%016x coord=(%0d,%0d) dst=0x%04x",
+                                             tensor_desc, tensor_coord_x, tensor_coord_y, dst_addr);
+                                    `endif
+                                end
+                                done <= 1'b1;
+                            end
+
                             default: begin
                                 done <= 1'b1;
                             end
                         endcase
-                    end else if (req_count > 0 && !req_complete[req_tail]) begin
+                    end
+
+                    // Handle TMA request injection into the queue
+                    if (tma_active && tma_req_valid && req_count < QUEUE_DEPTH) begin
+                        req_src_addr[req_head] <= tma_req_src_addr;
+                        req_dst_addr[req_head] <= tma_req_dst_addr;
+                        req_size[req_head] <= tma_req_size[3:0];
+                        req_cache[req_head] <= `CACHE_CG;  // TMA uses global caching
+                        req_group[req_head] <= current_group;
+                        req_valid[req_head] <= 1'b1;
+                        req_complete[req_head] <= 1'b0;
+
+                        req_head <= req_head + 1;
+                        req_count <= req_count + 1;
+                        group_pending[current_group] <= group_pending[current_group] + 1;
+                        pending_count <= pending_count + 1;
+
+                        if (state == ST_IDLE) begin
+                            state <= ST_ISSUE;
+                        end
+                    end
+
+                    // Check if TMA completed
+                    if (tma_active && tma_done) begin
+                        tma_active <= 1'b0;
+                        `ifdef SIMULATION
+                        $display("[ACE] TMA done: bytes_copied=%0d", tma_bytes_copied);
+                        `endif
+                    end
+
+                    if (!valid_in && req_count > 0 && !req_complete[req_tail]) begin
                         // 有挂起请求，继续处理
                         state <= ST_ISSUE;
                     end

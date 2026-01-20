@@ -593,6 +593,7 @@
 `define CPASYNC_WAIT    6'b000011   // cp.async.wait_group
 `define CPASYNC_WAIT_ALL 6'b000100  // cp.async.wait_all
 `define CPASYNC_BULK    6'b001000   // cp.async.bulk
+`define CPASYNC_BULK_TENSOR 6'b001001   // cp.async.bulk.tensor (TMA - Tensor Memory Accelerator)
 
 //============================================================================
 // 整数进位操作功能码

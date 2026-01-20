@@ -3606,7 +3606,13 @@ module streaming_multiprocessor_v2 #(
     // For cp.async: src_addr (global) from ra, dst_addr (shared) from imm16
     // Size encoded in func field
     // Gate with ace_ready to implement backpressure - prevents dropped requests
+
+    // TMA instruction detection (cp.async.bulk.tensor)
+    wire issue_cpasync_tma = issue_cpasync && (issue_func == `CPASYNC_BULK_TENSOR);
+    wire issue1_cpasync_tma = issue1_cpasync && (issue1_func == `CPASYNC_BULK_TENSOR);
+
     wire        ace_valid_in = ace_ready && (issue_cpasync_copy || issue1_cpasync_copy ||
+                               issue_cpasync_tma || issue1_cpasync_tma ||
                                (issue_cpasync && (issue_func == `CPASYNC_COMMIT ||
                                                   issue_func == `CPASYNC_WAIT ||
                                                   issue_func == `CPASYNC_WAIT_ALL)) ||
@@ -3627,6 +3633,21 @@ module streaming_multiprocessor_v2 #(
     // Wait count for wait_group
     wire [3:0]  ace_wait_count = issue_cpasync ? issue_imm16[3:0] :
                                  issue1_cpasync ? issue1_imm16[3:0] : 4'b0;
+
+    // TMA Interface signals
+    // For cp.async.bulk.tensor: tensor_desc from {rb, ra} (64-bit), coords from rc and imm16
+    // Tensor descriptor: [31:0] base addr in ra, [63:32] metadata in rb
+    wire [63:0] ace_tensor_desc = issue_cpasync_tma ? {rf_rd_data_b[31:0], rf_rd_data_a[31:0]} :
+                                  issue1_cpasync_tma ? {rf1_rd_data_b[31:0], rf1_rd_data_a[31:0]} : 64'b0;
+    // X coordinate (byte offset) from rc register
+    wire [31:0] ace_tensor_coord_x = issue_cpasync_tma ? rf_rd_data_c[31:0] :
+                                     issue1_cpasync_tma ? rf1_rd_data_c[31:0] : 32'b0;
+    // Y coordinate (row offset) from imm16 field (16-bit is sufficient for most tile sizes)
+    wire [31:0] ace_tensor_coord_y = issue_cpasync_tma ? {16'b0, issue_imm16} :
+                                     issue1_cpasync_tma ? {16'b0, issue1_imm16} : 32'b0;
+
+    // TMA busy status
+    wire ace_tma_busy;
 
     // Global memory response for async_copy_engine
     // We create a simple arbiter: ACE gets priority when it has pending requests
@@ -3649,10 +3670,15 @@ module streaming_multiprocessor_v2 #(
         .size           (ace_size),
         .cache_hint     (3'b0),  // Default cache hint
         .wait_count     (ace_wait_count),
+        // TMA Interface (for cp.async.bulk.tensor)
+        .tensor_desc    (ace_tensor_desc),
+        .tensor_coord_x (ace_tensor_coord_x),
+        .tensor_coord_y (ace_tensor_coord_y),
         // Status outputs
         .ready          (ace_ready),
         .done           (ace_done),
         .pending_count  (ace_pending_count),
+        .tma_busy       (ace_tma_busy),
         // Global memory interface
         .gmem_req_valid (ace_gmem_req_valid),
         .gmem_req_addr  (ace_gmem_req_addr),
