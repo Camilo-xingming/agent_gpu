@@ -483,6 +483,113 @@ class SFUTestGenerator:
         return tests
 
 
+class FP16TestGenerator:
+    """Generate FP16 arithmetic test cases
+
+    FP16 (half-precision) values are stored in the lower 16 bits of 32-bit registers.
+    Uses IEEE 754 half-precision format.
+    """
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def fp16_to_uint16(self, f: float) -> int:
+        """Convert float to FP16 bit pattern"""
+        return struct.unpack('H', struct.pack('e', f))[0]
+
+    def gen_fp16_add_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate add.f16 test cases"""
+        tests = []
+        test_values = [
+            (1.0, 2.0, 3.0),
+            (0.5, 0.25, 0.75),
+            (-1.0, 1.0, 0.0),
+        ]
+
+        for i, (a, b, expected) in enumerate(test_values[:count]):
+            a_uint = self.fp16_to_uint16(a)
+            b_uint = self.fp16_to_uint16(b)
+            expected_uint = self.fp16_to_uint16(expected)
+
+            tests.append(TestCase(
+                name=f"fp16_add_{i:03d}",
+                category="fp16",
+                ptx_code=[
+                    f"mov.u32 r1, {a_uint}",
+                    f"mov.u32 r2, {b_uint}",
+                    "add.f16 r3, r1, r2",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={3: expected_uint}
+            ))
+        return tests
+
+    def gen_fp16_sub_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate sub.f16 test cases"""
+        tests = []
+        test_values = [
+            (3.0, 1.0, 2.0),
+            (1.0, 0.5, 0.5),
+            (0.0, 1.0, -1.0),
+        ]
+
+        for i, (a, b, expected) in enumerate(test_values[:count]):
+            a_uint = self.fp16_to_uint16(a)
+            b_uint = self.fp16_to_uint16(b)
+            expected_uint = self.fp16_to_uint16(expected)
+
+            tests.append(TestCase(
+                name=f"fp16_sub_{i:03d}",
+                category="fp16",
+                ptx_code=[
+                    f"mov.u32 r1, {a_uint}",
+                    f"mov.u32 r2, {b_uint}",
+                    "sub.f16 r3, r1, r2",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={3: expected_uint}
+            ))
+        return tests
+
+    def gen_fp16_mul_tests(self, count: int = 3) -> List[TestCase]:
+        """Generate mul.f16 test cases"""
+        tests = []
+        test_values = [
+            (2.0, 3.0, 6.0),
+            (0.5, 4.0, 2.0),
+            (-1.0, 2.0, -2.0),
+        ]
+
+        for i, (a, b, expected) in enumerate(test_values[:count]):
+            a_uint = self.fp16_to_uint16(a)
+            b_uint = self.fp16_to_uint16(b)
+            expected_uint = self.fp16_to_uint16(expected)
+
+            tests.append(TestCase(
+                name=f"fp16_mul_{i:03d}",
+                category="fp16",
+                ptx_code=[
+                    f"mov.u32 r1, {a_uint}",
+                    f"mov.u32 r2, {b_uint}",
+                    "mul.f16 r3, r1, r2",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={3: expected_uint}
+            ))
+        return tests
+
+    def gen_all_fp16_tests(self) -> List[TestCase]:
+        """Generate all FP16 test cases"""
+        tests = []
+        tests.extend(self.gen_fp16_add_tests(3))
+        tests.extend(self.gen_fp16_sub_tests(3))
+        tests.extend(self.gen_fp16_mul_tests(3))
+        return tests
+
+
 class MemoryTestGenerator:
     """Generate memory operation test cases (LD/ST global and shared)"""
 
@@ -1447,10 +1554,21 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(sfu_tests)} SFU tests")
 
+    # FP16 tests
+    fp16_gen = FP16TestGenerator(seed=42)
+    fp16_tests = fp16_gen.gen_all_fp16_tests()
+    print(f"Generated {len(fp16_tests)} FP16 tests")
+
+    success_count = 0
+    for test in fp16_tests:
+        if write_test_case(test, output_dir / "fp16"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(fp16_tests)} FP16 tests")
+
     # Summary
     total_tests = (len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) +
                    len(div_tests) + len(special_tests) + len(atom_tests) + len(sync_tests) +
-                   len(param_tests) + len(membar_tests) + len(sfu_tests))
+                   len(param_tests) + len(membar_tests) + len(sfu_tests) + len(fp16_tests))
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -1475,7 +1593,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "fp16", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -1544,6 +1662,11 @@ def main():
             tests = gen.gen_all_sfu_tests()
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "sfu"))
             print(f"Generated {success}/{len(tests)} SFU tests")
+        elif args.gen == "fp16":
+            gen = FP16TestGenerator(seed=args.seed)
+            tests = gen.gen_all_fp16_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "fp16"))
+            print(f"Generated {success}/{len(tests)} FP16 tests")
     else:
         parser.print_help()
 

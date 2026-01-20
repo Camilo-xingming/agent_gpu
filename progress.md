@@ -17,6 +17,15 @@
   - Reasoning: Only needs Gen work, fastest MVU uplift with minimal new surface area
   - Unlocks broad set of math ops commonly used in shaders/kernels
 - **Decision:** CONSENSUS - Proceed with FP32 SFU
+- **Result:** COMPLETE - 173/173 tests pass, Tier 3 FP32 SFU VERIFIED
+
+**MVU-023 Decision (FP16/FP64/CVT):**
+- **Gemini Recommendation:** FP16/FP64/CVT (Tier 3)
+  - Reasoning: Strategic for B300/LLM, completes arithmetic pipeline
+  - Note: FP16 is primary data type for LLM workloads
+- **Codex Initial:** SHFL/VOTE/REDUX (Tier 4)
+- **Re-ask Result:** Codex agreed Tier 3 priority, switched to FP16/FP64/CVT
+- **Decision:** CONSENSUS after 1 round - Proceed with FP16/FP64/CVT
 
 ### RALPH LOOP Process Reminder
 For each MVU decision, consult BOTH Codex and Gemini in parallel:

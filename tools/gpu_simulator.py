@@ -92,6 +92,17 @@ class Fp32SpecialFunc(IntEnum):
     EX2 = 0b000110
     TANH = 0b000111
 
+# FP16 功能码
+class Fp16Func(IntEnum):
+    ADD = 0b000000
+    SUB = 0b000001
+    MUL = 0b000010
+    FMA = 0b000011
+    NEG = 0b000100
+    ABS = 0b000101
+    MIN = 0b000110
+    MAX = 0b000111
+
 # Video功能码 (DP4A/DP2A)
 class VideoFunc(IntEnum):
     DP4A_S32_S32 = 0b010000
@@ -279,6 +290,48 @@ class RalphGPUSimulator:
     def float_to_uint(self, f: float) -> int:
         """Convert float32 to uint32 bit pattern"""
         return struct.unpack('I', struct.pack('f', f))[0]
+
+    def uint16_to_fp16(self, v: int) -> float:
+        """Convert uint16 bit pattern to float16 (stored in lower 16 bits)"""
+        return struct.unpack('e', struct.pack('H', v & 0xFFFF))[0]
+
+    def fp16_to_uint16(self, f: float) -> int:
+        """Convert float to FP16 bit pattern (uint16)"""
+        return struct.unpack('H', struct.pack('e', f))[0]
+
+    def execute_fp16_arith(self, func: int, a: int, b: int, c: int = 0) -> int:
+        """Execute FP16 arithmetic operations
+
+        FP16 values are stored in the lower 16 bits of a 32-bit register.
+        Result is returned in lower 16 bits, upper bits zeroed.
+        """
+        fa = self.uint16_to_fp16(a)
+        fb = self.uint16_to_fp16(b)
+        fc = self.uint16_to_fp16(c)
+
+        try:
+            if func == Fp16Func.ADD:
+                result = fa + fb
+            elif func == Fp16Func.SUB:
+                result = fa - fb
+            elif func == Fp16Func.MUL:
+                result = fa * fb
+            elif func == Fp16Func.FMA:
+                result = fa * fb + fc
+            elif func == Fp16Func.NEG:
+                result = -fa
+            elif func == Fp16Func.ABS:
+                result = abs(fa)
+            elif func == Fp16Func.MIN:
+                result = min(fa, fb)
+            elif func == Fp16Func.MAX:
+                result = max(fa, fb)
+            else:
+                result = 0.0
+        except:
+            result = float('nan')
+
+        return self.fp16_to_uint16(result)
 
     def execute_fp32_arith(self, func: int, a: int, b: int, c: int = 0) -> int:
         """Execute FP32 arithmetic operations"""
@@ -479,6 +532,13 @@ class RalphGPUSimulator:
                 b = thread.registers[rb]
                 c = thread.registers[rc]
                 thread.registers[rd] = self.execute_fp32_arith(func, a, b, c)
+
+            elif opcode == Opcode.FP16_ARITH:
+                # FP16 values stored in lower 16 bits of registers
+                a = thread.registers[ra] & 0xFFFF
+                b = thread.registers[rb] & 0xFFFF
+                c = thread.registers[rc] & 0xFFFF
+                thread.registers[rd] = self.execute_fp16_arith(func, a, b, c)
 
             elif opcode == Opcode.FP32_SPECIAL:
                 a = thread.registers[ra]

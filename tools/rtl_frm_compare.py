@@ -158,18 +158,18 @@ def compare_test(test_path: Path) -> ComparisonResult:
             error_message=f"FRM execution failed: {e}"
         )
 
-    # Determine if this is an FP32 test (for ULP tolerance)
-    # Also include SFU tests since they produce FP32 results
+    # Determine if this is a floating-point test (for ULP tolerance)
+    # Includes FP32, SFU, and FP16 tests
     test_path = str(hex_file).lower()
-    is_fp32_test = "fp32" in test_path or "sfu" in test_path
+    is_fp_test = "fp32" in test_path or "sfu" in test_path or "fp16" in test_path
 
     # Compare FRM results with expected
     errors = []
     for reg, expected_val in expected_regs.items():
         frm_val = frm_regs.get(reg, 0)
         if frm_val != expected_val:
-            # For FP32 tests, allow small ULP differences due to rounding
-            if is_fp32_test and is_fp32_close(frm_val, expected_val, ulp_tolerance=5):
+            # For floating-point tests, allow small ULP differences due to rounding
+            if is_fp_test and is_fp32_close(frm_val, expected_val, ulp_tolerance=5):
                 continue  # Within tolerance
             errors.append(f"r{reg}: FRM={frm_val:08x}, expected={expected_val:08x}")
 

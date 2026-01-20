@@ -36,7 +36,7 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 | FP32 basic | ✅ | ✅ | ✅ | VERIFIED |
 | FP32 SFU | ✅ | ✅ | ✅ | VERIFIED |
 | FP64 basic | ✅ | ❌ | ❌ | PARTIAL |
-| FP16 basic | ✅ | ❌ | ❌ | PARTIAL |
+| FP16 basic | ✅ | ✅ | ✅ | VERIFIED |
 | CVT | ✅ | ❌ | ❌ | PARTIAL |
 
 ## Tier 4: Warp-Level Operations
@@ -69,12 +69,12 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 ## Summary
 - RTL modules: 56 files (many implemented)
 - PTX Assembler: 51/51 tests pass (100% coverage), 32-bit immediates fixed
-- Python Test Generators: 173 tests (65 ALU + 10 FP32 + 20 Memory + 8 Branch + 32 DIV + 4 Special + 5 Atom + 3 Sync + 2 Param + 3 Membar + 21 SFU)
-- FRM Coverage: ~92% (ALU/MEM/FP32 + SFU + DP4A + Branch + BAR.SYNC + MEMBAR + DIV/REM + Special + Atom + Sync + Param/Const)
-- Functional Verification: 173/173 FRM tests pass
+- Python Test Generators: 182 tests (65 ALU + 10 FP32 + 20 Memory + 8 Branch + 32 DIV + 4 Special + 5 Atom + 3 Sync + 2 Param + 3 Membar + 21 SFU + 9 FP16)
+- FRM Coverage: ~94% (ALU/MEM/FP32 + SFU + DP4A + Branch + BAR.SYNC + MEMBAR + DIV/REM + Special + Atom + Sync + Param/Const + FP16)
+- Functional Verification: 182/182 FRM tests pass
 - **Tier 1: 100% VERIFIED** (all items have RTL + Gen + FRM)
 - **Tier 2: 100% VERIFIED** (LD/ST.GLOBAL/SHARED, LD.PARAM/CONST, ATOM, MEMBAR) - cp.async DECODE ONLY
-- **Tier 3: FP32 SFU VERIFIED** (sin, cos, sqrt, rcp, rsqrt, lg2, ex2)
+- **Tier 3: FP32 SFU + FP16 VERIFIED** (FP64/CVT still PARTIAL)
 
 ## Priority MVUs Completed
 1. ~~**PTX Toolchain**~~ - Fixed 32-bit immediate handling
@@ -88,8 +88,9 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 9. ~~**LD.PARAM/CONST Gen**~~ - Test generator for parameter/constant memory loads
 10. ~~**MEMBAR Gen**~~ - Test generator for memory barriers
 11. ~~**FP32 SFU Gen**~~ - Test generator for SFU (sin, cos, sqrt, rcp, rsqrt, lg2, ex2)
+12. ~~**FP16 FRM + Gen**~~ - FP16 arithmetic (add, sub, mul) with FRM and test generator
 
 ## Remaining MVUs
-1. **FP16/FP64/CVT FRM** - Extended floating point types
+1. **FP64/CVT FRM** - Extended floating point types (FP64 basic, CVT conversions)
 2. **Warp Collectives FRM** - SHFL/VOTE/REDUX functional model
 3. **Async/Tensor Path** - cp.async, mbarrier, WGMMA functional verification
