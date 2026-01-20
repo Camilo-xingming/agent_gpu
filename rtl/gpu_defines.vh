@@ -169,6 +169,24 @@
 // Phase 4.1: Cache Policy Instructions (Hopper+)
 `define OP_CACHE_POLICY 6'b110100   // Cache policy operations
 
+// Phase 4.2: Address Space Query Instructions (PTX ISA)
+`define OP_ISSPACEP     6'b110110   // isspacep - Test address space membership
+`define OP_MAPA         6'b110111   // mapa - Map address between spaces
+`define OP_GETCTARANK   6'b111110   // getctarank - Get CTA rank in cluster (reusing DPX func code)
+
+// isspacep function codes (for OP_ISSPACEP)
+`define ISSPACEP_GLOBAL  6'b000000   // isspacep.global - Test if address is in global memory
+`define ISSPACEP_SHARED  6'b000001   // isspacep.shared - Test if address is in shared memory
+`define ISSPACEP_LOCAL   6'b000010   // isspacep.local - Test if address is in local memory
+`define ISSPACEP_CONST   6'b000011   // isspacep.const - Test if address is in constant memory
+`define ISSPACEP_PARAM   6'b000100   // isspacep.param - Test if address is in parameter memory
+
+// mapa function codes (for OP_MAPA)
+`define MAPA_TO_GLOBAL   6'b000000   // mapa.global - Map to global address
+`define MAPA_TO_SHARED   6'b000001   // mapa.shared - Map to shared address
+`define MAPA_FROM_SHARED 6'b000010   // mapa.to_generic - Map shared to generic pointer
+`define MAPA_TO_LOCAL    6'b000011   // mapa.local - Map to local address
+
 // Phase 1.2: Async Store and Multimem Instructions (Hopper+)
 `define OP_ST_ASYNC     6'b111000   // st.async - Async store operations
 `define OP_MULTIMEM     6'b111001   // multimem - Multi-target write operations

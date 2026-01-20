@@ -39,6 +39,15 @@
   - Sparse compress/decompress operations
   - Sparse MMA for FP16/BF16/TF32/INT8/FP8 formats
   - Decompression pipeline for sparse-to-dense conversion
+- ✅ **Cache Policy Unit 实现**: Hopper+ Cache Management
+  - createpolicy: Create cache policy tokens
+  - applypriority: Apply priority to cache lines
+  - discard: Mark cache lines for eviction (invalidate without writeback)
+  - L1/L2 cache level targeting
+- ✅ **Address Space Query 实现**: PTX ISA Address Space Instructions
+  - isspacep.global/shared/local/const/param: Test address space membership
+  - mapa.to_global/to_shared/from_shared/to_local: Address mapping
+  - getctarank: Get CTA rank within Thread Block Cluster
 
 ## 功能/架构缺口
 - **Tensor / 5th Gen 加速**：~~WGMMA 未接线~~ ✅已完成；~~FP4/FP6 混合支持缺失~~ ✅已完成；~~DPX/稀疏矩阵~~ ✅已完成。
@@ -57,7 +66,7 @@
 1) ~~**接入 TMA 路径**~~ ✅已完成：cp.async.bulk.tensor (TMA) 2D/3D tiled copy 已实现；st.async.global/shared ✅已实现；multimem.ld/st/red ✅已实现；mbarrier 已实现。
 2) ~~**Tensor 代际升级**~~ ✅已完成：WGMMA 已接线到 SMEM；FP4/FP6/FP8/BF16/TF32 格式支持已实现；DPX/稀疏单元 ✅已实现。
 3) ~~**同步增强**~~ ✅大部分完成：bar.warp.sync ✅、barrier.cluster 已部分实现（单SM）、match.sync ✅、red.async ✅、elect.sync ✅已实现；griddepcontrol 待实现，含 cluster token/ID 管理。
-4) **缓存策略面**：实现 createpolicy/applypriority/discard/isspacep/mapa/getctarank，支持 cache hint 到 L1/L2/TMA。
+4) ~~**缓存策略面**~~ ✅已完成：createpolicy/applypriority/discard ✅已实现；isspacep ✅已实现；mapa ✅已实现；getctarank ✅已实现。
 5) **纹理/视频接线**：接入 tex/txq/suld/sust/sured，补 SIMD 视频饱和/舍入；连通 dp4a/dp2a。
 6) **指令完整性**：补 FP half/mixed compare、栈/调试指令（alloca/stacksave/stackrestore、brkpt/trap/nanosleep/pmevent/setmaxnreg）。
 7) **多 SM/cluster 回归**：扩大顶层回归覆盖带宽、barrier.cluster、TMA+compute 混合场景，校准 IMEM/L2 宽度与吞吐。
