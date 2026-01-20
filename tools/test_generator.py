@@ -713,6 +713,85 @@ class DivTestGenerator:
         return tests
 
 
+class BarSyncTestGenerator:
+    """Generate barrier synchronization test cases
+
+    Note on Single-Warp FRM:
+    In a single-warp FRM with block_dim=(32,1,1), all 32 threads arrive at
+    the barrier in the same instruction execution, so barriers release
+    immediately. This tests that:
+    1. BAR.SYNC instruction is correctly decoded and executed
+    2. Computation before/after barrier is correct
+    3. Different barrier IDs work
+
+    True multi-warp synchronization testing requires RTL simulation.
+    """
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def gen_bar_sync_basic_tests(self) -> List[TestCase]:
+        """Generate basic bar.sync tests"""
+        tests = []
+
+        # Test: basic bar.sync with barrier 0
+        # Compute before barrier, then compute after barrier
+        tests.append(TestCase(
+            name="bar_sync_000",
+            category="sync",
+            ptx_code=[
+                "mov.u32 r1, 10",         # r1 = 10
+                "mov.u32 r2, 20",         # r2 = 20
+                "add.s32 r3, r1, r2",     # r3 = 30 (before barrier)
+                "bar.sync 0",             # Barrier 0
+                "add.s32 r4, r3, r1",     # r4 = 40 (after barrier)
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 30, 4: 40}
+        ))
+
+        # Test: bar.sync with different barrier ID
+        tests.append(TestCase(
+            name="bar_sync_001",
+            category="sync",
+            ptx_code=[
+                "mov.u32 r1, 5",
+                "bar.sync 1",             # Barrier 1
+                "add.s32 r2, r1, r1",     # r2 = 10
+                "bar.sync 2",             # Barrier 2
+                "add.s32 r3, r2, r2",     # r3 = 20
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={2: 10, 3: 20}
+        ))
+
+        # Test: multiple barriers in sequence
+        tests.append(TestCase(
+            name="bar_sync_002",
+            category="sync",
+            ptx_code=[
+                "mov.u32 r1, 1",
+                "bar.sync 0",
+                "add.s32 r1, r1, r1",     # r1 = 2
+                "bar.sync 0",
+                "add.s32 r1, r1, r1",     # r1 = 4
+                "bar.sync 0",
+                "add.s32 r1, r1, r1",     # r1 = 8
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={1: 8}
+        ))
+
+        return tests
+
+    def gen_all_bar_sync_tests(self) -> List[TestCase]:
+        """Generate all barrier synchronization tests"""
+        return self.gen_bar_sync_basic_tests()
+
+
 class BranchTestGenerator:
     """Generate branch/control flow test cases"""
 
@@ -977,9 +1056,20 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(atom_tests)} Atomic tests")
 
+    # Sync (BAR.SYNC) tests
+    sync_gen = BarSyncTestGenerator(seed=42)
+    sync_tests = sync_gen.gen_all_bar_sync_tests()
+    print(f"Generated {len(sync_tests)} Sync (BAR.SYNC) tests")
+
+    success_count = 0
+    for test in sync_tests:
+        if write_test_case(test, output_dir / "sync"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(sync_tests)} Sync tests")
+
     # Summary
     total_tests = (len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) +
-                   len(div_tests) + len(special_tests) + len(atom_tests))
+                   len(div_tests) + len(special_tests) + len(atom_tests) + len(sync_tests))
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -1004,7 +1094,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -1053,6 +1143,11 @@ def main():
             tests = gen.gen_all_atom_tests()
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "atom"))
             print(f"Generated {success}/{len(tests)} Atomic tests")
+        elif args.gen == "sync":
+            gen = BarSyncTestGenerator(seed=args.seed)
+            tests = gen.gen_all_bar_sync_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "sync"))
+            print(f"Generated {success}/{len(tests)} Sync tests")
     else:
         parser.print_help()
 

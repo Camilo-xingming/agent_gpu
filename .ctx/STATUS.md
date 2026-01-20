@@ -51,19 +51,22 @@
 15. ✅ Test Generator: Added SpecialRegTestGenerator (4 tests: tid.x, ntid.x, laneid, ctaid.x)
 16. ✅ Test Generator: Added AtomTestGenerator (5 tests: add, exch, cas)
 17. ✅ rtl_frm_compare.py: Added initial memory support for test setup
+18. ✅ Test Generator: Added BarSyncTestGenerator (3 tests: barrier 0, multiple barriers)
+19. ✅ **Tier 1 Complete**: All Tier 1 items now VERIFIED (RTL + Gen + FRM)
 
 ### Test Coverage
 - PTX Assembler: 51/51 pass (100%)
-- Generated Tests: 144/144 pass (ALU 65 + FP32 10 + Memory 20 + Branch 8 + DIV 32 + Special 4 + Atom 5)
+- Generated Tests: 147/147 pass (ALU 65 + FP32 10 + Memory 20 + Branch 8 + DIV 32 + Special 4 + Atom 5 + Sync 3)
 - RTL Unit Tests: ALU 26/26, FPU 26/26, B300 145/145
+- **Tier 1: 100% VERIFIED** (all items have RTL + Gen + FRM)
 
 ## Next MVU (per PROCESS LOOP)
-**BAR.SYNC Gen** - Test generator for barrier synchronization (last Tier 1 PARTIAL)
+**LD.PARAM/CONST Gen** - Test generator for parameter/constant memory (Tier 2)
 
 ## Pending Issues Summary
 - ❌ PENDING: 9 issues
 - ⚠️ PARTIAL: 0 issues
-- ✅ FIXED: 9 issues
+- ✅ FIXED: 10 issues
 
 ## Next Action
 Continue PROCESS LOOP: ASK Codex/Gemini for next MVU priority

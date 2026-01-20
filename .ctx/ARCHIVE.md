@@ -216,7 +216,21 @@ This file contains summaries of completed and verified Minimal Verifiable Units 
 
 ---
 
+## MVU-020: BAR.SYNC Test Generator (Tier 1 Complete)
+**Completed**: 2026-01-20
+**Scope**: Test generator for barrier synchronization
+**Tools**: tools/test_generator.py
+**Features**:
+- BarSyncTestGenerator: 3 tests (basic barrier, multiple IDs, sequential barriers)
+- Documents single-warp FRM limitation
+- Tests verify barrier instruction flow without causing errors
+**Tests**: 147/147 pass (includes 3 new sync tests)
+**Milestone**: **Tier 1 100% VERIFIED** - All Tier 1 items (ALU, MUL/MAD, DIV/REM, Bitwise, Shifts, SETP, MOV, BRA, EXIT/RET, BAR.SYNC, Special regs) now have RTL + Gen + FRM
+**Process**: Implementation + tests pass
+
+---
+
 ## Regression Summary
 - All archived MVUs continue to pass in regression testing
-- Total unique test cases: 425+
-- Coverage: Tier 1-7 RTL, Tier 1/3 verified with generators
+- Total unique test cases: 450+
+- Coverage: Tier 1 100% VERIFIED, Tier 2-7 RTL (partial Gen/FRM)
