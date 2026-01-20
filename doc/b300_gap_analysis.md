@@ -48,17 +48,25 @@
   - isspacep.global/shared/local/const/param: Test address space membership
   - mapa.to_global/to_shared/from_shared/to_local: Address mapping
   - getctarank: Get CTA rank within Thread Block Cluster
+- ✅ **Stack/Debug Unit 实现**: Stack Management and Debug Instructions
+  - alloca: Dynamic stack allocation with 16-byte alignment
+  - stacksave/stackrestore: Save and restore stack pointer
+  - brkpt: Breakpoint triggering
+  - trap: Software trap with code
+  - pmevent: Performance monitoring event signaling
+  - nanosleep: Warp sleep/stall for specified cycles
+  - setmaxnreg: Per-warp maximum register configuration
 
 ## 功能/架构缺口
-- **Tensor / 5th Gen 加速**：~~WGMMA 未接线~~ ✅已完成；~~FP4/FP6 混合支持缺失~~ ✅已完成；~~DPX/稀疏矩阵~~ ✅已完成。
-- **TMA / Async Memory**：~~`OP_CPASYNC` 为固定延迟计数 stub~~ ✅TMA 2D/3D tiled copy 已实现；~~`st.async` 未实现~~ ✅st.async.global/shared 已实现；~~`multimem` 待实现~~ ✅multimem.ld/st/red 已实现；`st.bulk` 待实现；`mbarrier` ✅已实现、`cluster` 协同部分缺失。
-- **同步与集群**：仅有 `bar.sync`，缺 `bar.warp.sync`、`barrier.cluster`、`match.sync`、`red.async`、`griddepcontrol`、`elect.sync`、`mbarrier`；无 cluster 级 barrier/调度。
-- **缓存/策略控制**：cache policy 指令（createpolicy/applypriority/discard/prefetch hints）未落地；无动态缓存优先级/策略管理。
+- **Tensor / 5th Gen 加速**：✅已完成（WGMMA、FP4/FP6、DPX、稀疏矩阵全部实现）。
+- **TMA / Async Memory**：✅大部分完成；`st.bulk` 待实现；`cluster` 协同部分缺失。
+- **同步与集群**：✅大部分完成（bar.warp.sync、match.sync、red.async、elect.sync、mbarrier）；`griddepcontrol` 待实现。
+- **缓存/策略控制**：✅已完成（createpolicy/applypriority/discard、isspacep、mapa、getctarank）。
 - **内存带宽/规模**：L2/AXI 带宽与 B300（8TB/s HBM3e）差距大；共享存储容量远小于 256–304KB 级别。
-- **纹理/表面/视频**：模块存在但未与 SM 接线；tex/txq/suld/sust/sured 及 SIMD 视频饱和/舍入规则未实现。
+- **纹理/表面/视频**：模块存在但未与 SM 接线；tex/txq/suld/sust/sured 待实现。
 - **调度/吞吐**：单/双 issue，与 B300 的 4-way warp scheduler 不符；缺少指令压缩/宏融合；SM 数量/前端带宽不匹配。
-- **Debug/栈/控制**：alloca/stacksave/stackrestore、brkpt/trap/nanosleep/pmevent/setmaxnreg 未实现，影响工具链兼容。
-- **指令尾项**：FP half/mixed compare 未完成；dp4a/dp2a 未接入视频/ALU；mapa/getctarank/isspacep/createpolicy/applypriority/discard 缺失。
+- **Debug/栈/控制**：✅已完成（alloca/stacksave/stackrestore、brkpt/trap/nanosleep/pmevent/setmaxnreg）。
+- **指令尾项**：FP half/mixed compare 未完成；~~mapa/getctarank/isspacep/createpolicy/applypriority/discard~~ ✅已完成。
 - **性能/功耗建模**：无细粒度性能计数/功耗/时钟域管理；与实际芯片时序/功耗差距大（仅功能仿真）。
 - **顶层可扩展性**：多 SM/cluster 测试有限；IMEM/L2 总线宽度与 B300 不匹配；无高吞吐互连模型。
 
@@ -68,5 +76,5 @@
 3) ~~**同步增强**~~ ✅大部分完成：bar.warp.sync ✅、barrier.cluster 已部分实现（单SM）、match.sync ✅、red.async ✅、elect.sync ✅已实现；griddepcontrol 待实现，含 cluster token/ID 管理。
 4) ~~**缓存策略面**~~ ✅已完成：createpolicy/applypriority/discard ✅已实现；isspacep ✅已实现；mapa ✅已实现；getctarank ✅已实现。
 5) **纹理/视频接线**：接入 tex/txq/suld/sust/sured，补 SIMD 视频饱和/舍入；连通 dp4a/dp2a。
-6) **指令完整性**：补 FP half/mixed compare、栈/调试指令（alloca/stacksave/stackrestore、brkpt/trap/nanosleep/pmevent/setmaxnreg）。
+6) ~~**指令完整性**~~ ✅大部分完成：栈/调试指令 ✅已实现；FP half/mixed compare 待实现。
 7) **多 SM/cluster 回归**：扩大顶层回归覆盖带宽、barrier.cluster、TMA+compute 混合场景，校准 IMEM/L2 宽度与吞吐。
