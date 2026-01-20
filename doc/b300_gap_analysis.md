@@ -56,11 +56,24 @@
   - pmevent: Performance monitoring event signaling
   - nanosleep: Warp sleep/stall for specified cycles
   - setmaxnreg: Per-warp maximum register configuration
+- ✅ **st.bulk Unit 实现**: Bulk Store Operations (Hopper+)
+  - st.bulk.global: Bulk store from SMEM to global memory
+  - st.bulk.shared: Bulk store within shared memory (cluster)
+  - st.bulk.commit: Commit pending bulk store operations
+  - st.bulk.wait: Wait for bulk store completion
+  - Queue-based async operation with 8 pending ops max
+  - 16-byte aligned transfers, up to 1KB per operation
+- ✅ **griddepcontrol Unit 实现**: Grid Dependency Control (Hopper+)
+  - griddepcontrol.wait: Wait for grid dependency to be satisfied
+  - griddepcontrol.launch_dependent: Request launch of dependent grid
+  - griddepcontrol.signal: Signal grid completion
+  - griddepcontrol.get_token: Allocate new dependency token
+  - Token-based grid synchronization for programmatic dependent launch
 
 ## 功能/架构缺口
 - **Tensor / 5th Gen 加速**：✅已完成（WGMMA、FP4/FP6、DPX、稀疏矩阵全部实现）。
-- **TMA / Async Memory**：✅大部分完成；`st.bulk` 待实现；`cluster` 协同部分缺失。
-- **同步与集群**：✅大部分完成（bar.warp.sync、match.sync、red.async、elect.sync、mbarrier）；`griddepcontrol` 待实现。
+- **TMA / Async Memory**：✅已完成；`st.bulk` ✅已实现（global/shared/commit/wait）；`cluster` 协同部分缺失。
+- **同步与集群**：✅已完成（bar.warp.sync、match.sync、red.async、elect.sync、mbarrier、`griddepcontrol` ✅已实现）。
 - **缓存/策略控制**：✅已完成（createpolicy/applypriority/discard、isspacep、mapa、getctarank）。
 - **内存带宽/规模**：L2/AXI 带宽与 B300（8TB/s HBM3e）差距大；共享存储容量远小于 256–304KB 级别。
 - **纹理/表面/视频**：模块存在但未与 SM 接线；tex/txq/suld/sust/sured 待实现。
@@ -71,9 +84,9 @@
 - **顶层可扩展性**：多 SM/cluster 测试有限；IMEM/L2 总线宽度与 B300 不匹配；无高吞吐互连模型。
 
 ## 高优先级推进（建议顺序）
-1) ~~**接入 TMA 路径**~~ ✅已完成：cp.async.bulk.tensor (TMA) 2D/3D tiled copy 已实现；st.async.global/shared ✅已实现；multimem.ld/st/red ✅已实现；mbarrier 已实现。
+1) ~~**接入 TMA 路径**~~ ✅已完成：cp.async.bulk.tensor (TMA) 2D/3D tiled copy 已实现；st.async.global/shared ✅已实现；st.bulk ✅已实现；multimem.ld/st/red ✅已实现；mbarrier 已实现。
 2) ~~**Tensor 代际升级**~~ ✅已完成：WGMMA 已接线到 SMEM；FP4/FP6/FP8/BF16/TF32 格式支持已实现；DPX/稀疏单元 ✅已实现。
-3) ~~**同步增强**~~ ✅大部分完成：bar.warp.sync ✅、barrier.cluster 已部分实现（单SM）、match.sync ✅、red.async ✅、elect.sync ✅已实现；griddepcontrol 待实现，含 cluster token/ID 管理。
+3) ~~**同步增强**~~ ✅已完成：bar.warp.sync ✅、barrier.cluster 已部分实现（单SM）、match.sync ✅、red.async ✅、elect.sync ✅、griddepcontrol ✅已实现。
 4) ~~**缓存策略面**~~ ✅已完成：createpolicy/applypriority/discard ✅已实现；isspacep ✅已实现；mapa ✅已实现；getctarank ✅已实现。
 5) **纹理/视频接线**：接入 tex/txq/suld/sust/sured，补 SIMD 视频饱和/舍入；连通 dp4a/dp2a。
 6) ~~**指令完整性**~~ ✅已完成：栈/调试指令 ✅已实现；FP half/mixed compare ✅在fp16_unit实现。
