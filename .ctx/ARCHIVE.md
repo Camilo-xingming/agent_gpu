@@ -201,7 +201,22 @@ This file contains summaries of completed and verified Minimal Verifiable Units 
 
 ---
 
+## MVU-019: Special Register and Atomic Test Generators
+**Completed**: 2026-01-20
+**Scope**: Test generators for special registers and atomic operations
+**Tools**: tools/test_generator.py, tools/rtl_frm_compare.py
+**Features**:
+- SpecialRegTestGenerator: %tid.x, %ntid.x, %laneid, %ctaid.x (4 tests)
+- AtomTestGenerator: atom.add, atom.exch, atom.cas (5 tests)
+- rtl_frm_compare.py: Added initial_memory support for test setup
+- Documented FRM deterministic thread ordering for atomic tests
+**Tests**: 144/144 pass (65 ALU + 10 FP32 + 20 Memory + 8 Branch + 32 DIV + 4 Special + 5 Atom)
+**Verification**: Gemini review (PASS for SpecialReg, noted FRM ordering assumption for Atom)
+**Process**: Implementation + Gemini review
+
+---
+
 ## Regression Summary
 - All archived MVUs continue to pass in regression testing
-- Total unique test cases: 400+
+- Total unique test cases: 425+
 - Coverage: Tier 1-7 RTL, Tier 1/3 verified with generators

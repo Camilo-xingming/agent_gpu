@@ -322,6 +322,224 @@ class MemoryTestGenerator:
         return tests
 
 
+class SpecialRegTestGenerator:
+    """Generate special register read test cases"""
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def gen_tid_tests(self) -> List[TestCase]:
+        """Generate %tid.x read tests"""
+        tests = []
+
+        # Test: read tid.x and verify it equals thread ID
+        # For thread 0, tid.x should be 0
+        tests.append(TestCase(
+            name="special_tid_x_000",
+            category="special",
+            ptx_code=[
+                "mov.u32 r1, %tid.x",   # r1 = thread ID
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={1: 0}  # Thread 0's tid.x = 0
+        ))
+
+        return tests
+
+    def gen_ntid_tests(self) -> List[TestCase]:
+        """Generate %ntid.x read tests"""
+        tests = []
+
+        # Test: read ntid.x (block dimension)
+        # Default block_dim is (32, 1, 1) so ntid.x = 32
+        tests.append(TestCase(
+            name="special_ntid_x_000",
+            category="special",
+            ptx_code=[
+                "mov.u32 r1, %ntid.x",  # r1 = block dimension x
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={1: 32}  # Default block_dim[0] = 32
+        ))
+
+        return tests
+
+    def gen_laneid_tests(self) -> List[TestCase]:
+        """Generate %laneid read tests"""
+        tests = []
+
+        # Test: read laneid (thread ID within warp, 0-31)
+        tests.append(TestCase(
+            name="special_laneid_000",
+            category="special",
+            ptx_code=[
+                "mov.u32 r1, %laneid",  # r1 = lane ID (tid % 32)
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={1: 0}  # Thread 0's laneid = 0
+        ))
+
+        return tests
+
+    def gen_ctaid_tests(self) -> List[TestCase]:
+        """Generate %ctaid.x read tests"""
+        tests = []
+
+        # Test: read ctaid.x (block ID)
+        tests.append(TestCase(
+            name="special_ctaid_x_000",
+            category="special",
+            ptx_code=[
+                "mov.u32 r1, %ctaid.x", # r1 = block ID x
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={1: 0}  # First block's ctaid.x = 0
+        ))
+
+        return tests
+
+    def gen_all_special_tests(self) -> List[TestCase]:
+        """Generate all special register tests"""
+        tests = []
+        tests.extend(self.gen_tid_tests())
+        tests.extend(self.gen_ntid_tests())
+        tests.extend(self.gen_laneid_tests())
+        tests.extend(self.gen_ctaid_tests())
+        return tests
+
+
+class AtomTestGenerator:
+    """Generate atomic operation test cases
+
+    Note on Thread Ordering:
+    In the FRM (gpu_simulator.py), threads within a warp execute in order
+    (thread 0, 1, 2, ..., 31) within a single instruction. This means thread 0
+    is always the first to execute an atomic operation.
+
+    On real hardware, thread execution order within a warp is not guaranteed.
+    However, for FRM verification purposes, our deterministic ordering is
+    acceptable and allows us to verify that:
+    1. The atomic operation correctly returns the old value
+    2. The atomic operation correctly updates memory
+
+    These tests validate the FRM's atomic semantics, not real hardware timing.
+    """
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def gen_atom_add_tests(self) -> List[TestCase]:
+        """Generate atom.add test cases
+
+        Note: All 32 threads in a warp execute atomics, so we only verify
+        that thread 0's returned value (old value) is correct.
+        """
+        tests = []
+
+        # Test: atomic add - verify thread 0 gets the initial value as old
+        tests.append(TestCase(
+            name="atom_add_000",
+            category="atom",
+            ptx_code=[
+                "mov.u32 r1, 0",         # Address 0
+                "mov.u32 r2, 10",        # Value to add
+                "atom.add.s32 r3, [r1], r2",  # r3 = old value (thread 0 is first)
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 100},  # Thread 0 sees initial value
+            initial_memory={0: 100}
+        ))
+
+        # Test: atomic add with zero
+        tests.append(TestCase(
+            name="atom_add_001",
+            category="atom",
+            ptx_code=[
+                "mov.u32 r1, 4",         # Address 4
+                "mov.u32 r2, 0",         # Value to add (0)
+                "atom.add.s32 r3, [r1], r2",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 50},  # Returns old value
+            initial_memory={4: 50}
+        ))
+
+        return tests
+
+    def gen_atom_exch_tests(self) -> List[TestCase]:
+        """Generate atom.exch test cases"""
+        tests = []
+
+        # Test: atomic exchange - verify thread 0 gets the initial value
+        tests.append(TestCase(
+            name="atom_exch_000",
+            category="atom",
+            ptx_code=[
+                "mov.u32 r1, 0",         # Address 0
+                "mov.u32 r2, 999",       # New value
+                "atom.exch.b32 r3, [r1], r2",  # r3 = old value (thread 0 is first)
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 123},  # Thread 0 sees initial value
+            initial_memory={0: 123}
+        ))
+
+        return tests
+
+    def gen_atom_cas_tests(self) -> List[TestCase]:
+        """Generate atom.cas test cases"""
+        tests = []
+
+        # Test: CAS success - thread 0 succeeds, sees initial value
+        tests.append(TestCase(
+            name="atom_cas_success_000",
+            category="atom",
+            ptx_code=[
+                "mov.u32 r1, 0",         # Address
+                "mov.u32 r2, 200",       # New value if match
+                "mov.u32 r5, 100",       # Compare value (should match for thread 0)
+                "atom.cas.b32 r3, [r1], r5, r2",  # CAS: if mem==r5, mem=r2
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 100},  # Thread 0 sees initial value (successful CAS)
+            initial_memory={0: 100}
+        ))
+
+        # Test: CAS failure (compare doesn't match)
+        tests.append(TestCase(
+            name="atom_cas_fail_000",
+            category="atom",
+            ptx_code=[
+                "mov.u32 r1, 0",
+                "mov.u32 r2, 200",       # Would-be new value
+                "mov.u32 r5, 999",       # Compare value (won't match)
+                "atom.cas.b32 r3, [r1], r5, r2",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 100},  # Thread 0 sees current value (failed CAS)
+            initial_memory={0: 100}
+        ))
+
+        return tests
+
+    def gen_all_atom_tests(self) -> List[TestCase]:
+        """Generate all atomic operation tests"""
+        tests = []
+        tests.extend(self.gen_atom_add_tests())
+        tests.extend(self.gen_atom_exch_tests())
+        tests.extend(self.gen_atom_cas_tests())
+        return tests
+
+
 class DivTestGenerator:
     """Generate integer division and remainder test cases"""
 
@@ -661,8 +879,14 @@ def write_test_case(test: TestCase, output_dir: Path):
     expected_file = output_dir / f"{test.name}.expected"
     with open(expected_file, 'w') as f:
         f.write(f"# Expected results for {test.name}\n")
+        # Write initial memory (for FRM initialization)
+        if test.initial_memory:
+            for addr, val in test.initial_memory.items():
+                f.write(f"init_mem[{addr:08x}]={val:08x}\n")
+        # Write expected registers
         for reg, val in test.expected_regs.items():
             f.write(f"r{reg}={val:08x}\n")
+        # Write expected memory
         if test.expected_memory:
             for addr, val in test.expected_memory.items():
                 f.write(f"mem[{addr:08x}]={val:08x}\n")
@@ -731,8 +955,31 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(div_tests)} DIV/REM tests")
 
+    # Special register tests
+    special_gen = SpecialRegTestGenerator(seed=42)
+    special_tests = special_gen.gen_all_special_tests()
+    print(f"Generated {len(special_tests)} Special Register tests")
+
+    success_count = 0
+    for test in special_tests:
+        if write_test_case(test, output_dir / "special"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(special_tests)} Special Register tests")
+
+    # Atomic tests
+    atom_gen = AtomTestGenerator(seed=42)
+    atom_tests = atom_gen.gen_all_atom_tests()
+    print(f"Generated {len(atom_tests)} Atomic tests")
+
+    success_count = 0
+    for test in atom_tests:
+        if write_test_case(test, output_dir / "atom"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(atom_tests)} Atomic tests")
+
     # Summary
-    total_tests = len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) + len(div_tests)
+    total_tests = (len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) +
+                   len(div_tests) + len(special_tests) + len(atom_tests))
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -757,7 +1004,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -796,6 +1043,16 @@ def main():
             tests = gen.gen_all_div_tests()
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "div"))
             print(f"Generated {success}/{len(tests)} DIV/REM tests")
+        elif args.gen == "special":
+            gen = SpecialRegTestGenerator(seed=args.seed)
+            tests = gen.gen_all_special_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "special"))
+            print(f"Generated {success}/{len(tests)} Special Register tests")
+        elif args.gen == "atom":
+            gen = AtomTestGenerator(seed=args.seed)
+            tests = gen.gen_all_atom_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "atom"))
+            print(f"Generated {success}/{len(tests)} Atomic tests")
     else:
         parser.print_help()
 

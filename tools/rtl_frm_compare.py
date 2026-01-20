@@ -36,11 +36,16 @@ class ComparisonResult:
     error_message: str = ""
 
 
-def load_expected_results(expected_file: Path) -> Dict[int, int]:
-    """Load expected register values from .expected file"""
+def load_expected_results(expected_file: Path) -> Tuple[Dict[int, int], Dict[int, int]]:
+    """Load expected register values and initial memory from .expected file
+
+    Returns:
+        (expected_regs, initial_memory) tuple
+    """
     expected = {}
+    init_mem = {}
     if not expected_file.exists():
-        return expected
+        return expected, init_mem
 
     with open(expected_file) as f:
         for line in f:
@@ -53,7 +58,13 @@ def load_expected_results(expected_file: Path) -> Dict[int, int]:
                     reg = int(match.group(1))
                     val = int(match.group(2), 16)
                     expected[reg] = val
-    return expected
+            elif line.startswith('init_mem'):
+                match = re.match(r'init_mem\[([0-9a-fA-F]+)\]=([0-9a-fA-F]+)', line)
+                if match:
+                    addr = int(match.group(1), 16)
+                    val = int(match.group(2), 16)
+                    init_mem[addr] = val
+    return expected, init_mem
 
 
 def is_fp32_close(a: int, b: int, ulp_tolerance: int = 2) -> bool:
@@ -69,9 +80,19 @@ def is_fp32_close(a: int, b: int, ulp_tolerance: int = 2) -> bool:
     return abs(a - b) <= ulp_tolerance
 
 
-def run_frm(hex_file: Path) -> Dict[int, int]:
-    """Run FRM simulation and return register values"""
+def run_frm(hex_file: Path, init_memory: Dict[int, int] = None) -> Dict[int, int]:
+    """Run FRM simulation and return register values
+
+    Args:
+        hex_file: Path to hex file with instructions
+        init_memory: Optional dict of address->value to initialize global memory
+    """
     sim = RalphGPUSimulator(num_sm=1)
+
+    # Initialize global memory if provided
+    if init_memory:
+        for addr, val in init_memory.items():
+            sim.global_memory[addr] = val
 
     # Load program
     sim.instruction_memory = []
@@ -123,9 +144,12 @@ def compare_test(test_path: Path) -> ComparisonResult:
             error_message=f"Hex file not found: {hex_file}"
         )
 
-    # Run FRM
+    # Load expected results and initial memory
+    expected_regs, init_memory = load_expected_results(expected_file)
+
+    # Run FRM with initial memory
     try:
-        frm_regs = run_frm(hex_file)
+        frm_regs = run_frm(hex_file, init_memory)
     except Exception as e:
         return ComparisonResult(
             test_name=test_name,
@@ -133,9 +157,6 @@ def compare_test(test_path: Path) -> ComparisonResult:
             frm_regs={},
             error_message=f"FRM execution failed: {e}"
         )
-
-    # Load expected results
-    expected_regs = load_expected_results(expected_file)
 
     # Determine if this is an FP32 test (for ULP tolerance)
     is_fp32_test = "fp32" in str(hex_file).lower()

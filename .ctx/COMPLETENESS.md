@@ -16,7 +16,7 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 | BRA | ✅ | ✅ | ✅ | VERIFIED |
 | EXIT/RET | ✅ | ✅ | ✅ | VERIFIED |
 | BAR.SYNC | ✅ | ❌ | ✅ | PARTIAL |
-| Special regs | ✅ | ❌ | ✅ | PARTIAL |
+| Special regs | ✅ | ✅ | ✅ | VERIFIED |
 
 ## Tier 2: Memory Operations
 
@@ -25,7 +25,7 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 | LD/ST.GLOBAL | ✅ | ✅ | ✅ | VERIFIED |
 | LD/ST.SHARED | ✅ | ✅ | ✅ | VERIFIED |
 | LD.PARAM/CONST | ✅ | ❌ | ✅ | PARTIAL |
-| ATOM basic | ✅ | ❌ | ✅ | PARTIAL |
+| ATOM basic | ✅ | ✅ | ✅ | VERIFIED |
 | MEMBAR | ✅ | ❌ | ✅ | PARTIAL |
 | cp.async | ✅ | ❌ | ❌ | DECODE ONLY |
 
@@ -69,19 +69,21 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 ## Summary
 - RTL modules: 56 files (many implemented)
 - PTX Assembler: 51/51 tests pass (100% coverage), 32-bit immediates fixed
-- Python Test Generators: 135 tests (65 ALU + 10 FP32 + 20 Memory + 8 Branch + 32 DIV)
-- FRM Coverage: ~80% (ALU/MEM/FP32 + SFU + DP4A + Branch + BAR.SYNC + MEMBAR + DIV/REM)
-- Functional Verification: 135/135 FRM tests pass
+- Python Test Generators: 144 tests (65 ALU + 10 FP32 + 20 Memory + 8 Branch + 32 DIV + 4 Special + 5 Atom)
+- FRM Coverage: ~85% (ALU/MEM/FP32 + SFU + DP4A + Branch + BAR.SYNC + MEMBAR + DIV/REM + Special + Atom)
+- Functional Verification: 144/144 FRM tests pass
 
 ## Priority MVUs Completed
 1. ~~**PTX Toolchain**~~ - Fixed 32-bit immediate handling
 2. ~~**FRM Expansion**~~ - Added FP32 basic/SFU/DP4A + BRANCH + Memory ops
-3. ~~**Test Generators**~~ - Python scripts generate 135 tests (ALU/FP32/Memory/Branch/DIV)
+3. ~~**Test Generators**~~ - Python scripts generate 144 tests (ALU/FP32/Memory/Branch/DIV/Special/Atom)
 4. ~~**RTL vs FRM Comparison**~~ - Comparison harness built
 5. ~~**BAR.SYNC/MEMBAR**~~ - CTAState barrier tracking added
 6. ~~**DIV/REM FRM**~~ - Integer division/remainder with Gemini review
+7. ~~**Special Reg/Atom Gen**~~ - Test generators for special registers and atomics
 
 ## Remaining MVUs
-1. **FP16/FP64/CVT FRM** - Extended floating point types
-2. **Warp Collectives FRM** - SHFL/VOTE/REDUX functional model
-3. **Async/Tensor Path** - cp.async, mbarrier, WGMMA functional verification
+1. **BAR.SYNC Gen** - Test generator for barrier synchronization
+2. **FP16/FP64/CVT FRM** - Extended floating point types
+3. **Warp Collectives FRM** - SHFL/VOTE/REDUX functional model
+4. **Async/Tensor Path** - cp.async, mbarrier, WGMMA functional verification
