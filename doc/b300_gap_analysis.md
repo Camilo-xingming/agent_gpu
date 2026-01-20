@@ -1,9 +1,15 @@
-# RalphGPU vs NVIDIA B300 Gap Analysis (2026-01-18)
+# RalphGPU vs NVIDIA B300 Gap Analysis (2026-01-20)
 
 快速列出相对 Blackwell/B300 架构的主要缺口与优先改进方向。
 
+## 已完成的改进 (2026-01-20)
+- ✅ **WGMMA 接线完成**: WGMMA 已连接到共享内存，支持直接从 SMEM 读取矩阵数据
+- ✅ **多精度支持**: FP16, BF16, TF32, FP8 (E4M3/E5M2), FP6 E3M2, FP4 E2M1, INT8 全部实现
+- ✅ **累加器寄存器**: 每个 warpgroup 8x1024-bit 累加器
+- ✅ **DP4A/DP2A**: Video unit 已完全接线，支持 INT8 点积
+
 ## 功能/架构缺口
-- **Tensor / 5th Gen 加速**：WGMMA 未接线（仅解码标记，无发射/写回）；5th-gen Tensor 指令、FP4/FP6 混合支持缺失；DPX/稀疏矩阵等 Blackwell 新特性未覆盖。
+- **Tensor / 5th Gen 加速**：~~WGMMA 未接线~~ ✅已完成；~~FP4/FP6 混合支持缺失~~ ✅已完成；DPX/稀疏矩阵等 Blackwell 新特性未覆盖。
 - **TMA / Async Memory**：`OP_CPASYNC` 为固定延迟计数 stub（无真实 LSU/TMA 搬运）；`st.async/st.bulk/multimem` 未实现；`mbarrier`、`cluster` 协同缺失，无法覆盖 Blackwell 的 TMA+cluster 模式。
 - **同步与集群**：仅有 `bar.sync`，缺 `bar.warp.sync`、`barrier.cluster`、`match.sync`、`red.async`、`griddepcontrol`、`elect.sync`、`mbarrier`；无 cluster 级 barrier/调度。
 - **缓存/策略控制**：cache policy 指令（createpolicy/applypriority/discard/prefetch hints）未落地；无动态缓存优先级/策略管理。
@@ -16,9 +22,9 @@
 - **顶层可扩展性**：多 SM/cluster 测试有限；IMEM/L2 总线宽度与 B300 不匹配；无高吞吐互连模型。
 
 ## 高优先级推进（建议顺序）
-1) **接入 TMA 路径**：用 `rtl/async_copy_engine.v` 或 LSU 扩展实现 cp.async 真实搬运、commit/wait 组语义；补全 st.async/multimem；接线 mbarrier/wait_all。
-2) **Tensor 代际升级**：接线 WGMMA + 长延迟 scoreboarding；定义 FP4/FP6/FP8 新格式映射，探索 DPX/稀疏单元（若追 B300 级）。
-3) **同步增强**：bar.warp.sync、barrier.cluster、match.sync/red.async/griddepcontrol/elect.sync/mbarrier/tensormap，含 cluster token/ID 管理。
+1) ~~**接入 TMA 路径**~~ 部分完成：cp.async 真实搬运已实现（非固定延迟）；待补全 st.async/multimem/tensormap；mbarrier 已实现。
+2) ~~**Tensor 代际升级**~~ ✅已完成：WGMMA 已接线到 SMEM；FP4/FP6/FP8/BF16/TF32 格式支持已实现；待探索 DPX/稀疏单元。
+3) **同步增强**：bar.warp.sync ✅已实现、barrier.cluster 已部分实现（单SM）、match.sync/red.async/griddepcontrol/elect.sync 待实现，含 cluster token/ID 管理。
 4) **缓存策略面**：实现 createpolicy/applypriority/discard/isspacep/mapa/getctarank，支持 cache hint 到 L1/L2/TMA。
 5) **纹理/视频接线**：接入 tex/txq/suld/sust/sured，补 SIMD 视频饱和/舍入；连通 dp4a/dp2a。
 6) **指令完整性**：补 FP half/mixed compare、栈/调试指令（alloca/stacksave/stackrestore、brkpt/trap/nanosleep/pmevent/setmaxnreg）。
