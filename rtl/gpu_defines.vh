@@ -263,16 +263,17 @@
 `define DPX_EXP2        6'b001001   // fast exp2 approximation
 
 // Phase 5.3: Sparse Tensor Operations (Blackwell 2:4 Structured Sparsity)
-`define OP_SPARSE_MMA   6'b111111   // Sparse MMA operations
+// Note: OP_SPARSE_MMA uses OP_MMA (6'b100010) with func codes 6'b1xxxxx
+// This avoids conflict with OP_NOP (6'b111111)
 
-// Sparse MMA function codes (for OP_SPARSE_MMA)
-`define SPARSE_MMA_FP16     6'b000000   // Sparse FP16 MMA with 2:4 sparsity
-`define SPARSE_MMA_BF16     6'b000001   // Sparse BF16 MMA with 2:4 sparsity
-`define SPARSE_MMA_TF32     6'b000010   // Sparse TF32 MMA with 2:4 sparsity
-`define SPARSE_MMA_INT8     6'b000011   // Sparse INT8 MMA with 2:4 sparsity
-`define SPARSE_MMA_FP8      6'b000100   // Sparse FP8 MMA with 2:4 sparsity
-`define SPARSE_COMPRESS     6'b001000   // Compress dense to 2:4 sparse format
-`define SPARSE_DECOMPRESS   6'b001001   // Decompress 2:4 sparse to dense
+// Sparse MMA function codes (under OP_MMA with high bit set)
+`define SPARSE_MMA_FP16     6'b100000   // Sparse FP16 MMA with 2:4 sparsity
+`define SPARSE_MMA_BF16     6'b100001   // Sparse BF16 MMA with 2:4 sparsity
+`define SPARSE_MMA_TF32     6'b100010   // Sparse TF32 MMA with 2:4 sparsity
+`define SPARSE_MMA_INT8     6'b100011   // Sparse INT8 MMA with 2:4 sparsity
+`define SPARSE_MMA_FP8      6'b100100   // Sparse FP8 MMA with 2:4 sparsity
+`define SPARSE_COMPRESS     6'b101000   // Compress dense to 2:4 sparse format
+`define SPARSE_DECOMPRESS   6'b101001   // Decompress 2:4 sparse to dense
 
 // Phase 6.2: Stack and Debug Instructions
 `define OP_STACK        6'b110101   // Stack operations (alloca/stacksave/stackrestore)

@@ -507,8 +507,19 @@ module decoder (
                 end
 
                 `OP_MMA: begin
-                    mma_op    <= 1'b1;
-                    reg_write <= 1'b1;
+                    // Check if this is a sparse MMA operation (func[5] == 1)
+                    if (inst_func[5]) begin
+                        // Sparse MMA operations (2:4 structured sparsity)
+                        sparse_mma_op <= 1'b1;
+                        reg_write <= 1'b1;
+                        `ifdef SIMULATION
+                        $display("[DECODER] SPARSE_MMA: func=%0d", inst_func);
+                        `endif
+                    end else begin
+                        // Regular MMA operation
+                        mma_op    <= 1'b1;
+                        reg_write <= 1'b1;
+                    end
                 end
 
                 //============================================================
@@ -812,35 +823,7 @@ module decoder (
                     `endif
                 end
 
-                //============================================================
-                // Phase 5.3: Sparse MMA Operations (Blackwell 2:4 Sparsity)
-                //============================================================
-                `OP_SPARSE_MMA: begin
-                    // Sparse matrix operations with 2:4 structured sparsity
-                    // 50% compression with 2 non-zero values per 4 elements
-                    sparse_mma_op <= 1'b1;
-                    reg_write <= 1'b1;  // MMA results written to accumulator registers
-                    case (inst_func)
-                        `SPARSE_COMPRESS: begin
-                            // Compress dense matrix to sparse format
-                            `ifdef SIMULATION
-                            $display("[DECODER] SPARSE_COMPRESS: compressing dense to 2:4 sparse");
-                            `endif
-                        end
-                        `SPARSE_DECOMPRESS: begin
-                            // Decompress sparse matrix to dense format
-                            `ifdef SIMULATION
-                            $display("[DECODER] SPARSE_DECOMPRESS: decompressing 2:4 sparse to dense");
-                            `endif
-                        end
-                        default: begin
-                            // Sparse MMA operations
-                            `ifdef SIMULATION
-                            $display("[DECODER] SPARSE_MMA: func=%0d", inst_func);
-                            `endif
-                        end
-                    endcase
-                end
+                // Note: Sparse MMA operations are now handled under OP_MMA with func[5]=1
 
                 //============================================================
                 // Phase 4.2: Cache Policy and Address Space Instructions
