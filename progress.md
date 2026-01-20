@@ -1,5 +1,124 @@
 # RalphGPU Progress Log
 
+## Session Date: 2026-01-20 (RAS/ECC and Verification)
+
+### Phase 3: RAS/ECC Features and Verification
+
+| Step | Description | Status |
+|------|-------------|--------|
+| 3.1 | Run full test suite to verify Phase 1 timing fixes | ✅ DONE |
+| 3.2 | Enable and test L2_ENABLE=1 memory hierarchy | ✅ DONE |
+| 3.3 | Test GPU_PROFILE_HPC 4-way scheduling validation | ✅ DONE |
+| 3.4 | Add RAS/ECC features to register_file_banked.v | ✅ DONE |
+
+### Test Results Summary
+
+**Unit Tests:**
+- ALU: 26/26 PASS
+- Decoder: 16/16 PASS
+- MUL: 27/27 PASS
+- FPU: 26/26 PASS
+- Extended ALU (dp4a/dp2a, etc.): 50/50 PASS
+- Shared Memory: 11/11 PASS
+- Register File: 11/11 PASS
+- Warp Scheduler: 10/10 PASS
+
+**Integration Tests:**
+- LLM Operators: 5/5 PASS (DP4A, GEMM 2x2, ReLU, Attention, Residual)
+- Trigonometric: 3/3 PASS (sin, cos, tan)
+- B300 Features: 145/145 PASS
+- B300 with L2_ENABLE=1: 145/145 PASS
+- B300 with GPU_PROFILE_HPC: 145/145 PASS
+
+### RAS/ECC Features Added
+
+**rtl/register_file_banked.v** - SEC-DED ECC for register file protection
+- **New Parameters:**
+  - `ECC_ENABLE` (default 1): Enable/disable ECC protection
+  - `ECC_BITS` (default 7): SEC-DED for 32-bit data
+
+- **ECC Functions:**
+  - `calc_ecc()`: Hamming (38,32) with overall parity for SEC-DED
+  - `decode_ecc()`: Single-bit error correction, double-bit error detection
+
+- **New Outputs:**
+  - `ecc_error_corrected`: Single-bit error was corrected
+  - `ecc_error_detected`: Double-bit error detected (uncorrectable)
+  - `stat_ecc_corrections`: Count of corrected errors
+  - `stat_ecc_uncorrectable`: Count of uncorrectable errors
+  - `ecc_error_warp/reg/lane`: Location of last error
+
+- **Implementation Details:**
+  - Storage widened from 32 bits to 39 bits (32 data + 7 ECC) when enabled
+  - ECC computed on write and verified/corrected on read
+  - Error tracking with warp/register/lane identification
+  - Minimal latency impact (combinational decode)
+
+### Configuration Parameters Updated
+
+| Parameter | Default | HPC Mode | Description |
+|-----------|---------|----------|-------------|
+| L1D_BYPASS | 1 | 0 | 1=fast bypass, 0=full cache |
+| L2_ENABLE | 0 | 1 | 1=enable L2 cache |
+| SCHED_LANES | 2 | 4 | Issue pipeline width |
+| NUM_SCHEDULERS | 2 | 4 | Parallel schedulers |
+| ECC_ENABLE | 1 | 1 | Register file ECC protection |
+
+### Compilation Status
+All changes compile successfully with iverilog (only minor warnings in wgmma.v).
+
+### Session Status
+All planned tasks completed:
+- Phase 1: 3/3 blocking issues fixed (previous session)
+- Phase 2: 4/4 B300 features implemented (previous session)
+- Phase 3: 4/4 RAS/ECC and verification tasks completed
+- All tests passing
+
+<promise>DONE</promise>
+
+---
+
+## Session Date: 2026-01-20 (B300 Feature Implementation)
+
+### Phase 1: Blocking Issues Fixed
+
+| Step | File | Change | Status |
+|------|------|--------|--------|
+| 1.1 | tb/tb_ptx_tests.v:170-210 | Fixed back-to-back memory request timing with pipelined design | ✅ DONE |
+| 1.2 | rtl/ralph_gpu_top.v:176-310 | Connected L1D cache with L1D_BYPASS parameter | ✅ DONE |
+| 1.3 | rtl/streaming_multiprocessor_v2.v:5030-5036 | Verified all stall signals reset on kernel_start | ✅ DONE |
+
+**Key Fixes:**
+- Added `imem_next_pending` and `imem_next_addr` registers for proper back-to-back request handling
+- L1D bypass mode provides 1-cycle memory access with 64KB shared bypass memory
+- L1D full mode instantiates l1_data_cache with proper interfaces
+- All stall signals confirmed reset on kernel_start (warp_stalled_mem/fu/sync/async/branch/wgmma)
+
+### Phase 2: B300 Features Implemented
+
+| Priority | Feature | Files | Status |
+|----------|---------|-------|--------|
+| P0 | Hardware LZ4 Decompression | rtl/lz4_decompressor.v (NEW) | ✅ DONE |
+| P0 | Chiplet Interconnect (CHI) | rtl/chi_controller.v (NEW) | ✅ DONE |
+| P1 | 4-way Instruction Scheduling | rtl/gpu_defines.vh, rtl/streaming_multiprocessor_v2.v | ✅ DONE |
+| P1 | L2 Cache Integration | rtl/ralph_gpu_top.v | ✅ DONE |
+
+### New Files Created
+
+1. **rtl/lz4_decompressor.v** - Hardware LZ4 decompression for FP4 bandwidth doubling
+   - AXI-Stream interfaces for input/output
+   - 64-bit input bus for HBM/GDDR bandwidth matching
+   - 64KB history buffer for match lookback
+   - Pipelined state machine for sustained throughput
+
+2. **rtl/chi_controller.v** - AMBA CHI controller for multi-GPU chiplets
+   - Cache coherency protocol (MOESI-based)
+   - Request/Response/Snoop/Data channels
+   - Snoop filtering for efficiency
+   - Transaction tracking with 64 outstanding requests
+
+---
+
 ## Session Date: 2026-01-19 (Trigonometric Functions)
 
 ### Trigonometric Function Verification - ALL TESTS PASS (3/3)

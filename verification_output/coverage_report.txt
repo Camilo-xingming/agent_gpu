@@ -3,7 +3,7 @@ RalphGPU PTX ISA Verification Report
 ================================================================================
 
 Suite: RalphGPU PTX ISA 9.1 Complete Test Suite
-Timestamp: 2026-01-15T23:10:38.359144
+Timestamp: 2026-01-20T20:08:15.250508
 
 Test Summary:
   Total Tests: 51
@@ -56,15 +56,15 @@ Test Details
 
 [PASS] integer_extended_arithmetic
        Category: Integer Arithmetic
-       Instructions: 10
+       Instructions: 13
 
 [PASS] integer_carry_operations
        Category: Integer Arithmetic
-       Instructions: 7
+       Instructions: 10
 
 [PASS] integer_bit_manipulation
        Category: Integer Arithmetic
-       Instructions: 7
+       Instructions: 10
 
 [PASS] integer_mad_operations
        Category: Integer Arithmetic
@@ -76,11 +76,11 @@ Test Details
 
 [PASS] logic_bitwise_operations
        Category: Logic
-       Instructions: 7
+       Instructions: 13
 
 [PASS] logic_shift_operations
        Category: Logic
-       Instructions: 6
+       Instructions: 9
 
 [PASS] logic_select_operations
        Category: Logic
@@ -92,23 +92,23 @@ Test Details
 
 [PASS] fp32_basic_arithmetic
        Category: FP32 Arithmetic
-       Instructions: 11
+       Instructions: 13
 
 [PASS] fp32_fma
        Category: FP32 Arithmetic
-       Instructions: 5
+       Instructions: 8
 
 [PASS] fp32_special_functions
        Category: FP32 Special
-       Instructions: 10
+       Instructions: 11
 
 [PASS] fp64_basic_arithmetic
        Category: FP64 Arithmetic
-       Instructions: 16
+       Instructions: 18
 
 [PASS] fp64_fma
        Category: FP64 Arithmetic
-       Instructions: 8
+       Instructions: 11
 
 [PASS] fp16_basic_arithmetic
        Category: FP16/BF16
@@ -120,19 +120,19 @@ Test Details
 
 [PASS] fp16x2_packed_operations
        Category: FP16/BF16
-       Instructions: 7
+       Instructions: 13
 
 [PASS] cvt_int_float
        Category: Type Conversion
-       Instructions: 7
+       Instructions: 8
 
 [PASS] cvt_float_precision
        Category: Type Conversion
-       Instructions: 6
+       Instructions: 7
 
 [PASS] cvt_64bit
        Category: Type Conversion
-       Instructions: 7
+       Instructions: 8
 
 [PASS] memory_global
        Category: Data Movement
@@ -204,7 +204,7 @@ Test Details
 
 [PASS] warp_shuffle
        Category: Warp Shuffle
-       Instructions: 7
+       Instructions: 10
 
 [PASS] warp_vote
        Category: Warp Vote
@@ -240,15 +240,15 @@ Test Details
 
 [PASS] video_basic_operations
        Category: Video/SIMD
-       Instructions: 11
+       Instructions: 17
 
 [PASS] video_simd_operations
        Category: Video/SIMD
-       Instructions: 9
+       Instructions: 15
 
 [PASS] video_dp_operations
        Category: Video/SIMD
-       Instructions: 6
+       Instructions: 12
 
 [PASS] async_copy_operations
        Category: Async Copy

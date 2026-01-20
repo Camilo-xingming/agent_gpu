@@ -74,7 +74,8 @@ module tb_multi_sm;
     // DUT实例化
     //------------------------------------------------------------------------
     ralph_gpu_top #(
-        .NUM_SM (NUM_SM)
+        .NUM_SM (NUM_SM),
+        .L1D_BYPASS(1)    // Use fast bypass mode for L1D cache
     ) dut (
         .clk             (clk),
         .rst_n           (rst_n),

@@ -10,6 +10,7 @@ build/
 
 # Claude local files
 .claude/
+prompt.md
 
 # Python cache
 __pycache__/

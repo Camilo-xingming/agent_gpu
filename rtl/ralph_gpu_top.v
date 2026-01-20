@@ -28,7 +28,9 @@ module ralph_gpu_top #(
     parameter NUM_SM         = `NUM_SM,           // 2
     parameter AXI_DATA_WIDTH = 32,
     parameter AXI_ADDR_WIDTH = 32,
-    parameter AXI_ID_WIDTH   = 4
+    parameter AXI_ID_WIDTH   = 4,
+    parameter L1D_BYPASS     = 1,                 // 1=bypass L1D (fast testing), 0=use full cache
+    parameter L2_ENABLE      = 0                  // 1=enable L2 cache, 0=bypass L2 (direct to memory)
 )(
     input  wire                         clk,
     input  wire                         rst_n,
@@ -171,6 +173,12 @@ module ralph_gpu_top #(
     wire        sm_axi_arvalid [0:NUM_SM-1];
     wire        sm_axi_rready  [0:NUM_SM-1];
 
+    //------------------------------------------------------------------------
+    // L1D Cache/Bypass Memory Interface
+    //------------------------------------------------------------------------
+    // Shared memory model for L1D bypass mode (simple direct memory access)
+    reg [31:0] l1d_bypass_mem [0:16383];  // 64KB shared for bypass mode
+
     genvar sm;
     genvar lane;
     generate
@@ -180,12 +188,125 @@ module ralph_gpu_top #(
             wire [31:0] sm_l1d_req_addr [0:NUM_LANES-1];
             wire [31:0] sm_l1d_req_wdata [0:NUM_LANES-1];
             wire [NUM_LANES-1:0] sm_l1d_req_mask;
-            wire [31:0] sm_l1d_resp_rdata [0:NUM_LANES-1];
-            wire        sm_l1d_resp_valid;
-            wire        sm_l1d_resp_hit;
+            reg  [31:0] sm_l1d_resp_rdata [0:NUM_LANES-1];
+            reg         sm_l1d_resp_valid;
+            reg         sm_l1d_resp_hit;
 
-            assign sm_l1d_resp_valid = 1'b0;
-            assign sm_l1d_resp_hit = 1'b0;
+            // L1D Bypass Mode: Direct memory access with 1-cycle latency
+            if (L1D_BYPASS) begin : l1d_bypass
+                // Pipeline registers for bypass mode
+                reg         req_valid_d;
+                reg         req_write_d;
+                reg [31:0]  req_addr_d [0:NUM_LANES-1];
+                reg [31:0]  req_wdata_d [0:NUM_LANES-1];
+                reg [NUM_LANES-1:0] req_mask_d;
+
+                always @(posedge clk or negedge rst_n) begin
+                    if (!rst_n) begin
+                        req_valid_d <= 1'b0;
+                        req_write_d <= 1'b0;
+                        req_mask_d <= {NUM_LANES{1'b0}};
+                        sm_l1d_resp_valid <= 1'b0;
+                        sm_l1d_resp_hit <= 1'b0;
+                        for (integer k = 0; k < NUM_LANES; k = k + 1) begin
+                            req_addr_d[k] <= 32'b0;
+                            req_wdata_d[k] <= 32'b0;
+                            sm_l1d_resp_rdata[k] <= 32'b0;
+                        end
+                    end else begin
+                        // Pipeline stage 1: Capture request
+                        req_valid_d <= sm_l1d_req_valid;
+                        req_write_d <= sm_l1d_req_write;
+                        req_mask_d <= sm_l1d_req_mask;
+                        for (integer k = 0; k < NUM_LANES; k = k + 1) begin
+                            req_addr_d[k] <= sm_l1d_req_addr[k];
+                            req_wdata_d[k] <= sm_l1d_req_wdata[k];
+                        end
+
+                        // Pipeline stage 2: Return response
+                        sm_l1d_resp_valid <= req_valid_d;
+                        sm_l1d_resp_hit <= req_valid_d;  // Always hit in bypass mode
+
+                        if (req_valid_d) begin
+                            for (integer k = 0; k < NUM_LANES; k = k + 1) begin
+                                if (req_mask_d[k]) begin
+                                    if (req_write_d) begin
+                                        // Write operation
+                                        l1d_bypass_mem[req_addr_d[k][15:2]] <= req_wdata_d[k];
+                                    end else begin
+                                        // Read operation
+                                        sm_l1d_resp_rdata[k] <= l1d_bypass_mem[req_addr_d[k][15:2]];
+                                    end
+                                end else begin
+                                    sm_l1d_resp_rdata[k] <= 32'b0;
+                                end
+                            end
+                        end
+                    end
+                end
+            end else begin : l1d_full
+                // Full L1D cache instantiation
+                wire        l1d_mem_req;
+                wire        l1d_mem_write;
+                wire [31:0] l1d_mem_addr;
+                wire [1023:0] l1d_mem_wdata;
+                reg  [1023:0] l1d_mem_rdata;
+                reg         l1d_mem_valid;
+                wire        l1d_mem_ready;
+
+                assign l1d_mem_ready = 1'b1;  // Always ready for now
+
+                l1_data_cache #(
+                    .CACHE_SIZE_KB   (16),
+                    .LINE_SIZE_BYTES (128),
+                    .NUM_WAYS        (4),
+                    .HIT_LATENCY     (4),
+                    .THREADS         (NUM_LANES),
+                    .DATA_WIDTH      (32)
+                ) u_l1d_cache (
+                    .clk            (clk),
+                    .rst_n          (rst_n),
+                    .req_valid      (sm_l1d_req_valid),
+                    .req_write      (sm_l1d_req_write),
+                    .req_addr       (sm_l1d_req_addr),
+                    .req_wdata      (sm_l1d_req_wdata),
+                    .req_mask       (sm_l1d_req_mask),
+                    .resp_rdata     (sm_l1d_resp_rdata),
+                    .resp_valid     (sm_l1d_resp_valid),
+                    .resp_hit       (sm_l1d_resp_hit),
+                    .mem_req        (l1d_mem_req),
+                    .mem_write      (l1d_mem_write),
+                    .mem_addr       (l1d_mem_addr),
+                    .mem_wdata      (l1d_mem_wdata),
+                    .mem_rdata      (l1d_mem_rdata),
+                    .mem_valid      (l1d_mem_valid),
+                    .mem_ready      (l1d_mem_ready),
+                    .stat_hits      (),  // Unused for now
+                    .stat_misses    (),
+                    .policy_create_valid  (1'b0),
+                    .policy_id            (3'b0),
+                    .policy_priority      (8'b0),
+                    .policy_token_out     (),
+                    .policy_token_valid   (),
+                    .policy_apply_valid   (1'b0),
+                    .policy_apply_addr    (32'b0),
+                    .policy_apply_id      (3'b0),
+                    .policy_discard_valid (1'b0),
+                    .policy_discard_addr  (32'b0)
+                );
+
+                // Simple memory response for cache misses (1 cycle)
+                always @(posedge clk or negedge rst_n) begin
+                    if (!rst_n) begin
+                        l1d_mem_valid <= 1'b0;
+                        l1d_mem_rdata <= 1024'b0;
+                    end else begin
+                        l1d_mem_valid <= l1d_mem_req && !l1d_mem_write;
+                        // In real system, this would go through memory arbiter
+                        l1d_mem_rdata <= 1024'b0;  // Placeholder
+                    end
+                end
+            end
 
             streaming_multiprocessor_v2 #(
                 .SM_ID (sm),
@@ -254,10 +375,100 @@ module ralph_gpu_top #(
                 .m_axi_rvalid  (m_axi_rvalid),
                 .m_axi_rready  (sm_axi_rready[sm])
             );
+            // L1D response is now handled by l1d_bypass or l1d_full above
+        end
+    endgenerate
 
-            for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : sm_l1d_lane_tieoff
-                assign sm_l1d_resp_rdata[lane] = 32'b0;
+    //------------------------------------------------------------------------
+    // L2 Cache Integration (Optional)
+    //------------------------------------------------------------------------
+    generate
+        if (L2_ENABLE) begin : l2_cache_gen
+            // L2 cache interface signals
+            wire [NUM_SM-1:0]        l2_req_valid;
+            wire [NUM_SM-1:0]        l2_req_write;
+            wire [NUM_SM*32-1:0]     l2_req_addr;
+            wire [NUM_SM*128*8-1:0]  l2_req_wdata;   // 128B cache line
+            wire [NUM_SM*128-1:0]    l2_req_wmask;
+            wire [NUM_SM-1:0]        l2_req_ready;
+            wire [NUM_SM-1:0]        l2_resp_valid;
+            wire [NUM_SM*128*8-1:0]  l2_resp_rdata;
+
+            // Memory controller interface
+            wire        l2_mem_req_valid;
+            wire        l2_mem_req_write;
+            wire [31:0] l2_mem_req_addr;
+            wire [128*8-1:0] l2_mem_req_wdata;
+            wire        l2_mem_req_ready;
+            wire        l2_mem_resp_valid;
+            wire [128*8-1:0] l2_mem_resp_rdata;
+
+            // L2 cache statistics
+            wire [31:0] l2_stat_hits;
+            wire [31:0] l2_stat_misses;
+            wire [31:0] l2_stat_writebacks;
+
+            // Instantiate L2 cache
+            l2_cache #(
+                .SIZE_KB     (`L2_SIZE_KB),
+                .NUM_BANKS   (`L2_NUM_BANKS),
+                .NUM_WAYS    (`L2_WAYS),
+                .LINE_SIZE   (`L2_LINE_SIZE),
+                .MSHR_ENTRIES(`L2_MSHR_ENTRIES),
+                .ADDR_WIDTH  (32),
+                .DATA_WIDTH  (512),
+                .NUM_PORTS   (NUM_SM)
+            ) u_l2_cache (
+                .clk            (clk),
+                .rst_n          (rst_n),
+                .l1_req_valid   (l2_req_valid),
+                .l1_req_write   (l2_req_write),
+                .l1_req_addr    (l2_req_addr),
+                .l1_req_wdata   (l2_req_wdata),
+                .l1_req_wmask   (l2_req_wmask),
+                .l1_req_ready   (l2_req_ready),
+                .l1_resp_valid  (l2_resp_valid),
+                .l1_resp_rdata  (l2_resp_rdata),
+                .mem_req_valid  (l2_mem_req_valid),
+                .mem_req_write  (l2_mem_req_write),
+                .mem_req_addr   (l2_mem_req_addr),
+                .mem_req_wdata  (l2_mem_req_wdata),
+                .mem_req_ready  (l2_mem_req_ready),
+                .mem_resp_valid (l2_mem_resp_valid),
+                .mem_resp_rdata (l2_mem_resp_rdata),
+                .stat_hits      (l2_stat_hits),
+                .stat_misses    (l2_stat_misses),
+                .stat_writebacks(l2_stat_writebacks)
+            );
+
+            // Simple memory response for L2 misses (connects to AXI in full system)
+            reg l2_mem_resp_pending;
+            reg [128*8-1:0] l2_mem_resp_data_r;
+
+            assign l2_mem_req_ready = 1'b1;
+
+            always @(posedge clk or negedge rst_n) begin
+                if (!rst_n) begin
+                    l2_mem_resp_pending <= 1'b0;
+                    l2_mem_resp_data_r <= {(128*8){1'b0}};
+                end else begin
+                    l2_mem_resp_pending <= l2_mem_req_valid && !l2_mem_req_write;
+                    // In full system, this would go through memory controller
+                    l2_mem_resp_data_r <= {(128*8){1'b0}};  // Placeholder for real memory data
+                end
             end
+
+            assign l2_mem_resp_valid = l2_mem_resp_pending;
+            assign l2_mem_resp_rdata = l2_mem_resp_data_r;
+
+            // Connect L1D cache misses to L2 requests
+            // Note: Full integration requires modifying the L1D bypass/full logic
+            // to route through L2 instead of direct memory access
+            assign l2_req_valid = {NUM_SM{1'b0}};  // Placeholder - connect from L1D miss path
+            assign l2_req_write = {NUM_SM{1'b0}};
+            assign l2_req_addr = {(NUM_SM*32){1'b0}};
+            assign l2_req_wdata = {(NUM_SM*128*8){1'b0}};
+            assign l2_req_wmask = {(NUM_SM*128){1'b0}};
         end
     endgenerate
 

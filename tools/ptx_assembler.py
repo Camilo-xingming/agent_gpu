@@ -488,12 +488,13 @@ class Instruction:
                     (self.rd & 0x1F) << 21 |
                     (self.imm16 & 0xFFFF))
         elif self.opcode == Opcode.ALU_IMM:
-            # ALU_IMM format: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:0]=imm16
-            # (imm16 contains func in [15:10] and imm10 in [9:0])
+            # ALU_IMM format: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:10]=func, [9:0]=imm10
+            imm10 = self.imm16 & 0x3FF  # 10-bit immediate
             return ((self.opcode & 0x3F) << 26 |
                     (self.rd & 0x1F) << 21 |
                     (self.ra & 0x1F) << 16 |
-                    (self.imm16 & 0xFFFF))
+                    (self.func & 0x3F) << 10 |
+                    imm10)
         elif self.opcode == Opcode.BRANCH:
             # BRANCH format: {opcode[31:26], type[25:24], unused[23:21], ra[20:16], offset[15:0]}
             # rd contains branch_type in bits [4:3]
@@ -590,16 +591,83 @@ class PTXAssembler:
                 continue
 
             try:
-                inst = self.parse_instruction(line)
-                machine_code.append(inst.encode())
+                instructions = self.parse_instruction_expanded(line)
+                for inst in instructions:
+                    machine_code.append(inst.encode())
+                    self.current_addr += 4
                 self.instructions_assembled.append(line.split()[0].lower())
-                self.current_addr += 4
             except Exception as e:
                 print(f"Error at line {line_num}: {e}")
                 print(f"  {line}")
                 raise
 
         return machine_code
+
+    def parse_instruction_expanded(self, line: str) -> List[Instruction]:
+        """Parse instruction, potentially expanding to multiple instructions for large immediates"""
+        # Check for mov with 32-bit immediate
+        parts = line.replace(',', ' ').split()
+        if len(parts) >= 3 and parts[0].lower().startswith('mov.'):
+            try:
+                src = parts[2].strip()
+                if not src.startswith('%') and not src.startswith('r'):
+                    imm = parse_immediate(src)
+                    if imm > 0xFFFF or imm < -32768:
+                        # Need to expand 32-bit immediate into sequence:
+                        # 1. mov rd, hi16       (load upper 16 bits)
+                        # 2. shl rd, rd, 16     (shift to upper position)
+                        # 3. mov r31, lo16      (load lower 16 bits to temp)
+                        # 4. or rd, rd, r31     (combine)
+                        rd = parse_register(parts[1])
+                        lo16 = imm & 0xFFFF
+                        hi16 = (imm >> 16) & 0xFFFF
+                        temp_reg = 31  # Use r31 as temp
+
+                        instructions = []
+
+                        # If hi16 is 0, just load lo16 directly
+                        if hi16 == 0:
+                            inst = Instruction(opcode=Opcode.MOV_IMM)
+                            inst.rd = rd
+                            inst.imm16 = lo16
+                            return [inst]
+
+                        # mov rd, hi16
+                        inst1 = Instruction(opcode=Opcode.MOV_IMM)
+                        inst1.rd = rd
+                        inst1.imm16 = hi16
+                        instructions.append(inst1)
+
+                        # shl rd, rd, 16 (using ALU_IMM with 10-bit immediate)
+                        inst2 = Instruction(opcode=Opcode.ALU_IMM)
+                        inst2.rd = rd
+                        inst2.ra = rd
+                        inst2.func = AluFunc.SHL
+                        inst2.imm16 = 16  # Fits in 10 bits
+                        instructions.append(inst2)
+
+                        # If lo16 is non-zero, add it
+                        if lo16 != 0:
+                            # mov r31, lo16
+                            inst3 = Instruction(opcode=Opcode.MOV_IMM)
+                            inst3.rd = temp_reg
+                            inst3.imm16 = lo16
+                            instructions.append(inst3)
+
+                            # or rd, rd, r31
+                            inst4 = Instruction(opcode=Opcode.ALU)
+                            inst4.rd = rd
+                            inst4.ra = rd
+                            inst4.rb = temp_reg
+                            inst4.func = AluFunc.OR
+                            instructions.append(inst4)
+
+                        return instructions
+            except:
+                pass  # Fall through to normal parsing
+
+        # Normal single instruction
+        return [self.parse_instruction(line)]
 
     def parse_instruction(self, line: str) -> Instruction:
         """Parse a single instruction"""

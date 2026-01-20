@@ -116,7 +116,8 @@ module tb_ptx_tests;
     // DUT Instantiation
     //------------------------------------------------------------------------
     ralph_gpu_top #(
-        .NUM_SM(1)  // Single SM for controlled testing
+        .NUM_SM(1),       // Single SM for controlled testing
+        .L1D_BYPASS(1)    // Use fast bypass mode for L1D cache
     ) u_gpu (
         .clk            (clk),
         .rst_n          (rst_n),
@@ -169,25 +170,48 @@ module tb_ptx_tests;
     // Instruction fetch - 1-CYCLE response (registered)
     // GPU top has a queue to track which SM made each request
     // Response must come at least 1 cycle after request for queue to fill
+    // Fixed: Properly handle back-to-back requests with pipelined design
     reg [31:0] imem_req_addr_d;
     reg        imem_req_pending;
+    reg [31:0] imem_next_addr;      // For back-to-back requests
+    reg        imem_next_pending;   // Back-to-back request queued
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             imem_req_pending <= 1'b0;
             imem_req_addr_d <= 32'b0;
+            imem_next_pending <= 1'b0;
+            imem_next_addr <= 32'b0;
             imem_valid <= 1'b0;
             imem_data <= 64'b0;
         end else begin
+            // Handle new incoming request
             if (imem_req) begin
-                imem_req_addr_d <= imem_addr;
-                imem_req_pending <= 1'b1;
+                if (imem_req_pending) begin
+                    // Back-to-back: queue the new request
+                    imem_next_addr <= imem_addr;
+                    imem_next_pending <= 1'b1;
+                end else begin
+                    // No pending request: start processing immediately
+                    imem_req_addr_d <= imem_addr;
+                    imem_req_pending <= 1'b1;
+                end
             end
+
+            // Process pending request and return data
             if (imem_req_pending) begin
                 imem_data <= {instruction_mem[(imem_req_addr_d >> 2) + 1],
                               instruction_mem[imem_req_addr_d >> 2]};
                 imem_valid <= 1'b1;
-                imem_req_pending <= 1'b0;
+
+                // Check if there's a queued back-to-back request
+                if (imem_next_pending) begin
+                    imem_req_addr_d <= imem_next_addr;
+                    imem_next_pending <= 1'b0;
+                    // Keep imem_req_pending = 1 to process queued request next cycle
+                end else begin
+                    imem_req_pending <= 1'b0;
+                end
             end else begin
                 imem_valid <= 1'b0;
             end

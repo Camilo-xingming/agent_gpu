@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-RalphGPU Functional Simulator
+RalphGPU Functional Simulator (FRM)
 用Python模拟GPU执行，验证设计逻辑
+Expanded to cover FP32, Warp, and extended operations
 """
 
 import struct
+import math
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from enum import IntEnum
 
-# 操作码
+# 操作码 - matches gpu_defines.vh
 class Opcode(IntEnum):
     ALU = 0b000000
     MUL = 0b000001
@@ -22,6 +24,27 @@ class Opcode(IntEnum):
     ST_SHARED = 0b001000
     MOV_SPECIAL = 0b001001
     BAR_SYNC = 0b001010
+    EXIT = 0b001011
+    RET = 0b001100
+    # FP operations
+    FP32_ARITH = 0b001101
+    FP32_SPECIAL = 0b001110
+    FP64_ARITH = 0b001111
+    FP16_ARITH = 0b010000
+    CVT = 0b010001
+    # Extended memory
+    LD_PARAM = 0b010010
+    LD_CONST = 0b010011
+    ATOM = 0b011010
+    # Warp operations
+    SHFL = 0b011100
+    VOTE = 0b011101
+    REDUX = 0b011110
+    # Video/DP
+    VIDEO = 0b100101
+    # Move immediate
+    MOV_IMM = 0b110000
+    ALU_IMM = 0b110001
     NOP = 0b111111
 
 # ALU功能码
@@ -35,6 +58,57 @@ class AluFunc(IntEnum):
     SHL = 0b000110
     SHR_U = 0b000111
     SHR_S = 0b001000
+    ABS = 0b001001
+    NEG = 0b001010
+    MIN_S = 0b001011
+    MIN_U = 0b001100
+    MAX_S = 0b001101
+    MAX_U = 0b001110
+    POPC = 0b001111
+    CLZ = 0b010000
+
+# FP32 功能码
+class Fp32Func(IntEnum):
+    ADD = 0b000000
+    SUB = 0b000001
+    MUL = 0b000010
+    DIV = 0b000011
+    FMA = 0b000100
+    NEG = 0b000101
+    ABS = 0b000110
+    MIN = 0b000111
+    MAX = 0b001000
+
+# FP32 Special 功能码
+class Fp32SpecialFunc(IntEnum):
+    RCP = 0b000000
+    SQRT = 0b000001
+    RSQRT = 0b000010
+    SIN = 0b000011
+    COS = 0b000100
+    LG2 = 0b000101
+    EX2 = 0b000110
+    TANH = 0b000111
+
+# Video功能码 (DP4A/DP2A)
+class VideoFunc(IntEnum):
+    DP4A_S32_S32 = 0b010000
+    DP4A_S32_U32 = 0b010001
+    DP4A_U32_S32 = 0b010010
+    DP4A_U32_U32 = 0b010011
+    DP2A_S32_S32 = 0b010100
+    DP2A_S32_U32 = 0b010101
+
+# Atomic功能码
+class AtomicFunc(IntEnum):
+    ADD = 0
+    EXCH = 1
+    CAS = 2
+    AND = 3
+    OR = 4
+    XOR = 5
+    MIN = 6
+    MAX = 7
 
 # 特殊寄存器
 class SpecialReg(IntEnum):
@@ -47,6 +121,9 @@ class SpecialReg(IntEnum):
     NTID_X = 6
     NTID_Y = 7
     NTID_Z = 8
+    LANEID = 9
+    WARPID = 10
+    SMID = 11
 
 
 @dataclass
@@ -81,6 +158,8 @@ class RalphGPUSimulator:
         # 内存
         self.global_memory: Dict[int, int] = {}
         self.shared_memory: List[Dict[int, int]] = [{} for _ in range(num_sm)]
+        self.param_memory: Dict[int, int] = {}
+        self.const_memory: Dict[int, int] = {}
 
         # 指令内存
         self.instruction_memory: List[int] = []
@@ -152,7 +231,88 @@ class RalphGPUSimulator:
 
         return result
 
-    def get_special_reg(self, thread: ThreadState, reg_id: int) -> int:
+    def uint_to_float(self, v: int) -> float:
+        """Convert uint32 bit pattern to float32"""
+        return struct.unpack('f', struct.pack('I', v & 0xFFFFFFFF))[0]
+
+    def float_to_uint(self, f: float) -> int:
+        """Convert float32 to uint32 bit pattern"""
+        return struct.unpack('I', struct.pack('f', f))[0]
+
+    def execute_fp32_arith(self, func: int, a: int, b: int, c: int = 0) -> int:
+        """Execute FP32 arithmetic operations"""
+        fa = self.uint_to_float(a)
+        fb = self.uint_to_float(b)
+        fc = self.uint_to_float(c)
+
+        try:
+            if func == Fp32Func.ADD:
+                result = fa + fb
+            elif func == Fp32Func.SUB:
+                result = fa - fb
+            elif func == Fp32Func.MUL:
+                result = fa * fb
+            elif func == Fp32Func.DIV:
+                result = fa / fb if fb != 0 else float('inf') if fa >= 0 else float('-inf')
+            elif func == Fp32Func.FMA:
+                result = fa * fb + fc
+            elif func == Fp32Func.NEG:
+                result = -fa
+            elif func == Fp32Func.ABS:
+                result = abs(fa)
+            elif func == Fp32Func.MIN:
+                result = min(fa, fb)
+            elif func == Fp32Func.MAX:
+                result = max(fa, fb)
+            else:
+                result = 0.0
+        except:
+            result = float('nan')
+
+        return self.float_to_uint(result)
+
+    def execute_fp32_special(self, func: int, a: int) -> int:
+        """Execute FP32 special functions (SFU)"""
+        fa = self.uint_to_float(a)
+
+        try:
+            if func == Fp32SpecialFunc.RCP:
+                result = 1.0 / fa if fa != 0 else float('inf')
+            elif func == Fp32SpecialFunc.SQRT:
+                result = math.sqrt(fa) if fa >= 0 else float('nan')
+            elif func == Fp32SpecialFunc.RSQRT:
+                result = 1.0 / math.sqrt(fa) if fa > 0 else float('inf') if fa == 0 else float('nan')
+            elif func == Fp32SpecialFunc.SIN:
+                result = math.sin(fa)
+            elif func == Fp32SpecialFunc.COS:
+                result = math.cos(fa)
+            elif func == Fp32SpecialFunc.LG2:
+                result = math.log2(fa) if fa > 0 else float('-inf') if fa == 0 else float('nan')
+            elif func == Fp32SpecialFunc.EX2:
+                result = 2.0 ** fa if fa < 128 else float('inf')
+            elif func == Fp32SpecialFunc.TANH:
+                result = math.tanh(fa)
+            else:
+                result = 0.0
+        except:
+            result = float('nan')
+
+        return self.float_to_uint(result)
+
+    def execute_dp4a(self, a: int, b: int, c: int, signed_a: bool = True, signed_b: bool = True) -> int:
+        """Execute DP4A dot product of 4 bytes"""
+        result = c
+        for i in range(4):
+            a_byte = (a >> (i * 8)) & 0xFF
+            b_byte = (b >> (i * 8)) & 0xFF
+            if signed_a and a_byte > 127:
+                a_byte -= 256
+            if signed_b and b_byte > 127:
+                b_byte -= 256
+            result += a_byte * b_byte
+        return result & 0xFFFFFFFF
+
+    def get_special_reg(self, thread: ThreadState, warp: 'WarpState', sm_id: int, reg_id: int) -> int:
         """获取特殊寄存器值"""
         if reg_id == SpecialReg.TID_X:
             return thread.tid
@@ -172,6 +332,12 @@ class RalphGPUSimulator:
             return self.block_dim[1]
         elif reg_id == SpecialReg.NTID_Z:
             return self.block_dim[2]
+        elif reg_id == SpecialReg.LANEID:
+            return thread.tid % 32
+        elif reg_id == SpecialReg.WARPID:
+            return warp.warp_id if warp else 0
+        elif reg_id == SpecialReg.SMID:
+            return sm_id
         return 0
 
     def execute_warp(self, warp: WarpState, sm_id: int) -> bool:
@@ -217,7 +383,46 @@ class RalphGPUSimulator:
                     thread.registers[rd] = ((a * b) + c) & 0xFFFFFFFF
 
             elif opcode == Opcode.MOV_SPECIAL:
-                thread.registers[rd] = self.get_special_reg(thread, ra)
+                thread.registers[rd] = self.get_special_reg(thread, warp, sm_id, ra)
+
+            elif opcode == Opcode.MOV_IMM:
+                # MOV_IMM: rd = imm16 (lower 16 bits of instruction)
+                imm16 = inst & 0xFFFF
+                thread.registers[rd] = imm16
+
+            elif opcode == Opcode.ALU_IMM:
+                # ALU_IMM: rd = ra op imm10, func in bits [15:10], imm10 in bits [9:0]
+                alu_func = (inst >> 10) & 0x3F
+                imm10 = inst & 0x3FF
+                a = thread.registers[ra]
+                thread.registers[rd] = self.execute_alu(alu_func, a, imm10)
+
+            elif opcode == Opcode.FP32_ARITH:
+                a = thread.registers[ra]
+                b = thread.registers[rb]
+                c = thread.registers[rc]
+                thread.registers[rd] = self.execute_fp32_arith(func, a, b, c)
+
+            elif opcode == Opcode.FP32_SPECIAL:
+                a = thread.registers[ra]
+                thread.registers[rd] = self.execute_fp32_special(func, a)
+
+            elif opcode == Opcode.VIDEO:
+                # DP4A and DP2A operations
+                a = thread.registers[ra]
+                b = thread.registers[rb]
+                c = thread.registers[rc]
+                if func == VideoFunc.DP4A_S32_S32:
+                    thread.registers[rd] = self.execute_dp4a(a, b, c, True, True)
+                elif func == VideoFunc.DP4A_U32_U32:
+                    thread.registers[rd] = self.execute_dp4a(a, b, c, False, False)
+                elif func == VideoFunc.DP4A_S32_U32:
+                    thread.registers[rd] = self.execute_dp4a(a, b, c, True, False)
+                elif func == VideoFunc.DP4A_U32_S32:
+                    thread.registers[rd] = self.execute_dp4a(a, b, c, False, True)
+
+            elif opcode == Opcode.EXIT:
+                thread.active = False
 
             elif opcode == Opcode.LD_GLOBAL:
                 addr = thread.registers[ra] + ((rb << 6) | func)
@@ -235,6 +440,51 @@ class RalphGPUSimulator:
                 addr = thread.registers[ra] + ((rc << 6) | func)
                 self.shared_memory[sm_id][addr] = thread.registers[rb]
 
+            elif opcode == Opcode.LD_PARAM:
+                addr = thread.registers[ra] + ((rb << 6) | func)
+                thread.registers[rd] = self.param_memory.get(addr, 0)
+
+            elif opcode == Opcode.LD_CONST:
+                addr = thread.registers[ra] + ((rb << 6) | func)
+                thread.registers[rd] = self.const_memory.get(addr, 0)
+
+            elif opcode == Opcode.ATOM:
+                addr = thread.registers[ra]
+                old_val = self.global_memory.get(addr, 0) & 0xFFFFFFFF
+                thread.registers[rd] = old_val
+
+                op_val = thread.registers[rb] & 0xFFFFFFFF
+                try:
+                    atomic_func = AtomicFunc(func)
+                except ValueError:
+                    atomic_func = None
+
+                new_val = old_val
+                if atomic_func == AtomicFunc.ADD:
+                    new_val = (old_val + op_val) & 0xFFFFFFFF
+                elif atomic_func == AtomicFunc.EXCH:
+                    new_val = op_val
+                elif atomic_func == AtomicFunc.CAS:
+                    # CAS: compare with rc, swap with rb (op_val)
+                    compare_val = thread.registers[rc] & 0xFFFFFFFF
+                    new_val = op_val if old_val == compare_val else old_val
+                elif atomic_func == AtomicFunc.AND:
+                    new_val = old_val & op_val
+                elif atomic_func == AtomicFunc.OR:
+                    new_val = old_val | op_val
+                elif atomic_func == AtomicFunc.XOR:
+                    new_val = old_val ^ op_val
+                elif atomic_func == AtomicFunc.MIN:
+                    old_signed = old_val if old_val < 0x80000000 else old_val - 0x100000000
+                    op_signed = op_val if op_val < 0x80000000 else op_val - 0x100000000
+                    new_val = old_val if old_signed <= op_signed else op_val
+                elif atomic_func == AtomicFunc.MAX:
+                    old_signed = old_val if old_val < 0x80000000 else old_val - 0x100000000
+                    op_signed = op_val if op_val < 0x80000000 else op_val - 0x100000000
+                    new_val = old_val if old_signed >= op_signed else op_val
+
+                self.global_memory[addr] = new_val & 0xFFFFFFFF
+
             elif opcode == Opcode.SETP:
                 a = thread.registers[ra]
                 b = thread.registers[rb]
@@ -251,11 +501,38 @@ class RalphGPUSimulator:
                 elif func == 5:  # ge
                     thread.predicates[rd & 0x7] = (a >= b)
 
+            elif opcode == Opcode.BRANCH:
+                if thread.tid != 0:
+                    continue
+                imm16 = inst & 0xFFFF
+                if imm16 & 0x8000:
+                    imm16 -= 0x10000
+                target_pc = warp.pc + imm16
+
+                if rd & 0x10:
+                    predicate_idx = rc & 0x7
+                    take_branch = thread.predicates[predicate_idx]
+                else:
+                    branch_type = (rd >> 3) & 0x3
+                    take_branch = branch_type in (0b00, 0b11)
+                    if branch_type == 0b01:
+                        take_branch = (thread.registers[ra] == 0)
+                    elif branch_type == 0b10:
+                        take_branch = (thread.registers[ra] != 0)
+                if take_branch:
+                    warp.pc = target_pc - 1  # -1 because warp.pc is incremented after the loop
+
         warp.pc += 1
         self.cycle_count += 1
 
-        # 检查是否到达程序末尾或NOP
-        return warp.pc < len(self.instruction_memory) and opcode != Opcode.NOP
+        # Check if all threads exited
+        all_exited = all(not t.active for t in warp.threads)
+
+        # 检查是否到达程序末尾或NOP或所有线程已退出
+        return (warp.pc < len(self.instruction_memory) and
+                opcode != Opcode.NOP and
+                opcode != Opcode.EXIT and
+                not all_exited)
 
     def run_kernel(self, entry_pc: int = 0, max_cycles: int = 10000):
         """运行Kernel"""
@@ -475,6 +752,108 @@ def test_simple_alu():
     return errors == 0
 
 
+def test_fp32_arith():
+    """测试FP32算术操作"""
+    print("\n" + "=" * 60)
+    print("Test: FP32 Arithmetic Operations")
+    print("=" * 60)
+
+    sim = RalphGPUSimulator(num_sm=1)
+
+    # Helper to encode float as int
+    def f2i(f):
+        return struct.unpack('I', struct.pack('f', f))[0]
+
+    # Helper to decode int as float
+    def i2f(i):
+        return struct.unpack('f', struct.pack('I', i))[0]
+
+    # Test program:
+    # r1 = 3.0f, r2 = 2.0f
+    # r3 = r1 + r2 = 5.0f
+    # r4 = r1 * r2 = 6.0f
+    # r5 = sin(r1) ≈ 0.1411
+
+    three_f = f2i(3.0)
+    two_f = f2i(2.0)
+
+    # Build instruction sequence using MOV_IMM for 32-bit values
+    # We need to load 32-bit floats, so use the multi-instruction approach
+    hi_3 = (three_f >> 16) & 0xFFFF
+    lo_3 = three_f & 0xFFFF
+    hi_2 = (two_f >> 16) & 0xFFFF
+    lo_2 = two_f & 0xFFFF
+
+    instructions = [
+        # Load 3.0 into r1 (hi16 + shl + or lo16)
+        (Opcode.MOV_IMM << 26) | (1 << 21) | hi_3,  # r1 = hi_3
+        (Opcode.ALU_IMM << 26) | (1 << 21) | (1 << 16) | (AluFunc.SHL << 10) | 16,  # r1 = r1 << 16
+        (Opcode.MOV_IMM << 26) | (31 << 21) | lo_3,  # r31 = lo_3
+        (Opcode.ALU << 26) | (1 << 21) | (1 << 16) | (31 << 11) | AluFunc.OR,  # r1 = r1 | r31
+
+        # Load 2.0 into r2
+        (Opcode.MOV_IMM << 26) | (2 << 21) | hi_2,
+        (Opcode.ALU_IMM << 26) | (2 << 21) | (2 << 16) | (AluFunc.SHL << 10) | 16,
+        (Opcode.MOV_IMM << 26) | (31 << 21) | lo_2,
+        (Opcode.ALU << 26) | (2 << 21) | (2 << 16) | (31 << 11) | AluFunc.OR,
+
+        # FP32 add: r3 = r1 + r2
+        (Opcode.FP32_ARITH << 26) | (3 << 21) | (1 << 16) | (2 << 11) | Fp32Func.ADD,
+
+        # FP32 mul: r4 = r1 * r2
+        (Opcode.FP32_ARITH << 26) | (4 << 21) | (1 << 16) | (2 << 11) | Fp32Func.MUL,
+
+        # FP32 sin: r5 = sin(r1)
+        (Opcode.FP32_SPECIAL << 26) | (5 << 21) | (1 << 16) | Fp32SpecialFunc.SIN,
+
+        # Exit
+        (Opcode.EXIT << 26),
+    ]
+
+    sim.instruction_memory = instructions
+    warp = WarpState(warp_id=0)
+    sim.block_dim = (32, 1, 1)
+
+    # Execute
+    while sim.execute_warp(warp, sm_id=0):
+        pass
+
+    # Verify thread 0 results
+    thread = warp.threads[0]
+    r1 = i2f(thread.registers[1])
+    r2 = i2f(thread.registers[2])
+    r3 = i2f(thread.registers[3])
+    r4 = i2f(thread.registers[4])
+    r5 = i2f(thread.registers[5])
+
+    print(f"\nResults (thread 0):")
+    print("-" * 50)
+    print(f"r1 = {r1} (expected 3.0)")
+    print(f"r2 = {r2} (expected 2.0)")
+    print(f"r3 = r1 + r2 = {r3} (expected 5.0)")
+    print(f"r4 = r1 * r2 = {r4} (expected 6.0)")
+    print(f"r5 = sin(r1) = {r5} (expected ~0.1411)")
+    print("-" * 50)
+
+    errors = 0
+    if abs(r3 - 5.0) > 0.001:
+        print(f"ERROR: r3 = {r3}, expected 5.0")
+        errors += 1
+    if abs(r4 - 6.0) > 0.001:
+        print(f"ERROR: r4 = {r4}, expected 6.0")
+        errors += 1
+    if abs(r5 - math.sin(3.0)) > 0.01:
+        print(f"ERROR: r5 = {r5}, expected {math.sin(3.0)}")
+        errors += 1
+
+    if errors == 0:
+        print("TEST PASSED!")
+    else:
+        print(f"TEST FAILED: {errors} errors")
+
+    return errors == 0
+
+
 if __name__ == '__main__':
     print("\n" + "=" * 60)
     print("RalphGPU Functional Simulator")
@@ -485,6 +864,7 @@ if __name__ == '__main__':
     # 运行测试
     all_passed &= test_simple_alu()
     all_passed &= test_vector_add()
+    all_passed &= test_fp32_arith()
 
     print("\n" + "=" * 60)
     if all_passed:

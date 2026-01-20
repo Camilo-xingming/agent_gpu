@@ -1,7 +1,8 @@
 //============================================================================
-// RalphGPU - Banked Register File with Conflict Detection
+// RalphGPU - Banked Register File with Conflict Detection and ECC
 // Multi-warp support with configurable warps (4-32)
 // Bank conflict detection and operand collector integration
+// RAS Features: SEC-DED ECC for single-bit error correction and double-bit detection
 //============================================================================
 
 `include "gpu_defines.vh"
@@ -13,7 +14,9 @@ module register_file_banked #(
     parameter DATA_WIDTH    = `DATA_WIDTH,          // 32-bit data
     parameter NUM_BANKS     = 4,                    // Number of register banks
     parameter NUM_READ_PORTS = 3,                   // Read ports A, B, C
-    parameter NUM_WRITE_PORTS = 1                   // Write ports
+    parameter NUM_WRITE_PORTS = 1,                  // Write ports
+    parameter ECC_ENABLE    = 1,                    // Enable ECC (RAS feature)
+    parameter ECC_BITS      = 7                     // SEC-DED for 32-bit data needs 7 bits
 )(
     input  wire                     clk,
     input  wire                     rst_n,
@@ -60,7 +63,18 @@ module register_file_banked #(
     // Statistics
     //------------------------------------------------------------------------
     output wire [31:0]              stat_bank_conflicts,
-    output wire [31:0]              stat_total_accesses
+    output wire [31:0]              stat_total_accesses,
+
+    //------------------------------------------------------------------------
+    // RAS/ECC Signals
+    //------------------------------------------------------------------------
+    output wire                     ecc_error_corrected,    // Single-bit error corrected
+    output wire                     ecc_error_detected,     // Double-bit error detected (uncorrectable)
+    output wire [31:0]              stat_ecc_corrections,   // Count of corrected errors
+    output wire [31:0]              stat_ecc_uncorrectable, // Count of uncorrectable errors
+    output wire [$clog2(NUM_WARPS)-1:0] ecc_error_warp,     // Warp ID with error
+    output wire [4:0]               ecc_error_reg,          // Register with error
+    output wire [$clog2(NUM_LANES)-1:0] ecc_error_lane      // Lane with error
 );
 
     //------------------------------------------------------------------------
@@ -70,6 +84,9 @@ module register_file_banked #(
     localparam WARP_ID_W    = $clog2(NUM_WARPS);
     localparam LANE_W       = $clog2(NUM_LANES);
     localparam REG_W        = $clog2(NUM_REGS);
+
+    // ECC parameters
+    localparam PROTECTED_WIDTH = ECC_ENABLE ? (DATA_WIDTH + ECC_BITS) : DATA_WIDTH;
 
     // Calculate bank index from register address and lane
     // Banking scheme: bank = (reg_addr + lane_id) mod NUM_BANKS
@@ -82,16 +99,98 @@ module register_file_banked #(
     endfunction
 
     //------------------------------------------------------------------------
+    // SEC-DED ECC Functions (Hamming Code with overall parity)
+    // For 32-bit data: uses 7 check bits (SEC-DED)
+    //------------------------------------------------------------------------
+
+    // Calculate ECC syndrome/check bits for 32-bit data
+    function [ECC_BITS-1:0] calc_ecc;
+        input [DATA_WIDTH-1:0] data;
+        reg [ECC_BITS-2:0] parity;      // 6 parity bits
+        reg overall_parity;
+        begin
+            // Hamming (38,32) with overall parity
+            // p0 covers bits 1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31
+            parity[0] = data[0] ^ data[2] ^ data[4] ^ data[6] ^ data[8] ^ data[10] ^
+                        data[12] ^ data[14] ^ data[16] ^ data[18] ^ data[20] ^ data[22] ^
+                        data[24] ^ data[26] ^ data[28] ^ data[30];
+            // p1 covers bits 2,3,6,7,10,11,14,15,18,19,22,23,26,27,30,31
+            parity[1] = data[1] ^ data[2] ^ data[5] ^ data[6] ^ data[9] ^ data[10] ^
+                        data[13] ^ data[14] ^ data[17] ^ data[18] ^ data[21] ^ data[22] ^
+                        data[25] ^ data[26] ^ data[29] ^ data[30];
+            // p2 covers bits 4-7, 12-15, 20-23, 28-31
+            parity[2] = data[3] ^ data[4] ^ data[5] ^ data[6] ^ data[11] ^ data[12] ^
+                        data[13] ^ data[14] ^ data[19] ^ data[20] ^ data[21] ^ data[22] ^
+                        data[27] ^ data[28] ^ data[29] ^ data[30];
+            // p3 covers bits 8-15, 24-31
+            parity[3] = data[7] ^ data[8] ^ data[9] ^ data[10] ^ data[11] ^ data[12] ^
+                        data[13] ^ data[14] ^ data[23] ^ data[24] ^ data[25] ^ data[26] ^
+                        data[27] ^ data[28] ^ data[29] ^ data[30];
+            // p4 covers bits 16-31
+            parity[4] = data[15] ^ data[16] ^ data[17] ^ data[18] ^ data[19] ^ data[20] ^
+                        data[21] ^ data[22] ^ data[23] ^ data[24] ^ data[25] ^ data[26] ^
+                        data[27] ^ data[28] ^ data[29] ^ data[30];
+            // p5 extends coverage
+            parity[5] = data[31];
+
+            // Overall parity for double-error detection
+            overall_parity = ^data ^ ^parity;
+
+            calc_ecc = {overall_parity, parity};
+        end
+    endfunction
+
+    // Decode ECC - returns {corrected_data, single_error, double_error}
+    function [DATA_WIDTH+1:0] decode_ecc;
+        input [DATA_WIDTH-1:0] data;
+        input [ECC_BITS-1:0] stored_ecc;
+        reg [ECC_BITS-1:0] computed_ecc;
+        reg [ECC_BITS-1:0] syndrome;
+        reg single_error, double_error;
+        reg [DATA_WIDTH-1:0] corrected_data;
+        reg [5:0] error_position;
+        begin
+            computed_ecc = calc_ecc(data);
+            syndrome = stored_ecc ^ computed_ecc;
+
+            single_error = 1'b0;
+            double_error = 1'b0;
+            corrected_data = data;
+            error_position = syndrome[5:0];
+
+            if (syndrome == 0) begin
+                // No error
+                single_error = 1'b0;
+                double_error = 1'b0;
+            end else if (syndrome[6] == 1'b1) begin
+                // Odd parity - single-bit error (correctable)
+                single_error = 1'b1;
+                if (error_position != 0 && error_position <= DATA_WIDTH) begin
+                    // Error in data bit - correct it
+                    corrected_data[error_position-1] = ~data[error_position-1];
+                end
+                // else error in check bit - data is already correct
+            end else begin
+                // Even parity with non-zero syndrome - double-bit error (uncorrectable)
+                double_error = 1'b1;
+            end
+
+            decode_ecc = {double_error, single_error, corrected_data};
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
     // Register Storage - Organized by banks for conflict-free access
     //------------------------------------------------------------------------
-    // Bank organization: [bank][warp][lane_set][reg][data]
+    // Bank organization: [bank][warp][lane_set][reg][data+ecc]
     // Each bank contains 1/NUM_BANKS of the lanes
     localparam LANES_PER_BANK = NUM_LANES / NUM_BANKS;
 
-    reg [DATA_WIDTH-1:0] bank_regs [0:NUM_BANKS-1]
-                                   [0:NUM_WARPS-1]
-                                   [0:LANES_PER_BANK-1]
-                                   [0:NUM_REGS-1];
+    // Storage includes ECC bits when enabled
+    reg [PROTECTED_WIDTH-1:0] bank_regs [0:NUM_BANKS-1]
+                                        [0:NUM_WARPS-1]
+                                        [0:LANES_PER_BANK-1]
+                                        [0:NUM_REGS-1];
 
     //------------------------------------------------------------------------
     // Bank Access Arbitration
@@ -149,28 +248,76 @@ module register_file_banked #(
     assign oc_conflict   = conflict_ab || conflict_ac || conflict_bc;
 
     //------------------------------------------------------------------------
-    // Read Logic (Combinational)
+    // Read Logic (Combinational) with ECC Decoding
     //------------------------------------------------------------------------
     reg [DATA_WIDTH-1:0] rd_data_a_lane [0:NUM_LANES-1];
     reg [DATA_WIDTH-1:0] rd_data_b_lane [0:NUM_LANES-1];
     reg [DATA_WIDTH-1:0] rd_data_c_lane [0:NUM_LANES-1];
 
+    // ECC error tracking per read
+    reg [NUM_LANES-1:0] rd_single_error_a, rd_single_error_b, rd_single_error_c;
+    reg [NUM_LANES-1:0] rd_double_error_a, rd_double_error_b, rd_double_error_c;
+
     integer rd_lane, rd_bank, rd_lane_in_bank;
+    reg [PROTECTED_WIDTH-1:0] raw_data;
+    reg [DATA_WIDTH+1:0] decoded_result;
+
     always @(*) begin
+        rd_single_error_a = 0;
+        rd_single_error_b = 0;
+        rd_single_error_c = 0;
+        rd_double_error_a = 0;
+        rd_double_error_b = 0;
+        rd_double_error_c = 0;
+
         for (rd_lane = 0; rd_lane < NUM_LANES; rd_lane = rd_lane + 1) begin
+            // Read port A
             rd_bank = get_bank(rd_addr_a, rd_lane[LANE_W-1:0]);
             rd_lane_in_bank = rd_lane / NUM_BANKS;
-            rd_data_a_lane[rd_lane] = bank_regs[rd_bank][rd_warp_id][rd_lane_in_bank][rd_addr_a];
+            raw_data = bank_regs[rd_bank][rd_warp_id][rd_lane_in_bank][rd_addr_a];
 
+            if (ECC_ENABLE) begin
+                decoded_result = decode_ecc(raw_data[DATA_WIDTH-1:0], raw_data[PROTECTED_WIDTH-1:DATA_WIDTH]);
+                rd_data_a_lane[rd_lane] = decoded_result[DATA_WIDTH-1:0];
+                rd_single_error_a[rd_lane] = decoded_result[DATA_WIDTH];
+                rd_double_error_a[rd_lane] = decoded_result[DATA_WIDTH+1];
+            end else begin
+                rd_data_a_lane[rd_lane] = raw_data[DATA_WIDTH-1:0];
+            end
+
+            // Read port B
             rd_bank = get_bank(rd_addr_b, rd_lane[LANE_W-1:0]);
             rd_lane_in_bank = rd_lane / NUM_BANKS;
-            rd_data_b_lane[rd_lane] = bank_regs[rd_bank][rd_warp_id][rd_lane_in_bank][rd_addr_b];
+            raw_data = bank_regs[rd_bank][rd_warp_id][rd_lane_in_bank][rd_addr_b];
 
+            if (ECC_ENABLE) begin
+                decoded_result = decode_ecc(raw_data[DATA_WIDTH-1:0], raw_data[PROTECTED_WIDTH-1:DATA_WIDTH]);
+                rd_data_b_lane[rd_lane] = decoded_result[DATA_WIDTH-1:0];
+                rd_single_error_b[rd_lane] = decoded_result[DATA_WIDTH];
+                rd_double_error_b[rd_lane] = decoded_result[DATA_WIDTH+1];
+            end else begin
+                rd_data_b_lane[rd_lane] = raw_data[DATA_WIDTH-1:0];
+            end
+
+            // Read port C
             rd_bank = get_bank(rd_addr_c, rd_lane[LANE_W-1:0]);
             rd_lane_in_bank = rd_lane / NUM_BANKS;
-            rd_data_c_lane[rd_lane] = bank_regs[rd_bank][rd_warp_id][rd_lane_in_bank][rd_addr_c];
+            raw_data = bank_regs[rd_bank][rd_warp_id][rd_lane_in_bank][rd_addr_c];
+
+            if (ECC_ENABLE) begin
+                decoded_result = decode_ecc(raw_data[DATA_WIDTH-1:0], raw_data[PROTECTED_WIDTH-1:DATA_WIDTH]);
+                rd_data_c_lane[rd_lane] = decoded_result[DATA_WIDTH-1:0];
+                rd_single_error_c[rd_lane] = decoded_result[DATA_WIDTH];
+                rd_double_error_c[rd_lane] = decoded_result[DATA_WIDTH+1];
+            end else begin
+                rd_data_c_lane[rd_lane] = raw_data[DATA_WIDTH-1:0];
+            end
         end
     end
+
+    // Aggregate ECC errors
+    wire any_single_error = ECC_ENABLE ? (|rd_single_error_a | |rd_single_error_b | |rd_single_error_c) : 1'b0;
+    wire any_double_error = ECC_ENABLE ? (|rd_double_error_a | |rd_double_error_b | |rd_double_error_c) : 1'b0;
 
     // Pack output
     generate
@@ -182,17 +329,33 @@ module register_file_banked #(
     endgenerate
 
     //------------------------------------------------------------------------
-    // Operand Collector Read
+    // Operand Collector Read with ECC
     //------------------------------------------------------------------------
     reg [DATA_WIDTH-1:0] oc_data_lane [0:NUM_READ_PORTS-1][0:NUM_LANES-1];
+    reg [NUM_LANES-1:0] oc_single_error [0:NUM_READ_PORTS-1];
+    reg [NUM_LANES-1:0] oc_double_error [0:NUM_READ_PORTS-1];
 
     integer oc_port, oc_lane, oc_bank_idx, oc_lane_idx;
+    reg [PROTECTED_WIDTH-1:0] oc_raw_data;
+    reg [DATA_WIDTH+1:0] oc_decoded_result;
+
     always @(*) begin
         for (oc_port = 0; oc_port < NUM_READ_PORTS; oc_port = oc_port + 1) begin
+            oc_single_error[oc_port] = 0;
+            oc_double_error[oc_port] = 0;
             for (oc_lane = 0; oc_lane < NUM_LANES; oc_lane = oc_lane + 1) begin
                 oc_bank_idx = get_bank(oc_addr[oc_port], oc_lane[LANE_W-1:0]);
                 oc_lane_idx = oc_lane / NUM_BANKS;
-                oc_data_lane[oc_port][oc_lane] = bank_regs[oc_bank_idx][oc_warp_id][oc_lane_idx][oc_addr[oc_port]];
+                oc_raw_data = bank_regs[oc_bank_idx][oc_warp_id][oc_lane_idx][oc_addr[oc_port]];
+
+                if (ECC_ENABLE) begin
+                    oc_decoded_result = decode_ecc(oc_raw_data[DATA_WIDTH-1:0], oc_raw_data[PROTECTED_WIDTH-1:DATA_WIDTH]);
+                    oc_data_lane[oc_port][oc_lane] = oc_decoded_result[DATA_WIDTH-1:0];
+                    oc_single_error[oc_port][oc_lane] = oc_decoded_result[DATA_WIDTH];
+                    oc_double_error[oc_port][oc_lane] = oc_decoded_result[DATA_WIDTH+1];
+                end else begin
+                    oc_data_lane[oc_port][oc_lane] = oc_raw_data[DATA_WIDTH-1:0];
+                end
             end
         end
     end
@@ -209,19 +372,21 @@ module register_file_banked #(
     assign oc_ready = {NUM_READ_PORTS{oc_valid && !oc_conflict}};
 
     //------------------------------------------------------------------------
-    // Write Logic (Sequential)
+    // Write Logic (Sequential) with ECC Encoding
     //------------------------------------------------------------------------
     integer wr_w, wr_b, wr_l, wr_r;
     integer wr_bank_idx, wr_lane_idx;
+    reg [DATA_WIDTH-1:0] wr_data_lane;
+    reg [ECC_BITS-1:0] wr_ecc;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            // Reset all registers
+            // Reset all registers (including ECC bits)
             for (wr_b = 0; wr_b < NUM_BANKS; wr_b = wr_b + 1) begin
                 for (wr_w = 0; wr_w < NUM_WARPS; wr_w = wr_w + 1) begin
                     for (wr_l = 0; wr_l < LANES_PER_BANK; wr_l = wr_l + 1) begin
                         for (wr_r = 0; wr_r < NUM_REGS; wr_r = wr_r + 1) begin
-                            bank_regs[wr_b][wr_w][wr_l][wr_r] <= {DATA_WIDTH{1'b0}};
+                            bank_regs[wr_b][wr_w][wr_l][wr_r] <= {PROTECTED_WIDTH{1'b0}};
                         end
                     end
                 end
@@ -231,28 +396,114 @@ module register_file_banked #(
                 if (wr_mask[wr_l]) begin
                     wr_bank_idx = get_bank(wr_addr, wr_l[LANE_W-1:0]);
                     wr_lane_idx = wr_l / NUM_BANKS;
-                    bank_regs[wr_bank_idx][wr_warp_id][wr_lane_idx][wr_addr] <=
-                        wr_data[wr_l*DATA_WIDTH +: DATA_WIDTH];
+                    wr_data_lane = wr_data[wr_l*DATA_WIDTH +: DATA_WIDTH];
+
+                    if (ECC_ENABLE) begin
+                        // Compute and store data with ECC
+                        wr_ecc = calc_ecc(wr_data_lane);
+                        bank_regs[wr_bank_idx][wr_warp_id][wr_lane_idx][wr_addr] <=
+                            {wr_ecc, wr_data_lane};
+                    end else begin
+                        bank_regs[wr_bank_idx][wr_warp_id][wr_lane_idx][wr_addr] <=
+                            wr_data_lane;
+                    end
                 end
             end
         end
     end
 
     //------------------------------------------------------------------------
-    // Statistics
+    // Statistics and ECC Error Tracking
     //------------------------------------------------------------------------
     reg [31:0] conflict_count;
     reg [31:0] access_count;
+    reg [31:0] ecc_correction_count;
+    reg [31:0] ecc_uncorrectable_count;
 
+    // Error location tracking
+    reg [$clog2(NUM_WARPS)-1:0] error_warp_r;
+    reg [4:0] error_reg_r;
+    reg [$clog2(NUM_LANES)-1:0] error_lane_r;
+    reg error_corrected_r;
+    reg error_detected_r;
+
+    // Find first lane with error for reporting
+    integer err_lane;
+    reg found_error;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             conflict_count <= 0;
             access_count <= 0;
+            ecc_correction_count <= 0;
+            ecc_uncorrectable_count <= 0;
+            error_warp_r <= 0;
+            error_reg_r <= 0;
+            error_lane_r <= 0;
+            error_corrected_r <= 0;
+            error_detected_r <= 0;
         end else begin
+            error_corrected_r <= 1'b0;
+            error_detected_r <= 1'b0;
+
             if (oc_valid) begin
                 access_count <= access_count + 1;
                 if (oc_conflict) begin
                     conflict_count <= conflict_count + 1;
+                end
+
+                // ECC error tracking
+                if (ECC_ENABLE) begin
+                    if (any_single_error) begin
+                        ecc_correction_count <= ecc_correction_count + 1;
+                        error_corrected_r <= 1'b1;
+
+                        // Find which lane had the error
+                        found_error = 0;
+                        for (err_lane = 0; err_lane < NUM_LANES && !found_error; err_lane = err_lane + 1) begin
+                            if (rd_single_error_a[err_lane]) begin
+                                error_warp_r <= rd_warp_id;
+                                error_reg_r <= rd_addr_a;
+                                error_lane_r <= err_lane[$clog2(NUM_LANES)-1:0];
+                                found_error = 1;
+                            end else if (rd_single_error_b[err_lane]) begin
+                                error_warp_r <= rd_warp_id;
+                                error_reg_r <= rd_addr_b;
+                                error_lane_r <= err_lane[$clog2(NUM_LANES)-1:0];
+                                found_error = 1;
+                            end else if (rd_single_error_c[err_lane]) begin
+                                error_warp_r <= rd_warp_id;
+                                error_reg_r <= rd_addr_c;
+                                error_lane_r <= err_lane[$clog2(NUM_LANES)-1:0];
+                                found_error = 1;
+                            end
+                        end
+                    end
+
+                    if (any_double_error) begin
+                        ecc_uncorrectable_count <= ecc_uncorrectable_count + 1;
+                        error_detected_r <= 1'b1;
+
+                        // Find which lane had the error
+                        found_error = 0;
+                        for (err_lane = 0; err_lane < NUM_LANES && !found_error; err_lane = err_lane + 1) begin
+                            if (rd_double_error_a[err_lane]) begin
+                                error_warp_r <= rd_warp_id;
+                                error_reg_r <= rd_addr_a;
+                                error_lane_r <= err_lane[$clog2(NUM_LANES)-1:0];
+                                found_error = 1;
+                            end else if (rd_double_error_b[err_lane]) begin
+                                error_warp_r <= rd_warp_id;
+                                error_reg_r <= rd_addr_b;
+                                error_lane_r <= err_lane[$clog2(NUM_LANES)-1:0];
+                                found_error = 1;
+                            end else if (rd_double_error_c[err_lane]) begin
+                                error_warp_r <= rd_warp_id;
+                                error_reg_r <= rd_addr_c;
+                                error_lane_r <= err_lane[$clog2(NUM_LANES)-1:0];
+                                found_error = 1;
+                            end
+                        end
+                    end
                 end
             end
         end
@@ -260,6 +511,15 @@ module register_file_banked #(
 
     assign stat_bank_conflicts = conflict_count;
     assign stat_total_accesses = access_count;
+
+    // ECC status outputs
+    assign ecc_error_corrected = error_corrected_r;
+    assign ecc_error_detected = error_detected_r;
+    assign stat_ecc_corrections = ecc_correction_count;
+    assign stat_ecc_uncorrectable = ecc_uncorrectable_count;
+    assign ecc_error_warp = error_warp_r;
+    assign ecc_error_reg = error_reg_r;
+    assign ecc_error_lane = error_lane_r;
 
 endmodule
 

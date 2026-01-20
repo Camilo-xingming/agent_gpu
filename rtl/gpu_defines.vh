@@ -86,6 +86,16 @@
 `define USE_BLACKWELL_SCHEDULER 1   // Default: Use Blackwell-style scheduler
 `endif
 
+// Issue Pipeline Width: Number of instructions issued per cycle
+// Note: 4-way requires GPU_PROFILE_HPC and additional pipeline resources
+`ifndef SCHED_LANES
+`ifdef GPU_PROFILE_HPC
+`define SCHED_LANES             4   // Blackwell: 4-way issue
+`else
+`define SCHED_LANES             2   // Default: 2-way issue (dual-issue)
+`endif
+`endif
+
 //============================================================================
 // 派生参数 (自动计算)
 //============================================================================

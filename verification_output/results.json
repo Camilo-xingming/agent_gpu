@@ -1,6 +1,6 @@
 {
   "suite_name": "RalphGPU PTX ISA 9.1 Complete Test Suite",
-  "timestamp": "2026-01-15T23:10:38.359144",
+  "timestamp": "2026-01-20T20:08:15.250508",
   "tests": [
     {
       "name": "integer_basic_arithmetic",
@@ -15,7 +15,7 @@
       "category": "Integer Arithmetic",
       "description": "Test extended integer operations",
       "status": "passed",
-      "assembled_count": 10,
+      "assembled_count": 13,
       "errors": []
     },
     {
@@ -23,7 +23,7 @@
       "category": "Integer Arithmetic",
       "description": "Test carry flag operations",
       "status": "passed",
-      "assembled_count": 7,
+      "assembled_count": 10,
       "errors": []
     },
     {
@@ -31,7 +31,7 @@
       "category": "Integer Arithmetic",
       "description": "Test bit field operations",
       "status": "passed",
-      "assembled_count": 7,
+      "assembled_count": 10,
       "errors": []
     },
     {
@@ -55,7 +55,7 @@
       "category": "Logic",
       "description": "Test bitwise logic operations",
       "status": "passed",
-      "assembled_count": 7,
+      "assembled_count": 13,
       "errors": []
     },
     {
@@ -63,7 +63,7 @@
       "category": "Logic",
       "description": "Test shift operations",
       "status": "passed",
-      "assembled_count": 6,
+      "assembled_count": 9,
       "errors": []
     },
     {
@@ -87,7 +87,7 @@
       "category": "FP32 Arithmetic",
       "description": "Test basic FP32 operations",
       "status": "passed",
-      "assembled_count": 11,
+      "assembled_count": 13,
       "errors": []
     },
     {
@@ -95,7 +95,7 @@
       "category": "FP32 Arithmetic",
       "description": "Test FP32 fused multiply-add",
       "status": "passed",
-      "assembled_count": 5,
+      "assembled_count": 8,
       "errors": []
     },
     {
@@ -103,7 +103,7 @@
       "category": "FP32 Special",
       "description": "Test FP32 special functions",
       "status": "passed",
-      "assembled_count": 10,
+      "assembled_count": 11,
       "errors": []
     },
     {
@@ -111,7 +111,7 @@
       "category": "FP64 Arithmetic",
       "description": "Test basic FP64 operations",
       "status": "passed",
-      "assembled_count": 16,
+      "assembled_count": 18,
       "errors": []
     },
     {
@@ -119,7 +119,7 @@
       "category": "FP64 Arithmetic",
       "description": "Test FP64 fused multiply-add",
       "status": "passed",
-      "assembled_count": 8,
+      "assembled_count": 11,
       "errors": []
     },
     {
@@ -143,7 +143,7 @@
       "category": "FP16/BF16",
       "description": "Test packed FP16x2 operations",
       "status": "passed",
-      "assembled_count": 7,
+      "assembled_count": 13,
       "errors": []
     },
     {
@@ -151,7 +151,7 @@
       "category": "Type Conversion",
       "description": "Test integer to float conversions",
       "status": "passed",
-      "assembled_count": 7,
+      "assembled_count": 8,
       "errors": []
     },
     {
@@ -159,7 +159,7 @@
       "category": "Type Conversion",
       "description": "Test float precision conversions",
       "status": "passed",
-      "assembled_count": 6,
+      "assembled_count": 7,
       "errors": []
     },
     {
@@ -167,7 +167,7 @@
       "category": "Type Conversion",
       "description": "Test 64-bit conversions",
       "status": "passed",
-      "assembled_count": 7,
+      "assembled_count": 8,
       "errors": []
     },
     {
@@ -311,7 +311,7 @@
       "category": "Warp Shuffle",
       "description": "Test warp shuffle operations",
       "status": "passed",
-      "assembled_count": 7,
+      "assembled_count": 10,
       "errors": []
     },
     {
@@ -383,7 +383,7 @@
       "category": "Video/SIMD",
       "description": "Test basic video operations",
       "status": "passed",
-      "assembled_count": 11,
+      "assembled_count": 17,
       "errors": []
     },
     {
@@ -391,7 +391,7 @@
       "category": "Video/SIMD",
       "description": "Test SIMD video operations",
       "status": "passed",
-      "assembled_count": 9,
+      "assembled_count": 15,
       "errors": []
     },
     {
@@ -399,7 +399,7 @@
       "category": "Video/SIMD",
       "description": "Test dot product operations",
       "status": "passed",
-      "assembled_count": 6,
+      "assembled_count": 12,
       "errors": []
     },
     {

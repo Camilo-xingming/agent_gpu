@@ -1508,8 +1508,8 @@ module streaming_multiprocessor_v2 #(
     endgenerate
 
     // Scheduler Instantiation
-    // Note: Currently pipeline supports 2 issue lanes; scheduler outputs [0:1] used
-    localparam SCHED_LANES = 2;  // Pipeline width (fixed for now)
+    // Note: Use `SCHED_LANES from gpu_defines.vh (2 default, 4 with GPU_PROFILE_HPC)
+    localparam SCHED_LANES = `SCHED_LANES;  // Pipeline width (configurable)
     wire [SCHED_LANES-1:0] sched_issue_valid_mask;
     wire [WARP_ID_W-1:0] sched_issue_warp_id [0:SCHED_LANES-1];
     wire [31:0] sched_issue_inst [0:SCHED_LANES-1];
