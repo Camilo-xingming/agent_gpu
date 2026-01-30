@@ -32,3 +32,8 @@
 [2026-01-30 13:47:42] INFO - Agents: 1 idle, 2 busy
 [2026-01-30 13:47:42] INFO - Dispatched task-010-ef24efb3 (arch) to codex
 [2026-01-30 13:47:42] INFO - Dispatched 1 tasks
+[2026-01-30 13:47:42] INFO - Git commit: auto: iteration #9 - 0/19 tasks completed
+[2026-01-30 13:48:16] INFO - --- Iteration 10 ---
+[2026-01-30 13:48:16] INFO - Agents: 1 idle, 2 busy
+[2026-01-30 13:48:16] INFO - Dispatched task-013-bcf74d78 (arch) to codex
+[2026-01-30 13:48:16] INFO - Dispatched 1 tasks
