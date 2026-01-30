@@ -1,0 +1,239 @@
+{
+  "stories": [
+    {
+      "id": "task-001-2d0d4f4c",
+      "title": "Analyze shared memory timeout",
+      "description": "priority: critical\nestimate: 2h\ntags: rtl, memory, debug\nReview LD.SHARED/ST.SHARED execution path in streaming_multiprocessor_v2.v.\ntest_08_memory_shared times out at 200000 cycles.\nIdentify why shared memory operations never complete.",
+      "stage": "arch",
+      "passes": false,
+      "blockedBy": [],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-002-1ac3070a",
+      "title": "Fix shared memory wiring",
+      "description": "priority: critical\nestimate: 4h\ntags: rtl, memory\nImplement the fix for shared memory operations.\nEnsure LD.SHARED and ST.SHARED complete correctly.\nFile: rtl/streaming_multiprocessor_v2.v, rtl/shared_memory.v",
+      "stage": "impl",
+      "passes": false,
+      "blockedBy": [
+        "task-001"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-003-03c7bd37",
+      "title": "Verify shared memory fix",
+      "description": "priority: high\nestimate: 1h\ntags: verification\nRun test_08_memory_shared and confirm PASS.\nRun: make sim TEST=test_08_memory_shared",
+      "stage": "test",
+      "passes": false,
+      "blockedBy": [
+        "task-002"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-004-d70a176b",
+      "title": "Analyze FP32 arithmetic failures",
+      "description": "priority: high\nestimate: 2h\ntags: rtl, fpu, debug\nDebug test_04_fp32_arith returning result=0.\nTrace ADD.F32, SUB.F32, MUL.F32, DIV.F32, FMA execution.\nFile: rtl/fpu.v, rtl/streaming_multiprocessor_v2.v",
+      "stage": "arch",
+      "passes": false,
+      "blockedBy": [],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-005-f47b4ba0",
+      "title": "Fix FP32 arithmetic pipeline",
+      "description": "priority: high\nestimate: 4h\ntags: rtl, fpu\nFix the FP32 arithmetic issues.\nEnsure proper pipeline latency and result writeback.",
+      "stage": "impl",
+      "passes": false,
+      "blockedBy": [
+        "task-004"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-006-4de3fd24",
+      "title": "Verify FP32 fix",
+      "description": "priority: high\nestimate: 1h\ntags: verification\nRun test_04_fp32_arith and confirm PASS.",
+      "stage": "test",
+      "passes": false,
+      "blockedBy": [
+        "task-005"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-007-e4ad26a9",
+      "title": "Analyze atomic operation timeout",
+      "description": "priority: high\nestimate: 2h\ntags: rtl, atomic, debug\nDebug test_09_atomic timeout at 200000 cycles.\nReview ATOM.ADD, ATOM.CAS execution paths.\nFile: rtl/atomic_unit.v, rtl/memory_interface.v",
+      "stage": "arch",
+      "passes": false,
+      "blockedBy": [],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-008-8f26daa8",
+      "title": "Fix atomic operation pipeline",
+      "description": "priority: high\nestimate: 6h\ntags: rtl, atomic\nFix the atomic operation execution path.\nEnsure proper memory ordering and completion signaling.",
+      "stage": "impl",
+      "passes": false,
+      "blockedBy": [
+        "task-007"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-009-2ed124b0",
+      "title": "Verify atomic operations",
+      "description": "priority: high\nestimate: 1h\ntags: verification\nRun test_09_atomic and confirm PASS.",
+      "stage": "test",
+      "passes": false,
+      "blockedBy": [
+        "task-008"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-010-ef24efb3",
+      "title": "Analyze CVT failures",
+      "description": "priority: medium\nestimate: 2h\ntags: rtl, cvt, debug\nDebug test_10_cvt returning 0xDEAD (error marker).\nReview CVT instruction handling.\nFile: rtl/decoder.v, rtl/fpu.v",
+      "stage": "arch",
+      "passes": false,
+      "blockedBy": [],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-011-fa3d8f82",
+      "title": "Fix CVT operations",
+      "description": "priority: medium\nestimate: 4h\ntags: rtl, cvt\nFix type conversion operations (int<->float, size conversions).",
+      "stage": "impl",
+      "passes": false,
+      "blockedBy": [
+        "task-010"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-012-5dce2af1",
+      "title": "Verify CVT fix",
+      "description": "priority: medium\nestimate: 1h\ntags: verification\nRun test_10_cvt and confirm PASS.",
+      "stage": "test",
+      "passes": false,
+      "blockedBy": [
+        "task-011"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-013-bcf74d78",
+      "title": "Fix scheduler issue in system tests",
+      "description": "priority: medium\nestimate: 4h\ntags: rtl, scheduler, debug\ntb_mbarrier_system and tb_wgmma_system timeout despite unit tests passing.\nAnalyze instruction fetch/issue pipeline stall.\nFile: rtl/streaming_multiprocessor_v2.v, rtl/warp_scheduler.v",
+      "stage": "arch",
+      "passes": false,
+      "blockedBy": [],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-014-db356b59",
+      "title": "Fix instruction fetch pipeline",
+      "description": "priority: medium\nestimate: 6h\ntags: rtl, scheduler\nFix the instruction fetch/issue that causes system tests to stall.",
+      "stage": "impl",
+      "passes": false,
+      "blockedBy": [
+        "task-013"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-015-9ec429a3",
+      "title": "Run full verification suite",
+      "description": "priority: medium\nestimate: 2h\ntags: verification\nRun all unit tests and system tests.\nGenerate verification report.",
+      "stage": "test",
+      "passes": false,
+      "blockedBy": [
+        "task-014"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-016-219d6a19",
+      "title": "Analyze FP16 arithmetic failures",
+      "description": "priority: low\nestimate: 2h\ntags: rtl, fpu, fp16\nDebug test_06_fp16_arith returning 0xDEAD.\nReview FP16 support in FPU.",
+      "stage": "arch",
+      "passes": false,
+      "blockedBy": [],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-017-0bd75665",
+      "title": "Fix FP16 operations",
+      "description": "priority: low\nestimate: 4h\ntags: rtl, fpu, fp16\nImplement proper FP16 arithmetic support.",
+      "stage": "impl",
+      "passes": false,
+      "blockedBy": [
+        "task-016"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-018-1567176e",
+      "title": "Verify FP16 fix",
+      "description": "priority: low\nestimate: 1h\ntags: verification\nRun test_06_fp16_arith and confirm PASS.",
+      "stage": "test",
+      "passes": false,
+      "blockedBy": [
+        "task-017"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    },
+    {
+      "id": "task-019-b8b6ab2c",
+      "title": "Update documentation",
+      "description": "priority: low\nestimate: 2h\ntags: docs\nUpdate ARCHITECTURE.md, progress.md with all fixes.\nDocument verification results and performance metrics.",
+      "stage": "docs",
+      "passes": false,
+      "blockedBy": [
+        "task-015"
+      ],
+      "priority": "medium",
+      "estimate": null,
+      "tags": []
+    }
+  ]
+}
