@@ -710,12 +710,13 @@ module fp16_unit (
                 r_mant = {1'b0, a_mant} + {1'b0, b_mant};
                 r_sign = a_sign;
             end else begin
+                // Different signs: subtract mantissas, sign follows larger magnitude
                 if (a_mant >= b_mant) begin
                     r_mant = {1'b0, a_mant} - {1'b0, b_mant};
-                    r_sign = a_larger ? a_sign : b_sign;
+                    r_sign = a_sign;  // A has larger aligned magnitude
                 end else begin
                     r_mant = {1'b0, b_mant} - {1'b0, a_mant};
-                    r_sign = a_larger ? b_sign : a_sign;
+                    r_sign = b_sign;  // B has larger aligned magnitude
                 end
             end
 
