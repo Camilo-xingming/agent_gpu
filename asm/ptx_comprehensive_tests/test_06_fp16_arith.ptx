@@ -13,9 +13,9 @@
     // Test FP16 ADD: 1.0 + 2.0 = 3.0
     mov.u32 r1, 0x3C00       // 1.0h
     mov.u32 r2, 0x4000       // 2.0h
-    add.f16 r3, r1, r2       // r3 = 3.0h
+    add.f16 r3, r1, r2       // r3 = 3.0h (fp16_unit zero-extends to 32 bits)
     mov.u32 r4, 0x4200       // 3.0h expected
-    and.b32 r3, r3, 0xFFFF
+    // Note: AND removed - fp16_unit already zero-extends result
     sub.s32 r30, r3, r4
     bra.nz r30, FAIL
 
@@ -24,7 +24,6 @@
     mov.u32 r2, 0x4000       // 2.0h
     sub.f16 r3, r1, r2       // r3 = 3.0h
     mov.u32 r4, 0x4200       // 3.0h expected
-    and.b32 r3, r3, 0xFFFF
     sub.s32 r30, r3, r4
     bra.nz r30, FAIL
 
@@ -33,7 +32,6 @@
     mov.u32 r2, 0x4200       // 3.0h
     mul.f16 r3, r1, r2       // r3 = 6.0h
     mov.u32 r4, 0x4600       // 6.0h expected
-    and.b32 r3, r3, 0xFFFF
     sub.s32 r30, r3, r4
     bra.nz r30, FAIL
 
@@ -43,7 +41,6 @@
     mov.u32 r3, 0x3C00       // 1.0h
     fma.f16 r4, r1, r2, r3   // r4 = 5.0h
     mov.u32 r5, 0x4500       // 5.0h expected
-    and.b32 r4, r4, 0xFFFF
     sub.s32 r30, r4, r5
     bra.nz r30, FAIL
 
