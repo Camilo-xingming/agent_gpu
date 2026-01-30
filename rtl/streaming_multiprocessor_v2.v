@@ -2853,6 +2853,7 @@ module streaming_multiprocessor_v2 #(
     wire [5:0] fp16_issue_func = fp16_use_slot0 ? issue_func : issue1_func;
     wire [SIMD_WIDTH-1:0] fp16_op_a = fp16_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
     wire [SIMD_WIDTH-1:0] fp16_op_b = fp16_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
+    wire [SIMD_WIDTH-1:0] fp16_op_c = fp16_use_slot0 ? rf_rd_data_c : rf1_rd_data_c;
 
     assign fp16_valid_in = fp16_issue;
 
@@ -2881,6 +2882,7 @@ module streaming_multiprocessor_v2 #(
         .func      (fp16_issue_func),
         .operand_a (fp16_op_a),
         .operand_b (fp16_op_b),
+        .operand_c (fp16_op_c),
         .lane_mask (fp16_issue_mask),
         .valid_out (fp16_valid_out),
         .result    (fp16_result)
@@ -5543,6 +5545,7 @@ module simd_fp16 #(
     input  wire [5:0]               func,
     input  wire [NUM_LANES*DATA_WIDTH-1:0] operand_a,
     input  wire [NUM_LANES*DATA_WIDTH-1:0] operand_b,
+    input  wire [NUM_LANES*DATA_WIDTH-1:0] operand_c,
     input  wire [NUM_LANES-1:0]     lane_mask,
     output wire                     valid_out,
     output wire [NUM_LANES*DATA_WIDTH-1:0] result
@@ -5565,7 +5568,7 @@ module simd_fp16 #(
                 .packed_mode(1'b0),  // Single FP16 mode
                 .operand_a  (operand_a[lane*DATA_WIDTH +: DATA_WIDTH]),
                 .operand_b  (operand_b[lane*DATA_WIDTH +: DATA_WIDTH]),
-                .operand_c  (32'b0),  // No FMA accumulator in simple mul
+                .operand_c  (operand_c[lane*DATA_WIDTH +: DATA_WIDTH]),
                 .result     (lane_result[lane]),
                 .valid_out  (lane_valid_out[lane]),
                 .overflow   (),
