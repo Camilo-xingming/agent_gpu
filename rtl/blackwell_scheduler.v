@@ -159,23 +159,56 @@ module blackwell_scheduler #(
     endgenerate
 
     //------------------------------------------------------------------------
-    // Per-Warp Hazard Detection
+    // Per-Warp Hazard Detection (Enhanced for Blackwell)
     //------------------------------------------------------------------------
     wire [NUM_WARPS-1:0] warp_has_hazard;
+    wire [NUM_WARPS-1:0] warp_has_async_hazard;  // Async MMA specific hazards
+    wire [NUM_WARPS-1:0] warp_has_tmem_hazard;   // TMEM allocation hazards
+
     genvar w;
     generate
         for (w = 0; w < NUM_WARPS; w = w + 1) begin : gen_hazard
+            // Standard RAW/WAW hazards for register operands
             wire raw_hazard = scoreboard[w][warp_rs1[w]] ||
                              scoreboard[w][warp_rs2[w]] ||
                              scoreboard[w][warp_rs3[w]];
             wire waw_hazard = warp_writes_reg[w] && scoreboard[w][warp_rd[w]];
-            assign warp_has_hazard[w] = raw_hazard || waw_hazard;
+
+            // Async MMA hazards:
+            // - tcgen05.commit/wait must wait for all pending async MMA to complete
+            // - tcgen05.mma can proceed if async queue not full
+            wire async_commit_wait_hazard = (warp_is_tcgen05_commit[w] || warp_is_tcgen05_wait[w]) &&
+                                            warp_async_mma_pending_any[w];
+            wire async_queue_full = (async_mma_count[w] >= MAX_ASYNC_MMA_OPS);
+            wire async_mma_hazard = warp_is_tcgen05_mma[w] && async_queue_full;
+
+            assign warp_has_async_hazard[w] = async_commit_wait_hazard || async_mma_hazard;
+
+            // TMEM hazards:
+            // - tcgen05.ld/st/mma require TMEM to be allocated first
+            // - tcgen05.dealloc must wait for all TMEM operations to complete
+            wire tmem_not_allocated = (warp_is_tcgen05_ld[w] || warp_is_tcgen05_st[w] ||
+                                       warp_is_tcgen05_mma[w]) && !warp_has_tmem_alloc[w];
+            assign warp_has_tmem_hazard[w] = tmem_not_allocated;
+
+            // Combined hazard
+            assign warp_has_hazard[w] = raw_hazard || waw_hazard ||
+                                        warp_has_async_hazard[w] || warp_has_tmem_hazard[w];
         end
     endgenerate
 
-    // Warp is eligible if: valid, ready, has instruction, no hazard, not diverged, not at barrier
-    wire [NUM_WARPS-1:0] warp_eligible = warp_valid & warp_ready & warp_inst_valid &
-                                          ~warp_has_hazard & ~warp_diverged & ~warp_at_barrier;
+    // Standard eligibility: valid, ready, has instruction, no hazard, not diverged, not at barrier
+    wire [NUM_WARPS-1:0] warp_eligible_base = warp_valid & warp_ready & warp_inst_valid &
+                                               ~warp_has_hazard & ~warp_diverged & ~warp_at_barrier;
+
+    // Blackwell enhancement: tcgen05 ops don't require warp synchronization
+    // Per-thread tensor ops can be issued even if warp is diverged (only active threads execute)
+    wire [NUM_WARPS-1:0] warp_tcgen05_eligible = warp_valid & warp_inst_valid &
+                                                  warp_is_tcgen05 & ~warp_has_hazard &
+                                                  ~warp_at_barrier;  // No divergence check for tcgen05
+
+    // Combined eligibility
+    wire [NUM_WARPS-1:0] warp_eligible = warp_eligible_base | warp_tcgen05_eligible;
 
     //------------------------------------------------------------------------
     // Per-Scheduler Warp Selection
