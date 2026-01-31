@@ -57,7 +57,7 @@
       "id": "impl-async-mma",
       "stage": "impl",
       "title": "Implement asynchronous MMA dispatch in tensor_core.v",
-      "passes": false,
+      "passes": true,
       "blockedBy": [
         "impl-tcgen05-decoder",
         "impl-tmem-module"
@@ -69,7 +69,7 @@
       "id": "impl-scheduler-update",
       "stage": "impl",
       "title": "Update blackwell_scheduler.v for per-thread tensor scheduling",
-      "passes": false,
+      "passes": true,
       "blockedBy": [
         "arch-execution-model"
       ],
