@@ -92,7 +92,7 @@
       "id": "test-backward-compat",
       "stage": "test",
       "title": "Verify backward compatibility with existing tests",
-      "passes": false,
+      "passes": true,
       "blockedBy": [
         "impl-async-mma",
         "impl-scheduler-update"
