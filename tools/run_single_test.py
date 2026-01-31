@@ -25,7 +25,7 @@ def run_simulation(hex_file: str, test_name: str):
         f"-DHEX_FILE=\"{hex_file}\"",
         "-DTIMEOUT_CYCLES=50000",
         "-DSUCCESS_ADDR=32'h2000",
-        "-DSUCCESS_VALUE=32'h0",
+        "-DSUCCESS_VALUE=32'hCAFE",
         "-s", "tb_top_level_unified",
         "-o", str(vvp_file),
         str(tb_file)
