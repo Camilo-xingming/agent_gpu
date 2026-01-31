@@ -3066,3 +3066,15 @@
 [2026-01-31 03:33:06]   [%15] 快速检测: idle
 [2026-01-31 03:33:06]   [%12:claude] 空闲，无可用任务
 [2026-01-31 03:33:06]   [%15:claude] 空闲，无可用任务
+[2026-01-31 03:33:06]   -> Git commit: iteration #17 (9/10)
+[2026-01-31 03:33:08]   -> Git push 成功
+[2026-01-31 03:33:16] INFO - --- Iteration 1042 ---
+[2026-01-31 03:33:16] INFO - Agents: 1 idle, 0 busy
+[2026-01-31 03:33:29] INFO - Completion event: completion_test-tcgen05-basic.json
+[2026-01-31 03:33:29] INFO - Completion event: completion_test-backward-compat.json
+[2026-01-31 03:33:30] INFO - Early wake due to completion event
+[2026-01-31 03:33:30] INFO - --- Iteration 1043 ---
+[2026-01-31 03:33:30] INFO - Agents: 1 idle, 0 busy
+[2026-01-31 03:33:31] INFO - Task test-tcgen05-basic completed (from inbox)
+[2026-01-31 03:33:31] INFO - Task test-backward-compat completed (from inbox)
+[2026-01-31 03:33:31] INFO - Detected 2 completed tasks
