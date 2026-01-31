@@ -172,19 +172,20 @@ module tb_tcgen05;
 
     //------------------------------------------------------------------------
     // Helper Function - Construct tcgen05 Instruction
-    // Format: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:0]=imm16 (TMEM addr)
-    //         [10:6]=rc (dtype in lower 4 bits), [5:0]=func
+    // tcgen05 uses OP_MMA opcode with func[4]=1 to distinguish from regular MMA
+    // Format: [31:26]=OP_MMA, [25:21]=rd, [20:16]=ra, [15:11]=rb, [10:6]=rc (dtype), [5:0]=func
+    // tcgen05 func codes: 6'b01xxxx where xxxx=operation (0=mma, 1=ld, 2=st, etc.)
     //------------------------------------------------------------------------
     function [31:0] make_tcgen05_inst;
         input [4:0]  dst;       // rd - destination register or TMEM base
         input [4:0]  src_a;     // ra - source register A
         input [4:0]  src_b;     // rb - source register B
         input [3:0]  dtype;     // data type (in rc[3:0])
-        input [5:0]  fn;        // function code
-        input [9:0]  tmem_low;  // lower 10 bits of TMEM address
+        input [5:0]  fn;        // function code (should have bit[4]=1 for tcgen05)
+        input [9:0]  tmem_low;  // unused - kept for compatibility
         begin
-            // [31:26]=OP_TCGEN05, [25:21]=rd, [20:16]=ra, [15:11]=rb, [10:6]={1'b0, dtype}, [5:0]=func
-            make_tcgen05_inst = {`OP_TCGEN05, dst, src_a, src_b, 1'b0, dtype, fn};
+            // [31:26]=OP_MMA, [25:21]=rd, [20:16]=ra, [15:11]=rb, [10:6]={1'b0, dtype}, [5:0]=func
+            make_tcgen05_inst = {`OP_MMA, dst, src_a, src_b, 1'b0, dtype, fn};
         end
     endfunction
 
