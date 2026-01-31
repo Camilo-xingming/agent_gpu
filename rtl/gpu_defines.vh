@@ -730,22 +730,21 @@
 // Per-thread tensor operations with Tensor Memory (TMEM) accumulator
 // Replaces warp-synchronous WMMA/WGMMA with independent per-thread MMA
 //============================================================================
-// Using dedicated opcode slot for SM100+ tcgen05 instructions
-// On SM100+, tcgen05 is the primary tensor interface (WMMA/WGMMA via emulation)
-`define OP_TCGEN05      6'b011010   // tcgen05 unified opcode
-// Note: Shares slot with OP_ATOM (6'b011010) - differentiated by func field
-// OP_ATOM uses func 0x00-0x0F, TCGEN05 uses func 0x00-0x07 with rc[4]=1 as discriminator
-// Alternative: Use distinct encoding when both needed simultaneously
+// tcgen05 uses func[4]=1 under OP_MMA to distinguish from regular/sparse MMA
+// Encoding: OP_MMA (6'b100010) + func[5:4]=01 for tcgen05 operations
+// Regular MMA: func[5:4]=00, Sparse MMA: func[5:4]=10, TCGEN05: func[5:4]=01
+`define OP_TCGEN05      `OP_MMA     // tcgen05 shares OP_MMA opcode
 
-// tcgen05 function codes (for OP_TCGEN05)
-`define TCGEN05_MMA         6'b000000   // tcgen05.mma - Per-thread async MMA with TMEM accumulator
-`define TCGEN05_LD          6'b000001   // tcgen05.ld - Load from TMEM to registers
-`define TCGEN05_ST          6'b000010   // tcgen05.st - Store from registers to TMEM
-`define TCGEN05_CP          6'b000011   // tcgen05.cp - Async tensor data transfer (TMA-like)
-`define TCGEN05_ALLOC       6'b000100   // tcgen05.alloc - Allocate TMEM columns
-`define TCGEN05_DEALLOC     6'b000101   // tcgen05.dealloc - Deallocate TMEM (required before kernel exit)
-`define TCGEN05_COMMIT      6'b000110   // tcgen05.commit - Signal MMA completion via mbarrier
-`define TCGEN05_WAIT        6'b000111   // tcgen05.wait - Wait for pending TMEM operations
+// tcgen05 function codes (for OP_TCGEN05 = OP_MMA with func[4]=1)
+// Format: func[5]=0, func[4]=1, func[3:0]=operation
+`define TCGEN05_MMA         6'b010000   // tcgen05.mma - Per-thread async MMA with TMEM accumulator
+`define TCGEN05_LD          6'b010001   // tcgen05.ld - Load from TMEM to registers
+`define TCGEN05_ST          6'b010010   // tcgen05.st - Store from registers to TMEM
+`define TCGEN05_CP          6'b010011   // tcgen05.cp - Async tensor data transfer (TMA-like)
+`define TCGEN05_ALLOC       6'b010100   // tcgen05.alloc - Allocate TMEM columns
+`define TCGEN05_DEALLOC     6'b010101   // tcgen05.dealloc - Deallocate TMEM (required before kernel exit)
+`define TCGEN05_COMMIT      6'b010110   // tcgen05.commit - Signal MMA completion via mbarrier
+`define TCGEN05_WAIT        6'b010111   // tcgen05.wait - Wait for pending TMEM operations
 
 // tcgen05.mma shape configurations (in idesc[5:0])
 `define TCGEN05_M128N256K16 6'b000000   // m128n256k16 (largest Blackwell tile)
