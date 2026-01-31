@@ -3498,3 +3498,11 @@
 [2026-01-31 03:46:16]   [%15] 快速检测: idle
 [2026-01-31 03:46:16]   [%12:claude] 空闲，无可用任务
 [2026-01-31 03:46:17]   [%15:claude] 空闲，无可用任务
+[2026-01-31 03:46:17]   -> Git commit: iteration #41 (9/10)
+[2026-01-31 03:46:18]   -> Git push 成功
+[2026-01-31 03:46:19] INFO - Completion event: completion_test-triton-kernel.json
+[2026-01-31 03:46:20] INFO - Early wake due to completion event
+[2026-01-31 03:46:20] INFO - --- Iteration 1067 ---
+[2026-01-31 03:46:20] INFO - Agents: 1 idle, 0 busy
+[2026-01-31 03:46:21] INFO - Task test-triton-kernel completed (from inbox)
+[2026-01-31 03:46:21] INFO - Detected 1 completed tasks
