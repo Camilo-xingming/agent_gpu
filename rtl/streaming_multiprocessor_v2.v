@@ -683,7 +683,7 @@ module streaming_multiprocessor_v2 #(
     wire lane0_stall_mem = dec0_valid && !dec_atomic_op && (
                            ((dec_mem_read || dec_mem_write) && mem_in_flight) ||
                            (dec_mem_write && !dec_mem_read && store_pending_valid) ||
-                           (dec_mem_shared && dec_mem_read && smem_pending_valid) ||
+                           (dec_mem_shared && dec_mem_read && (smem_pending_valid || smem_resp_latched)) ||
                            (!dec_mem_shared && (dec_mem_read || dec_mem_write) &&
                             (!gmem_req_ready || (dec_mem_read && mem_pending_valid)))
                            );
