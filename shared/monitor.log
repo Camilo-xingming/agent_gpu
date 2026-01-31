@@ -3506,3 +3506,18 @@
 [2026-01-31 03:46:20] INFO - Agents: 1 idle, 0 busy
 [2026-01-31 03:46:21] INFO - Task test-triton-kernel completed (from inbox)
 [2026-01-31 03:46:21] INFO - Detected 1 completed tasks
+[2026-01-31 03:46:21] INFO - Git commit: auto: iteration #1067 - 6/19 tasks completed
+[2026-01-31 03:46:48] --- 迭代 #42 ---
+[2026-01-31 03:46:48] 剩余任务: 1
+[2026-01-31 03:46:48]   [%12] 快速检测: idle
+[2026-01-31 03:46:48]   [%13] 快速检测: busy
+[2026-01-31 03:46:48]   [%13] 检测到卡住 (输出长时间不变)
+[2026-01-31 03:46:48]   [%13] 检测到卡住，尝试恢复 (第 20 次)...
+[2026-01-31 03:46:48] 🚨 ESCALATION [critical]: 恢复失败 20 次，需要人工干预 (pane: %13, agent: codex, task: arch-tensor-memory)
+[2026-01-31 03:46:48]   -> 无 orchestrator 注册，escalation 已写入 ./shared/escalation.md
+[2026-01-31 03:46:49]   [%13] 已 escalate 到 orchestrator
+[2026-01-31 03:46:49]   [%14] 快速检测: busy
+[2026-01-31 03:46:49]   [%14] 正在工作中
+[2026-01-31 03:46:49]   [%15] 快速检测: idle
+[2026-01-31 03:46:49]   [%12:claude] 空闲，无可用任务
+[2026-01-31 03:46:49]   [%15:claude] 空闲，无可用任务
