@@ -175,12 +175,14 @@ module shared_memory #(
         end
     end
 
-    // 响应有效信号
+    // 响应有效信号 (读和写都会产生完成信号)
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             resp_valid_reg <= 1'b0;
         end else begin
-            resp_valid_reg <= req_valid & ~req_write;
+            // Both read and write operations produce a valid response
+            // (for writes, the read data is undefined but the valid signal matters)
+            resp_valid_reg <= req_valid;
         end
     end
 

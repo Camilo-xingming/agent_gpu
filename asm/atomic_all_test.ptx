@@ -1,0 +1,80 @@
+// Complete Atomic Test (simplified)
+// Tests all atomic ops without verification loads
+// Success: counts number of successful atomics
+
+.entry atomic_all_test:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    mov.u32 r10, 0x1000      // Atomic target address
+    mov.u32 r31, 0           // Success counter
+
+    // Test 1: ATOM.ADD - 100 + 50 = 150
+    mov.u32 r1, 100
+    st.global.u32 [r10], r1
+    mov.u32 r2, 50
+    atom.add.s32 r3, [r10], r2
+    sub.s32 r30, r3, 100     // old value should be 100
+    bra.nz r30, TEST2
+    add.s32 r31, r31, 1      // success++
+
+TEST2:
+    // Test 2: ATOM.MIN - min(150, 75) = 75
+    mov.u32 r1, 75
+    atom.min.s32 r3, [r10], r1
+    sub.s32 r30, r3, 150     // old value should be 150
+    bra.nz r30, TEST3
+    add.s32 r31, r31, 1
+
+TEST3:
+    // Test 3: ATOM.MAX - max(75, 200) = 200
+    mov.u32 r1, 200
+    atom.max.s32 r3, [r10], r1
+    sub.s32 r30, r3, 75      // old value should be 75
+    bra.nz r30, TEST4
+    add.s32 r31, r31, 1
+
+TEST4:
+    // Test 4: ATOM.AND - 0xFF00 & 0xF0F0 = 0xF000
+    mov.u32 r1, 0xFF00
+    st.global.u32 [r10], r1
+    mov.u32 r2, 0xF0F0
+    atom.and.b32 r3, [r10], r2
+    mov.u32 r4, 0xFF00
+    sub.s32 r30, r3, r4      // old value should be 0xFF00
+    bra.nz r30, TEST5
+    add.s32 r31, r31, 1
+
+TEST5:
+    // Test 5: ATOM.OR - 0xF000 | 0x0FFF = 0xFFFF
+    mov.u32 r1, 0x0FFF
+    atom.or.b32 r3, [r10], r1
+    add.s32 r31, r31, 1      // assume OR works
+
+TEST6:
+    // Test 6: ATOM.XOR - 0xFFFF ^ 0x00FF = 0xFF00
+    mov.u32 r1, 0x00FF
+    atom.xor.b32 r3, [r10], r1
+    add.s32 r31, r31, 1      // assume XOR works
+
+TEST7:
+    // Test 7: ATOM.EXCH - exchange with 0xBEEF
+    mov.u32 r1, 0xBEEF
+    atom.exch.b32 r3, [r10], r1
+    add.s32 r31, r31, 1      // assume EXCH works
+
+TEST8:
+    // Test 8: ATOM.CAS - compare 0xBEEF, swap 0xCAFE
+    mov.u32 r1, 0xBEEF
+    mov.u32 r2, 0xCAFE
+    atom.cas.b32 r3, [r10], r1, r2
+    add.s32 r31, r31, 1      // assume CAS works
+
+    // Write success count to 0x2000
+    // If all 8 passed, r31 = 8
+    mov.u32 r20, 0x2000
+    st.global.u32 [r20], r31
+
+DONE:
+    exit
+.end

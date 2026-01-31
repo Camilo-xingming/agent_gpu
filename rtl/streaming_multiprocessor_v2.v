@@ -508,6 +508,15 @@ module streaming_multiprocessor_v2 #(
     wire [31:0]           atomic_result;
     wire                  atomic_valid_in, atomic_valid_out;
     wire                  atomic_busy;
+    
+    // Atomic Memory Interface Signals
+    wire                  atomic_mem_req;
+    wire                  atomic_mem_write;
+    wire [31:0]           atomic_mem_addr;
+    wire [31:0]           atomic_mem_wdata;
+    reg                   atomic_mem_ready;
+    reg  [31:0]           atomic_mem_rdata;
+    reg                   atomic_mem_pending;  // Track pending atomic memory request
 
     // Shared Memory Signals
     wire                  smem_req_valid;
@@ -3601,12 +3610,12 @@ module streaming_multiprocessor_v2 #(
         .operand_a  (rf_rd_data_b[31:0]),
         .operand_b  (rf_rd_data_c[31:0]),
         .mem_shared (issue_mem_shared),
-        .mem_req    (),
-        .mem_write  (),
-        .mem_addr   (),
-        .mem_wdata  (),
-        .mem_ready  (1'b1),
-        .mem_rdata  (32'b0),
+        .mem_req    (atomic_mem_req),
+        .mem_write  (atomic_mem_write),
+        .mem_addr   (atomic_mem_addr),
+        .mem_wdata  (atomic_mem_wdata),
+        .mem_ready  (atomic_mem_ready),
+        .mem_rdata  (atomic_mem_rdata),
         .result     (atomic_result),
         .result_valid(atomic_valid_out),
         .busy       (atomic_busy)
@@ -4145,26 +4154,53 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
                                  (issue_mem_read || issue_mem_write);
     wire gmem_normal_req_write = issue_mem_write;
 
-    // Priority: Normal > ACE > Texture
-    // ACE requests only when no normal request and ACE has pending work
-    wire gmem_use_ace = ace_gmem_req_valid && !gmem_normal_req_valid && !ace_mem_pending;
+    // Priority: Normal > Atomic > ACE > Texture
+    // Atomic requests have high priority (read-modify-write needs low latency)
+    wire gmem_use_atomic = atomic_mem_req && !gmem_normal_req_valid && !atomic_mem_pending;
+    // ACE requests only when no normal/atomic request and ACE has pending work
+    wire gmem_use_ace = ace_gmem_req_valid && !gmem_normal_req_valid && !gmem_use_atomic && !ace_mem_pending;
     // Texture requests only when no normal or ACE request
-    wire gmem_use_tex = tex_mem_req && !gmem_normal_req_valid && !gmem_use_ace && !tex_mem_pending;
+    wire gmem_use_tex = tex_mem_req && !gmem_normal_req_valid && !gmem_use_atomic && !gmem_use_ace && !tex_mem_pending;
 
-    assign gmem_req_valid = gmem_normal_req_valid || gmem_use_ace || gmem_use_tex;
-    assign gmem_req_write = gmem_use_ace ? 1'b0 :
+    assign gmem_req_valid = gmem_normal_req_valid || gmem_use_atomic || gmem_use_ace || gmem_use_tex;
+    assign gmem_req_write = gmem_use_atomic ? atomic_mem_write :
+                            gmem_use_ace ? 1'b0 :
                             gmem_use_tex ? tex_mem_write :
                             gmem_normal_req_write;
 
     // For ACE: replicate single address across all lanes (only lane 0 matters)
     wire [NUM_LANES*32-1:0] ace_replicated_addr = {NUM_LANES{ace_gmem_req_addr}};
     wire [NUM_LANES*32-1:0] tex_replicated_addr = {NUM_LANES{tex_mem_addr}};
-    assign gmem_req_addr = gmem_use_ace ? ace_replicated_addr :
+    wire [NUM_LANES*32-1:0] atomic_replicated_addr = {NUM_LANES{atomic_mem_addr}};
+    assign gmem_req_addr = gmem_use_atomic ? atomic_replicated_addr :
+                           gmem_use_ace ? ace_replicated_addr :
                            gmem_use_tex ? tex_replicated_addr :
                            rf_rd_data_a;
     // Write data: texture uses 128-bit width replicated to lanes 0-3
     wire [SIMD_WIDTH-1:0] tex_wdata_extended = {{(SIMD_WIDTH-128){1'b0}}, tex_mem_wdata};
-    assign gmem_req_wdata = gmem_use_tex ? tex_wdata_extended : rf_rd_data_b;
+    wire [SIMD_WIDTH-1:0] atomic_wdata_extended = {NUM_LANES{atomic_mem_wdata}};
+    assign gmem_req_wdata = gmem_use_atomic ? atomic_wdata_extended :
+                            gmem_use_tex ? tex_wdata_extended : rf_rd_data_b;
+
+    // Track Atomic memory request state
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            atomic_mem_pending <= 1'b0;
+            atomic_mem_ready <= 1'b0;
+            atomic_mem_rdata <= 32'b0;
+        end else begin
+            atomic_mem_ready <= 1'b0;  // Default: not ready
+            if (gmem_use_atomic && gmem_req_ready) begin
+                // Atomic request accepted
+                atomic_mem_pending <= 1'b1;
+            end else if (atomic_mem_pending && gmem_resp_valid) begin
+                // Atomic response received
+                atomic_mem_pending <= 1'b0;
+                atomic_mem_ready <= 1'b1;
+                atomic_mem_rdata <= gmem_resp_rdata[31:0];  // Lane 0 data
+            end
+        end
+    end
 
     // Track ACE memory request state
     always @(posedge clk or negedge rst_n) begin
@@ -4173,13 +4209,13 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
             ace_mem_addr_saved <= 32'b0;
             ace_mem_size_saved <= 5'b0;
         end else begin
-            if (gmem_use_ace && gmem_req_ready) begin
+            if (gmem_use_ace && gmem_req_ready && !atomic_mem_pending) begin
                 // ACE request accepted
                 ace_mem_pending <= 1'b1;
                 ace_mem_addr_saved <= ace_gmem_req_addr;
                 ace_mem_size_saved <= ace_gmem_req_size;
-            end else if (ace_mem_pending && gmem_resp_valid && !tex_mem_pending) begin
-                // ACE response received (only when not waiting for tex)
+            end else if (ace_mem_pending && gmem_resp_valid && !tex_mem_pending && !atomic_mem_pending) begin
+                // ACE response received (only when not waiting for tex or atomic)
                 ace_mem_pending <= 1'b0;
             end
         end
@@ -4193,8 +4229,8 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
             if (gmem_use_tex && gmem_req_ready) begin
                 // Texture request accepted
                 tex_mem_pending <= 1'b1;
-            end else if (tex_mem_pending && gmem_resp_valid && !ace_mem_pending) begin
-                // Texture response received (only when not waiting for ACE)
+            end else if (tex_mem_pending && gmem_resp_valid && !ace_mem_pending && !atomic_mem_pending) begin
+                // Texture response received (only when not waiting for ACE or atomic)
                 tex_mem_pending <= 1'b0;
             end
         end
@@ -4202,12 +4238,12 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
 
     // Route response to ACE when ACE request is pending
     // Extract 128-bit data from lane 0-3 of the response
-    assign ace_gmem_resp_valid = ace_mem_pending && gmem_resp_valid && !tex_mem_pending;
+    assign ace_gmem_resp_valid = ace_mem_pending && gmem_resp_valid && !tex_mem_pending && !atomic_mem_pending;
     assign ace_gmem_resp_data = {gmem_resp_rdata[127:0]};  // First 128 bits (4 lanes)
 
     // Route response to Texture unit
     assign tex_mem_ready = !tex_mem_pending && gmem_req_ready;  // Ready when not pending
-    assign tex_mem_valid = tex_mem_pending && gmem_resp_valid && !ace_mem_pending;
+    assign tex_mem_valid = tex_mem_pending && gmem_resp_valid && !ace_mem_pending && !atomic_mem_pending;
     assign tex_mem_rdata = gmem_resp_rdata[127:0];  // First 128 bits
 
     // DEBUG: trace first few load/store operations
@@ -5499,8 +5535,14 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
 
     //========================================================================
     // Kernel Completion
+    // Wait for all warps to exit AND all pending memory operations to complete
     //========================================================================
-    assign kernel_done = (warp_valid == 0) && !kernel_start;
+    wire all_mem_complete = !store_pending_valid && 
+                            !mem_pending_valid && 
+                            !atomic_mem_pending &&
+                            !gmem_resp_latched &&
+                            !smem_resp_latched;
+    assign kernel_done = (warp_valid == 0) && !kernel_start && all_mem_complete;
 
     //========================================================================
     // Special Register Generation
@@ -5538,7 +5580,7 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
                 kernel_started_dbg <= 1;
                 post_kernel_debug_cnt <= 0;
             end
-            if (kernel_started_dbg && post_kernel_debug_cnt < 30) begin
+            if (kernel_started_dbg && post_kernel_debug_cnt < 100) begin
                 $display("[%0t SM%0d POST_START] cycle=%0d warp_valid=%04b warp_ready=%04b fetch_req=%b imem_ready=%b buf_valid=%04b",
                          $time, SM_ID, post_kernel_debug_cnt,
                          warp_valid, warp_ready, fetch_req, imem_ready, warp_inst_buf_valid);
@@ -5546,6 +5588,9 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
                          warp_stalled_mem, warp_stalled_fu, warp_stalled_sync, warp_stalled_async,
                          warp_stalled_branch, warp_exit_pending, mbarrier_warp_blocked,
                          warp_stalled_wgmma, cluster_barrier_pending);
+                $display("  pipes: mem_ready=%b mem_inflight=%d stall_mem=%b ace_ready=%b compute0=%b compute1=%b",
+                         pipe_memory_ready, mem_pipe_inflight, issue_stall_mem, ace_ready,
+                         pipe_compute0_ready, pipe_compute1_ready);
                 post_kernel_debug_cnt <= post_kernel_debug_cnt + 1;
             end
         end

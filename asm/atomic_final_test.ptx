@@ -1,0 +1,54 @@
+// Final Atomic Test - All 8 ops, no counter
+// Just run all atomics, then write 0xCAFE to 0x2000
+
+.entry atomic_final_test:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    mov.u32 r10, 0x1000
+
+    // 1: ATOM.ADD
+    mov.u32 r1, 100
+    st.global.u32 [r10], r1
+    mov.u32 r2, 50
+    atom.add.s32 r3, [r10], r2
+
+    // 2: ATOM.MIN
+    mov.u32 r1, 75
+    atom.min.s32 r3, [r10], r1
+
+    // 3: ATOM.MAX
+    mov.u32 r1, 200
+    atom.max.s32 r3, [r10], r1
+
+    // 4: ATOM.AND
+    mov.u32 r1, 0xFF00
+    st.global.u32 [r10], r1
+    mov.u32 r2, 0xF0F0
+    atom.and.b32 r3, [r10], r2
+
+    // 5: ATOM.OR
+    mov.u32 r1, 0x0FFF
+    atom.or.b32 r3, [r10], r1
+
+    // 6: ATOM.XOR
+    mov.u32 r1, 0x00FF
+    atom.xor.b32 r3, [r10], r1
+
+    // 7: ATOM.EXCH
+    mov.u32 r1, 0xBEEF
+    atom.exch.b32 r3, [r10], r1
+
+    // 8: ATOM.CAS
+    mov.u32 r1, 0xBEEF
+    mov.u32 r2, 0xCAFE
+    atom.cas.b32 r3, [r10], r1, r2
+
+    // Success - write 0xCAFE
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

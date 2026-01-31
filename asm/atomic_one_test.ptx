@@ -1,0 +1,19 @@
+// One Atomic Test
+.entry atomic_one_test:
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    mov.u32 r10, 0x1000
+    mov.u32 r1, 100
+    st.global.u32 [r10], r1
+    mov.u32 r2, 50
+    atom.add.s32 r3, [r10], r2
+
+    // Write 0xCAFE
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

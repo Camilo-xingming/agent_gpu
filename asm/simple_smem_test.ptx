@@ -1,0 +1,31 @@
+// Simple Shared Memory Test
+// Store 0x12345678 to shared memory address 0, then load it back
+// Write result to global memory address 0x2000
+
+.entry simple_smem_test:
+    // Only lane 0 executes
+    mov.u32 r0, %laneid
+    bra.nz r0, DONE
+
+    // r10 = shared memory address 0
+    mov.u32 r10, 0
+
+    // r1 = 0x12345678 (via two moves)
+    mov.u32 r1, 0x1234     // r1 = 0x1234
+    shl.b32 r1, r1, 16     // r1 = 0x12340000
+    mov.u32 r2, 0x5678
+    or.b32 r1, r1, r2      // r1 = 0x12345678
+
+    // Store r1 to shared memory [r10]
+    st.shared.u32 [r10], r1
+
+    // Load back from shared memory
+    ld.shared.u32 r3, [r10]
+
+    // Write result to global memory at 0x2000
+    mov.u32 r20, 0x2000
+    st.global.u32 [r20], r3
+
+DONE:
+    exit
+.end

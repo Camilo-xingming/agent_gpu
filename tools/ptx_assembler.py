@@ -1374,10 +1374,9 @@ class PTXAssembler:
             cond_reg = 0
             target = operands[0]
 
-        # Calculate offset
+        # Calculate offset (relative to current PC)
+        # Hardware: branch_target = PC + (offset << 2)
         if target in self.labels:
-            # Offset is in instruction count from current instruction
-            # (labels and current_addr are in bytes, convert to instructions)
             offset = (self.labels[target] - self.current_addr) // 4
         else:
             offset = parse_immediate(target)

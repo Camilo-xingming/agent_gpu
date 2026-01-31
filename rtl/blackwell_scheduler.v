@@ -261,11 +261,11 @@ module blackwell_scheduler #(
 
             // Debug output
             `ifdef SIMULATION
-            if (cycle_count < 50 && num_issued > 0) begin
+            if (cycle_count < 200) begin
                 $display("[%0t BLACKWELL_SCHED] cycle=%0d issue_valid=%b consume=%b num_issued=%0d",
                          $time, cycle_count, issue_valid_r, issue_consume_r, num_issued);
-                $display("  eligible=%b inst_valid=%b hazard=%b",
-                         warp_eligible, warp_inst_valid, warp_has_hazard);
+                $display("  eligible=%b inst_valid=%b hazard=%b valid=%b ready=%b diverged=%b barrier=%b",
+                         warp_eligible, warp_inst_valid, warp_has_hazard, warp_valid, warp_ready, warp_diverged, warp_at_barrier);
                 if (issue_valid_r[0])
                     $display("  sched0: warp=%0d pipe=%0d inst=0x%08x",
                              issue_warp_r[0], issue_pipe_r[0], issue_inst_r[0]);
