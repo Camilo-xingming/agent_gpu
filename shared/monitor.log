@@ -33,3 +33,10 @@
 [2026-01-30 17:20:44] INFO - Recovered 2 stuck agents
 [2026-01-30 17:20:44] INFO - Dispatched task-007-e4ad26a9 (arch) to gemini
 [2026-01-30 17:20:44] INFO - Dispatched 1 tasks
+[2026-01-30 17:20:44] INFO - Git commit: auto: iteration #8 - 0/19 tasks completed
+[2026-01-30 17:21:18] INFO - --- Iteration 9 ---
+[2026-01-30 17:21:18] INFO - Agents: 3 idle, 0 busy
+[2026-01-30 17:21:18] INFO - Dispatched task-010-ef24efb3 (arch) to claude
+[2026-01-30 17:21:18] INFO - Dispatched task-013-bcf74d78 (arch) to codex
+[2026-01-30 17:21:18] INFO - Dispatched task-016-219d6a19 (arch) to gemini
+[2026-01-30 17:21:18] INFO - Dispatched 3 tasks
