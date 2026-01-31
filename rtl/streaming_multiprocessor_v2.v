@@ -4287,7 +4287,8 @@ module streaming_multiprocessor_v2 #(
         branch_is_unconditional ||
         all_lanes_take_branch
     );
-    wire [31:0] simple_branch_target = issue_pc + {{16{issue_imm16[15]}}, issue_imm16};
+    // Branch offset is in instructions, PC is in bytes - multiply offset by 4
+    wire [31:0] simple_branch_target = issue_pc + ({{16{issue_imm16[15]}}, issue_imm16} << 2);
 
     // For divergent branches: use "not-taken-first" execution strategy
     // Strategy for forward branches (like if-then):
@@ -4329,7 +4330,8 @@ module streaming_multiprocessor_v2 #(
         branch1_is_unconditional ||
         all1_lanes_take_branch
     );
-    wire [31:0] simple_branch1_target = issue1_pc + {{16{issue1_imm16[15]}}, issue1_imm16};
+    // Branch offset is in instructions, PC is in bytes - multiply offset by 4
+    wire [31:0] simple_branch1_target = issue1_pc + ({{16{issue1_imm16[15]}}, issue1_imm16} << 2);
 
     wire divergent_branch1 = issue1_valid && issue1_branch_op && threads1_diverge;
     wire branch1_taken_combined = simple_branch1_taken;
@@ -4385,8 +4387,8 @@ module streaming_multiprocessor_v2 #(
         // Branch type from bits [25:24] of instruction (rd[4:3])
         // 00=unconditional, 01=if_zero (BR_IF_TRUE), 10=if_not_zero (BR_IF_FALSE), 11=uniform
         .branch_type     ({4'b0, issue_rd[4:3]}),
-        // Branch offset from imm16, sign-extended
-        .branch_target   (issue_pc + {{16{issue_imm16[15]}}, issue_imm16}),
+        // Branch offset from imm16, sign-extended, multiplied by 4 (PC is bytes, offset is instructions)
+        .branch_target   (issue_pc + ({{16{issue_imm16[15]}}, issue_imm16} << 2)),
         // Branch condition: zero flag from ALU (ra | 0)
         .branch_cond     (alu_zero),
         .is_uniform      (issue_rd[4:3] == 2'b11),
@@ -5067,7 +5069,7 @@ module streaming_multiprocessor_v2 #(
                 `ifdef SIMULATION
                 $display("[%0t SM%0d] BRANCH: pc=0x%04x opcode=0x%02x type=%0d ra=R%0d imm16=0x%04x target=0x%04x zero=%b taken=%b diverge=%b rf_rd_a=0x%08h",
                          $time, SM_ID, issue_pc, issue_opcode, issue_rd[4:3], issue_ra, issue_imm16,
-                         issue_pc + {{16{issue_imm16[15]}}, issue_imm16},
+                         issue_pc + ({{16{issue_imm16[15]}}, issue_imm16} << 2),
                          alu_zero[0], branch_taken_combined, threads_diverge, rf_rd_data_a[31:0]);
                 `endif
                 // For divergent branches, keep stall set for one more cycle to let pipeline flush
@@ -5137,7 +5139,7 @@ module streaming_multiprocessor_v2 #(
                 `ifdef SIMULATION
                 $display("[%0t SM%0d] BRANCH1: pc=0x%04x opcode=0x%02x type=%0d ra=R%0d imm16=0x%04x target=0x%04x zero=%b taken=%b diverge=%b",
                          $time, SM_ID, issue1_pc, issue1_opcode, issue1_rd[4:3], issue1_ra, issue1_imm16,
-                         issue1_pc + {{16{issue1_imm16[15]}}, issue1_imm16},
+                         issue1_pc + ({{16{issue1_imm16[15]}}, issue1_imm16} << 2),
                          alu_zero[0], branch1_taken_combined, threads1_diverge);
                 `endif
                 // For non-divergent branches, clear stall immediately
