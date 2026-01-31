@@ -549,7 +549,8 @@ module decoder (
                 end
 
                 `OP_MMA: begin
-                    // Check if this is a sparse MMA operation (func[5] == 1)
+                    // Decode MMA family: func[5:4] determines variant
+                    // 00 = Regular MMA, 01 = TCGEN05, 10 = Sparse MMA
                     if (inst_func[5]) begin
                         // Sparse MMA operations (2:4 structured sparsity)
                         sparse_mma_op <= 1'b1;
@@ -557,8 +558,72 @@ module decoder (
                         `ifdef SIMULATION
                         $display("[DECODER] SPARSE_MMA: func=%0d", inst_func);
                         `endif
+                    end else if (inst_func[4]) begin
+                        // Blackwell tcgen05 operations (func[4]=1)
+                        tcgen05_op <= 1'b1;
+                        case (inst_func[3:0])
+                            4'b0000: begin  // TCGEN05_MMA
+                                tcgen05_mma <= 1'b1;
+                                mem_shared <= 1'b1;  // Operands from SMEM
+                                `ifdef SIMULATION
+                                $display("[DECODER] TCGEN05_MMA: dtype=%0d", inst_rc[3:0]);
+                                `endif
+                            end
+                            4'b0001: begin  // TCGEN05_LD
+                                tcgen05_ld <= 1'b1;
+                                reg_write <= 1'b1;
+                                `ifdef SIMULATION
+                                $display("[DECODER] TCGEN05_LD: rd=R%0d", inst_rd);
+                                `endif
+                            end
+                            4'b0010: begin  // TCGEN05_ST
+                                tcgen05_st <= 1'b1;
+                                `ifdef SIMULATION
+                                $display("[DECODER] TCGEN05_ST: ra=R%0d", inst_ra);
+                                `endif
+                            end
+                            4'b0011: begin  // TCGEN05_CP
+                                tcgen05_cp <= 1'b1;
+                                mem_shared <= 1'b1;
+                                `ifdef SIMULATION
+                                $display("[DECODER] TCGEN05_CP");
+                                `endif
+                            end
+                            4'b0100: begin  // TCGEN05_ALLOC
+                                tcgen05_alloc <= 1'b1;
+                                reg_write <= 1'b1;
+                                `ifdef SIMULATION
+                                $display("[DECODER] TCGEN05_ALLOC: rd=R%0d", inst_rd);
+                                `endif
+                            end
+                            4'b0101: begin  // TCGEN05_DEALLOC
+                                tcgen05_dealloc <= 1'b1;
+                                `ifdef SIMULATION
+                                $display("[DECODER] TCGEN05_DEALLOC");
+                                `endif
+                            end
+                            4'b0110: begin  // TCGEN05_COMMIT
+                                tcgen05_commit <= 1'b1;
+                                mbarrier_op <= 1'b1;
+                                `ifdef SIMULATION
+                                $display("[DECODER] TCGEN05_COMMIT");
+                                `endif
+                            end
+                            4'b0111: begin  // TCGEN05_WAIT
+                                tcgen05_wait <= 1'b1;
+                                sync_op <= 1'b1;
+                                `ifdef SIMULATION
+                                $display("[DECODER] TCGEN05_WAIT");
+                                `endif
+                            end
+                            default: begin
+                                `ifdef SIMULATION
+                                $display("[DECODER] TCGEN05_UNKNOWN: func=%0d", inst_func);
+                                `endif
+                            end
+                        endcase
                     end else begin
-                        // Regular MMA operation
+                        // Regular MMA operation (func[5:4]=00)
                         mma_op    <= 1'b1;
                         reg_write <= 1'b1;
                     end
