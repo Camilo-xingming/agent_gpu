@@ -2879,3 +2879,23 @@
 [2026-01-31 03:28:18] INFO - Agents: 1 idle, 0 busy
 [2026-01-31 03:28:19] INFO - Task impl-async-mma completed (from inbox)
 [2026-01-31 03:28:19] INFO - Detected 1 completed tasks
+[2026-01-31 03:28:19] INFO - Git commit: auto: iteration #1032 - 6/19 tasks completed
+[2026-01-31 03:28:23] --- 迭代 #10 ---
+[2026-01-31 03:28:23] 剩余任务: 3
+[2026-01-31 03:28:23]   [%12] 快速检测: busy
+[2026-01-31 03:28:23]   [%12] 正在工作中
+[2026-01-31 03:28:23]   [%13] 快速检测: busy
+[2026-01-31 03:28:23]   [%13] 正在工作中
+[2026-01-31 03:28:23]   [%14] 快速检测: uncertain
+[2026-01-31 03:28:23]   [%14] 状态不确定，调用 AI 分析...
+[2026-01-31 03:28:31]   [%14] AI 分析无结果，使用默认值
+[2026-01-31 03:28:31]   [%14] AI 分析结果: {"status":"busy","action":"wait","confirm_key":""}
+[2026-01-31 03:28:31]   [%14] 正在工作中
+[2026-01-31 03:28:31]   [%15] 快速检测: idle
+[2026-01-31 03:28:31]   [%15] 空闲但持有任务锁，释放锁
+[2026-01-31 03:28:31]   -> 释放任务 test-backward-compat 锁
+[2026-01-31 03:28:31]     任务 test-triton-kernel 被 test-backward-compat 阻塞 (passes=false)
+[2026-01-31 03:28:31]     任务 test-triton-kernel 被 test-backward-compat 阻塞 (passes=false)
+[2026-01-31 03:28:31]   -> 无匹配任务，使用 fallback: test-backward-compat
+[2026-01-31 03:28:31]   [%15:claude] 派发任务 test-backward-compat (stage: test, fallback)
+[2026-01-31 03:28:31]   -> 派发任务 test-backward-compat 到 %15

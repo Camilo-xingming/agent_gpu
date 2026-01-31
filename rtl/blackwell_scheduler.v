@@ -129,11 +129,34 @@ module blackwell_scheduler #(
     localparam PIPE_TENSOR   = 3'd2;
     localparam PIPE_MEMORY   = 3'd3;
     localparam PIPE_BRANCH   = 3'd4;
+    localparam PIPE_TCGEN05  = 3'd5;    // Blackwell tcgen05 dedicated pipe
+    localparam PIPE_TMEM     = 3'd6;    // TMEM operations pipe
 
     //------------------------------------------------------------------------
-    // Per-Warp Scoreboard
+    // Per-Warp Scoreboard (register dependencies)
     //------------------------------------------------------------------------
     reg [31:0] scoreboard [0:NUM_WARPS-1];
+
+    //------------------------------------------------------------------------
+    // Async MMA Scoreboard (Blackwell per-thread tensor tracking)
+    // Tracks outstanding async MMA operations per warp
+    // Each warp can have up to MAX_ASYNC_MMA_OPS in-flight
+    //------------------------------------------------------------------------
+    reg [MAX_ASYNC_MMA_OPS-1:0] async_mma_pending [0:NUM_WARPS-1];  // Bitmask of pending ops
+    reg [3:0] async_mma_next_id [0:NUM_WARPS-1];                    // Next op ID to allocate
+    reg [3:0] async_mma_count [0:NUM_WARPS-1];                      // Count of pending ops
+
+    // Per-warp TMEM allocation status (for tcgen05.alloc dependency)
+    reg [NUM_WARPS-1:0] warp_has_tmem_alloc;
+
+    // tcgen05.commit/wait tracking - these need to wait for async_mma to complete
+    wire [NUM_WARPS-1:0] warp_async_mma_pending_any;
+    genvar aw;
+    generate
+        for (aw = 0; aw < NUM_WARPS; aw = aw + 1) begin : gen_async_pending
+            assign warp_async_mma_pending_any[aw] = |async_mma_pending[aw];
+        end
+    endgenerate
 
     //------------------------------------------------------------------------
     // Per-Warp Hazard Detection
