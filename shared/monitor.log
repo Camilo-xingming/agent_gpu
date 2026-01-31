@@ -109,3 +109,9 @@
 [2026-01-30 17:32:09] INFO - Dispatched task-001-2d0d4f4c (arch) to codex
 [2026-01-30 17:32:09] INFO - Dispatched task-004-d70a176b (arch) to gemini
 [2026-01-30 17:32:09] INFO - Dispatched 2 tasks
+[2026-01-30 17:32:09] INFO - Git commit: auto: iteration #1 - 0/19 tasks completed
+[2026-01-30 17:32:42] INFO - --- Iteration 2 ---
+[2026-01-30 17:32:42] INFO - Agents: 2 idle, 1 busy
+[2026-01-30 17:32:42] INFO - Dispatched task-007-e4ad26a9 (arch) to codex
+[2026-01-30 17:32:42] INFO - Dispatched task-010-ef24efb3 (arch) to gemini
+[2026-01-30 17:32:42] INFO - Dispatched 2 tasks
