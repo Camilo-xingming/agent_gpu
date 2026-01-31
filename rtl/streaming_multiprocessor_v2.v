@@ -2049,6 +2049,12 @@ module streaming_multiprocessor_v2 #(
                     issue_mem_read <= dec_mem_read;
                     issue_mem_write <= dec_mem_write;
                     issue_mem_shared <= dec_mem_shared;
+                    `ifdef SIMULATION
+                    if (dec_mem_shared) begin
+                        $display("[%0t SM%0d] ISSUE MEM_SHARED: read=%b write=%b pc=0x%04x opcode=0x%02x",
+                                 $time, SM_ID, dec_mem_read, dec_mem_write, dec0_pc, dec_opcode);
+                    end
+                    `endif
                     issue_branch_op <= dec_branch_op;
                     issue_sync_op <= dec_sync_op;
                     issue_special_reg <= dec_special_reg;
@@ -4082,6 +4088,24 @@ module streaming_multiprocessor_v2 #(
     assign smem_req_write = issue_mem_write;
     assign smem_req_addr = rf_rd_data_a[NUM_LANES*14-1:0];
     assign smem_req_wdata = rf_rd_data_b;
+
+    // DEBUG: shared memory operations
+    `ifdef SIMULATION
+    always @(posedge clk) begin
+        if (smem_req_valid) begin
+            $display("[%0t SM%0d] SMEM_REQ: write=%b addr[0]=0x%04x wdata[0]=0x%08x mask=0x%08x",
+                     $time, SM_ID, smem_req_write, smem_req_addr[13:0], smem_req_wdata[31:0], issue_mask);
+        end
+        if (smem_resp_valid) begin
+            $display("[%0t SM%0d] SMEM_RESP: rdata[0]=0x%08x pending_warp=%0d pending_rd=R%0d",
+                     $time, SM_ID, smem_resp_rdata[31:0], smem_warp_pending, smem_rd_pending);
+        end
+        if (smem_resp_latched && wb_found && wb_sel == 4'd7) begin
+            $display("[%0t SM%0d] SMEM_WB: warp=%0d rd=R%0d data[0]=0x%08x mask=0x%08x",
+                     $time, SM_ID, smem_resp_warp, smem_resp_rd, smem_resp_data[31:0], smem_resp_mask);
+        end
+    end
+    `endif
 
     shared_memory u_shared_mem (
         .clk          (clk),

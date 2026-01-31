@@ -343,11 +343,17 @@ module decoder (
                     mem_read   <= 1'b1;
                     mem_shared <= 1'b1;
                     reg_write  <= 1'b1;
+                    `ifdef SIMULATION
+                    $display("[DECODER] OP_LD_SHARED: inst=0x%08h rd=R%0d ra=R%0d", instruction, rd, ra);
+                    `endif
                 end
 
                 `OP_ST_SHARED: begin
                     mem_write  <= 1'b1;
                     mem_shared <= 1'b1;
+                    `ifdef SIMULATION
+                    $display("[DECODER] OP_ST_SHARED: inst=0x%08h ra=R%0d rb=R%0d", instruction, ra, rb);
+                    `endif
                 end
 
                 `OP_MOV_SPECIAL: begin
