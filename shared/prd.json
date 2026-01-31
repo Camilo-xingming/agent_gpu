@@ -16,7 +16,7 @@
       "id": "arch-tensor-memory",
       "stage": "arch",
       "title": "Design Tensor Memory (TMEM) integration for RalphGPU",
-      "passes": false,
+      "passes": true,
       "blockedBy": [],
       "completion_promise": "TMEM architecture design document with integration plan",
       "details": "Blackwell introduces 256KB Tensor Memory per SM (128 rows x 512 columns of 32-bit cells). TMEM replaces register-based accumulator storage. Operands reside in shared memory and TMEM. Design TMEM module with: 1) 2D array structure (512 cols x 128 lanes), 2) 16 TB/s read / 8 TB/s write bandwidth, 3) tcgen05.alloc/dealloc/ld/st operations."
