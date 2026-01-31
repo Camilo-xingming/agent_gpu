@@ -170,6 +170,198 @@ cubin (Binary)
 | P2 | Scheduler update for per-thread | Medium | Medium |
 | P3 | Full Blackwell compatibility | High | Future-proof |
 
+## 6. Per-Thread Execution Model Impact Analysis
+
+This section provides a detailed analysis of how Blackwell's per-thread execution model affects RalphGPU's scheduler and tensor core implementations.
+
+### 6.1 Current RalphGPU Architecture (Warp-Synchronous)
+
+#### warp_scheduler.v Analysis
+The current `warp_scheduler.v` implements a simple round-robin scheduler operating at the **warp level**:
+
+```
+Current Model:
+- Scheduling granularity: 32-thread warp (atomic unit)
+- Warp states: valid, ready, waiting
+- Synchronization: Implicit lock-step within warp
+- Tensor ops: All 32 threads must be ready before MMA dispatch
+```
+
+Key limitations for Blackwell compatibility:
+1. **No per-thread tracking** - Only tracks warp-level states
+2. **Implicit warp sync** - Assumes all lanes execute together
+3. **No tensor op independence** - Tensor operations block entire warp
+
+#### tensor_core.v Analysis
+The current `tensor_core.v` uses warp-synchronous WMMA with these characteristics:
+
+```
+Current WMMA Model (wmma_mma_16x16x16):
+- 32 threads collaborate on single matrix operation
+- Fragment loading: Cooperative (each thread holds portion)
+- Accumulator: Distributed across warp registers
+- Synchronization: Implicit barrier before/after MMA
+```
+
+The `tensor_core` wrapper module (lines 572-1183) implements:
+- Multi-core slot tracking (TC_NUM_CORES parameter)
+- Latency hiding through pipelined execution
+- Support for multiple data types (FP16, BF16, INT8, INT4, FP8, FP6)
+
+However, it still assumes **warp-level operation dispatch**.
+
+### 6.2 Blackwell Per-Thread Model Requirements
+
+#### Execution Model Shift
+
+| Aspect | Current (Warp-Sync) | Blackwell (Per-Thread) |
+|--------|---------------------|------------------------|
+| MMA Issue | Warp-collective | Individual thread |
+| Accumulator | Warp registers | TMEM (dedicated memory) |
+| Synchronization | Implicit barrier | Explicit mbarrier |
+| Scheduling | Warp-level round-robin | Per-thread tensor tracking |
+| Latency | Variable (32-thread coord) | ~11 cycles (independent) |
+
+#### Key Architectural Changes
+
+**1. Per-Thread Tensor Operation Tracking**
+```verilog
+// Current: Single bit per warp for tensor op status
+wire [NUM_WARPS-1:0] warp_is_tensor;
+
+// Required: Per-lane tensor status within each warp
+wire [31:0] lane_tensor_pending [0:NUM_WARPS-1];
+wire [31:0] lane_mma_complete [0:NUM_WARPS-1];
+```
+
+**2. Removal of Warp-Level Synchronization for Tensor Ops**
+- Current: MMA waits for all 32 threads to be ready
+- Blackwell: Each thread issues tcgen05.mma independently
+- Impact: Enables better latency hiding and utilization
+
+**3. Independent MMA Dispatch**
+```verilog
+// Current: Single MMA unit per warp group (128 threads)
+// Blackwell: Thread-independent MMA with TMEM accumulator
+
+// Per-thread TMEM address tracking
+reg [15:0] thread_tmem_base [0:31];  // Per-lane TMEM allocation
+reg [31:0] thread_mma_active;        // Which lanes have active MMA
+```
+
+### 6.3 Required Changes to blackwell_scheduler.v
+
+The current `blackwell_scheduler.v` has multi-scheduler support (1-4 schedulers) but still operates at warp level. Required changes:
+
+#### 6.3.1 Per-Thread Tensor Scoreboard
+```verilog
+// Add to blackwell_scheduler.v
+
+// Per-lane tensor operation tracking
+reg [31:0] tensor_scoreboard [0:NUM_WARPS-1];  // 32 bits per warp (one per lane)
+
+// Tensor op can issue when:
+// 1. Thread's TMEM is allocated (tcgen05.alloc completed)
+// 2. No pending MMA on same TMEM rows
+// 3. SMEM descriptors are valid
+wire [31:0] lane_tensor_eligible [0:NUM_WARPS-1];
+```
+
+#### 6.3.2 Reduced Synchronization Overhead
+Current scheduler adds barriers for tensor ops. Blackwell requires:
+```verilog
+// Current: warp_at_barrier blocks entire warp for tensor ops
+// New: Only mbarrier-based sync for TMA/MMA/epilogue coordination
+
+input  wire [NUM_WARPS-1:0]     warp_mbarrier_wait;    // mbarrier blocked
+input  wire [NUM_WARPS*32-1:0]  lane_mma_pending;      // Per-lane MMA status
+
+// Warp can issue compute while subset of lanes wait on tensor
+wire [NUM_WARPS-1:0] warp_partial_ready = warp_valid &
+    (|lane_compute_ready[warp] | |lane_tensor_ready[warp]);
+```
+
+#### 6.3.3 Independent Pipeline Scheduling
+```verilog
+// Add separate tracking for each pipeline type per lane
+wire [31:0] lane_on_compute [0:NUM_WARPS-1];
+wire [31:0] lane_on_tensor [0:NUM_WARPS-1];
+wire [31:0] lane_on_memory [0:NUM_WARPS-1];
+
+// Allow different lanes to be on different pipelines simultaneously
+// (Requires SIMT divergence model extension)
+```
+
+### 6.4 Required Changes to tensor_core.v
+
+#### 6.4.1 Async Per-Thread MMA Support
+```verilog
+// Add to tensor_core.v
+
+module tcgen05_mma_unit #(
+    parameter NUM_LANES = 32
+)(
+    // Per-lane MMA interface
+    input  wire [NUM_LANES-1:0]     lane_valid,
+    input  wire [15:0]              tmem_addr [0:NUM_LANES-1],
+    input  wire [63:0]              smem_desc_a [0:NUM_LANES-1],
+    input  wire [63:0]              smem_desc_b [0:NUM_LANES-1],
+    input  wire [31:0]              idesc [0:NUM_LANES-1],
+
+    // Async completion
+    output wire [NUM_LANES-1:0]     lane_complete,
+    output wire [NUM_LANES-1:0]     lane_mbarrier_arrive
+);
+```
+
+#### 6.4.2 TMEM Accumulator Integration
+```verilog
+// Replace register-based accumulator with TMEM port
+// Current: c_fragment from register file
+// New: Accumulator persists in TMEM between MMAs
+
+input  wire [15:0]              tmem_accum_addr,
+output wire                     tmem_read_req,
+input  wire [511:0]             tmem_read_data,
+output wire                     tmem_write_req,
+output wire [511:0]             tmem_write_data
+```
+
+#### 6.4.3 mbarrier Synchronization for MMA Completion
+```verilog
+// tcgen05.commit signals completion via mbarrier
+output wire                     mbarrier_arrive_valid,
+output wire [4:0]               mbarrier_id,
+output wire [31:0]              mbarrier_arrive_count
+```
+
+### 6.5 Implementation Roadmap
+
+| Phase | Component | Changes | Complexity |
+|-------|-----------|---------|------------|
+| 1 | decoder.v | Add tcgen05 opcode family | Low |
+| 2 | tensor_memory.v | New TMEM module (256KB) | Medium |
+| 3 | blackwell_scheduler.v | Per-thread tensor tracking | Medium |
+| 4 | tensor_core.v | Async per-thread MMA | High |
+| 5 | streaming_multiprocessor_v2.v | TMEM + mbarrier integration | High |
+
+### 6.6 Benefits of Per-Thread Model
+
+1. **Reduced Latency**: ~11 cycles constant vs variable warp-sync latency
+2. **Better Utilization**: Independent thread MMA enables overlapped execution
+3. **Simpler Programming**: tcgen05 requires less explicit synchronization
+4. **Larger Tiles**: m128n256k16 (vs m64n256k16 in Hopper)
+5. **TMEM Persistence**: Accumulator survives across warp groups
+
+### 6.7 Backward Compatibility Considerations
+
+RalphGPU must maintain support for existing WMMA/wgmma PTX:
+
+1. **Dual-Mode Operation**: Detect PTX target SM version
+2. **Warp-Sync Emulation**: For legacy code, emulate warp-sync on per-thread model
+3. **Register-TMEM Bridge**: Translate legacy accumulator reads/writes to TMEM ops
+4. **Barrier Insertion**: Auto-insert barriers for non-tcgen05 tensor ops
+
 ## References
 
 - [Microbenchmarking NVIDIA's Blackwell Architecture](https://arxiv.org/html/2512.02189v1)
