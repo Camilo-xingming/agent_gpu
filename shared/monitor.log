@@ -136,3 +136,8 @@
 [2026-01-30 17:39:12] INFO - Agents: 1 idle, 0 busy
 [2026-01-30 17:39:13] INFO - Dispatched task-013-bcf74d78 (arch) to gemini
 [2026-01-30 17:39:13] INFO - Dispatched 1 tasks
+[2026-01-30 17:39:13] INFO - Git commit: auto: iteration #3 - 0/19 tasks completed
+[2026-01-30 17:39:46] INFO - --- Iteration 4 ---
+[2026-01-30 17:39:46] INFO - Agents: 1 idle, 0 busy
+[2026-01-30 17:39:47] INFO - Dispatched task-016-219d6a19 (arch) to gemini
+[2026-01-30 17:39:47] INFO - Dispatched 1 tasks
