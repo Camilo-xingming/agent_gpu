@@ -127,6 +127,9 @@ module tensor_memory #(
     assign tmem_empty = (alloc_watermark == 0);
 
     always @(posedge clk or negedge rst_n) begin
+        integer i;
+        integer j;
+        reg [9:0] aligned_cols;
         if (!rst_n) begin
             col_alloc_bitmap <= {NUM_COLS{1'b0}};
             alloc_watermark <= 10'd0;
@@ -134,7 +137,6 @@ module tensor_memory #(
             alloc_col_base <= 9'd0;
             alloc_fail <= 1'b0;
         end else begin
-            reg [9:0] aligned_cols;
             alloc_ready <= 1'b0;
             alloc_fail <= 1'b0;
 
@@ -148,7 +150,6 @@ module tensor_memory #(
                     alloc_watermark <= alloc_watermark + aligned_cols;
 
                     // Mark columns as allocated
-                    integer i;
                     for (i = 0; i < NUM_COLS; i = i + 1) begin
                         if (i >= alloc_watermark && i < alloc_watermark + aligned_cols) begin
                             col_alloc_bitmap[i] <= 1'b1;
@@ -168,7 +169,6 @@ module tensor_memory #(
             if (dealloc_valid) begin
                 // Simple deallocation: just clear the bitmap
                 // In practice, should validate ownership
-                integer j;
                 for (j = 0; j < NUM_COLS; j = j + 1) begin
                     if (j >= dealloc_col_base && j < dealloc_col_base + dealloc_num_cols) begin
                         col_alloc_bitmap[j] <= 1'b0;
