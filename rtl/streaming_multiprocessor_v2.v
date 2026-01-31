@@ -4083,8 +4083,7 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // Shared Memory
     //------------------------------------------------------------------------
-    assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op &&
-                            (issue_mem_read || issue_mem_write);
+assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
     assign smem_req_write = issue_mem_write;
     assign smem_req_addr = rf_rd_data_a[NUM_LANES*14-1:0];
     assign smem_req_wdata = rf_rd_data_b;
