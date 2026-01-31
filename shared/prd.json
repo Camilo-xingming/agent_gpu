@@ -25,7 +25,7 @@
       "id": "arch-triton-ptx",
       "stage": "arch",
       "title": "Analyze Triton compilation path requirements for RalphGPU",
-      "passes": false,
+      "passes": true,
       "blockedBy": [],
       "completion_promise": "Triton-to-PTX compatibility analysis document",
       "details": "Triton compiles Python -> Triton-IR -> Triton-GPU IR -> LLVM-IR -> PTX. Analyze: 1) What PTX instructions Triton generates, 2) Which instructions RalphGPU already supports, 3) Gap analysis for missing opcodes. Focus on memory coalescing, shared memory patterns, and tensor core usage."
