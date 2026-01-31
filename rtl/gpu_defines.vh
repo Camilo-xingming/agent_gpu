@@ -730,9 +730,12 @@
 // Per-thread tensor operations with Tensor Memory (TMEM) accumulator
 // Replaces warp-synchronous WMMA/WGMMA with independent per-thread MMA
 //============================================================================
-`define OP_TCGEN05      6'b100000   // tcgen05 unified opcode (SM100+)
-// Note: On SM100+, this replaces OP_WMMA_STORE (6'b100000)
-// Legacy WMMA still works via emulation layer
+// Using dedicated opcode slot for SM100+ tcgen05 instructions
+// On SM100+, tcgen05 is the primary tensor interface (WMMA/WGMMA via emulation)
+`define OP_TCGEN05      6'b011010   // tcgen05 unified opcode
+// Note: Shares slot with OP_ATOM (6'b011010) - differentiated by func field
+// OP_ATOM uses func 0x00-0x0F, TCGEN05 uses func 0x00-0x07 with rc[4]=1 as discriminator
+// Alternative: Use distinct encoding when both needed simultaneously
 
 // tcgen05 function codes (for OP_TCGEN05)
 `define TCGEN05_MMA         6'b000000   // tcgen05.mma - Per-thread async MMA with TMEM accumulator
