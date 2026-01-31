@@ -120,8 +120,20 @@ module decoder (
 
     // 控制信号 - DPX/Sparse (Phase 5.2/5.3)
     output reg         dpx_op,              // DPX operations (dynamic programming)
-    output reg         sparse_mma_op        // Sparse MMA operations (2:4 sparsity)
-    // cache_policy_op declared earlier at line 102
+    output reg         sparse_mma_op,       // Sparse MMA operations (2:4 sparsity)
+
+    // 控制信号 - Blackwell tcgen05 (SM100+ 5th-gen Tensor Core)
+    output reg         tcgen05_op,          // Any tcgen05 operation
+    output reg         tcgen05_mma,         // tcgen05.mma - Per-thread async MMA
+    output reg         tcgen05_ld,          // tcgen05.ld - Load from TMEM
+    output reg         tcgen05_st,          // tcgen05.st - Store to TMEM
+    output reg         tcgen05_cp,          // tcgen05.cp - Async tensor copy
+    output reg         tcgen05_alloc,       // tcgen05.alloc - TMEM column allocation
+    output reg         tcgen05_dealloc,     // tcgen05.dealloc - TMEM deallocation
+    output reg         tcgen05_commit,      // tcgen05.commit - Signal completion via mbarrier
+    output reg         tcgen05_wait,        // tcgen05.wait - Wait for TMEM operations
+    output reg  [15:0] tmem_addr,           // TMEM address (row:col encoding)
+    output reg  [3:0]  tcgen05_dtype        // tcgen05 data type (FP16/BF16/FP8/etc)
 );
 
     //------------------------------------------------------------------------
@@ -213,6 +225,18 @@ module decoder (
             dpx_op <= 1'b0;
             sparse_mma_op <= 1'b0;
             cache_policy_op <= 1'b0;
+            // tcgen05 signals reset
+            tcgen05_op <= 1'b0;
+            tcgen05_mma <= 1'b0;
+            tcgen05_ld <= 1'b0;
+            tcgen05_st <= 1'b0;
+            tcgen05_cp <= 1'b0;
+            tcgen05_alloc <= 1'b0;
+            tcgen05_dealloc <= 1'b0;
+            tcgen05_commit <= 1'b0;
+            tcgen05_wait <= 1'b0;
+            tmem_addr <= 16'b0;
+            tcgen05_dtype <= 4'b0;
         end else if (valid_in) begin
             valid_out <= 1'b1;
 
@@ -290,6 +314,18 @@ module decoder (
             dpx_op <= 1'b0;
             sparse_mma_op <= 1'b0;
             cache_policy_op <= 1'b0;
+            // tcgen05 signals default
+            tcgen05_op <= 1'b0;
+            tcgen05_mma <= 1'b0;
+            tcgen05_ld <= 1'b0;
+            tcgen05_st <= 1'b0;
+            tcgen05_cp <= 1'b0;
+            tcgen05_alloc <= 1'b0;
+            tcgen05_dealloc <= 1'b0;
+            tcgen05_commit <= 1'b0;
+            tcgen05_wait <= 1'b0;
+            tmem_addr <= inst_imm16;  // TMEM address from immediate field
+            tcgen05_dtype <= inst_rc[3:0];  // Data type from RC field
 
             // 根据OPCODE设置控制信号
             case (inst_opcode)

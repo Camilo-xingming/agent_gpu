@@ -46,7 +46,7 @@
       "id": "impl-tmem-module",
       "stage": "impl",
       "title": "Implement Tensor Memory module",
-      "passes": false,
+      "passes": true,
       "blockedBy": [
         "arch-tensor-memory"
       ],
