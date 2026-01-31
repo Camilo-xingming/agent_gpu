@@ -27,3 +27,9 @@
 [2026-01-30 17:20:08] INFO - Agents: 1 idle, 0 busy
 [2026-01-30 17:20:09] INFO - Dispatched task-004-d70a176b (arch) to gemini
 [2026-01-30 17:20:09] INFO - Dispatched 1 tasks
+[2026-01-30 17:20:09] INFO - Git commit: auto: iteration #7 - 0/19 tasks completed
+[2026-01-30 17:20:42] INFO - --- Iteration 8 ---
+[2026-01-30 17:20:42] INFO - Agents: 1 idle, 0 busy
+[2026-01-30 17:20:44] INFO - Recovered 2 stuck agents
+[2026-01-30 17:20:44] INFO - Dispatched task-007-e4ad26a9 (arch) to gemini
+[2026-01-30 17:20:44] INFO - Dispatched 1 tasks
