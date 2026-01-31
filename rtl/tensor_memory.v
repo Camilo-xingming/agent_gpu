@@ -127,7 +127,6 @@ module tensor_memory #(
     assign tmem_empty = (alloc_watermark == 0);
 
     always @(posedge clk or negedge rst_n) begin
-        reg [9:0] aligned_cols;
         if (!rst_n) begin
             col_alloc_bitmap <= {NUM_COLS{1'b0}};
             alloc_watermark <= 10'd0;
@@ -135,12 +134,12 @@ module tensor_memory #(
             alloc_col_base <= 9'd0;
             alloc_fail <= 1'b0;
         end else begin
+            reg [9:0] aligned_cols;
             alloc_ready <= 1'b0;
             alloc_fail <= 1'b0;
 
             if (alloc_valid) begin
                 // Round up to allocation granularity
-                reg [9:0] aligned_cols;
                 aligned_cols = ((alloc_num_cols + ALLOC_GRANULARITY - 1) / ALLOC_GRANULARITY) * ALLOC_GRANULARITY;
 
                 if (alloc_watermark + aligned_cols <= NUM_COLS) begin
