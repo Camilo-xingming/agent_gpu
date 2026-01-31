@@ -6,16 +6,19 @@
 
 `include "gpu_defines.vh"
 
-module atomic_unit (
+module atomic_unit #(
+    parameter NUM_LANES = `THREADS_PER_WARP
+) (
     input  wire        clk,
     input  wire        rst_n,
 
     // 操作请求
     input  wire        req_valid,
     input  wire [5:0]  func,           // 原子操作类型
-    input  wire [31:0] addr,           // 内存地址
-    input  wire [31:0] operand_a,      // 操作数A (用于大多数操作)
-    input  wire [31:0] operand_b,      // 操作数B (用于CAS的比较值)
+    input  wire [NUM_LANES*32-1:0] addr,       // 内存地址 (每lane)
+    input  wire [NUM_LANES*32-1:0] operand_a,  // 操作数A (每lane)
+    input  wire [NUM_LANES*32-1:0] operand_b,  // 操作数B (每lane, CAS比较值)
+    input  wire [NUM_LANES-1:0]    lane_mask,  // 活跃线程掩码
     input  wire        mem_shared,     // 1=共享内存, 0=全局内存
 
     // 内存接口 (请求)
@@ -23,13 +26,15 @@ module atomic_unit (
     output reg         mem_write,
     output reg  [31:0] mem_addr,
     output reg  [31:0] mem_wdata,
+    output reg  [5:0]  mem_lane,
 
     // 内存接口 (响应)
     input  wire        mem_ready,
-    input  wire [31:0] mem_rdata,
+    input  wire [NUM_LANES*32-1:0] mem_rdata,
 
     // 结果
-    output reg  [31:0] result,         // 原始值(交换前)
+    output reg  [NUM_LANES*32-1:0] result,  // 原始值(交换前)
+    output reg  [NUM_LANES-1:0] result_mask,
     output reg         result_valid,
     output reg         busy
 );
@@ -49,9 +54,11 @@ module atomic_unit (
 
     // 操作存储
     reg [5:0]  func_reg;
-    reg [31:0] addr_reg;
-    reg [31:0] operand_a_reg;
-    reg [31:0] operand_b_reg;
+    reg [NUM_LANES*32-1:0] addr_reg;
+    reg [NUM_LANES*32-1:0] operand_a_reg;
+    reg [NUM_LANES*32-1:0] operand_b_reg;
+    reg [NUM_LANES-1:0]    pending_mask;
+    reg [5:0]  current_lane;
     reg [31:0] old_value;
     reg [31:0] new_value;
 
@@ -59,33 +66,82 @@ module atomic_unit (
     // 原子操作计算
     //------------------------------------------------------------------------
     wire signed [31:0] signed_old = old_value;
-    wire signed [31:0] signed_a   = operand_a_reg;
+
+    function [31:0] lane_slice32;
+        input [NUM_LANES*32-1:0] vec;
+        input [5:0] lane;
+        integer i;
+        begin
+            lane_slice32 = 32'b0;
+            for (i = 0; i < NUM_LANES; i = i + 1) begin
+                if (lane == i[5:0]) begin
+                    lane_slice32 = vec[i*32 +: 32];
+                end
+            end
+        end
+    endfunction
+
+    function [5:0] find_next_lane;
+        input [5:0] start;
+        input [NUM_LANES-1:0] mask;
+        integer j;
+        reg found;
+        begin
+            find_next_lane = start;
+            found = 1'b0;
+            for (j = 0; j < NUM_LANES; j = j + 1) begin
+                if (!found && mask[(start + j) % NUM_LANES]) begin
+                    find_next_lane = (start + j) % NUM_LANES;
+                    found = 1'b1;
+                end
+            end
+        end
+    endfunction
+
+    function [NUM_LANES-1:0] lane_onehot;
+        input [5:0] lane;
+        integer k;
+        begin
+            lane_onehot = {NUM_LANES{1'b0}};
+            for (k = 0; k < NUM_LANES; k = k + 1) begin
+                if (lane == k[5:0]) begin
+                    lane_onehot[k] = 1'b1;
+                end
+            end
+        end
+    endfunction
+
+    wire [31:0] addr_lane = lane_slice32(addr_reg, current_lane);
+    wire [31:0] operand_a_lane = lane_slice32(operand_a_reg, current_lane);
+    wire [31:0] operand_b_lane = lane_slice32(operand_b_reg, current_lane);
+    wire [31:0] mem_rdata_lane = lane_slice32(mem_rdata, current_lane);
+    wire signed [31:0] signed_a = operand_a_lane;
 
     always @(*) begin
         case (func_reg)
-            `ATOM_ADD: new_value = old_value + operand_a_reg;
+            `ATOM_ADD: new_value = old_value + operand_a_lane;
 
-            `ATOM_MIN_S: new_value = (signed_old < signed_a) ? old_value : operand_a_reg;
-            `ATOM_MIN_U: new_value = (old_value < operand_a_reg) ? old_value : operand_a_reg;
+            `ATOM_MIN_S: new_value = (signed_old < signed_a) ? old_value : operand_a_lane;
+            `ATOM_MIN_U: new_value = (old_value < operand_a_lane) ? old_value : operand_a_lane;
 
-            `ATOM_MAX_S: new_value = (signed_old > signed_a) ? old_value : operand_a_reg;
-            `ATOM_MAX_U: new_value = (old_value > operand_a_reg) ? old_value : operand_a_reg;
+            `ATOM_MAX_S: new_value = (signed_old > signed_a) ? old_value : operand_a_lane;
+            `ATOM_MAX_U: new_value = (old_value > operand_a_lane) ? old_value : operand_a_lane;
 
             // inc(r, s) = (r >= s) ? 0 : r+1
-            `ATOM_INC: new_value = (old_value >= operand_a_reg) ? 32'h0 : (old_value + 1);
+            `ATOM_INC: new_value = (old_value >= operand_a_lane) ? 32'h0 : (old_value + 1);
 
             // dec(r, s) = (r == 0 || r > s) ? s : r-1
-            `ATOM_DEC: new_value = (old_value == 0 || old_value > operand_a_reg) ?
-                                   operand_a_reg : (old_value - 1);
+            `ATOM_DEC: new_value = (old_value == 0 || old_value > operand_a_lane) ?
+                                   operand_a_lane : (old_value - 1);
 
-            `ATOM_AND:  new_value = old_value & operand_a_reg;
-            `ATOM_OR:   new_value = old_value | operand_a_reg;
-            `ATOM_XOR:  new_value = old_value ^ operand_a_reg;
+            `ATOM_AND:  new_value = old_value & operand_a_lane;
+            `ATOM_OR:   new_value = old_value | operand_a_lane;
+            `ATOM_XOR:  new_value = old_value ^ operand_a_lane;
 
-            `ATOM_EXCH: new_value = operand_a_reg;
+            `ATOM_EXCH: new_value = operand_a_lane;
 
             // cas(r, s, t) = (r == s) ? t : r
-            `ATOM_CAS: new_value = (old_value == operand_a_reg) ? operand_b_reg : old_value;
+            `ATOM_CAS: new_value = (old_value == operand_a_lane) ? operand_b_lane : old_value;
 
             default: new_value = old_value;
         endcase
@@ -99,11 +155,15 @@ module atomic_unit (
             state        <= IDLE;
             busy         <= 1'b0;
             result_valid <= 1'b0;
-            result       <= 32'b0;
+            result       <= {NUM_LANES{32'b0}};
+            result_mask  <= {NUM_LANES{1'b0}};
             mem_req      <= 1'b0;
             mem_write    <= 1'b0;
             mem_addr     <= 32'b0;
             mem_wdata    <= 32'b0;
+            mem_lane     <= 6'b0;
+            pending_mask <= {NUM_LANES{1'b0}};
+            current_lane <= 6'b0;
         end else begin
             case (state)
                 IDLE: begin
@@ -114,8 +174,17 @@ module atomic_unit (
                         addr_reg      <= addr;
                         operand_a_reg <= operand_a;
                         operand_b_reg <= operand_b;
-                        busy          <= 1'b1;
-                        state         <= READ_REQ;
+                        pending_mask  <= lane_mask;
+                        result        <= {NUM_LANES{32'b0}};
+                        result_mask   <= lane_mask;
+                        if (lane_mask != 0) begin
+                            current_lane <= find_next_lane(0, lane_mask);
+                            busy         <= 1'b1;
+                            state        <= READ_REQ;
+                        end else begin
+                            busy         <= 1'b0;
+                            state        <= DONE;
+                        end
                     end
                 end
 
@@ -123,13 +192,14 @@ module atomic_unit (
                     // 发起读请求
                     mem_req   <= 1'b1;
                     mem_write <= 1'b0;
-                    mem_addr  <= addr_reg;
+                    mem_addr  <= addr_lane;
+                    mem_lane  <= current_lane;
                     state     <= READ_WAIT;
                 end
 
                 READ_WAIT: begin
                     if (mem_ready) begin
-                        old_value <= mem_rdata;
+                        old_value <= mem_rdata_lane;
                         mem_req   <= 1'b0;
                         state     <= COMPUTE;
                     end
@@ -138,10 +208,24 @@ module atomic_unit (
                 COMPUTE: begin
                     // new_value已由组合逻辑计算
                     // 检查CAS是否需要写入
-                    if (func_reg == `ATOM_CAS && old_value != operand_a_reg) begin
+                    if (func_reg == `ATOM_CAS && old_value != operand_a_lane) begin
                         // CAS比较失败，不写入
-                        result <= old_value;
-                        state  <= DONE;
+                        begin : cas_fail
+                            integer i;
+                            for (i = 0; i < NUM_LANES; i = i + 1) begin
+                                if (current_lane == i[5:0]) begin
+                                    result[i*32 +: 32] <= old_value;
+                                end
+                            end
+                        end
+                        pending_mask[current_lane] <= 1'b0;
+                        if ((pending_mask & ~lane_onehot(current_lane)) != 0) begin
+                            current_lane <= find_next_lane(current_lane + 1'b1,
+                                                           pending_mask & ~lane_onehot(current_lane));
+                            state <= READ_REQ;
+                        end else begin
+                            state <= DONE;
+                        end
                     end else begin
                         state <= WRITE_REQ;
                     end
@@ -151,16 +235,31 @@ module atomic_unit (
                     // 发起写请求
                     mem_req   <= 1'b1;
                     mem_write <= 1'b1;
-                    mem_addr  <= addr_reg;
+                    mem_addr  <= addr_lane;
                     mem_wdata <= new_value;
+                    mem_lane  <= current_lane;
                     state     <= WRITE_WAIT;
                 end
 
                 WRITE_WAIT: begin
                     if (mem_ready) begin
                         mem_req <= 1'b0;
-                        result  <= old_value;  // 返回旧值
-                        state   <= DONE;
+                        begin : write_done
+                            integer i;
+                            for (i = 0; i < NUM_LANES; i = i + 1) begin
+                                if (current_lane == i[5:0]) begin
+                                    result[i*32 +: 32] <= old_value;
+                                end
+                            end
+                        end
+                        pending_mask[current_lane] <= 1'b0;
+                        if ((pending_mask & ~lane_onehot(current_lane)) != 0) begin
+                            current_lane <= find_next_lane(current_lane + 1'b1,
+                                                           pending_mask & ~lane_onehot(current_lane));
+                            state <= READ_REQ;
+                        end else begin
+                            state <= DONE;
+                        end
                     end
                 end
 

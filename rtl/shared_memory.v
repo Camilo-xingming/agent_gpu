@@ -25,6 +25,15 @@ module shared_memory #(
     output wire [NUM_BANKS*DATA_WIDTH-1:0] resp_rdata,
     output wire                     bank_conflict,  // Bank冲突标志
 
+    // Atomic port (single-lane access, dedicated)
+    input  wire                     atomic_req_valid,
+    input  wire                     atomic_req_write,
+    input  wire [ADDR_WIDTH-1:0]    atomic_req_addr,
+    input  wire [DATA_WIDTH-1:0]    atomic_req_wdata,
+    input  wire                     atomic_req_mask,
+    output wire                     atomic_resp_valid,
+    output wire [DATA_WIDTH-1:0]    atomic_resp_rdata,
+
     // Async copy write port (for cp.async from async_copy_engine)
     input  wire                     async_wr_en,
     input  wire [ADDR_WIDTH-1:0]    async_wr_addr,
@@ -111,6 +120,8 @@ module shared_memory #(
     //------------------------------------------------------------------------
     reg [DATA_WIDTH-1:0] read_data [0:NUM_BANKS-1];
     reg resp_valid_reg;
+    reg [DATA_WIDTH-1:0] atomic_read_data;
+    reg atomic_resp_valid_reg;
 
     // 读操作
     always @(posedge clk) begin
@@ -118,6 +129,10 @@ module shared_memory #(
             if (req_valid && req_mask[i] && !req_write) begin
                 read_data[i] <= bank_mem[bank_sel[i]][bank_addr[i]];
             end
+        end
+        if (atomic_req_valid && atomic_req_mask && !atomic_req_write) begin
+            atomic_read_data <= bank_mem[atomic_req_addr[BANK_SEL_W-1:0]]
+                                        [atomic_req_addr[ADDR_WIDTH-1:BANK_SEL_W]];
         end
     end
 
@@ -130,6 +145,10 @@ module shared_memory #(
                         req_wdata[i*DATA_WIDTH +: DATA_WIDTH];
                 end
             end
+        end
+        if (atomic_req_valid && atomic_req_mask && atomic_req_write) begin
+            bank_mem[atomic_req_addr[BANK_SEL_W-1:0]]
+                    [atomic_req_addr[ADDR_WIDTH-1:BANK_SEL_W]] <= atomic_req_wdata;
         end
     end
 
@@ -179,14 +198,18 @@ module shared_memory #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             resp_valid_reg <= 1'b0;
+            atomic_resp_valid_reg <= 1'b0;
         end else begin
             // Both read and write operations produce a valid response
             // (for writes, the read data is undefined but the valid signal matters)
             resp_valid_reg <= req_valid;
+            atomic_resp_valid_reg <= atomic_req_valid && atomic_req_mask;
         end
     end
 
     assign resp_valid = resp_valid_reg;
+    assign atomic_resp_valid = atomic_resp_valid_reg;
+    assign atomic_resp_rdata = atomic_read_data;
 
     // 输出读数据
     generate

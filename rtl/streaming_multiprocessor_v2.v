@@ -149,6 +149,26 @@ module streaming_multiprocessor_v2 #(
     localparam WB_WARP_MSB = WB_WARP_LSB + WARP_ID_W - 1;
     localparam WB_PKT_W = WB_WARP_MSB + 1;
 
+    // Atomic request queue
+    localparam ATOMIC_Q_DEPTH = 4;
+    localparam ATOMIC_OPB_LSB = 0;
+    localparam ATOMIC_OPB_MSB = ATOMIC_OPB_LSB + SIMD_WIDTH - 1;
+    localparam ATOMIC_OPA_LSB = ATOMIC_OPB_MSB + 1;
+    localparam ATOMIC_OPA_MSB = ATOMIC_OPA_LSB + SIMD_WIDTH - 1;
+    localparam ATOMIC_ADDR_LSB = ATOMIC_OPA_MSB + 1;
+    localparam ATOMIC_ADDR_MSB = ATOMIC_ADDR_LSB + SIMD_WIDTH - 1;
+    localparam ATOMIC_FUNC_LSB = ATOMIC_ADDR_MSB + 1;
+    localparam ATOMIC_FUNC_MSB = ATOMIC_FUNC_LSB + 6 - 1;
+    localparam ATOMIC_SHARED_LSB = ATOMIC_FUNC_MSB + 1;
+    localparam ATOMIC_SHARED_MSB = ATOMIC_SHARED_LSB;
+    localparam ATOMIC_MASK_LSB = ATOMIC_SHARED_MSB + 1;
+    localparam ATOMIC_MASK_MSB = ATOMIC_MASK_LSB + NUM_LANES - 1;
+    localparam ATOMIC_RD_LSB = ATOMIC_MASK_MSB + 1;
+    localparam ATOMIC_RD_MSB = ATOMIC_RD_LSB + 5 - 1;
+    localparam ATOMIC_WARP_LSB = ATOMIC_RD_MSB + 1;
+    localparam ATOMIC_WARP_MSB = ATOMIC_WARP_LSB + WARP_ID_W - 1;
+    localparam ATOMIC_REQ_W = ATOMIC_WARP_MSB + 1;
+
     function [WB_PKT_W-1:0] pack_wb;
         input [WARP_ID_W-1:0] warp_id;
         input [4:0] rd;
@@ -505,18 +525,31 @@ module streaming_multiprocessor_v2 #(
     wire                  video_valid_in, video_valid_out;
 
     // Atomic Unit Signals
-    wire [31:0]           atomic_result;
+    wire [SIMD_WIDTH-1:0] atomic_result;
+    wire [NUM_LANES-1:0]  atomic_result_mask;
     wire                  atomic_valid_in, atomic_valid_out;
     wire                  atomic_busy;
+
+    // Atomic request queue signals
+    wire                  atomic_q_push;
+    wire [ATOMIC_REQ_W-1:0] atomic_q_push_data;
+    wire                  atomic_q_pop;
+    wire [ATOMIC_REQ_W-1:0] atomic_q_pop_data;
+    wire                  atomic_q_full;
+    wire                  atomic_q_empty;
     
     // Atomic Memory Interface Signals
     wire                  atomic_mem_req;
     wire                  atomic_mem_write;
     wire [31:0]           atomic_mem_addr;
     wire [31:0]           atomic_mem_wdata;
-    reg                   atomic_mem_ready;
-    reg  [31:0]           atomic_mem_rdata;
+    wire [5:0]            atomic_mem_lane;
+    wire                  atomic_mem_ready;
+    wire [SIMD_WIDTH-1:0] atomic_mem_rdata;
+    reg                   atomic_mem_ready_gmem;
+    reg  [SIMD_WIDTH-1:0] atomic_mem_rdata_gmem;
     reg                   atomic_mem_pending;  // Track pending atomic memory request
+    reg                   atomic_mem_shared_pending;
 
     // Shared Memory Signals
     wire                  smem_req_valid;
@@ -526,6 +559,15 @@ module streaming_multiprocessor_v2 #(
     wire                  smem_resp_valid;
     wire [SIMD_WIDTH-1:0] smem_resp_rdata;
     wire                  smem_bank_conflict;
+
+    // Shared memory atomic port (single-lane)
+    wire                  smem_atomic_req_valid;
+    wire                  smem_atomic_req_write;
+    reg  [13:0]           smem_atomic_req_addr;
+    reg  [31:0]           smem_atomic_req_wdata;
+    reg                   smem_atomic_req_mask;
+    wire                  smem_atomic_resp_valid;
+    wire [31:0]           smem_atomic_resp_rdata;
 
     // Async Copy Engine Signals (cp.async support)
     wire                  ace_ready;
@@ -591,13 +633,6 @@ module streaming_multiprocessor_v2 #(
     wire [SIMD_WIDTH-1:0] gmem_resp_rdata;
 
     // Control Flow Signals
-    wire [31:0]           cfu_next_mask;
-    wire [NUM_LANES-1:0]  cfu_active_mask;
-    wire [31:0]           cfu_branch_target;
-    wire                  cfu_branch_taken;
-    wire                  cfu_stall;
-    wire [31:0]           cfu_reconverge_pc;
-    wire                  cfu_at_reconverge;
 
     // Pipeline flush signals for branch taken (uses branch_taken_combined defined later)
     // Flush decode/issue stages for the branching warp
@@ -692,11 +727,11 @@ module streaming_multiprocessor_v2 #(
     wire lane0_stall_mem = dec0_valid && !dec_atomic_op && (
                            ((dec_mem_read || dec_mem_write) && mem_in_flight) ||
                            (dec_mem_write && !dec_mem_read && store_pending_valid) ||
-                           (dec_mem_shared && dec_mem_read && (smem_pending_valid || smem_resp_latched)) ||
+                           (dec_mem_shared && (smem_pending_valid || smem_resp_latched)) ||
                            (!dec_mem_shared && (dec_mem_read || dec_mem_write) &&
                             (!gmem_req_ready || (dec_mem_read && mem_pending_valid)))
-                           );
-    wire lane0_stall_atomic = dec0_valid && dec_atomic_op && atomic_busy;
+    );
+    wire lane0_stall_atomic = dec0_valid && dec_atomic_op && atomic_q_full;
     wire lane0_stall_tensor = dec0_valid && dec_tensor_op && tensor_issue_full_next;
     // WGMMA stall: stall if WGMMA instruction and WGMMA unit not ready
     wire dec_wgmma_op = dec_wgmma_load || dec_wgmma_store || dec_wgmma_mma;
@@ -2089,7 +2124,12 @@ module streaming_multiprocessor_v2 #(
                                  sm_div_stack_mask[dec0_warp_id][dec0_top_idx], dec0_merged_mask);
                         `endif
                         warp_mask[dec0_warp_id] <= dec0_merged_mask;
-                        sm_div_stack_ptr[dec0_warp_id] <= dec0_div_ptr - 2'd1;
+                        if (dec0_div_ptr > 0) begin
+                            sm_div_stack_ptr[dec0_warp_id] <= dec0_div_ptr - 1'b1;
+                        end else begin
+                            sm_div_stack_underflow[dec0_warp_id] <= 1'b1;
+                            sm_div_stack_ptr[dec0_warp_id] <= {DIV_PTR_W{1'b0}};
+                        end
                     end
                 end
             end
@@ -3050,7 +3090,7 @@ module streaming_multiprocessor_v2 #(
             smem_warp_pending <= issue_warp_id;
             smem_rd_pending <= issue_rd;
             smem_mask_pending <= issue_mask;
-        end else if (smem_resp_valid) begin
+        end else if (smem_resp_valid && smem_pending_valid) begin
             smem_pending_valid <= 1'b0;
         end
     end
@@ -3599,24 +3639,64 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // Atomic Unit
     //------------------------------------------------------------------------
-    assign atomic_valid_in = issue_valid && issue_atomic_op;
+    assign atomic_q_push = issue_valid && issue_atomic_op && !atomic_q_full;
+    assign atomic_q_push_data = {issue_warp_id,
+                                 issue_rd,
+                                 issue_mask,
+                                 issue_mem_shared,
+                                 issue_func,
+                                 rf_rd_data_a,
+                                 rf_rd_data_b,
+                                 rf_rd_data_c};
 
-    atomic_unit u_atomic (
+    // Pop when atomic unit is free
+    assign atomic_q_pop = !atomic_q_empty && !atomic_busy;
+    assign atomic_valid_in = atomic_q_pop;
+
+    wb_fifo #(
+        .WIDTH (ATOMIC_REQ_W),
+        .DEPTH (ATOMIC_Q_DEPTH)
+    ) u_atomic_q (
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .push     (atomic_q_push),
+        .push_data(atomic_q_push_data),
+        .pop      (atomic_q_pop),
+        .pop_data (atomic_q_pop_data),
+        .full     (atomic_q_full),
+        .empty    (atomic_q_empty)
+    );
+
+    wire [WARP_ID_W-1:0] atomic_q_warp = atomic_q_pop_data[ATOMIC_WARP_MSB:ATOMIC_WARP_LSB];
+    wire [4:0]           atomic_q_rd = atomic_q_pop_data[ATOMIC_RD_MSB:ATOMIC_RD_LSB];
+    wire [NUM_LANES-1:0] atomic_q_mask = atomic_q_pop_data[ATOMIC_MASK_MSB:ATOMIC_MASK_LSB];
+    wire                 atomic_q_mem_shared = atomic_q_pop_data[ATOMIC_SHARED_MSB];
+    wire [5:0]           atomic_q_func = atomic_q_pop_data[ATOMIC_FUNC_MSB:ATOMIC_FUNC_LSB];
+    wire [SIMD_WIDTH-1:0] atomic_q_addr = atomic_q_pop_data[ATOMIC_ADDR_MSB:ATOMIC_ADDR_LSB];
+    wire [SIMD_WIDTH-1:0] atomic_q_op_a = atomic_q_pop_data[ATOMIC_OPA_MSB:ATOMIC_OPA_LSB];
+    wire [SIMD_WIDTH-1:0] atomic_q_op_b = atomic_q_pop_data[ATOMIC_OPB_MSB:ATOMIC_OPB_LSB];
+
+    atomic_unit #(
+        .NUM_LANES(NUM_LANES)
+    ) u_atomic (
         .clk        (clk),
         .rst_n      (rst_n),
         .req_valid  (atomic_valid_in),
-        .func       (issue_func),
-        .addr       (rf_rd_data_a[31:0]),
-        .operand_a  (rf_rd_data_b[31:0]),
-        .operand_b  (rf_rd_data_c[31:0]),
-        .mem_shared (issue_mem_shared),
+        .func       (atomic_q_func),
+        .addr       (atomic_q_addr),
+        .operand_a  (atomic_q_op_a),
+        .operand_b  (atomic_q_op_b),
+        .lane_mask  (atomic_q_mask),
+        .mem_shared (atomic_q_mem_shared),
         .mem_req    (atomic_mem_req),
         .mem_write  (atomic_mem_write),
         .mem_addr   (atomic_mem_addr),
         .mem_wdata  (atomic_mem_wdata),
+        .mem_lane   (atomic_mem_lane),
         .mem_ready  (atomic_mem_ready),
         .mem_rdata  (atomic_mem_rdata),
         .result     (atomic_result),
+        .result_mask(atomic_result_mask),
         .result_valid(atomic_valid_out),
         .busy       (atomic_busy)
     );
@@ -3626,11 +3706,21 @@ module streaming_multiprocessor_v2 #(
             atomic_pending_valid <= 1'b0;
         end else if (atomic_valid_in) begin
             atomic_pending_valid <= 1'b1;
-            atomic_warp_pending <= issue_warp_id;
-            atomic_rd_pending <= issue_rd;
-            atomic_mask_pending <= issue_mask;
+            atomic_warp_pending <= atomic_q_warp;
+            atomic_rd_pending <= atomic_q_rd;
+            atomic_mask_pending <= atomic_q_mask;
         end else if (atomic_valid_out) begin
             atomic_pending_valid <= 1'b0;
+        end
+    end
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            atomic_mem_shared_pending <= 1'b0;
+        end else if (atomic_valid_in) begin
+            atomic_mem_shared_pending <= atomic_q_mem_shared;
+        end else if (atomic_valid_out) begin
+            atomic_mem_shared_pending <= 1'b0;
         end
     end
 
@@ -4092,7 +4182,21 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // Shared Memory
     //------------------------------------------------------------------------
-assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
+    assign smem_atomic_req_valid = atomic_mem_req && atomic_mem_shared_pending;
+    assign smem_atomic_req_write = atomic_mem_write;
+
+    always @(*) begin
+        smem_atomic_req_mask = 1'b0;
+        smem_atomic_req_addr = 14'b0;
+        smem_atomic_req_wdata = 32'b0;
+        if (smem_atomic_req_valid) begin
+            smem_atomic_req_mask = 1'b1;
+            smem_atomic_req_addr = atomic_mem_addr[13:0];
+            smem_atomic_req_wdata = atomic_mem_wdata;
+        end
+    end
+
+    assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
     assign smem_req_write = issue_mem_write;
     assign smem_req_addr = rf_rd_data_a[NUM_LANES*14-1:0];
     assign smem_req_wdata = rf_rd_data_b;
@@ -4126,6 +4230,14 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
         .resp_valid   (smem_resp_valid),
         .resp_rdata   (smem_resp_rdata),
         .bank_conflict(smem_bank_conflict),
+        // Atomic port (single-lane)
+        .atomic_req_valid(smem_atomic_req_valid),
+        .atomic_req_write(smem_atomic_req_write),
+        .atomic_req_addr (smem_atomic_req_addr),
+        .atomic_req_wdata(smem_atomic_req_wdata),
+        .atomic_req_mask (smem_atomic_req_mask),
+        .atomic_resp_valid(smem_atomic_resp_valid),
+        .atomic_resp_rdata(smem_atomic_resp_rdata),
         // Async copy write port (from async_copy_engine)
         .async_wr_en  (ace_smem_wr_en),
         .async_wr_addr(ace_smem_wr_addr),
@@ -4156,7 +4268,8 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
 
     // Priority: Normal > Atomic > ACE > Texture
     // Atomic requests have high priority (read-modify-write needs low latency)
-    wire gmem_use_atomic = atomic_mem_req && !gmem_normal_req_valid && !atomic_mem_pending;
+    wire gmem_use_atomic = atomic_mem_req && !gmem_normal_req_valid &&
+                           !atomic_mem_pending && !atomic_mem_shared_pending;
     // ACE requests only when no normal/atomic request and ACE has pending work
     wire gmem_use_ace = ace_gmem_req_valid && !gmem_normal_req_valid && !gmem_use_atomic && !ace_mem_pending;
     // Texture requests only when no normal or ACE request
@@ -4168,39 +4281,63 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
                             gmem_use_tex ? tex_mem_write :
                             gmem_normal_req_write;
 
-    // For ACE: replicate single address across all lanes (only lane 0 matters)
+    // For ACE/Texture: replicate single address across all lanes (only lane 0 matters)
     wire [NUM_LANES*32-1:0] ace_replicated_addr = {NUM_LANES{ace_gmem_req_addr}};
     wire [NUM_LANES*32-1:0] tex_replicated_addr = {NUM_LANES{tex_mem_addr}};
-    wire [NUM_LANES*32-1:0] atomic_replicated_addr = {NUM_LANES{atomic_mem_addr}};
-    assign gmem_req_addr = gmem_use_atomic ? atomic_replicated_addr :
+
+    // Atomic: one-hot lane mask and per-lane address/data
+    reg [NUM_LANES-1:0] atomic_req_mask;
+    reg [NUM_LANES*32-1:0] atomic_req_addr_vec;
+    reg [SIMD_WIDTH-1:0] atomic_req_wdata_vec;
+    integer atomic_lane_i;
+    always @(*) begin
+        atomic_req_mask = {NUM_LANES{1'b0}};
+        atomic_req_addr_vec = {NUM_LANES{32'b0}};
+        atomic_req_wdata_vec = {SIMD_WIDTH{1'b0}};
+        if (atomic_mem_req) begin
+            atomic_req_mask[atomic_mem_lane] = 1'b1;
+            for (atomic_lane_i = 0; atomic_lane_i < NUM_LANES; atomic_lane_i = atomic_lane_i + 1) begin
+                if (atomic_mem_lane == atomic_lane_i[5:0]) begin
+                    atomic_req_addr_vec[atomic_lane_i*32 +: 32] = atomic_mem_addr;
+                    atomic_req_wdata_vec[atomic_lane_i*32 +: 32] = atomic_mem_wdata;
+                end
+            end
+        end
+    end
+
+    assign gmem_req_addr = gmem_use_atomic ? atomic_req_addr_vec :
                            gmem_use_ace ? ace_replicated_addr :
                            gmem_use_tex ? tex_replicated_addr :
                            rf_rd_data_a;
     // Write data: texture uses 128-bit width replicated to lanes 0-3
     wire [SIMD_WIDTH-1:0] tex_wdata_extended = {{(SIMD_WIDTH-128){1'b0}}, tex_mem_wdata};
-    wire [SIMD_WIDTH-1:0] atomic_wdata_extended = {NUM_LANES{atomic_mem_wdata}};
-    assign gmem_req_wdata = gmem_use_atomic ? atomic_wdata_extended :
+    assign gmem_req_wdata = gmem_use_atomic ? atomic_req_wdata_vec :
                             gmem_use_tex ? tex_wdata_extended : rf_rd_data_b;
 
     // Track Atomic memory request state
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             atomic_mem_pending <= 1'b0;
-            atomic_mem_ready <= 1'b0;
-            atomic_mem_rdata <= 32'b0;
+            atomic_mem_ready_gmem <= 1'b0;
+            atomic_mem_rdata_gmem <= {SIMD_WIDTH{1'b0}};
         end else begin
-            atomic_mem_ready <= 1'b0;  // Default: not ready
-            if (gmem_use_atomic && gmem_req_ready) begin
+            atomic_mem_ready_gmem <= 1'b0;  // Default: not ready
+            if (atomic_mem_shared_pending) begin
+                atomic_mem_pending <= 1'b0;
+            end else if (gmem_use_atomic && gmem_req_ready) begin
                 // Atomic request accepted
                 atomic_mem_pending <= 1'b1;
             end else if (atomic_mem_pending && gmem_resp_valid) begin
                 // Atomic response received
                 atomic_mem_pending <= 1'b0;
-                atomic_mem_ready <= 1'b1;
-                atomic_mem_rdata <= gmem_resp_rdata[31:0];  // Lane 0 data
+                atomic_mem_ready_gmem <= 1'b1;
+                atomic_mem_rdata_gmem <= gmem_resp_rdata;
             end
         end
     end
+
+    assign atomic_mem_ready = atomic_mem_shared_pending ? smem_atomic_resp_valid : atomic_mem_ready_gmem;
+    assign atomic_mem_rdata = atomic_mem_shared_pending ? {NUM_LANES{smem_atomic_resp_rdata}} : atomic_mem_rdata_gmem;
 
     // Track ACE memory request state
     always @(posedge clk or negedge rst_n) begin
@@ -4274,6 +4411,8 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
         end
     end
 
+    wire [NUM_LANES-1:0] gmem_req_mask = gmem_use_atomic ? atomic_req_mask : issue_mask;
+
     memory_interface u_mem_if (
         .clk         (clk),
         .rst_n       (rst_n),
@@ -4281,7 +4420,7 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
         .req_write   (gmem_req_write),
         .req_addr    (gmem_req_addr),
         .req_wdata   (gmem_req_wdata),
-        .req_mask    (issue_mask),
+        .req_mask    (gmem_req_mask),
         .req_ready   (gmem_req_ready),
         .resp_valid  (gmem_resp_valid),
         .resp_rdata  (gmem_resp_rdata),
@@ -4348,6 +4487,7 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
     );
     // Branch offset is in instructions, PC is in bytes - multiply offset by 4
     wire [31:0] simple_branch_target = issue_pc + ({{16{issue_imm16[15]}}, issue_imm16} << 2);
+    wire branch_is_backward = (simple_branch_target < issue_pc);
 
     // For divergent branches: use "not-taken-first" execution strategy
     // Strategy for forward branches (like if-then):
@@ -4391,6 +4531,7 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
     );
     // Branch offset is in instructions, PC is in bytes - multiply offset by 4
     wire [31:0] simple_branch1_target = issue1_pc + ({{16{issue1_imm16[15]}}, issue1_imm16} << 2);
+    wire branch1_is_backward = (simple_branch1_target < issue1_pc);
 
     wire divergent_branch1 = issue1_valid && issue1_branch_op && threads1_diverge;
     wire branch1_taken_combined = simple_branch1_taken;
@@ -4398,23 +4539,30 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
     wire [NUM_LANES-1:0] divergent1_new_mask = not_taken1_lanes;
 
     // Divergence stack per warp for SM-level reconvergence tracking
-    reg [31:0] sm_div_stack_pc   [0:NUM_WARPS-1][0:3];  // PC to reconverge at
-    reg [NUM_LANES-1:0] sm_div_stack_mask [0:NUM_WARPS-1][0:3];  // Threads waiting
-    reg [1:0] sm_div_stack_ptr [0:NUM_WARPS-1];  // Stack pointer per warp
+    localparam DIV_STACK_DEPTH = 8;
+    localparam DIV_PTR_W = $clog2(DIV_STACK_DEPTH + 1);
+    localparam DIV_IDX_W = (DIV_STACK_DEPTH > 1) ? $clog2(DIV_STACK_DEPTH) : 1;
+    reg [31:0] sm_div_stack_pc   [0:NUM_WARPS-1][0:DIV_STACK_DEPTH-1];  // PC to reconverge at
+    reg [NUM_LANES-1:0] sm_div_stack_mask [0:NUM_WARPS-1][0:DIV_STACK_DEPTH-1];  // Threads waiting
+    reg [DIV_PTR_W-1:0] sm_div_stack_ptr [0:NUM_WARPS-1];  // Stack pointer (count) per warp
+    reg [NUM_WARPS-1:0] sm_div_stack_overflow;
+    reg [NUM_WARPS-1:0] sm_div_stack_underflow;
 
     // Check if current PC matches a reconvergence point (issue stage)
-    wire [1:0] curr_div_ptr = sm_div_stack_ptr[issue_warp_id];
-    wire [1:0] div_top_idx = (curr_div_ptr > 0) ? (curr_div_ptr - 2'd1) : 2'd0;
+    wire [DIV_PTR_W-1:0] curr_div_ptr = sm_div_stack_ptr[issue_warp_id];
+    wire [DIV_PTR_W-1:0] div_top_ptr = (curr_div_ptr > 0) ? (curr_div_ptr - 1'b1) : {DIV_PTR_W{1'b0}};
+    wire [DIV_IDX_W-1:0] div_top_idx = div_top_ptr[DIV_IDX_W-1:0];
     wire sm_at_reconverge = (curr_div_ptr > 0) &&
                            (sm_div_stack_pc[issue_warp_id][div_top_idx] == issue_pc) &&
                            issue_valid && !issue_branch_op;
 
     // Lane 1 divergence stack pointer
-    wire [1:0] curr1_div_ptr = sm_div_stack_ptr[issue1_warp_id];
+    wire [DIV_PTR_W-1:0] curr1_div_ptr = sm_div_stack_ptr[issue1_warp_id];
 
     // Decode-stage reconvergence detection (for early mask merge)
-    wire [1:0] dec0_div_ptr = sm_div_stack_ptr[dec0_warp_id];
-    wire [1:0] dec0_top_idx = (dec0_div_ptr > 0) ? (dec0_div_ptr - 2'd1) : 2'd0;
+    wire [DIV_PTR_W-1:0] dec0_div_ptr = sm_div_stack_ptr[dec0_warp_id];
+    wire [DIV_PTR_W-1:0] dec0_top_ptr = (dec0_div_ptr > 0) ? (dec0_div_ptr - 1'b1) : {DIV_PTR_W{1'b0}};
+    wire [DIV_IDX_W-1:0] dec0_top_idx = dec0_top_ptr[DIV_IDX_W-1:0];
     wire dec0_at_reconverge = (dec0_div_ptr > 0) &&
                              (sm_div_stack_pc[dec0_warp_id][dec0_top_idx] == dec0_pc) &&
                              dec_valid && !dec_branch_op;
@@ -4431,41 +4579,6 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
     assign branch_flush_dec1 = any_branch_flush && ((dec1_warp_id == issue_warp_id) ||
                                                     (dec1_warp_id == issue1_warp_id)) && dec1_valid;
 
-    //------------------------------------------------------------------------
-    // Control Flow Unit (Divergence/Convergence)
-    //------------------------------------------------------------------------
-    control_flow_unit #(
-        .NUM_WARPS(NUM_WARPS)
-    ) u_cfu (
-        .clk             (clk),
-        .rst_n           (rst_n),
-        .pc_current      (issue_pc),
-        .warp_id         (issue_warp_id),
-        .active_mask     (issue_mask),
-        .branch_valid    (issue_valid && issue_branch_op),
-        // Branch type from bits [25:24] of instruction (rd[4:3])
-        // 00=unconditional, 01=if_zero (BR_IF_TRUE), 10=if_not_zero (BR_IF_FALSE), 11=uniform
-        .branch_type     ({4'b0, issue_rd[4:3]}),
-        // Branch offset from imm16, sign-extended, multiplied by 4 (PC is bytes, offset is instructions)
-        .branch_target   (issue_pc + ({{16{issue_imm16[15]}}, issue_imm16} << 2)),
-        // Branch condition: zero flag from ALU (ra | 0)
-        .branch_cond     (alu_zero),
-        .is_uniform      (issue_rd[4:3] == 2'b11),
-        .call_valid      (1'b0),
-        .call_target     (32'b0),
-        .ret_valid       (1'b0),
-        .diverge_mask    (alu_zero),
-        .next_pc         (cfu_branch_target),
-        .next_active_mask(cfu_next_mask),
-        .pc_valid        (cfu_branch_taken),
-        .stall           (cfu_stall),
-        .reconverge_pc   (cfu_reconverge_pc),
-        .at_reconverge   (cfu_at_reconverge),
-        .stack_overflow  (),
-        .stack_underflow ()
-    );
-
-    assign cfu_active_mask = cfu_next_mask[NUM_LANES-1:0];
 
     //========================================================================
     // STAGE 5: WRITEBACK (Round-Robin Arbitration + Scoreboard Clear)
@@ -4846,7 +4959,7 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
                     4'd9: begin  // Atomic
                         wb_warp_id <= atomic_warp_pending;
                         wb_rd <= atomic_rd_pending;
-                        wb_data <= {NUM_LANES{atomic_result}};
+                        wb_data <= atomic_result;
                         wb_mask <= atomic_mask_pending;
                     end
                     4'd10: begin  // Special registers (MOV_SPECIAL)
@@ -5022,8 +5135,10 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
                 cluster_barrier_arrived[w] <= 1'b0;
                 cluster_barrier_id[w] <= 8'b0;
                 // Initialize SM divergence stack
-                sm_div_stack_ptr[w] <= 2'b0;
-                for (rst_j = 0; rst_j < 4; rst_j = rst_j + 1) begin
+                sm_div_stack_ptr[w] <= {DIV_PTR_W{1'b0}};
+                sm_div_stack_overflow[w] <= 1'b0;
+                sm_div_stack_underflow[w] <= 1'b0;
+                for (rst_j = 0; rst_j < DIV_STACK_DEPTH; rst_j = rst_j + 1) begin
                     sm_div_stack_pc[w][rst_j] <= 32'b0;
                     sm_div_stack_mask[w][rst_j] <= {NUM_LANES{1'b0}};
                 end
@@ -5096,6 +5211,9 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
                     warp_stalled_sync[w] <= 1'b0;
                     warp_stalled_async[w] <= 1'b0;
                     warp_stalled_branch[w] <= 1'b0;
+                    sm_div_stack_ptr[w] <= {DIV_PTR_W{1'b0}};
+                    sm_div_stack_overflow[w] <= 1'b0;
+                    sm_div_stack_underflow[w] <= 1'b0;
                 end
                 // Reset cluster barrier shared state on kernel start
                 cluster_barrier_thread_count <= 16'b0;
@@ -5155,12 +5273,13 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
                 warp_fetch_pending[issue_warp_id] <= 1'b0;
             end
 
-            // Handle divergent branch (not-taken-first strategy)
-            // Not-taken threads execute fall-through, taken threads pushed to stack
+            // Handle divergent branch
+            // Forward branch: not-taken-first (fall-through), taken threads pushed to stack
+            // Backward branch: taken-first (loop), not-taken threads pushed to stack
             if (divergent_branch) begin
                 `ifdef SIMULATION
-                $display("[SM%0d] DIVERGENT BRANCH: pc=0x%04x target=0x%04x",
-                         SM_ID, issue_pc, simple_branch_target);
+                $display("[SM%0d] DIVERGENT BRANCH: pc=0x%04x target=0x%04x backward=%b",
+                         SM_ID, issue_pc, simple_branch_target, branch_is_backward);
                 `endif
                 `ifdef SIMULATION
                 $display("[SM%0d]   taken_mask=0x%08x not_taken_mask=0x%08x",
@@ -5168,19 +5287,43 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
                 `endif
                 `ifdef SIMULATION
                 $display("[SM%0d]   pushing: reconverge_pc=0x%04x waiting_mask=0x%08x",
-                         SM_ID, simple_branch_target, taken_lanes);
+                         SM_ID, branch_is_backward ? (issue_pc + 32'd4) : simple_branch_target,
+                         branch_is_backward ? not_taken_lanes : taken_lanes);
                 `endif
 
-                // Push {branch_target, taken_lanes} to divergence stack
-                sm_div_stack_pc[issue_warp_id][curr_div_ptr] <= simple_branch_target;
-                sm_div_stack_mask[issue_warp_id][curr_div_ptr] <= taken_lanes;
-                sm_div_stack_ptr[issue_warp_id] <= curr_div_ptr + 2'd1;
+                // Push reconverge point + waiting mask to divergence stack
+                if (curr_div_ptr < DIV_STACK_DEPTH[DIV_PTR_W-1:0]) begin
+                    sm_div_stack_pc[issue_warp_id][curr_div_ptr[DIV_IDX_W-1:0]] <= branch_is_backward ?
+                                                                                    (issue_pc + 32'd4) :
+                                                                                    simple_branch_target;
+                    sm_div_stack_mask[issue_warp_id][curr_div_ptr[DIV_IDX_W-1:0]] <= branch_is_backward ?
+                                                                                      not_taken_lanes :
+                                                                                      taken_lanes;
+                    sm_div_stack_ptr[issue_warp_id] <= curr_div_ptr + 1'b1;
+                end else begin
+                    // Overflow: overwrite top entry and keep pointer saturated
+                    sm_div_stack_overflow[issue_warp_id] <= 1'b1;
+                    sm_div_stack_pc[issue_warp_id][DIV_STACK_DEPTH-1] <= branch_is_backward ?
+                                                                          (issue_pc + 32'd4) :
+                                                                          simple_branch_target;
+                    sm_div_stack_mask[issue_warp_id][DIV_STACK_DEPTH-1] <= branch_is_backward ?
+                                                                            not_taken_lanes :
+                                                                            taken_lanes;
+                    sm_div_stack_ptr[issue_warp_id] <= curr_div_ptr;
+                end
 
-                // Execute not-taken threads first (fall-through)
-                // PC stays at fall-through address (issue_pc + 4)
-                warp_mask[issue_warp_id] <= not_taken_lanes;
-                warp_pc[issue_warp_id] <= issue_pc + 32'd4;
-                warp_fetch_pc[issue_warp_id] <= issue_pc + 32'd4;
+                // Select which path to execute first
+                if (branch_is_backward) begin
+                    // Execute taken threads first (loop)
+                    warp_mask[issue_warp_id] <= taken_lanes;
+                    warp_pc[issue_warp_id] <= simple_branch_target;
+                    warp_fetch_pc[issue_warp_id] <= simple_branch_target;
+                end else begin
+                    // Execute not-taken threads first (fall-through)
+                    warp_mask[issue_warp_id] <= not_taken_lanes;
+                    warp_pc[issue_warp_id] <= issue_pc + 32'd4;
+                    warp_fetch_pc[issue_warp_id] <= issue_pc + 32'd4;
+                end
 
                 // Flush instruction buffer and pipeline to ensure next fetch uses new mask
                 warp_inst_buf_valid[issue_warp_id] <= 1'b0;
@@ -5223,21 +5366,45 @@ assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
             // Handle divergent branch on lane 1
             if (divergent_branch1) begin
                 `ifdef SIMULATION
-                $display("[SM%0d] DIVERGENT BRANCH1: pc=0x%04x target=0x%04x",
-                         SM_ID, issue1_pc, simple_branch1_target);
+                $display("[SM%0d] DIVERGENT BRANCH1: pc=0x%04x target=0x%04x backward=%b",
+                         SM_ID, issue1_pc, simple_branch1_target, branch1_is_backward);
                 $display("[SM%0d]   taken_mask=0x%08x not_taken_mask=0x%08x",
                          SM_ID, taken1_lanes, not_taken1_lanes);
                 `endif
 
-                // Push {branch_target, taken_lanes} to divergence stack
-                sm_div_stack_pc[issue1_warp_id][curr1_div_ptr] <= simple_branch1_target;
-                sm_div_stack_mask[issue1_warp_id][curr1_div_ptr] <= taken1_lanes;
-                sm_div_stack_ptr[issue1_warp_id] <= curr1_div_ptr + 2'd1;
+                // Push reconverge point + waiting mask to divergence stack
+                if (curr1_div_ptr < DIV_STACK_DEPTH[DIV_PTR_W-1:0]) begin
+                    sm_div_stack_pc[issue1_warp_id][curr1_div_ptr[DIV_IDX_W-1:0]] <= branch1_is_backward ?
+                                                                                    (issue1_pc + 32'd4) :
+                                                                                    simple_branch1_target;
+                    sm_div_stack_mask[issue1_warp_id][curr1_div_ptr[DIV_IDX_W-1:0]] <= branch1_is_backward ?
+                                                                                      not_taken1_lanes :
+                                                                                      taken1_lanes;
+                    sm_div_stack_ptr[issue1_warp_id] <= curr1_div_ptr + 1'b1;
+                end else begin
+                    // Overflow: overwrite top entry and keep pointer saturated
+                    sm_div_stack_overflow[issue1_warp_id] <= 1'b1;
+                    sm_div_stack_pc[issue1_warp_id][DIV_STACK_DEPTH-1] <= branch1_is_backward ?
+                                                                          (issue1_pc + 32'd4) :
+                                                                          simple_branch1_target;
+                    sm_div_stack_mask[issue1_warp_id][DIV_STACK_DEPTH-1] <= branch1_is_backward ?
+                                                                            not_taken1_lanes :
+                                                                            taken1_lanes;
+                    sm_div_stack_ptr[issue1_warp_id] <= curr1_div_ptr;
+                end
 
-                // Execute not-taken threads first (fall-through)
-                warp_mask[issue1_warp_id] <= not_taken1_lanes;
-                warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
-                warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                // Select which path to execute first
+                if (branch1_is_backward) begin
+                    // Execute taken threads first (loop)
+                    warp_mask[issue1_warp_id] <= taken1_lanes;
+                    warp_pc[issue1_warp_id] <= simple_branch1_target;
+                    warp_fetch_pc[issue1_warp_id] <= simple_branch1_target;
+                end else begin
+                    // Execute not-taken threads first (fall-through)
+                    warp_mask[issue1_warp_id] <= not_taken1_lanes;
+                    warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                    warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                end
 
                 // Flush instruction buffer and pipeline
                 warp_inst_buf_valid[issue1_warp_id] <= 1'b0;
