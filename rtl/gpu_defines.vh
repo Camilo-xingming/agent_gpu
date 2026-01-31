@@ -725,4 +725,49 @@
 `define OP_WGMMA_STORE  6'b101110   // WGMMA store
 `define OP_WGMMA_MMA    6'b101111   // WGMMA mma_async
 
+//============================================================================
+// Blackwell 5th-gen Tensor Core (tcgen05) Instructions (SM100+)
+// Per-thread tensor operations with Tensor Memory (TMEM) accumulator
+// Replaces warp-synchronous WMMA/WGMMA with independent per-thread MMA
+//============================================================================
+`define OP_TCGEN05      6'b100000   // tcgen05 unified opcode (SM100+)
+// Note: On SM100+, this replaces OP_WMMA_STORE (6'b100000)
+// Legacy WMMA still works via emulation layer
+
+// tcgen05 function codes (for OP_TCGEN05)
+`define TCGEN05_MMA         6'b000000   // tcgen05.mma - Per-thread async MMA with TMEM accumulator
+`define TCGEN05_LD          6'b000001   // tcgen05.ld - Load from TMEM to registers
+`define TCGEN05_ST          6'b000010   // tcgen05.st - Store from registers to TMEM
+`define TCGEN05_CP          6'b000011   // tcgen05.cp - Async tensor data transfer (TMA-like)
+`define TCGEN05_ALLOC       6'b000100   // tcgen05.alloc - Allocate TMEM columns
+`define TCGEN05_DEALLOC     6'b000101   // tcgen05.dealloc - Deallocate TMEM (required before kernel exit)
+`define TCGEN05_COMMIT      6'b000110   // tcgen05.commit - Signal MMA completion via mbarrier
+`define TCGEN05_WAIT        6'b000111   // tcgen05.wait - Wait for pending TMEM operations
+
+// tcgen05.mma shape configurations (in idesc[5:0])
+`define TCGEN05_M128N256K16 6'b000000   // m128n256k16 (largest Blackwell tile)
+`define TCGEN05_M64N256K16  6'b000001   // m64n256k16 (Hopper-compatible)
+`define TCGEN05_M64N128K16  6'b000010   // m64n128k16
+`define TCGEN05_M64N64K16   6'b000011   // m64n64k16
+`define TCGEN05_M64N32K16   6'b000100   // m64n32k16
+`define TCGEN05_M64N16K16   6'b000101   // m64n16k16
+
+// tcgen05 data type codes (in idesc[9:6])
+`define TCGEN05_FP16        4'b0000     // FP16 input with FP32 accumulator
+`define TCGEN05_BF16        4'b0001     // BF16 input with FP32 accumulator
+`define TCGEN05_TF32        4'b0010     // TF32 input with FP32 accumulator
+`define TCGEN05_FP8_E4M3    4'b0011     // FP8 E4M3 input
+`define TCGEN05_FP8_E5M2    4'b0100     // FP8 E5M2 input
+`define TCGEN05_FP6_E3M2    4'b0101     // FP6 E3M2 input (Blackwell new)
+`define TCGEN05_FP4_E2M1    4'b0110     // FP4 E2M1 input (Blackwell new)
+`define TCGEN05_INT8        4'b0111     // INT8 input with INT32 accumulator
+
+// TMEM address encoding
+// [31:16] = Row address (0-127 for 256KB TMEM)
+// [15:0]  = Column address (0-511)
+`define TMEM_ROW_BITS       7           // 128 rows
+`define TMEM_COL_BITS       9           // 512 columns
+`define TMEM_CELL_BITS      32          // 32-bit cells
+`define TMEM_SIZE_KB        256         // 256KB per SM
+
 `endif // GPU_DEFINES_VH
