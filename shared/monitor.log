@@ -818,3 +818,58 @@
 [2026-01-30 16:47:00] INFO - Agents: 2 idle, 0 busy
 [2026-01-30 16:47:00] INFO - Dispatched task-016-219d6a19 (arch) to claude
 [2026-01-30 16:47:00] INFO - Dispatched 1 tasks
+[2026-01-30 16:47:00] INFO - Git commit: auto: iteration #330 - 0/19 tasks completed
+[2026-01-30 16:47:34] INFO - --- Iteration 331 ---
+[2026-01-30 16:47:34] INFO - Agents: 2 idle, 0 busy
+[2026-01-30 16:48:07] INFO - --- Iteration 332 ---
+[2026-01-30 16:48:08] INFO - Agents: 2 idle, 0 busy
+[2026-01-30 16:48:41] INFO - --- Iteration 333 ---
+[2026-01-30 16:48:41] INFO - Agents: 1 idle, 1 busy
+[2026-01-30 16:49:15] INFO - --- Iteration 334 ---
+[2026-01-30 16:49:15] INFO - Agents: 1 idle, 1 busy
+[2026-01-30 16:49:15] INFO - Recovered 1 stuck agents
+[2026-01-30 16:49:48] INFO - --- Iteration 335 ---
+[2026-01-30 16:49:48] INFO - Agents: 1 idle, 2 busy
+[2026-01-30 16:49:49] INFO - Recovered 1 stuck agents
+[2026-01-30 16:50:22] INFO - --- Iteration 336 ---
+[2026-01-30 16:50:22] INFO - Agents: 1 idle, 2 busy
+[2026-01-30 16:50:56] INFO - --- Iteration 337 ---
+[2026-01-30 16:50:56] INFO - Agents: 1 idle, 2 busy
+[2026-01-30 16:51:29] INFO - --- Iteration 338 ---
+[2026-01-30 16:51:29] INFO - Agents: 1 idle, 2 busy
+[2026-01-30 16:52:03] INFO - --- Iteration 339 ---
+[2026-01-30 16:52:03] INFO - Agents: 1 idle, 2 busy
+[2026-01-30 16:52:36] INFO - --- Iteration 340 ---
+[2026-01-30 16:52:36] INFO - Agents: 1 idle, 1 busy
+[2026-01-30 16:53:08] INFO - --- Iteration 341 ---
+[2026-01-30 16:53:08] INFO - Agents: 1 idle, 1 busy
+[2026-01-30 16:53:09] INFO - Recovered 1 stuck agents
+[2026-01-30 16:53:41] INFO - --- Iteration 342 ---
+[2026-01-30 16:53:41] INFO - Agents: 1 idle, 1 busy
+[2026-01-30 16:54:12] INFO - --- Iteration 343 ---
+[2026-01-30 16:54:12] INFO - Agents: 1 idle, 1 busy
+[2026-01-30 16:54:44] INFO - --- Iteration 344 ---
+[2026-01-30 16:54:44] INFO - Agents: 1 idle, 1 busy
+[2026-01-30 16:55:15] INFO - --- Iteration 345 ---
+[2026-01-30 16:55:15] INFO - Agents: 1 idle, 1 busy
+[2026-01-30 16:55:47] INFO - --- Iteration 346 ---
+[2026-01-30 16:55:47] INFO - Agents: 1 idle, 1 busy
+[2026-01-30 16:56:18] INFO - --- Iteration 347 ---
+[2026-01-30 16:56:18] INFO - Agents: 1 idle, 1 busy
+[2026-01-30 16:56:19] INFO - Recovered 1 stuck agents
+[2026-01-30 16:56:51] INFO - --- Iteration 348 ---
+[2026-01-30 16:56:51] INFO - Agents: 1 idle, 1 busy
+[2026-01-30 16:57:22] INFO - --- Iteration 349 ---
+[2026-01-30 16:57:22] INFO - Agents: 2 idle, 0 busy
+[2026-01-30 16:57:23] INFO - Recovered 1 stuck agents
+[2026-01-30 16:57:55] INFO - --- Iteration 350 ---
+[2026-01-30 16:57:55] INFO - Agents: 2 idle, 1 busy
+[2026-01-30 16:58:26] INFO - --- Iteration 351 ---
+[2026-01-30 16:58:26] INFO - Agents: 2 idle, 1 busy
+[2026-01-30 16:58:57] INFO - --- Iteration 352 ---
+[2026-01-30 16:58:57] INFO - Agents: 2 idle, 1 busy
+[2026-01-30 16:59:30] INFO - --- Iteration 353 ---
+[2026-01-30 16:59:30] INFO - Agents: 2 idle, 1 busy
+[2026-01-30 16:59:31] INFO - Recovered 1 stuck agents
+[2026-01-30 16:59:31] INFO - Dispatched task-001-2d0d4f4c (arch) to claude
+[2026-01-30 16:59:31] INFO - Dispatched 1 tasks
