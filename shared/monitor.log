@@ -800,3 +800,21 @@
 [2026-01-30 16:43:03] INFO - Recovered 1 stuck agents
 [2026-01-30 16:43:03] INFO - Dispatched task-016-219d6a19 (arch) to codex
 [2026-01-30 16:43:03] INFO - Dispatched 1 tasks
+[2026-01-30 16:43:03] INFO - Git commit: auto: iteration #323 - 0/19 tasks completed
+[2026-01-30 16:43:37] INFO - --- Iteration 324 ---
+[2026-01-30 16:43:37] INFO - Agents: 2 idle, 1 busy
+[2026-01-30 16:44:11] INFO - --- Iteration 325 ---
+[2026-01-30 16:44:11] INFO - Agents: 2 idle, 1 busy
+[2026-01-30 16:44:44] INFO - --- Iteration 326 ---
+[2026-01-30 16:44:44] INFO - Agents: 2 idle, 0 busy
+[2026-01-30 16:45:18] INFO - --- Iteration 327 ---
+[2026-01-30 16:45:18] INFO - Agents: 2 idle, 0 busy
+[2026-01-30 16:45:51] INFO - --- Iteration 328 ---
+[2026-01-30 16:45:51] INFO - Agents: 2 idle, 0 busy
+[2026-01-30 16:46:25] INFO - --- Iteration 329 ---
+[2026-01-30 16:46:25] INFO - Agents: 2 idle, 0 busy
+[2026-01-30 16:46:27] INFO - Recovered 2 stuck agents
+[2026-01-30 16:47:00] INFO - --- Iteration 330 ---
+[2026-01-30 16:47:00] INFO - Agents: 2 idle, 0 busy
+[2026-01-30 16:47:00] INFO - Dispatched task-016-219d6a19 (arch) to claude
+[2026-01-30 16:47:00] INFO - Dispatched 1 tasks
