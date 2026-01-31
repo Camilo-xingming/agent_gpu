@@ -233,15 +233,21 @@ module blackwell_scheduler #(
         if (NUM_SCHEDULERS >= 4) assign compute_pipe_ready[3] = compute_pipe1_ready; // Share with pipe1
     endgenerate
 
-    // Scheduler selection logic
+    // Async MMA ID allocation per scheduler
+    reg [3:0] issue_async_mma_id_r [0:NUM_SCHEDULERS-1];
+    reg [NUM_SCHEDULERS-1:0] issue_is_async_mma_r;
+
+    // Scheduler selection logic (enhanced for Blackwell tcgen05)
     integer s, sw;
     always @(*) begin
         issue_valid_r = 0;
         issue_consume_r = 0;
+        issue_is_async_mma_r = 0;
         for (s = 0; s < NUM_SCHEDULERS; s = s + 1) begin
             issue_warp_r[s] = 0;
             issue_inst_r[s] = 0;
             issue_pipe_r[s] = PIPE_COMPUTE0;
+            issue_async_mma_id_r[s] = 0;
         end
 
         // Each scheduler selects from its assigned warps
@@ -256,26 +262,63 @@ module blackwell_scheduler #(
                     warp_idx = s + ((sched_rr_ptr[s] + sw) % WARPS_PER_SCHED) * NUM_SCHEDULERS;
 
                     if (warp_idx < NUM_WARPS && warp_eligible[warp_idx]) begin
-                        // Priority order: Branch > Memory > Tensor > Compute
-                        // This ensures long-latency ops get dispatched early
+                        // Priority order: Branch > tcgen05 > Memory > Tensor > Compute
+                        // tcgen05 ops have high priority to maximize tensor core utilization
                         if (warp_is_branch[warp_idx] && branch_unit_ready) begin
                             issue_valid_r[s] = 1'b1;
                             issue_warp_r[s] = warp_idx[WARP_W-1:0];
                             issue_inst_r[s] = warp_inst[warp_idx];
                             issue_pipe_r[s] = PIPE_BRANCH;
                             issue_consume_r[warp_idx] = 1'b1;
+
+                        // Blackwell tcgen05 instructions (per-thread tensor ops)
+                        end else if (warp_is_tcgen05[warp_idx]) begin
+                            // tcgen05.mma -> tensor pipe (async, per-thread)
+                            if (warp_is_tcgen05_mma[warp_idx] && tensor_pipe_ready) begin
+                                issue_valid_r[s] = 1'b1;
+                                issue_warp_r[s] = warp_idx[WARP_W-1:0];
+                                issue_inst_r[s] = warp_inst[warp_idx];
+                                issue_pipe_r[s] = PIPE_TCGEN05;
+                                issue_consume_r[warp_idx] = 1'b1;
+                                issue_is_async_mma_r[s] = 1'b1;
+                                issue_async_mma_id_r[s] = async_mma_next_id[warp_idx];
+
+                            // tcgen05.ld/st -> TMEM pipe
+                            end else if ((warp_is_tcgen05_ld[warp_idx] || warp_is_tcgen05_st[warp_idx]) &&
+                                         tmem_pipe_ready) begin
+                                issue_valid_r[s] = 1'b1;
+                                issue_warp_r[s] = warp_idx[WARP_W-1:0];
+                                issue_inst_r[s] = warp_inst[warp_idx];
+                                issue_pipe_r[s] = PIPE_TMEM;
+                                issue_consume_r[warp_idx] = 1'b1;
+
+                            // tcgen05.alloc/dealloc/commit/wait -> TMEM pipe (control ops)
+                            end else if ((warp_is_tcgen05_alloc[warp_idx] ||
+                                          warp_is_tcgen05_commit[warp_idx] ||
+                                          warp_is_tcgen05_wait[warp_idx]) &&
+                                         tmem_pipe_ready) begin
+                                issue_valid_r[s] = 1'b1;
+                                issue_warp_r[s] = warp_idx[WARP_W-1:0];
+                                issue_inst_r[s] = warp_inst[warp_idx];
+                                issue_pipe_r[s] = PIPE_TMEM;
+                                issue_consume_r[warp_idx] = 1'b1;
+                            end
+
                         end else if (warp_is_memory[warp_idx] && memory_pipe_ready) begin
                             issue_valid_r[s] = 1'b1;
                             issue_warp_r[s] = warp_idx[WARP_W-1:0];
                             issue_inst_r[s] = warp_inst[warp_idx];
                             issue_pipe_r[s] = PIPE_MEMORY;
                             issue_consume_r[warp_idx] = 1'b1;
+
+                        // Legacy warp-synchronous tensor ops (WMMA/WGMMA)
                         end else if (warp_is_tensor[warp_idx] && tensor_pipe_ready) begin
                             issue_valid_r[s] = 1'b1;
                             issue_warp_r[s] = warp_idx[WARP_W-1:0];
                             issue_inst_r[s] = warp_inst[warp_idx];
                             issue_pipe_r[s] = PIPE_TENSOR;
                             issue_consume_r[warp_idx] = 1'b1;
+
                         end else if (warp_is_compute[warp_idx] && compute_pipe_ready[s]) begin
                             issue_valid_r[s] = 1'b1;
                             issue_warp_r[s] = warp_idx[WARP_W-1:0];
@@ -290,30 +333,61 @@ module blackwell_scheduler #(
         end
     end
 
+    // Output async MMA info
+    always @(*) begin
+        issue_is_async_mma = issue_is_async_mma_r;
+        for (s = 0; s < NUM_SCHEDULERS; s = s + 1) begin
+            issue_async_mma_id[s] = issue_async_mma_id_r[s];
+        end
+    end
+
     assign warp_inst_consume = issue_consume_r;
 
     //------------------------------------------------------------------------
-    // Scoreboard Update
+    // Scoreboard Update (Enhanced for Blackwell async operations)
     //------------------------------------------------------------------------
     integer sb_w, sb_s;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             for (sb_w = 0; sb_w < NUM_WARPS; sb_w = sb_w + 1) begin
                 scoreboard[sb_w] <= 0;
+                async_mma_pending[sb_w] <= 0;
+                async_mma_next_id[sb_w] <= 0;
+                async_mma_count[sb_w] <= 0;
             end
             for (sb_s = 0; sb_s < NUM_SCHEDULERS; sb_s = sb_s + 1) begin
                 sched_rr_ptr[sb_s] <= 0;
             end
+            warp_has_tmem_alloc <= 0;
         end else begin
             // Set scoreboard on issue
             // Note: R0 is a normal register in GPU (not hardwired zero like RISC-V)
             // NOP/BAR_SYNC/etc. won't set scoreboard because warp_writes_reg=0 for them
             for (sb_s = 0; sb_s < NUM_SCHEDULERS; sb_s = sb_s + 1) begin
-                if (issue_valid_r[sb_s] && warp_writes_reg[issue_warp_r[sb_s]]) begin
-                    scoreboard[issue_warp_r[sb_s]][warp_rd[issue_warp_r[sb_s]]] <= 1'b1;
-                end
-                // Update round-robin pointer for fairness
                 if (issue_valid_r[sb_s]) begin
+                    // Standard register scoreboard update
+                    if (warp_writes_reg[issue_warp_r[sb_s]]) begin
+                        scoreboard[issue_warp_r[sb_s]][warp_rd[issue_warp_r[sb_s]]] <= 1'b1;
+                    end
+
+                    // Async MMA scoreboard update (Blackwell)
+                    if (issue_is_async_mma_r[sb_s]) begin
+                        // Mark this async MMA op as pending
+                        async_mma_pending[issue_warp_r[sb_s]][issue_async_mma_id_r[sb_s]] <= 1'b1;
+                        // Increment next ID (wrap around)
+                        async_mma_next_id[issue_warp_r[sb_s]] <=
+                            (async_mma_next_id[issue_warp_r[sb_s]] + 1) % MAX_ASYNC_MMA_OPS;
+                        async_mma_count[issue_warp_r[sb_s]] <= async_mma_count[issue_warp_r[sb_s]] + 1;
+                    end
+
+                    // TMEM allocation tracking
+                    if (warp_is_tcgen05_alloc[issue_warp_r[sb_s]]) begin
+                        warp_has_tmem_alloc[issue_warp_r[sb_s]] <= 1'b1;
+                    end
+                    // Note: dealloc is implicit on kernel exit, but tracked for safety
+                    // tcgen05.dealloc is required before kernel exit
+
+                    // Update round-robin pointer for fairness
                     sched_rr_ptr[sb_s] <= (sched_rr_ptr[sb_s] + 1) % WARPS_PER_SCHED;
                 end
             end
@@ -321,6 +395,14 @@ module blackwell_scheduler #(
             // Clear scoreboard on writeback
             if (wb_valid) begin
                 scoreboard[wb_warp_id][wb_rd] <= 1'b0;
+            end
+
+            // Clear async MMA pending on completion (from tensor_core)
+            if (async_mma_complete) begin
+                async_mma_pending[async_mma_warp_id][async_mma_op_id] <= 1'b0;
+                if (async_mma_count[async_mma_warp_id] > 0) begin
+                    async_mma_count[async_mma_warp_id] <= async_mma_count[async_mma_warp_id] - 1;
+                end
             end
         end
     end

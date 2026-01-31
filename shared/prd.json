@@ -80,7 +80,7 @@
       "id": "test-tcgen05-basic",
       "stage": "test",
       "title": "Create tcgen05 instruction testbench",
-      "passes": false,
+      "passes": true,
       "blockedBy": [
         "impl-tcgen05-decoder",
         "impl-tmem-module"
