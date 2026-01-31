@@ -1,8 +1,14 @@
 //============================================================================
-// RalphGPU - Blackwell-Style Multi-Scheduler
+// RalphGPU - Blackwell-Style Multi-Scheduler with Per-Thread Tensor Support
 // Configurable number of parallel schedulers (1-4)
 // Each scheduler manages a subset of warps: warp_id % NUM_SCHEDULERS
-// Compatible interface with advanced_warp_scheduler for drop-in replacement
+//
+// Blackwell Enhancements (SM100+):
+// - Per-thread tensor operation tracking (tcgen05 support)
+// - Async MMA scoreboard for non-blocking tensor operations
+// - Independent compute/tensor/memory pipeline scheduling
+// - Reduced synchronization overhead for tensor ops
+// - TMEM operation tracking for tcgen05.alloc/ld/st/mma
 //============================================================================
 
 `include "gpu_defines.vh"
@@ -11,7 +17,9 @@ module blackwell_scheduler #(
     parameter NUM_WARPS      = 8,
     parameter NUM_SCHEDULERS = `NUM_SCHEDULERS,  // Configurable: 1, 2, or 4 (Blackwell uses 4)
     parameter INST_WIDTH     = 32,
-    parameter SCOREBOARD_DEPTH = 16              // For compatibility
+    parameter SCOREBOARD_DEPTH = 16,             // For compatibility
+    parameter NUM_THREADS_PER_WARP = 32,         // Threads per warp
+    parameter MAX_ASYNC_MMA_OPS = 8              // Max outstanding async MMA per warp
 )(
     input  wire                     clk,
     input  wire                     rst_n,
@@ -45,6 +53,30 @@ module blackwell_scheduler #(
     input  wire [NUM_WARPS-1:0]     warp_writes_reg,
 
     //------------------------------------------------------------------------
+    // Blackwell Per-Thread Tensor Info (tcgen05 support)
+    //------------------------------------------------------------------------
+    input  wire [NUM_WARPS-1:0]     warp_is_tcgen05,       // tcgen05 instruction
+    input  wire [NUM_WARPS-1:0]     warp_is_tcgen05_mma,   // tcgen05.mma (async MMA)
+    input  wire [NUM_WARPS-1:0]     warp_is_tcgen05_alloc, // tcgen05.alloc
+    input  wire [NUM_WARPS-1:0]     warp_is_tcgen05_ld,    // tcgen05.ld
+    input  wire [NUM_WARPS-1:0]     warp_is_tcgen05_st,    // tcgen05.st
+    input  wire [NUM_WARPS-1:0]     warp_is_tcgen05_commit,// tcgen05.commit
+    input  wire [NUM_WARPS-1:0]     warp_is_tcgen05_wait,  // tcgen05.wait
+
+    //------------------------------------------------------------------------
+    // TMEM Status Interface (from tensor_memory module)
+    //------------------------------------------------------------------------
+    input  wire [NUM_WARPS-1:0]     tmem_alloc_valid,      // TMEM allocated for warp
+    input  wire                     tmem_pipe_ready,       // TMEM port available
+
+    //------------------------------------------------------------------------
+    // Async MMA Completion Interface (from tensor_core)
+    //------------------------------------------------------------------------
+    input  wire                     async_mma_complete,    // An async MMA completed
+    input  wire [$clog2(NUM_WARPS)-1:0] async_mma_warp_id, // Warp ID of completed MMA
+    input  wire [3:0]               async_mma_op_id,       // Operation ID within warp
+
+    //------------------------------------------------------------------------
     // Execution Unit Availability (compatible interface)
     //------------------------------------------------------------------------
     input  wire                     compute_pipe0_ready,
@@ -62,6 +94,12 @@ module blackwell_scheduler #(
     output wire [2:0]                             issue_pipe [0:NUM_SCHEDULERS-1],
 
     //------------------------------------------------------------------------
+    // Blackwell-specific Issue Outputs
+    //------------------------------------------------------------------------
+    output reg  [NUM_SCHEDULERS-1:0]              issue_is_async_mma, // Issued op is async MMA
+    output reg  [3:0]                             issue_async_mma_id [0:NUM_SCHEDULERS-1], // Async MMA op ID
+
+    //------------------------------------------------------------------------
     // Writeback Interface (for scoreboard clearing)
     //------------------------------------------------------------------------
     input  wire                     wb_valid,
@@ -69,12 +107,15 @@ module blackwell_scheduler #(
     input  wire [4:0]               wb_rd,
 
     //------------------------------------------------------------------------
-    // Statistics (compatible)
+    // Statistics (compatible + Blackwell extensions)
     //------------------------------------------------------------------------
     output wire [31:0]              stat_cycles,
     output wire [31:0]              stat_single_issue,
     output wire [31:0]              stat_dual_issue,
-    output wire [31:0]              stat_stalls
+    output wire [31:0]              stat_stalls,
+    output wire [31:0]              stat_async_mma_issued,    // Async MMA ops issued
+    output wire [31:0]              stat_async_mma_completed, // Async MMA ops completed
+    output wire [31:0]              stat_tcgen05_issued       // Total tcgen05 ops issued
 );
 
     localparam WARP_W = $clog2(NUM_WARPS);
