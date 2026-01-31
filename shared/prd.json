@@ -34,8 +34,11 @@
       "id": "impl-tcgen05-decoder",
       "stage": "impl",
       "title": "Implement tcgen05 instruction decoder opcodes",
-      "passes": false,
-      "blockedBy": ["arch-execution-model", "arch-tensor-memory"],
+      "passes": true,
+      "blockedBy": [
+        "arch-execution-model",
+        "arch-tensor-memory"
+      ],
       "completion_promise": "decoder.v updated with tcgen05.mma, tcgen05.ld, tcgen05.st, tcgen05.cp opcodes",
       "details": "Add Blackwell tcgen05 instruction family to decoder.v: 1) tcgen05.mma - single-thread MMA operation, 2) tcgen05.ld/st - TMEM load/store, 3) tcgen05.cp - async tensor data transfers, 4) tcgen05.alloc/dealloc - TMEM allocation. Use new opcode range."
     },
@@ -44,7 +47,9 @@
       "stage": "impl",
       "title": "Implement Tensor Memory module",
       "passes": false,
-      "blockedBy": ["arch-tensor-memory"],
+      "blockedBy": [
+        "arch-tensor-memory"
+      ],
       "completion_promise": "tensor_memory.v created with TMEM operations",
       "details": "Create rtl/tensor_memory.v implementing: 1) 256KB storage (512 cols x 128 rows x 32-bit), 2) Row/column address encoding (16 MSB row, 16 LSB col), 3) tcgen05.alloc column allocation tracking, 4) High-bandwidth read/write ports, 5) Integration hooks for SM."
     },
@@ -53,7 +58,10 @@
       "stage": "impl",
       "title": "Implement asynchronous MMA dispatch in tensor_core.v",
       "passes": false,
-      "blockedBy": ["impl-tcgen05-decoder", "impl-tmem-module"],
+      "blockedBy": [
+        "impl-tcgen05-decoder",
+        "impl-tmem-module"
+      ],
       "completion_promise": "tensor_core.v updated with async per-thread MMA support",
       "details": "Modify tensor_core.v for Blackwell-style async MMA: 1) Remove warp-synchronous requirement, 2) Add per-thread MMA issue, 3) Connect TMEM for accumulator storage, 4) Add mbarrier synchronization for TMA/MMA/epilogue coordination, 5) Support tcgen05.commit for completion signaling."
     },
@@ -62,7 +70,9 @@
       "stage": "impl",
       "title": "Update blackwell_scheduler.v for per-thread tensor scheduling",
       "passes": false,
-      "blockedBy": ["arch-execution-model"],
+      "blockedBy": [
+        "arch-execution-model"
+      ],
       "completion_promise": "blackwell_scheduler.v updated for finer-grained tensor op scheduling",
       "details": "Enhance blackwell_scheduler.v: 1) Add per-thread tensor op tracking, 2) Reduce synchronization overhead for MMA, 3) Enable independent compute/tensor/memory pipeline scheduling, 4) Update scoreboard for async MMA operations."
     },
@@ -71,7 +81,10 @@
       "stage": "test",
       "title": "Create tcgen05 instruction testbench",
       "passes": false,
-      "blockedBy": ["impl-tcgen05-decoder", "impl-tmem-module"],
+      "blockedBy": [
+        "impl-tcgen05-decoder",
+        "impl-tmem-module"
+      ],
       "completion_promise": "tb/tb_tcgen05.v testbench passes all tcgen05 operations",
       "details": "Create testbench for tcgen05 instructions: 1) Test tcgen05.alloc/dealloc lifecycle, 2) Test tcgen05.ld/st to TMEM, 3) Test tcgen05.mma with SMEM operands, 4) Verify async completion with mbarrier."
     },
@@ -80,7 +93,10 @@
       "stage": "test",
       "title": "Verify backward compatibility with existing tests",
       "passes": false,
-      "blockedBy": ["impl-async-mma", "impl-scheduler-update"],
+      "blockedBy": [
+        "impl-async-mma",
+        "impl-scheduler-update"
+      ],
       "completion_promise": "All existing PTX tests still pass after Blackwell changes",
       "details": "Run full test suite to ensure backward compatibility: 1) Run make test to verify all existing tests pass, 2) Check warp-synchronous WMMA still works, 3) Verify traditional warp scheduling not broken, 4) Confirm shared memory operations unchanged."
     },
@@ -89,7 +105,10 @@
       "stage": "test",
       "title": "Test with Triton-generated PTX sample kernel",
       "passes": false,
-      "blockedBy": ["arch-triton-ptx", "test-backward-compat"],
+      "blockedBy": [
+        "arch-triton-ptx",
+        "test-backward-compat"
+      ],
       "completion_promise": "Sample Triton kernel PTX compiles and runs on RalphGPU",
       "details": "Create a simple Triton kernel (e.g., vector add or GEMM), compile to PTX, and run on RalphGPU: 1) Write simple Triton kernel, 2) Compile to PTX, 3) Assemble to RalphGPU hex, 4) Run and verify output."
     }
