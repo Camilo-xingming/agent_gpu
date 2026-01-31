@@ -104,7 +104,7 @@
       "id": "test-triton-kernel",
       "stage": "test",
       "title": "Test with Triton-generated PTX sample kernel",
-      "passes": false,
+      "passes": true,
       "blockedBy": [
         "arch-triton-ptx",
         "test-backward-compat"
