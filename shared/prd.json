@@ -7,7 +7,7 @@
       "id": "arch-execution-model",
       "stage": "arch",
       "title": "Analyze Blackwell per-thread execution model impact on RalphGPU",
-      "passes": false,
+      "passes": true,
       "blockedBy": [],
       "completion_promise": "Analysis document explaining required changes for per-thread tensor execution",
       "details": "Blackwell replaces warp-synchronous MMA with tcgen05.mma single-thread instruction. Each thread independently issues MMA operations. Analyze how this affects RalphGPU's warp_scheduler.v and tensor_core.v. Key changes: 1) Per-thread vs warp-level scheduling, 2) Removal of warp-level synchronization for tensor ops, 3) Independent MMA dispatch."
