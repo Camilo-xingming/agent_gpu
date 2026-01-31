@@ -408,16 +408,25 @@ module blackwell_scheduler #(
     end
 
     //------------------------------------------------------------------------
-    // Statistics
+    // Statistics (Enhanced for Blackwell)
     //------------------------------------------------------------------------
     reg [31:0] cycle_count;
     reg [31:0] single_issue_count;
     reg [31:0] dual_issue_count;
     reg [31:0] stall_count;
+    reg [31:0] async_mma_issued_count;
+    reg [31:0] async_mma_completed_count;
+    reg [31:0] tcgen05_issued_count;
 
     wire [3:0] num_issued = issue_valid_r[0] + issue_valid_r[1] +
                             ((NUM_SCHEDULERS > 2) ? issue_valid_r[2] : 1'b0) +
                             ((NUM_SCHEDULERS > 3) ? issue_valid_r[3] : 1'b0);
+
+    // Count async MMA and tcgen05 issues this cycle
+    wire [3:0] num_async_mma_issued = issue_is_async_mma_r[0] +
+                                       ((NUM_SCHEDULERS > 1) ? issue_is_async_mma_r[1] : 1'b0) +
+                                       ((NUM_SCHEDULERS > 2) ? issue_is_async_mma_r[2] : 1'b0) +
+                                       ((NUM_SCHEDULERS > 3) ? issue_is_async_mma_r[3] : 1'b0);
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -425,6 +434,9 @@ module blackwell_scheduler #(
             single_issue_count <= 0;
             dual_issue_count <= 0;
             stall_count <= 0;
+            async_mma_issued_count <= 0;
+            async_mma_completed_count <= 0;
+            tcgen05_issued_count <= 0;
         end else begin
             cycle_count <= cycle_count + 1;
 
@@ -438,19 +450,35 @@ module blackwell_scheduler #(
                 dual_issue_count <= dual_issue_count + 1;
             end
 
+            // Blackwell-specific statistics
+            async_mma_issued_count <= async_mma_issued_count + num_async_mma_issued;
+
+            if (async_mma_complete) begin
+                async_mma_completed_count <= async_mma_completed_count + 1;
+            end
+
+            // Count tcgen05 instructions issued
+            for (sb_s = 0; sb_s < NUM_SCHEDULERS; sb_s = sb_s + 1) begin
+                if (issue_valid_r[sb_s] && warp_is_tcgen05[issue_warp_r[sb_s]]) begin
+                    tcgen05_issued_count <= tcgen05_issued_count + 1;
+                end
+            end
+
             // Debug output
             `ifdef SIMULATION
             if (cycle_count < 200) begin
-                $display("[%0t BLACKWELL_SCHED] cycle=%0d issue_valid=%b consume=%b num_issued=%0d",
-                         $time, cycle_count, issue_valid_r, issue_consume_r, num_issued);
-                $display("  eligible=%b inst_valid=%b hazard=%b valid=%b ready=%b diverged=%b barrier=%b",
-                         warp_eligible, warp_inst_valid, warp_has_hazard, warp_valid, warp_ready, warp_diverged, warp_at_barrier);
+                $display("[%0t BLACKWELL_SCHED] cycle=%0d issue_valid=%b consume=%b num_issued=%0d async_mma=%0d",
+                         $time, cycle_count, issue_valid_r, issue_consume_r, num_issued, num_async_mma_issued);
+                $display("  eligible=%b inst_valid=%b hazard=%b async_hazard=%b tmem_hazard=%b",
+                         warp_eligible, warp_inst_valid, warp_has_hazard, warp_has_async_hazard, warp_has_tmem_hazard);
+                $display("  valid=%b ready=%b diverged=%b barrier=%b tcgen05=%b",
+                         warp_valid, warp_ready, warp_diverged, warp_at_barrier, warp_is_tcgen05);
                 if (issue_valid_r[0])
-                    $display("  sched0: warp=%0d pipe=%0d inst=0x%08x",
-                             issue_warp_r[0], issue_pipe_r[0], issue_inst_r[0]);
-                if (issue_valid_r[1])
-                    $display("  sched1: warp=%0d pipe=%0d inst=0x%08x",
-                             issue_warp_r[1], issue_pipe_r[1], issue_inst_r[1]);
+                    $display("  sched0: warp=%0d pipe=%0d inst=0x%08x async_mma=%b",
+                             issue_warp_r[0], issue_pipe_r[0], issue_inst_r[0], issue_is_async_mma_r[0]);
+                if (NUM_SCHEDULERS > 1 && issue_valid_r[1])
+                    $display("  sched1: warp=%0d pipe=%0d inst=0x%08x async_mma=%b",
+                             issue_warp_r[1], issue_pipe_r[1], issue_inst_r[1], issue_is_async_mma_r[1]);
             end
             `endif
         end
@@ -460,6 +488,9 @@ module blackwell_scheduler #(
     assign stat_single_issue = single_issue_count;
     assign stat_dual_issue = dual_issue_count;
     assign stat_stalls = stall_count;
+    assign stat_async_mma_issued = async_mma_issued_count;
+    assign stat_async_mma_completed = async_mma_completed_count;
+    assign stat_tcgen05_issued = tcgen05_issued_count;
 
     //------------------------------------------------------------------------
     // Output Assignments
