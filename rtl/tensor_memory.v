@@ -126,11 +126,8 @@ module tensor_memory #(
     assign tmem_full = (alloc_watermark >= NUM_COLS);
     assign tmem_empty = (alloc_watermark == 0);
 
-    //------------------------------------------------------------------------
-    // Column Allocation Logic (tcgen05.alloc)
-    // Simple watermark allocator: allocates contiguous columns from watermark
-    //------------------------------------------------------------------------
     always @(posedge clk or negedge rst_n) begin
+        reg [9:0] aligned_cols;
         if (!rst_n) begin
             col_alloc_bitmap <= {NUM_COLS{1'b0}};
             alloc_watermark <= 10'd0;
