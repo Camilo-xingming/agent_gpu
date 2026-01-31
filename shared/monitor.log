@@ -225,3 +225,13 @@
 [2026-01-30 17:52:45] INFO - Dispatched task-013-bcf74d78 (arch) to codex
 [2026-01-30 17:52:45] INFO - Dispatched task-016-219d6a19 (arch) to gemini
 [2026-01-30 17:52:45] INFO - Dispatched 2 tasks
+[2026-01-30 17:52:45] INFO - Git commit: auto: iteration #3 - 4/19 tasks completed
+[2026-01-30 17:53:17] INFO - --- Iteration 4 ---
+[2026-01-30 17:53:17] INFO - Agents: 2 idle, 1 busy
+[2026-01-30 17:53:17] INFO - Task task-013-bcf74d78 auto-completed (agent became idle)
+[2026-01-30 17:53:17] INFO - Task task-016-219d6a19 auto-completed (agent became idle)
+[2026-01-30 17:53:48] INFO - --- Iteration 5 ---
+[2026-01-30 17:53:48] INFO - Agents: 2 idle, 1 busy
+[2026-01-30 17:53:49] INFO - Dispatched task-001-2d0d4f4c (arch) to codex
+[2026-01-30 17:53:49] INFO - Dispatched task-004-d70a176b (arch) to gemini
+[2026-01-30 17:53:49] INFO - Dispatched 2 tasks
