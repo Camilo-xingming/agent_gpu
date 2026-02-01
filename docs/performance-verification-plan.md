@@ -20,6 +20,13 @@
 
 ## Gemini 任务清单
 
+**✅ 状态：已完成 (2026-01-31)**
+- `tb/bench_atomics.ptx` - 113 instructions, 6 种测试模式
+- `tb/bench_divergence.ptx` - 78 instructions, 3 种测试场景
+- `tb/tb_bench_atomics.v` - 520 lines
+- `tb/tb_bench_divergence.v` - 488 lines
+- 编译验证：两个基准测试均成功编译
+
 ### 1. 原子操作基准测试
 创建 `tb/bench_atomics.ptx` 和对应的测试台：
 

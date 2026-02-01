@@ -14,6 +14,7 @@ module atomic_unit #(
 
     // 操作请求
     input  wire        req_valid,
+    output wire        req_ready,
     input  wire [5:0]  func,           // 原子操作类型
     input  wire [NUM_LANES*32-1:0] addr,       // 内存地址 (每lane)
     input  wire [NUM_LANES*32-1:0] operand_a,  // 操作数A (每lane)
@@ -65,6 +66,10 @@ module atomic_unit #(
     //------------------------------------------------------------------------
     // 原子操作计算
     //------------------------------------------------------------------------
+    // 注意: 该单元只在同一warp内序列化lane访问。
+    // 不提供跨warp/跨SM的全局原子性保证，依赖外部内存系统对同地址原子访问进行严格序列化。
+    // req_ready仅在IDLE时拉高，防止busy期间丢失请求。
+    assign req_ready = (state == IDLE);
     wire signed [31:0] signed_old = old_value;
 
     function [31:0] lane_slice32;

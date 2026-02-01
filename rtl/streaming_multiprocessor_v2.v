@@ -528,6 +528,7 @@ module streaming_multiprocessor_v2 #(
     wire [SIMD_WIDTH-1:0] atomic_result;
     wire [NUM_LANES-1:0]  atomic_result_mask;
     wire                  atomic_valid_in, atomic_valid_out;
+    wire                  atomic_req_ready;
     wire                  atomic_busy;
 
     // Atomic request queue signals
@@ -1598,6 +1599,25 @@ module streaming_multiprocessor_v2 #(
     // Scheduler Selection: Blackwell (configurable) or Advanced (dual-issue)
     //------------------------------------------------------------------------
 `ifdef USE_BLACKWELL_SCHEDULER
+    // Blackwell-specific inputs (tie-off for now to avoid X propagation)
+    wire [NUM_WARPS-1:0] bw_tcgen05_op = {NUM_WARPS{1'b0}};
+    wire [NUM_WARPS-1:0] bw_tcgen05_mma = {NUM_WARPS{1'b0}};
+    wire [NUM_WARPS-1:0] bw_tcgen05_alloc = {NUM_WARPS{1'b0}};
+    wire [NUM_WARPS-1:0] bw_tcgen05_ld = {NUM_WARPS{1'b0}};
+    wire [NUM_WARPS-1:0] bw_tcgen05_st = {NUM_WARPS{1'b0}};
+    wire [NUM_WARPS-1:0] bw_tcgen05_commit = {NUM_WARPS{1'b0}};
+    wire [NUM_WARPS-1:0] bw_tcgen05_wait = {NUM_WARPS{1'b0}};
+    wire [NUM_WARPS-1:0] bw_tmem_alloc_valid = {NUM_WARPS{1'b0}};
+    wire bw_tmem_pipe_ready = 1'b1;
+    wire bw_async_mma_complete = 1'b0;
+    wire [WARP_ID_W-1:0] bw_async_mma_warp_id = {WARP_ID_W{1'b0}};
+    wire [3:0] bw_async_mma_op_id = 4'b0;
+    wire [SCHED_LANES-1:0] bw_issue_is_async_mma;
+    wire [3:0] bw_issue_async_mma_id [0:SCHED_LANES-1];
+    wire [31:0] bw_stat_async_mma_issued;
+    wire [31:0] bw_stat_async_mma_completed;
+    wire [31:0] bw_stat_tcgen05_issued;
+
     blackwell_scheduler #(
         .NUM_WARPS(NUM_WARPS),
         .NUM_SCHEDULERS(SCHED_LANES)  // Match pipeline width
@@ -1620,6 +1640,18 @@ module streaming_multiprocessor_v2 #(
         .warp_is_memory(pd_is_memory),
         .warp_is_branch(pd_is_branch),
         .warp_writes_reg(pd_writes_reg),
+        .warp_is_tcgen05(bw_tcgen05_op),
+        .warp_is_tcgen05_mma(bw_tcgen05_mma),
+        .warp_is_tcgen05_alloc(bw_tcgen05_alloc),
+        .warp_is_tcgen05_ld(bw_tcgen05_ld),
+        .warp_is_tcgen05_st(bw_tcgen05_st),
+        .warp_is_tcgen05_commit(bw_tcgen05_commit),
+        .warp_is_tcgen05_wait(bw_tcgen05_wait),
+        .tmem_alloc_valid(bw_tmem_alloc_valid),
+        .tmem_pipe_ready(bw_tmem_pipe_ready),
+        .async_mma_complete(bw_async_mma_complete),
+        .async_mma_warp_id(bw_async_mma_warp_id),
+        .async_mma_op_id(bw_async_mma_op_id),
         .compute_pipe0_ready(pipe_compute0_ready),
         .compute_pipe1_ready(pipe_compute1_ready),
         .tensor_pipe_ready(pipe_tensor_ready),
@@ -1629,13 +1661,18 @@ module streaming_multiprocessor_v2 #(
         .issue_warp_id(sched_issue_warp_id),
         .issue_inst(sched_issue_inst),
         .issue_pipe(sched_issue_pipe),
+        .issue_is_async_mma(bw_issue_is_async_mma),
+        .issue_async_mma_id(bw_issue_async_mma_id),
         .wb_valid(wb_valid),
         .wb_warp_id(wb_warp_id),
         .wb_rd(wb_rd),
         .stat_cycles(),
         .stat_single_issue(),
         .stat_dual_issue(),
-        .stat_stalls()
+        .stat_stalls(),
+        .stat_async_mma_issued(bw_stat_async_mma_issued),
+        .stat_async_mma_completed(bw_stat_async_mma_completed),
+        .stat_tcgen05_issued(bw_stat_tcgen05_issued)
     );
 `else
     advanced_warp_scheduler #(
@@ -3649,8 +3686,8 @@ module streaming_multiprocessor_v2 #(
                                  rf_rd_data_b,
                                  rf_rd_data_c};
 
-    // Pop when atomic unit is free
-    assign atomic_q_pop = !atomic_q_empty && !atomic_busy;
+    // Pop only when atomic unit is ready to accept a new request
+    assign atomic_q_pop = !atomic_q_empty && atomic_req_ready;
     assign atomic_valid_in = atomic_q_pop;
 
     wb_fifo #(
@@ -3682,6 +3719,7 @@ module streaming_multiprocessor_v2 #(
         .clk        (clk),
         .rst_n      (rst_n),
         .req_valid  (atomic_valid_in),
+        .req_ready  (atomic_req_ready),
         .func       (atomic_q_func),
         .addr       (atomic_q_addr),
         .operand_a  (atomic_q_op_a),

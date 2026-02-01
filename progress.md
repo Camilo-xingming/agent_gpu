@@ -40,6 +40,26 @@
 
 ---
 
+## Session Date: 2026-02-01 (Scheduler X-Fix & Minimal Kernel)
+
+### Minimal Kernel Smoke Test
+
+**Note:** `make test_minimal` target does not exist in `Makefile`. Ran the minimal testbench manually.
+
+**Test Result (tb_ptx_minimal.v):**
+- PASS: Kernel completed in 22 cycles
+- Confirms basic kernel launch/issue path works after scheduler fix
+
+**Scheduler Fix (Blackwell):**
+- Root cause of no-issue stall: X propagation from unconnected tcgen05/tmem/async_mma inputs in `blackwell_scheduler`
+- Temporary tie-offs added in `rtl/streaming_multiprocessor_v2.v` to avoid X hazards
+
+**Files Modified**
+- `rtl/streaming_multiprocessor_v2.v` - tie-off Blackwell scheduler inputs
+- `tb/tb_ptx_minimal.v` - extra debug prints for fetch/issue/hazard tracing
+
+---
+
 ## Session Date: 2026-01-20 (Verification Infrastructure)
 
 ### RALPH LOOP AI Consultation

@@ -1,0 +1,9 @@
+Read RalphGPU/docs/performance-verification-plan.md and follow the "Gemini 任务清单" section.
+
+Your tasks:
+1. Create tb/bench_atomics.ptx - microbenchmarks for atomic operations
+2. Create tb/bench_divergence.ptx - microbenchmarks for branch divergence
+3. Implement corresponding testbenches
+4. Generate performance comparison data
+
+Start with atomic operation benchmarks first.

@@ -218,4 +218,100 @@ module tb_ptx_minimal;
         end
     end
 
+    // Debug: monitor imem response path
+    always @(posedge clk) begin
+        if (imem_valid || imem_req_pending) begin
+            $display("Time: %0t - IMEM_RESP valid=%b pending=%b addr_d=0x%08h data=0x%016h",
+                     $time, imem_valid, imem_req_pending, imem_req_addr_d, imem_data);
+        end
+    end
+
+    // Debug: monitor SM-side imem handshake (hierarchical taps)
+    always @(posedge clk) begin
+        if (u_gpu.sm_imem_req[0] || u_gpu.sm_imem_ready[0] || u_gpu.sm_imem_valids[0]) begin
+            $display("Time: %0t - SM_IMEM req=%b ready=%b valid=%b data=0x%016h q_empty=%b",
+                     $time, u_gpu.sm_imem_req[0], u_gpu.sm_imem_ready[0], u_gpu.sm_imem_valids[0],
+                     u_gpu.sm_imem_datas[0], u_gpu.imem_q_empty);
+        end
+    end
+
+    // Debug: SM internal fetch/buffer/issue signals
+    always @(posedge clk) begin
+        if (u_gpu.sm_gen[0].u_sm.fetch_fire ||
+            u_gpu.sm_gen[0].u_sm.icache_valid ||
+            (|u_gpu.sm_gen[0].u_sm.warp_inst_buf_valid) ||
+            u_gpu.sm_gen[0].u_sm.issue0_fire ||
+            u_gpu.sm_gen[0].u_sm.issue_valid) begin
+            $display("Time: %0t - SM_INT fetch_fire=%b icache_valid=%b fetch_pipe_valid=%b buf_valid=%b issue0_fire=%b issue_valid=%b",
+                     $time,
+                     u_gpu.sm_gen[0].u_sm.fetch_fire,
+                     u_gpu.sm_gen[0].u_sm.icache_valid,
+                     u_gpu.sm_gen[0].u_sm.fetch_pipe_valid,
+                     u_gpu.sm_gen[0].u_sm.warp_inst_buf_valid,
+                     u_gpu.sm_gen[0].u_sm.issue0_fire,
+                     u_gpu.sm_gen[0].u_sm.issue_valid);
+        end
+    end
+
+    // Debug: SM scheduler state
+    always @(posedge clk) begin
+        if ((|u_gpu.sm_gen[0].u_sm.warp_valid) ||
+            (|u_gpu.sm_gen[0].u_sm.warp_ready) ||
+            (|u_gpu.sm_gen[0].u_sm.sched_issue_valid_mask)) begin
+            $display("Time: %0t - SM_SCHED warp_valid=%04b warp_ready=%04b exit_pending=%04b issue_mask=%b",
+                     $time,
+                     u_gpu.sm_gen[0].u_sm.warp_valid,
+                     u_gpu.sm_gen[0].u_sm.warp_ready,
+                     u_gpu.sm_gen[0].u_sm.warp_exit_pending,
+                     u_gpu.sm_gen[0].u_sm.sched_issue_valid_mask);
+        end
+    end
+
+    // Debug: decode classification for warp 0
+    always @(posedge clk) begin
+        if (u_gpu.sm_gen[0].u_sm.warp_inst_buf_valid[0]) begin
+            $display("Time: %0t - SM_DEC warp0 inst=0x%08h compute=%b memory=%b tensor=%b branch=%b writes_reg=%b",
+                     $time,
+                     u_gpu.sm_gen[0].u_sm.warp_inst_buf[0],
+                     u_gpu.sm_gen[0].u_sm.pd_is_compute[0],
+                     u_gpu.sm_gen[0].u_sm.pd_is_memory[0],
+                     u_gpu.sm_gen[0].u_sm.pd_is_tensor[0],
+                     u_gpu.sm_gen[0].u_sm.pd_is_branch[0],
+                     u_gpu.sm_gen[0].u_sm.pd_writes_reg[0]);
+        end
+    end
+
+    // Debug: scheduler hazard inputs for warp 0
+    always @(posedge clk) begin
+        if (u_gpu.sm_gen[0].u_sm.warp_inst_buf_valid[0]) begin
+            $display("Time: %0t - SM_HAZ warp0 rs1=%0d rs2=%0d rs3=%0d rd=%0d has_hazard=%b scoreboard0=%032b",
+                     $time,
+                     u_gpu.sm_gen[0].u_sm.pd_rs1[0],
+                     u_gpu.sm_gen[0].u_sm.pd_rs2[0],
+                     u_gpu.sm_gen[0].u_sm.pd_rs3[0],
+                     u_gpu.sm_gen[0].u_sm.pd_rd[0],
+                     u_gpu.sm_gen[0].u_sm.u_scheduler.warp_has_hazard[0],
+                     u_gpu.sm_gen[0].u_sm.u_scheduler.scoreboard[0]);
+            $display("Time: %0t - SM_HAZ_BITS rs1=%b rs2=%b rs3=%b rd=%b",
+                     $time,
+                     u_gpu.sm_gen[0].u_sm.pd_rs1[0],
+                     u_gpu.sm_gen[0].u_sm.pd_rs2[0],
+                     u_gpu.sm_gen[0].u_sm.pd_rs3[0],
+                     u_gpu.sm_gen[0].u_sm.pd_rd[0]);
+            $display("Time: %0t - SM_HAZ_SB sb[rs1]=%b sb[rs2]=%b sb[rs3]=%b sb[rd]=%b",
+                     $time,
+                     u_gpu.sm_gen[0].u_sm.u_scheduler.scoreboard[0][u_gpu.sm_gen[0].u_sm.pd_rs1[0]],
+                     u_gpu.sm_gen[0].u_sm.u_scheduler.scoreboard[0][u_gpu.sm_gen[0].u_sm.pd_rs2[0]],
+                     u_gpu.sm_gen[0].u_sm.u_scheduler.scoreboard[0][u_gpu.sm_gen[0].u_sm.pd_rs3[0]],
+                     u_gpu.sm_gen[0].u_sm.u_scheduler.scoreboard[0][u_gpu.sm_gen[0].u_sm.pd_rd[0]]);
+            $display("Time: %0t - SM_HAZ_CALC raw=%b waw=%b",
+                     $time,
+                     (u_gpu.sm_gen[0].u_sm.u_scheduler.scoreboard[0][u_gpu.sm_gen[0].u_sm.pd_rs1[0]] ||
+                      u_gpu.sm_gen[0].u_sm.u_scheduler.scoreboard[0][u_gpu.sm_gen[0].u_sm.pd_rs2[0]] ||
+                      u_gpu.sm_gen[0].u_sm.u_scheduler.scoreboard[0][u_gpu.sm_gen[0].u_sm.pd_rs3[0]]),
+                     (u_gpu.sm_gen[0].u_sm.pd_writes_reg[0] &&
+                      u_gpu.sm_gen[0].u_sm.u_scheduler.scoreboard[0][u_gpu.sm_gen[0].u_sm.pd_rd[0]]));
+        end
+    end
+
 endmodule
