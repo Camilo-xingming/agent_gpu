@@ -1,0 +1,135 @@
+//============================================================================
+// RalphGPU Divergence Microbenchmarks
+// Modes (read from [0x1000]):
+//   0 = simple loop (backward branch)
+//   1 = nested branches (if + loop)
+//   2 = deep nested branches (stack stress)
+//
+// Memory map (global):
+//   0x1000 : mode selector
+//   0x1100 : simple loop result base (tid * 4)
+//   0x1200 : nested branch result base (tid * 4)
+//   0x1300 : deep nested result base (tid * 4)
+//============================================================================
+
+.entry bench_divergence:
+    mov.u32 r0, %tid.x
+    mov.u32 r1, 0x1000
+    ld.global.u32 r2, [r1]
+
+    sub.s32 r3, r2, 0
+    bra.z r3, MODE_LOOP
+    sub.s32 r3, r2, 1
+    bra.z r3, MODE_NESTED
+    sub.s32 r3, r2, 2
+    bra.z r3, MODE_STACK
+
+    exit
+
+//----------------------------------------------------------------------------
+// Mode 0: Simple loop with backward branch
+//----------------------------------------------------------------------------
+MODE_LOOP:
+    mov.u32 r4, 0
+    mov.u32 r5, 32
+LOOP_START:
+    add.s32 r4, r4, 2
+    sub.s32 r5, r5, 1
+    bra.nz r5, LOOP_START
+
+    mov.u32 r6, 0x1100
+    shl.b32 r7, r0, 2
+    add.s32 r6, r6, r7
+    st.global.u32 [r6], r4
+    exit
+
+//----------------------------------------------------------------------------
+// Mode 1: Nested branches (if + loop)
+//----------------------------------------------------------------------------
+MODE_NESTED:
+    mov.u32 r4, 0
+
+    and.b32 r5, r0, 1
+    bra.z r5, EVEN_PATH
+    mov.u32 r6, 8
+ODD_LOOP:
+    add.s32 r4, r4, 3
+    sub.s32 r6, r6, 1
+    bra.nz r6, ODD_LOOP
+    bra AFTER_ODD_EVEN
+EVEN_PATH:
+    mov.u32 r6, 8
+EVEN_LOOP:
+    add.s32 r4, r4, 1
+    sub.s32 r6, r6, 1
+    bra.nz r6, EVEN_LOOP
+AFTER_ODD_EVEN:
+    and.b32 r5, r0, 2
+    bra.z r5, IF2_ELSE
+    add.s32 r4, r4, 5
+    bra IF2_DONE
+IF2_ELSE:
+    add.s32 r4, r4, 7
+IF2_DONE:
+    mov.u32 r6, 0x1200
+    shl.b32 r7, r0, 2
+    add.s32 r6, r6, r7
+    st.global.u32 [r6], r4
+    exit
+
+//----------------------------------------------------------------------------
+// Mode 2: Deep nested branches (stack stress)
+//----------------------------------------------------------------------------
+MODE_STACK:
+    mov.u32 r4, 0
+
+    and.b32 r5, r0, 1
+    bra.z r5, STACK_BIT0_ELSE
+    add.s32 r4, r4, 1
+
+    and.b32 r5, r0, 2
+    bra.z r5, STACK_BIT1_ELSE
+    add.s32 r4, r4, 10
+
+    and.b32 r5, r0, 4
+    bra.z r5, STACK_BIT2_ELSE
+    add.s32 r4, r4, 100
+
+    and.b32 r5, r0, 8
+    bra.z r5, STACK_BIT3_ELSE
+    add.s32 r4, r4, 1000
+
+    and.b32 r5, r0, 16
+    bra.z r5, STACK_BIT4_ELSE
+    add.s32 r4, r4, 10000
+
+    and.b32 r5, r0, 32
+    bra.z r5, STACK_BIT5_ELSE
+    add.s32 r4, r4, 100000
+    bra STACK_DONE
+
+STACK_BIT5_ELSE:
+    add.s32 r4, r4, 200000
+    bra STACK_DONE
+STACK_BIT4_ELSE:
+    add.s32 r4, r4, 20000
+    bra STACK_DONE
+STACK_BIT3_ELSE:
+    add.s32 r4, r4, 2000
+    bra STACK_DONE
+STACK_BIT2_ELSE:
+    add.s32 r4, r4, 200
+    bra STACK_DONE
+STACK_BIT1_ELSE:
+    add.s32 r4, r4, 20
+    bra STACK_DONE
+STACK_BIT0_ELSE:
+    add.s32 r4, r4, 2
+
+STACK_DONE:
+    mov.u32 r6, 0x1300
+    shl.b32 r7, r0, 2
+    add.s32 r6, r6, r7
+    st.global.u32 [r6], r4
+    exit
+.end

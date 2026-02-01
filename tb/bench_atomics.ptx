@@ -1,0 +1,198 @@
+//============================================================================
+// RalphGPU Atomic Microbenchmarks
+// Modes (read from [0x1000]):
+//   0 = single-warp atomic throughput (global)
+//   1 = multi-warp atomic contention (global)
+//   2 = per-lane atomics (unique addresses)
+//   3 = shared-memory atomics
+//   4 = global-memory atomics (shared-vs-global comparison)
+//   5 = striped global atomics (reduced contention)
+//
+// Memory map (global):
+//   0x1000 : mode selector
+//   0x1100 : single-warp atomic target
+//   0x1104 : multi-warp atomic target
+//   0x1108 : global atomics target (shared-vs-global)
+//   0x1110 : single-warp result
+//   0x1114 : multi-warp result
+//   0x1120 : shared atomics result
+//   0x1124 : global atomics result (shared-vs-global)
+//   0x1200 : per-lane result base (tid * 4)
+//   0x1300 : striped atomic target base (stripe * 4)
+//============================================================================
+
+.entry bench_atomics:
+    mov.u32 r0, %tid.x
+    mov.u32 r1, 0x1000
+    ld.global.u32 r2, [r1]
+
+    sub.s32 r3, r2, 0
+    bra.z r3, MODE_SINGLE
+    sub.s32 r3, r2, 1
+    bra.z r3, MODE_MULTI
+    sub.s32 r3, r2, 2
+    bra.z r3, MODE_PERLANE
+    sub.s32 r3, r2, 3
+    bra.z r3, MODE_SHARED
+    sub.s32 r3, r2, 4
+    bra.z r3, MODE_GLOBAL
+    sub.s32 r3, r2, 5
+    bra.z r3, MODE_STRIPED
+
+    exit
+
+//----------------------------------------------------------------------------
+// Mode 0: Single-warp atomic throughput
+//----------------------------------------------------------------------------
+MODE_SINGLE:
+    bra.nz r0, SINGLE_SKIP_INIT
+    mov.u32 r4, 0x1100
+    mov.u32 r5, 0
+    st.global.u32 [r4], r5
+SINGLE_SKIP_INIT:
+    bar.sync 0
+
+    mov.u32 r4, 0x1100
+    mov.u32 r6, 1
+    mov.u32 r7, 64
+SINGLE_LOOP:
+    atom.add.s32 r8, [r4], r6
+    sub.s32 r7, r7, 1
+    bra.nz r7, SINGLE_LOOP
+
+    bar.sync 0
+    bra.nz r0, SINGLE_DONE
+    ld.global.u32 r9, [r4]
+    mov.u32 r10, 0x1110
+    st.global.u32 [r10], r9
+SINGLE_DONE:
+    exit
+
+//----------------------------------------------------------------------------
+// Mode 1: Multi-warp atomic contention
+//----------------------------------------------------------------------------
+MODE_MULTI:
+    bra.nz r0, MULTI_SKIP_INIT
+    mov.u32 r4, 0x1104
+    mov.u32 r5, 0
+    st.global.u32 [r4], r5
+MULTI_SKIP_INIT:
+    bar.sync 0
+
+    mov.u32 r4, 0x1104
+    mov.u32 r6, 1
+    mov.u32 r7, 64
+MULTI_LOOP:
+    atom.add.s32 r8, [r4], r6
+    sub.s32 r7, r7, 1
+    bra.nz r7, MULTI_LOOP
+
+    bar.sync 0
+    bra.nz r0, MULTI_DONE
+    ld.global.u32 r9, [r4]
+    mov.u32 r10, 0x1114
+    st.global.u32 [r10], r9
+MULTI_DONE:
+    exit
+
+//----------------------------------------------------------------------------
+// Mode 2: Per-lane atomics (unique addresses)
+//----------------------------------------------------------------------------
+MODE_PERLANE:
+    mov.u32 r4, 0x1200
+    shl.b32 r5, r0, 2
+    add.s32 r4, r4, r5
+    mov.u32 r6, 0
+    st.global.u32 [r4], r6
+
+    mov.u32 r6, 1
+    mov.u32 r7, 64
+PERLANE_LOOP:
+    atom.add.s32 r8, [r4], r6
+    sub.s32 r7, r7, 1
+    bra.nz r7, PERLANE_LOOP
+
+    exit
+
+//----------------------------------------------------------------------------
+// Mode 3: Shared-memory atomics
+//----------------------------------------------------------------------------
+MODE_SHARED:
+    mov.u32 r20, 0x0000
+    bra.nz r0, SHARED_SKIP_INIT
+    mov.u32 r21, 0
+    st.shared.u32 [r20], r21
+SHARED_SKIP_INIT:
+    bar.sync 0
+
+    mov.u32 r22, 1
+    mov.u32 r23, 64
+SHARED_LOOP:
+    atom.add.shared.s32 r24, [r20], r22
+    sub.s32 r23, r23, 1
+    bra.nz r23, SHARED_LOOP
+
+    bar.sync 0
+    bra.nz r0, SHARED_DONE
+    ld.shared.u32 r25, [r20]
+    mov.u32 r26, 0x1120
+    st.global.u32 [r26], r25
+SHARED_DONE:
+    exit
+
+//----------------------------------------------------------------------------
+// Mode 4: Global-memory atomics (comparison baseline)
+//----------------------------------------------------------------------------
+MODE_GLOBAL:
+    bra.nz r0, GLOBAL_SKIP_INIT
+    mov.u32 r4, 0x1108
+    mov.u32 r5, 0
+    st.global.u32 [r4], r5
+GLOBAL_SKIP_INIT:
+    bar.sync 0
+
+    mov.u32 r4, 0x1108
+    mov.u32 r6, 1
+    mov.u32 r7, 64
+GLOBAL_LOOP:
+    atom.add.s32 r8, [r4], r6
+    sub.s32 r7, r7, 1
+    bra.nz r7, GLOBAL_LOOP
+
+    bar.sync 0
+    bra.nz r0, GLOBAL_DONE
+    ld.global.u32 r9, [r4]
+    mov.u32 r10, 0x1124
+    st.global.u32 [r10], r9
+GLOBAL_DONE:
+    exit
+
+//----------------------------------------------------------------------------
+// Mode 5: Striped global-memory atomics (reduced contention)
+//----------------------------------------------------------------------------
+MODE_STRIPED:
+    bra.nz r0, STRIPED_SKIP_INIT
+    mov.u32 r4, 0x1300
+    mov.u32 r5, 0
+    mov.u32 r6, 8
+STRIPED_INIT_LOOP:
+    st.global.u32 [r4], r5
+    add.s32 r4, r4, 4
+    sub.s32 r6, r6, 1
+    bra.nz r6, STRIPED_INIT_LOOP
+STRIPED_SKIP_INIT:
+    bar.sync 0
+
+    mov.u32 r4, 0x1300
+    and.b32 r5, r0, 7
+    shl.b32 r5, r5, 2
+    add.s32 r4, r4, r5
+    mov.u32 r6, 1
+    mov.u32 r7, 64
+STRIPED_LOOP:
+    atom.add.s32 r8, [r4], r6
+    sub.s32 r7, r7, 1
+    bra.nz r7, STRIPED_LOOP
+
+    exit
+.end

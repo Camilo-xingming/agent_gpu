@@ -1,0 +1,176 @@
+// Matrix multiplication with barrier synchronization and shared memory atomics
+// Tests: Barrier operations, shared memory atomic fast path
+// Scenario: 4x4 matrix multiply using tiled algorithm with shared memory
+//
+// Track 1 Optimization Targets:
+// - Shared memory atomic latency <5 cycles
+// - Proper barrier synchronization
+
+.entry bench_matmul_sync:
+    // Register allocation:
+    // r0 = laneid (0-31)
+    // r1 = row index (laneid / 4)
+    // r2 = col index (laneid % 4)
+    // r3-r5 = addresses
+    // r10-r17 = matrix element temps
+    // r20-r23 = accumulator and results
+    // r30 = verification temp
+
+    mov.u32 r0, %laneid
+
+    // For 4x4 matmul, only first 16 threads participate
+    // row = laneid / 4, col = laneid % 4
+    shr.u32 r1, r0, 2        // row = laneid >> 2
+    and.b32 r2, r0, 3        // col = laneid & 3
+
+    // Skip threads 16-31
+    sub.s32 r30, r0, 16
+    shr.s32 r30, r30, 31     // r30 = -1 if laneid < 16, else 0
+    bra.z r30, SKIP_COMPUTE
+
+    // Matrix addresses:
+    // A at 0x1000 (4x4 = 16 elements)
+    // B at 0x1100 (4x4 = 16 elements)
+    // C at 0x1200 (4x4 = 16 elements, output)
+    mov.u32 r3, 0x1000       // A base
+    mov.u32 r4, 0x1100       // B base
+    mov.u32 r5, 0x1200       // C base
+
+    //==========================================================
+    // Stage 1: Load A and B tiles to shared memory
+    //==========================================================
+
+    // Shared memory layout:
+    // 0x00-0x3F: A tile (16 x 4 bytes)
+    // 0x40-0x7F: B tile (16 x 4 bytes)
+    // 0x80-0xBF: C partial results (16 x 4 bytes)
+
+    // Calculate element index = row * 4 + col
+    shl.b32 r10, r1, 2       // row * 4
+    add.s32 r11, r10, r2     // row * 4 + col
+
+    // Load A[row][col] from global to shared
+    shl.b32 r12, r11, 2      // byte offset = idx * 4
+    add.s32 r13, r3, r12     // A address
+    ld.global.u32 r14, [r13] // Load A element
+
+    // Store to shared memory A tile
+    st.shared.u32 [r12], r14
+
+    // Load B[row][col] from global to shared
+    add.s32 r13, r4, r12     // B address
+    ld.global.u32 r15, [r13] // Load B element
+
+    // Store to shared memory B tile (offset by 0x40)
+    add.s32 r16, r12, 0x40
+    st.shared.u32 [r16], r15
+
+    //==========================================================
+    // Stage 2: Barrier - ensure all tiles loaded
+    //==========================================================
+    bar.sync 0
+
+    //==========================================================
+    // Stage 3: Compute C[row][col] = sum(A[row][k] * B[k][col])
+    //==========================================================
+
+    mov.u32 r20, 0           // Accumulator = 0
+
+    // K-loop: k = 0 to 3
+    mov.u32 r17, 0           // k = 0
+
+K_LOOP:
+    // Check k < 4
+    sub.s32 r30, r17, 4
+    shr.s32 r30, r30, 31     // r30 = -1 if k < 4
+    bra.z r30, K_LOOP_END
+
+    // Load A[row][k] from shared memory
+    // Address = row * 4 + k (element index) * 4 (bytes)
+    shl.b32 r21, r1, 2       // row * 4
+    add.s32 r21, r21, r17    // row * 4 + k
+    shl.b32 r21, r21, 2      // byte offset
+    ld.shared.u32 r22, [r21] // A[row][k]
+
+    // Load B[k][col] from shared memory
+    // Address = 0x40 + k * 4 + col (element index) * 4 (bytes)
+    shl.b32 r23, r17, 2      // k * 4
+    add.s32 r23, r23, r2     // k * 4 + col
+    shl.b32 r23, r23, 2      // byte offset
+    add.s32 r23, r23, 0x40   // B tile offset
+    ld.shared.u32 r24, [r23] // B[k][col]
+
+    // Multiply and accumulate: acc += A * B
+    mul.lo.s32 r25, r22, r24
+    add.s32 r20, r20, r25
+
+    // k++
+    add.s32 r17, r17, 1
+    bra K_LOOP
+
+K_LOOP_END:
+
+    //==========================================================
+    // Stage 4: Store result with atomic (test shared mem atomic path)
+    //==========================================================
+
+    // Use atomic add to accumulate results (testing fast path)
+    // C partial address in shared memory
+    shl.b32 r26, r11, 2      // element index * 4
+    add.s32 r26, r26, 0x80   // C tile offset
+
+    // First zero the accumulator (lane 0 for each cell)
+    and.b32 r30, r0, 0       // Always 0 - all lanes initialize their cell
+    mov.u32 r27, 0
+    st.shared.u32 [r26], r27
+
+    bar.sync 0
+
+    // Atomic add our computed value
+    atom.shared.add.s32 r28, [r26], r20
+
+    bar.sync 0
+
+    //==========================================================
+    // Stage 5: Write results to global memory
+    //==========================================================
+
+    // Load from shared and store to global
+    ld.shared.u32 r29, [r26]
+
+    shl.b32 r26, r11, 2      // element byte offset
+    add.s32 r26, r5, r26     // C global address
+    st.global.u32 [r26], r29
+
+    // Barrier before verification
+    bar.sync 0
+
+SKIP_COMPUTE:
+    bar.sync 0
+
+    //==========================================================
+    // Verification (lane 0 only)
+    //==========================================================
+
+    bra.nz r0, DONE
+
+    // Check C[0][0] is non-zero (basic sanity check)
+    mov.u32 r3, 0x1200
+    ld.global.u32 r4, [r3]
+
+    bra.z r4, FAIL
+
+    // Write success marker
+    mov.u32 r10, 0x2000
+    mov.u32 r11, 0xCAFE
+    st.global.u32 [r10], r11
+    bra DONE
+
+FAIL:
+    mov.u32 r10, 0x2000
+    mov.u32 r11, 0xDEAD
+    st.global.u32 [r10], r11
+
+DONE:
+    exit
+.end

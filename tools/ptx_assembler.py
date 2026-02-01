@@ -1032,32 +1032,42 @@ class PTXAssembler:
             return self._parse_cvt(mnemonic, operands)
 
         #================================================================
-        # Atomic Operations
+        # Atomic Operations (support atom.add, atom.shared.add, atom.global.add)
         #================================================================
-        if mnemonic.startswith('atom.add'):
-            return self._parse_atomic(AtomFunc.ADD, operands)
-        if mnemonic.startswith('atom.min.s'):
-            return self._parse_atomic(AtomFunc.MIN_S, operands)
-        if mnemonic.startswith('atom.min.u') or mnemonic.startswith('atom.min'):
-            return self._parse_atomic(AtomFunc.MIN_U, operands)
-        if mnemonic.startswith('atom.max.s'):
-            return self._parse_atomic(AtomFunc.MAX_S, operands)
-        if mnemonic.startswith('atom.max.u') or mnemonic.startswith('atom.max'):
-            return self._parse_atomic(AtomFunc.MAX_U, operands)
-        if mnemonic.startswith('atom.inc'):
-            return self._parse_atomic(AtomFunc.INC, operands)
-        if mnemonic.startswith('atom.dec'):
-            return self._parse_atomic(AtomFunc.DEC, operands)
-        if mnemonic.startswith('atom.and'):
-            return self._parse_atomic(AtomFunc.AND, operands)
-        if mnemonic.startswith('atom.or'):
-            return self._parse_atomic(AtomFunc.OR, operands)
-        if mnemonic.startswith('atom.xor'):
-            return self._parse_atomic(AtomFunc.XOR, operands)
-        if mnemonic.startswith('atom.exch'):
-            return self._parse_atomic(AtomFunc.EXCH, operands)
-        if mnemonic.startswith('atom.cas'):
-            return self._parse_atomic_cas(operands)
+        # Normalize mnemonic by removing .shared/.global memory space specifier
+        atom_mnemonic = mnemonic
+        is_shared_atom = False
+        if '.shared.' in mnemonic:
+            atom_mnemonic = mnemonic.replace('.shared.', '.')
+            is_shared_atom = True
+        elif '.global.' in mnemonic:
+            atom_mnemonic = mnemonic.replace('.global.', '.')
+            is_shared_atom = False
+
+        if atom_mnemonic.startswith('atom.add'):
+            return self._parse_atomic(AtomFunc.ADD, operands, is_shared_atom)
+        if atom_mnemonic.startswith('atom.min.s'):
+            return self._parse_atomic(AtomFunc.MIN_S, operands, is_shared_atom)
+        if atom_mnemonic.startswith('atom.min.u') or atom_mnemonic.startswith('atom.min'):
+            return self._parse_atomic(AtomFunc.MIN_U, operands, is_shared_atom)
+        if atom_mnemonic.startswith('atom.max.s'):
+            return self._parse_atomic(AtomFunc.MAX_S, operands, is_shared_atom)
+        if atom_mnemonic.startswith('atom.max.u') or atom_mnemonic.startswith('atom.max'):
+            return self._parse_atomic(AtomFunc.MAX_U, operands, is_shared_atom)
+        if atom_mnemonic.startswith('atom.inc'):
+            return self._parse_atomic(AtomFunc.INC, operands, is_shared_atom)
+        if atom_mnemonic.startswith('atom.dec'):
+            return self._parse_atomic(AtomFunc.DEC, operands, is_shared_atom)
+        if atom_mnemonic.startswith('atom.and'):
+            return self._parse_atomic(AtomFunc.AND, operands, is_shared_atom)
+        if atom_mnemonic.startswith('atom.or'):
+            return self._parse_atomic(AtomFunc.OR, operands, is_shared_atom)
+        if atom_mnemonic.startswith('atom.xor'):
+            return self._parse_atomic(AtomFunc.XOR, operands, is_shared_atom)
+        if atom_mnemonic.startswith('atom.exch'):
+            return self._parse_atomic(AtomFunc.EXCH, operands, is_shared_atom)
+        if atom_mnemonic.startswith('atom.cas'):
+            return self._parse_atomic_cas(operands, is_shared_atom)
 
         #================================================================
         # Reduction Operations
@@ -1461,6 +1471,13 @@ class PTXAssembler:
         if src.startswith('%'):
             # Special register (tid.x, ctaid.x, etc.)
             inst.ra = parse_special_reg(src)
+        elif src.startswith('r') or src.startswith('p'):
+            # Register-to-register move: mov rd, ra
+            # Implement as add rd, ra, 0
+            inst.opcode = Opcode.ALU
+            inst.func = 0  # ADD
+            inst.ra = parse_register(src)
+            inst.rb = 0  # Adding zero
         else:
             # Immediate value - use MOV_IMM opcode
             # Format: [31:26]=opcode, [25:21]=rd, [15:0]=imm16
@@ -1701,21 +1718,29 @@ class PTXAssembler:
                 break
         return inst
 
-    def _parse_atomic(self, func: int, operands: List[str]) -> Instruction:
-        """Parse atomic operation: atom.add rd, [ra], rb"""
+    def _parse_atomic(self, func: int, operands: List[str], is_shared: bool = False) -> Instruction:
+        """Parse atomic operation: atom.add rd, [ra], rb
+           is_shared=True for shared memory atomics (atom.shared.add)
+        """
         inst = Instruction(opcode=Opcode.ATOM, func=func)
         inst.rd = parse_register(operands[0])
         inst.ra = parse_register(operands[1].strip('[]'))
         inst.rb = parse_register(operands[2])
+        # Use imm16 bit 0 to encode shared memory flag
+        inst.imm16 = 1 if is_shared else 0
         return inst
 
-    def _parse_atomic_cas(self, operands: List[str]) -> Instruction:
-        """Parse atomic CAS: atom.cas rd, [ra], rb, rc"""
+    def _parse_atomic_cas(self, operands: List[str], is_shared: bool = False) -> Instruction:
+        """Parse atomic CAS: atom.cas rd, [ra], rb, rc
+           is_shared=True for shared memory atomics
+        """
         inst = Instruction(opcode=Opcode.ATOM, func=AtomFunc.CAS)
         inst.rd = parse_register(operands[0])
         inst.ra = parse_register(operands[1].strip('[]'))
         inst.rb = parse_register(operands[2])
         inst.rc = parse_register(operands[3])
+        # Use imm16 bit 0 to encode shared memory flag
+        inst.imm16 = 1 if is_shared else 0
         return inst
 
     def _parse_reduction(self, func: int, operands: List[str]) -> Instruction:

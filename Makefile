@@ -362,6 +362,82 @@ $(BUILD_DIR)/tb_sm_v2_perf_tensor_multiwarp.vvp: $(SM_V2_SRCS) $(TB_SM_V2_PERF_T
 	$(IVERILOG) -g2012 $(INCLUDES) $(SM_V2_DEFINES) -o $@ $(TB_SM_V2_PERF_TC_MW) $(filter %.v,$(SM_V2_SRCS))
 
 #----------------------------------------------------------------------------
+# Track 1-2 Performance Benchmarks (Atomics + Divergence)
+#----------------------------------------------------------------------------
+TB_BENCH_ATOMICS = $(TB_DIR)/tb_bench_atomics.v
+TB_BENCH_DIVERGENCE = $(TB_DIR)/tb_bench_divergence.v
+TB_ATOMIC_MINIMAL = $(TB_DIR)/tb_atomic_contention_minimal.v
+
+# Atomic operations benchmark
+bench_atomics: $(BUILD_DIR)/tb_bench_atomics.vvp tb/bench_atomics.hex
+	@echo "========================================"
+	@echo "Running Atomic Operations Benchmark"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_bench_atomics.vvp | tee bench_atomics.log
+	@echo "Output saved to $(BUILD_DIR)/bench_atomics.log"
+
+$(BUILD_DIR)/tb_bench_atomics.vvp: $(RTL_SRCS) $(TB_BENCH_ATOMICS) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_BENCH_ATOMICS) $(filter %.v,$(RTL_SRCS))
+
+tb/bench_atomics.hex: tb/bench_atomics.ptx
+	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
+
+# Divergence handling benchmark
+bench_divergence: $(BUILD_DIR)/tb_bench_divergence.vvp tb/bench_divergence.hex
+	@echo "========================================"
+	@echo "Running Branch Divergence Benchmark"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_bench_divergence.vvp | tee bench_divergence.log
+	@echo "Output saved to $(BUILD_DIR)/bench_divergence.log"
+
+$(BUILD_DIR)/tb_bench_divergence.vvp: $(RTL_SRCS) $(TB_BENCH_DIVERGENCE) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_BENCH_DIVERGENCE) $(filter %.v,$(RTL_SRCS))
+
+tb/bench_divergence.hex: tb/bench_divergence.ptx
+	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
+
+# Minimal atomic contention test (faster)
+bench_atomic_minimal: $(BUILD_DIR)/tb_atomic_contention_minimal.vvp
+	@echo "========================================"
+	@echo "Running Minimal Atomic Contention Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_atomic_contention_minimal.vvp
+
+$(BUILD_DIR)/tb_atomic_contention_minimal.vvp: $(RTL_SRCS) $(TB_ATOMIC_MINIMAL) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_ATOMIC_MINIMAL) $(filter %.v,$(RTL_SRCS))
+
+# Application-level PTX compilation
+asm/bench_vecadd_atomic.hex: asm/bench_vecadd_atomic.ptx
+	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
+
+asm/bench_matmul_sync.hex: asm/bench_matmul_sync.ptx
+	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
+
+asm/bench_parallel_reduction.hex: asm/bench_parallel_reduction.ptx
+	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
+
+# Compile all application benchmarks
+bench_app_compile: asm/bench_vecadd_atomic.hex asm/bench_matmul_sync.hex asm/bench_parallel_reduction.hex
+	@echo "Application benchmarks compiled"
+
+# Run all benchmarks
+bench_all: bench_atomics bench_divergence
+	@echo "========================================"
+	@echo "All Benchmarks Complete"
+	@echo "========================================"
+
+# Generate performance report from benchmark logs
+perf_report:
+	@echo "========================================"
+	@echo "Generating Performance Report"
+	@echo "========================================"
+	$(PYTHON) scripts/perf_analysis.py \
+		--parse $(BUILD_DIR)/bench_atomics.log \
+		--parse $(BUILD_DIR)/bench_divergence.log \
+		-o docs/PERFORMANCE_REPORT.md
+	@echo "Report saved to docs/PERFORMANCE_REPORT.md"
+
+#----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
 test: test_alu test_mul test_decoder test_regfile test_smem test_warp
@@ -435,6 +511,14 @@ help:
 	@echo "  test_sm_v2_perf_gemm16_ptx - SM V2 PTX-driven GEMM 16x16x16 microbenchmark"
 	@echo "  test_sm_v2_perf_tensor - SM V2 Tensor Core WMMA microbenchmark"
 	@echo "  test_sm_v2_perf_tensor_multiwarp - SM V2 Tensor Core multi-warp test"
+	@echo ""
+	@echo "Performance Benchmarks (Track 1-2):"
+	@echo "  bench_atomics       - Run atomic operations benchmark"
+	@echo "  bench_divergence    - Run branch divergence benchmark"
+	@echo "  bench_atomic_minimal - Quick atomic contention test"
+	@echo "  bench_app_compile   - Compile application-level benchmarks"
+	@echo "  bench_all           - Run all benchmarks"
+	@echo "  perf_report         - Generate PERFORMANCE_REPORT.md from logs"
 	@echo ""
 	@echo "Directory structure:"
 	@echo "  rtl/      - RTL source files"
