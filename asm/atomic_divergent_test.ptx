@@ -1,0 +1,74 @@
+// Atomic Test with Branch Divergence
+// Tests atomic operations when warp has divergent threads
+// Success marker: 0xCAFE at 0x2000
+// 
+// Test scenario:
+// - Even lanes (0,2,4,6...) perform atom.add
+// - Odd lanes (1,3,5,7...) skip atomic and do regular add
+// - This creates divergence around the atomic instruction
+
+.entry atomic_divergent_test:
+    // r0 = lane id
+    mov.u32 r0, %laneid
+    
+    // r10 = atomic target address (in global memory)
+    mov.u32 r10, 0x1000
+    
+    // Initialize [0x1000] = 0
+    mov.u32 r1, 0
+    st.global.u32 [r10], r1
+    
+    // Synchronize all threads before atomic
+    bar.sync 0
+    
+    // Check if even lane (laneid & 1) == 0
+    and.b32 r2, r0, 1
+    
+    // If odd lane, skip to ODD_PATH
+    bra.nz r2, ODD_PATH
+
+EVEN_PATH:
+    // Even lanes: perform atomic add of 10
+    mov.u32 r3, 10
+    atom.add.s32 r4, [r10], r3
+    bra RECONVERGE
+
+ODD_PATH:
+    // Odd lanes: just add to local (no atomic)
+    mov.u32 r3, 1
+    add.s32 r4, r3, 0
+
+RECONVERGE:
+    // Reconvergence point - all threads should come here
+    bar.sync 0
+    
+    // Lane 0 verifies the result
+    // Expected: 10 * (NUM_LANES/2) = 10 * 16 = 160 for 32 lanes
+    mov.u32 r5, 0
+    setp.ne.s32 p0, r0, r5
+    @p0 bra VERIFY_DONE
+    
+    // Only lane 0 checks
+    ld.global.u32 r6, [r10]
+    // Expected: 160 (10 * 16 even lanes)
+    mov.u32 r7, 160
+    sub.s32 r8, r6, r7
+    bra.nz r8, FAIL
+    
+VERIFY_DONE:
+    bar.sync 0
+
+SUCCESS:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xCAFE
+    st.global.u32 [r20], r21
+    bra DONE
+
+FAIL:
+    mov.u32 r20, 0x2000
+    mov.u32 r21, 0xDEAD
+    st.global.u32 [r20], r21
+
+DONE:
+    exit
+.end

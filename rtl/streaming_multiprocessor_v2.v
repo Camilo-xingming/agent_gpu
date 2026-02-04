@@ -4998,7 +4998,7 @@ module streaming_multiprocessor_v2 #(
                         wb_warp_id <= atomic_warp_pending;
                         wb_rd <= atomic_rd_pending;
                         wb_data <= atomic_result;
-                        wb_mask <= atomic_mask_pending;
+                        wb_mask <= atomic_result_mask;  // Use actual result mask from atomic_unit
                     end
                     4'd10: begin  // Special registers (MOV_SPECIAL)
                         wb_warp_id <= special_wbq_warp;

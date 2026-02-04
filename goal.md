@@ -54,15 +54,17 @@ estimate: 6h
 tags: rtl, atomic
 **STATUS: FIXED** - 已连接 atomic 到 gmem 仲裁器，添加了 atomic_mem_pending 状态跟踪
 
-## [test] ~~验证 Atomic 操作~~ ⚠️ PARTIAL
+## [test] ~~验证 Atomic 操作~~ ✅ FIXED
 priority: high
 estimate: 1h
 tags: verification
-**STATUS: PARTIAL**
+**STATUS: FIXED**
 - ✅ simple_atomic_test PASS (0xCAFE) - single atom.add works
 - ✅ All 8 atomic operations execute correctly (visible in AXI trace)
-- ❌ Complex tests with branch divergence fail
-- **Next step:** Debug warp mask handling during divergent `bra.nz` execution
+- ~~❌ Complex tests with branch divergence fail~~ ✅ FIXED (2026-02-04)
+- **Fix:** Changed atomic writeback mask from `atomic_mask_pending` to `atomic_result_mask`
+- **File:** rtl/streaming_multiprocessor_v2.v line 5001
+- **Test:** Created atomic_divergent_test.ptx for validation
 
 ## [arch] 分析 CVT 操作失败
 priority: medium

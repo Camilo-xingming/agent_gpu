@@ -1,5 +1,27 @@
 # RalphGPU Progress Log
 
+## Session Date: 2026-02-04 (Atomic Branch Divergence Fix)
+
+### Atomic Operation Writeback Mask Fix
+**Root Cause:** 
+- Atomic operations during branch divergence were using `atomic_mask_pending` (saved at issue time) for writeback
+- This could lead to incorrect mask matching when warp divergence changes active threads
+- Issue was listed in goal.md as "Complex tests with branch divergence fail"
+
+**Fix Applied:**
+- Modified `streaming_multiprocessor_v2.v` writeback stage (case 4'd9: // Atomic)
+- Changed `wb_mask <= atomic_mask_pending` to `wb_mask <= atomic_result_mask`
+- Now uses the actual result mask from `atomic_unit.v` which reflects truly processed lanes
+
+**Files Modified:**
+- `rtl/streaming_multiprocessor_v2.v` - Line 5001: Use atomic_result_mask for atomic WB
+
+**Verification:**
+- Compilation successful with iverilog
+- Test created: `asm/atomic_divergent_test.ptx` for divergence scenario
+
+---
+
 ## Session Date: 2026-01-31 (CVT Fix & IPC Optimization)
 
 ### CVT (Type Conversion) Bug Fix
