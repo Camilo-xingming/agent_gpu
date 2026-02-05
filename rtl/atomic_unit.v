@@ -170,6 +170,14 @@ module atomic_unit #(
             pending_mask <= {NUM_LANES{1'b0}};
             current_lane <= 6'b0;
         end else begin
+            // DEBUG TRACE
+            `ifdef SIMULATION
+            if (state != IDLE || req_valid) begin
+                 $display("[ATOMIC] Time=%0t State=%d Busy=%b ValidOut=%b ReqValid=%b Func=%d Mask=%x CurrLane=%d MemReady=%b", 
+                          $time, state, busy, result_valid, req_valid, func, lane_mask, current_lane, mem_ready);
+            end
+            `endif
+
             case (state)
                 IDLE: begin
                     result_valid <= 1'b0;

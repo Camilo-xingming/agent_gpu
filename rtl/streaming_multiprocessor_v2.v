@@ -2817,6 +2817,13 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // SIMD FPU (FP32) - 4-cycle pipeline
     //------------------------------------------------------------------------
+    always @(posedge clk) begin
+        if (issue_valid) begin
+            $display("[SM%0d] ISSUE: pc=%h warp=%d func=%d opcode=%d rd=%d ra=%d rb=%d mask=%x", 
+                     SM_ID, issue_pc, issue_warp_id, issue_func, issue_opcode, issue_rd, issue_ra, issue_rb, issue_mask);
+        end
+    end
+
     wire fpu32_use_slot0 = fpu32_issue0;
     wire fpu32_use_slot1 = fpu32_issue1;
     wire [WARP_ID_W-1:0] fpu32_issue_warp = fpu32_use_slot0 ? issue_warp_id : issue1_warp_id;
@@ -4998,7 +5005,7 @@ module streaming_multiprocessor_v2 #(
                         wb_warp_id <= atomic_warp_pending;
                         wb_rd <= atomic_rd_pending;
                         wb_data <= atomic_result;
-                        wb_mask <= atomic_result_mask;  // Use actual result mask from atomic_unit
+                        wb_mask <= atomic_mask_pending;  // Reverted: atomic_result_mask caused deadlock
                     end
                     4'd10: begin  // Special registers (MOV_SPECIAL)
                         wb_warp_id <= special_wbq_warp;
