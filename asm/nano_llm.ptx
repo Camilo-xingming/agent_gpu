@@ -1,0 +1,69 @@
+// Nano-LLM: Tiny transformer-style computation
+// Simulates a minimal LLM forward pass:
+//   1. Input: x = [1, 2, 3, 4] (simplified embedding)
+//   2. Self-Attention: Q·K^T (attention scores)
+//   3. Attention weights: Softmax-like (simplified: just normalize)
+//   4. Value projection: Weighted sum
+//   5. Feedforward: Linear layer with activation
+//   6. Output: Final token logits
+//
+// Expected flow:
+//   Input x → Q=W_q·x → K=W_k·x → scores=Q·K^T → 
+//   weights=softmax(scores) → attention_out=weights·V → 
+//   ffn_out=GELU(W_ffn·attention_out) → output
+//
+// Simplified version: Just compute Q·K^T and apply ReLU
+// Input: [1, 2] (2D embedding)
+// Q weights: [1, 0] → Q = [1*1 + 2*0] = 1
+// K weights: [0, 1] → K = [1*0 + 2*1] = 2
+// Score = Q * K = 1 * 2 = 2
+// ReLU(2) = 2
+// Output at 0x2000 = 2
+
+.entry nano_llm:
+    // Step 1: Load input embedding x = [1, 2]
+    mov.u32 r1, 1        // x[0] = 1
+    mov.u32 r2, 2        // x[1] = 2
+    
+    // Step 2: Compute Query (Q = W_q · x)
+    // W_q = [1, 0] (just take first element)
+    mov.u32 r10, 1       // W_q[0] = 1
+    mov.u32 r11, 0       // W_q[1] = 0
+    mul.lo.u32 r20, r1, r10   // 1*1 = 1
+    mul.lo.u32 r21, r2, r11   // 2*0 = 0
+    add.u32 r3, r20, r21      // Q = 1 + 0 = 1
+    
+    // Step 3: Compute Key (K = W_k · x)
+    // W_k = [0, 1] (just take second element)
+    mov.u32 r12, 0       // W_k[0] = 0
+    mov.u32 r13, 1       // W_k[1] = 1
+    mul.lo.u32 r22, r1, r12   // 1*0 = 0
+    mul.lo.u32 r23, r2, r13   // 2*1 = 2
+    add.u32 r4, r22, r23      // K = 0 + 2 = 2
+    
+    // Step 4: Compute attention score (Q · K^T = Q * K)
+    mul.lo.u32 r5, r3, r4     // score = 1 * 2 = 2
+    
+    // Step 5: Apply activation (ReLU - simplified, already positive)
+    // ReLU(x) = max(0, x)
+    // Since score=2 > 0, output = 2
+    mov.u32 r6, 0
+    max.s32 r7, r5, r6        // r7 = max(2, 0) = 2
+    
+    // Step 6: Store output
+    mov.u32 r30, 0x2000
+    st.global.u32 [r30], r7   // Store result at 0x2000
+    
+    // Bonus: Store intermediate values for inspection
+    mov.u32 r30, 0x1000
+    st.global.u32 [r30], r1   // Input x[0]
+    mov.u32 r30, 0x1004
+    st.global.u32 [r30], r2   // Input x[1]
+    mov.u32 r30, 0x1008
+    st.global.u32 [r30], r3   // Query
+    mov.u32 r30, 0x100C
+    st.global.u32 [r30], r4   // Key
+    mov.u32 r30, 0x1010
+    st.global.u32 [r30], r5   // Score
+    
+    exit

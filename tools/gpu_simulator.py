@@ -306,6 +306,22 @@ class RalphGPUSimulator:
                 result = ((a >> (b & 0x1F)) | (0xFFFFFFFF << (32 - (b & 0x1F)))) & 0xFFFFFFFF
             else:
                 result = a >> (b & 0x1F)
+        elif func == AluFunc.MIN_S:
+            # Signed min
+            a_s = a if a < 0x80000000 else a - 0x100000000
+            b_s = b if b < 0x80000000 else b - 0x100000000
+            result = (a if a_s < b_s else b) & 0xFFFFFFFF
+        elif func == AluFunc.MIN_U:
+            # Unsigned min
+            result = min(a, b)
+        elif func == AluFunc.MAX_S:
+            # Signed max
+            a_s = a if a < 0x80000000 else a - 0x100000000
+            b_s = b if b < 0x80000000 else b - 0x100000000
+            result = (a if a_s > b_s else b) & 0xFFFFFFFF
+        elif func == AluFunc.MAX_U:
+            # Unsigned max
+            result = max(a, b)
         else:
             result = 0
 
