@@ -138,6 +138,7 @@ class VideoFunc(IntEnum):
     DP4A_U32_U32 = 0b010011
     DP2A_S32_S32 = 0b010100
     DP2A_S32_U32 = 0b010101
+    DP4A = 0b100010
 
 # Atomic功能码
 class AtomicFunc(IntEnum):
@@ -749,6 +750,8 @@ class RalphGPUSimulator:
                     thread.registers[rd] = self.execute_dp4a(a, b, c, True, False)
                 elif func == VideoFunc.DP4A_U32_S32:
                     thread.registers[rd] = self.execute_dp4a(a, b, c, False, True)
+                elif func == VideoFunc.DP4A:
+                    thread.registers[rd] = self.execute_dp4a(a, b, c, True, True)
 
             elif opcode == Opcode.EXIT:
                 thread.active = False
