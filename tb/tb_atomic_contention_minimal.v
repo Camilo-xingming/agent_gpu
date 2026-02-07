@@ -9,11 +9,15 @@
 `include "gpu_defines.vh"
 
 module tb_atomic_contention_minimal;
+
+    initial begin
+        $dumpfile("atomic_contention.vcd");
+        $dumpvars(0, tb_atomic_contention_minimal);
+    end
     localparam CLK_PERIOD = 10;
     // VCD waveform dump
     initial begin
         $dumpfile("atomic_test.vcd");
-        $dumpvars(0, tb_atomic_contention_minimal);
     end
 
     localparam TIMEOUT_CYCLES = 300000;
@@ -28,9 +32,6 @@ module tb_atomic_contention_minimal;
     reg rst_n;
 
     initial begin
-    $dumpfile("atomic_contention.vcd");
-    $dumpvars(0, tb_atomic_contention_minimal);
-    // Waveform debugging enabled
         clk = 0;
         forever #(CLK_PERIOD/2) clk = ~clk;
     end
@@ -131,13 +132,11 @@ module tb_atomic_contention_minimal;
     integer imem_i;
 
     initial begin
-    $dumpfile("atomic_contention.vcd");
-    $dumpvars(0, tb_atomic_contention_minimal);
-    // Waveform debugging enabled
         for (imem_i = 0; imem_i < 4096; imem_i = imem_i + 1) begin
             imem[imem_i] = 32'h00000000;
         end
-        $readmemh("../hex/ptx_comprehensive_tests/test_23_mem_consistency_atomicity.hex", imem);
+        $readmemh("../asm/atomic_divergent_test.hex", imem);
+        $display("[TB] Loaded imem[0]=0x%08x imem[1]=0x%08x imem[2]=0x%08x", imem[0], imem[1], imem[2]);
     end
 
     // IMEM response (1-cycle latency)
@@ -152,11 +151,14 @@ module tb_atomic_contention_minimal;
             imem_data <= 64'b0;
         end else begin
             if (imem_req) begin
+                $display("[%0t TB] IMEM_REQ: addr=0x%08x", $time, imem_addr);
                 imem_req_addr_d <= imem_addr;
                 imem_req_pending <= 1'b1;
             end
             if (imem_req_pending) begin
                 imem_data <= {imem[(imem_req_addr_d >> 2) + 1], imem[imem_req_addr_d >> 2]};
+                $display("[%0t TB] IMEM_RESP: addr=0x%08x data=0x%016x", $time, imem_req_addr_d, {imem[(imem_req_addr_d >> 2) + 1], imem[imem_req_addr_d >> 2]});
+                $display("[%0t TB] imem[0]=0x%08x imem[1]=0x%08x (current values)", $time, imem[0], imem[1]);
                 imem_valid <= 1'b1;
                 imem_req_pending <= 1'b0;
             end else begin
@@ -173,9 +175,6 @@ module tb_atomic_contention_minimal;
 
     integer gmem_i;
     initial begin
-    $dumpfile("atomic_contention.vcd");
-    $dumpvars(0, tb_atomic_contention_minimal);
-    // Waveform debugging enabled
         for (gmem_i = 0; gmem_i < 16384; gmem_i = gmem_i + 1) begin
             global_mem[gmem_i] = 32'h0;
         end
@@ -221,20 +220,29 @@ module tb_atomic_contention_minimal;
             pending_axi_write <= 1'b0;
             pending_axi_addr <= 32'b0;
         end else begin
+            // Modified AXI write model to handle simultaneous AW/W
             if (m_axi_awvalid && m_axi_awready) begin
                 pending_axi_addr <= m_axi_awaddr;
                 pending_axi_write <= 1'b1;
             end
 
-            if (m_axi_wvalid && m_axi_wready && pending_axi_write) begin
-                if (pending_axi_addr >= GMEM_BASE) begin
-                    global_mem[(pending_axi_addr - GMEM_BASE) >> 2] <= m_axi_wdata;
+            if (m_axi_wvalid && m_axi_wready) begin
+                if (pending_axi_write) begin
+                    if (pending_axi_addr >= GMEM_BASE) begin
+                        global_mem[(pending_axi_addr - GMEM_BASE) >> 2] <= m_axi_wdata;
+                    end
+                    pending_axi_write <= 1'b0;
+                    m_axi_bvalid <= 1'b1;
+                    m_axi_bid <= m_axi_awid;
+                end else if (m_axi_awvalid && m_axi_awready) begin
+                    if (m_axi_awaddr >= GMEM_BASE) begin
+                        global_mem[(m_axi_awaddr - GMEM_BASE) >> 2] <= m_axi_wdata;
+                    end
+                    pending_axi_write <= 1'b0;
+                    m_axi_bvalid <= 1'b1;
+                    m_axi_bid <= m_axi_awid;
                 end
-                pending_axi_write <= 1'b0;
-                m_axi_bvalid <= 1'b1;
-                m_axi_bid <= m_axi_awid;
             end
-
             if (m_axi_bvalid && m_axi_bready) begin
                 m_axi_bvalid <= 1'b0;
             end
@@ -273,9 +281,6 @@ module tb_atomic_contention_minimal;
     reg [31:0] counter;
 
     initial begin
-    $dumpfile("atomic_contention.vcd");
-    $dumpvars(0, tb_atomic_contention_minimal);
-    // Waveform debugging enabled
         $display("=== Atomic Contention Minimal Test ===");
         reset_dut();
         #50;
@@ -315,4 +320,12 @@ module tb_atomic_contention_minimal;
         #100;
         $finish;
     end
+
+    initial begin
+        #1;
+        $display("[TB] Time=1 imem[0]=0x%08x", imem[0]);
+        #100;
+        $display("[TB] Time=101 imem[0]=0x%08x", imem[0]);
+    end
+
 endmodule
