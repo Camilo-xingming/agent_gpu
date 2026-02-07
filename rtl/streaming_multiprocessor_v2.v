@@ -262,6 +262,10 @@ module streaming_multiprocessor_v2 #(
     reg  [31:0]          warp_sync_arrived [0:NUM_WARPS-1];  // Per-lane arrival bits
     reg  [31:0]          warp_sync_mask [0:NUM_WARPS-1];     // Expected thread mask (membermask)
 
+    // Block-level barrier (bar.sync) arrival tracking
+    reg  [NUM_WARPS-1:0] bar_sync_pending;           // bar.sync in progress for warp
+    reg  [NUM_LANES-1:0] bar_sync_arrived [0:NUM_WARPS-1];  // Per-lane arrival bits for bar.sync
+
     // Cluster barrier state (barrier.cluster - Hopper+ Thread Block Cluster sync)
     // Note: Full cluster interconnect is external; SM tracks local state
     reg  [NUM_WARPS-1:0] cluster_barrier_pending;     // Warp waiting on cluster barrier
@@ -5175,6 +5179,9 @@ module streaming_multiprocessor_v2 #(
                 warp_sync_pending[w] <= 1'b0;
                 warp_sync_arrived[w] <= 32'b0;
                 warp_sync_mask[w] <= 32'b0;
+                // Initialize block-level sync state (bar.sync)
+                bar_sync_pending[w] <= 1'b0;
+                bar_sync_arrived[w] <= {NUM_LANES{1'b0}};
                 // Initialize cluster barrier state (barrier.cluster)
                 cluster_barrier_pending[w] <= 1'b0;
                 cluster_barrier_arrived[w] <= 1'b0;
@@ -5504,39 +5511,67 @@ module streaming_multiprocessor_v2 #(
                 warp_stalled_mem[mem_warp_pending] <= 1'b0;
             end
 
-            // Block-level sync barrier (bar.sync)
-            // Only stall for bar.sync (not bar.warp.sync)
+            //================================================================
+            // Block-level sync barrier (bar.sync) - with divergence support
+            //================================================================
+            // bar.sync should wait for ALL active threads in the warp to arrive
+            // This requires per-thread arrival tracking, similar to bar.warp.sync
+            
+            // Handle bar.sync from issue slot 0
             if (issue_valid && issue_sync_op && !issue_bar_warp_sync) begin
-                warp_stalled_sync[issue_warp_id] <= 1'b1;
-                // Clear branch stall (bar.sync is in pd_is_branch but not an actual branch)
+                // Mark which threads are arriving at the barrier
+                bar_sync_arrived[issue_warp_id] <= bar_sync_arrived[issue_warp_id] | issue_mask;
+                bar_sync_pending[issue_warp_id] <= 1'b1;
+
+                // Advance PC past the barrier instruction
                 warp_stalled_branch[issue_warp_id] <= 1'b0;
-                // Advance PC past the barrier instruction (since pd_is_branch prevents auto-advance)
                 warp_pc[issue_warp_id] <= issue_pc + 32'd4;
                 warp_fetch_pc[issue_warp_id] <= issue_pc + 32'd4;
-                // Flush instruction buffer to force re-fetch at new PC after barrier releases
                 warp_inst_buf_valid[issue_warp_id] <= 1'b0;
                 warp_fetch_pending[issue_warp_id] <= 1'b0;
                 `ifdef SIMULATION
-                $display("[SM%0d] bar.sync issued: warp=%0d, setting warp_stalled_sync, advancing PC to 0x%08x",
-                         SM_ID, issue_warp_id, issue_pc + 32'd4);
+                $display("[SM%0d] bar.sync: warp=%0d arriving threads=0x%08x (total arrived=0x%08x)",
+                         SM_ID, issue_warp_id, issue_mask, bar_sync_arrived[issue_warp_id] | issue_mask);
                 `endif
             end
+            
+            // Handle bar.sync from issue slot 1
             if (issue1_valid && issue1_sync_op && !issue1_bar_warp_sync) begin
-                warp_stalled_sync[issue1_warp_id] <= 1'b1;
-                // Clear branch stall (bar.sync is in pd_is_branch but not an actual branch)
-                warp_stalled_branch[issue1_warp_id] <= 1'b0;
+                bar_sync_arrived[issue1_warp_id] <= bar_sync_arrived[issue1_warp_id] | issue1_mask;
+                bar_sync_pending[issue1_warp_id] <= 1'b1;
+                
                 // Advance PC past the barrier instruction
+                warp_stalled_branch[issue1_warp_id] <= 1'b0;
                 warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
                 warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
-                // Flush instruction buffer to force re-fetch at new PC after barrier releases
                 warp_inst_buf_valid[issue1_warp_id] <= 1'b0;
                 warp_fetch_pending[issue1_warp_id] <= 1'b0;
+                
                 `ifdef SIMULATION
-                $display("[SM%0d] bar.sync issued (slot1): warp=%0d, setting warp_stalled_sync, advancing PC to 0x%08x",
-                         SM_ID, issue1_warp_id, issue1_pc + 32'd4);
+                $display("[SM%0d] bar.sync (slot1): warp=%0d arriving threads=0x%08x (total arrived=0x%08x)",
+                         SM_ID, issue1_warp_id, issue1_mask, bar_sync_arrived[issue1_warp_id] | issue1_mask);
                 `endif
             end
-            // Check all warps at barrier and release
+            
+            // Check if all active threads have arrived at bar.sync and stall warp
+            // Inline combinational logic to account for same-cycle updates
+            for (w = 0; w < NUM_WARPS; w = w + 1) begin
+                if (bar_sync_pending[w] && !warp_stalled_sync[w]) begin
+                    // Check if all ACTIVE threads have arrived (including this cycle)
+                    // total_arrived = bar_sync_arrived[w] | (threads arriving this cycle)
+                    if (((bar_sync_arrived[w] |
+                          ((issue_valid && issue_sync_op && !issue_bar_warp_sync && issue_warp_id == w) ? issue_mask : {NUM_LANES{1'b0}}) |
+                          ((issue1_valid && issue1_sync_op && !issue1_bar_warp_sync && issue1_warp_id == w) ? issue1_mask : {NUM_LANES{1'b0}}))
+                         & warp_mask[w]) == warp_mask[w]) begin
+                        warp_stalled_sync[w] <= 1'b1;
+                        `ifdef SIMULATION
+                        $display("[SM%0d] bar.sync: warp=%0d all active threads arrived, stalling", SM_ID, w);
+                        `endif
+                    end
+                end
+            end
+            
+            // Release all warps when global barrier completes (all warps at barrier)
             if (all_at_barrier) begin
                 `ifdef SIMULATION
                 $display("[SM%0d] all_at_barrier=1, releasing all warps! stalled=%04b valid=%04b pending=%b",
@@ -5544,9 +5579,12 @@ module streaming_multiprocessor_v2 #(
                 `endif
                 for (w = 0; w < NUM_WARPS; w = w + 1) begin
                     warp_stalled_sync[w] <= 1'b0;
+                    bar_sync_pending[w] <= 1'b0;
+                    bar_sync_arrived[w] <= {NUM_LANES{1'b0}};
                 end
             end
 
+            //================================================================
             //================================================================
             // Warp-level sync barrier (bar.warp.sync)
             //================================================================
