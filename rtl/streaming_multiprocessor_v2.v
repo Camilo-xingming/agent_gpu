@@ -5286,12 +5286,12 @@ module streaming_multiprocessor_v2 #(
 
             // Branch stall management: set stall when branch is scheduled, clear when it resolves
             // Set stall when branch is issued from scheduler
-            if (issue0_fire && pd_is_branch[sched_issue_warp_id[0]] && !branch_flush_dec0) begin
-                warp_stalled_branch[sched_issue_warp_id[0]] <= 1'b1;
-            end
-            if (issue1_fire && pd_is_branch[sched_issue_warp_id[1]] && !branch_flush_dec1) begin
-                warp_stalled_branch[sched_issue_warp_id[1]] <= 1'b1;
-            end
+// DISABLED:             if (issue0_fire && pd_is_branch[sched_issue_warp_id[0]] && !branch_flush_dec0) begin
+// DISABLED:                 warp_stalled_branch[sched_issue_warp_id[0]] <= 1'b1;
+// DISABLED:             end
+// DISABLED:             if (issue1_fire && pd_is_branch[sched_issue_warp_id[1]] && !branch_flush_dec1) begin
+// DISABLED:                 warp_stalled_branch[sched_issue_warp_id[1]] <= 1'b1;
+// DISABLED:             end
 
             // Branch handling (uses combinational simple_branch_taken for immediate response)
             if (issue_valid && issue_branch_op) begin

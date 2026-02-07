@@ -256,6 +256,10 @@ module atomic_unit #(
 
                 WRITE_WAIT: begin
                     if (mem_ready) begin
+                        `ifdef SIMULATION
+                        $display("[%0t ATOMIC] Lane %0d WRITE done: addr=0x%08x old=0x%08x new=0x%08x",
+                                 $time, current_lane, addr_lane, old_value, new_value);
+                        `endif
                         mem_req <= 1'b0;
                         begin : write_done
                             integer i;

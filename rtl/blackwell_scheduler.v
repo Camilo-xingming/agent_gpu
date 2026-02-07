@@ -366,7 +366,8 @@ module blackwell_scheduler #(
             for (sb_s = 0; sb_s < NUM_SCHEDULERS; sb_s = sb_s + 1) begin
                 if (issue_valid_r[sb_s]) begin
                     // Standard register scoreboard update
-                    if (warp_writes_reg[issue_warp_r[sb_s]]) begin
+                    // Don't track R0 in scoreboard (R0 is hardwired to zero)
+                    if (warp_writes_reg[issue_warp_r[sb_s]] && warp_rd[issue_warp_r[sb_s]] != 5'b0) begin
                         scoreboard[issue_warp_r[sb_s]][warp_rd[issue_warp_r[sb_s]]] <= 1'b1;
                     end
 

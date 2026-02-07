@@ -10,6 +10,12 @@
 
 module tb_atomic_contention_minimal;
     localparam CLK_PERIOD = 10;
+    // VCD waveform dump
+    initial begin
+        $dumpfile("atomic_test.vcd");
+        $dumpvars(0, tb_atomic_contention_minimal);
+    end
+
     localparam TIMEOUT_CYCLES = 300000;
 
     localparam GMEM_BASE = 32'h0000_1000;
@@ -22,6 +28,9 @@ module tb_atomic_contention_minimal;
     reg rst_n;
 
     initial begin
+    $dumpfile("atomic_contention.vcd");
+    $dumpvars(0, tb_atomic_contention_minimal);
+    // Waveform debugging enabled
         clk = 0;
         forever #(CLK_PERIOD/2) clk = ~clk;
     end
@@ -122,6 +131,9 @@ module tb_atomic_contention_minimal;
     integer imem_i;
 
     initial begin
+    $dumpfile("atomic_contention.vcd");
+    $dumpvars(0, tb_atomic_contention_minimal);
+    // Waveform debugging enabled
         for (imem_i = 0; imem_i < 4096; imem_i = imem_i + 1) begin
             imem[imem_i] = 32'h00000000;
         end
@@ -161,6 +173,9 @@ module tb_atomic_contention_minimal;
 
     integer gmem_i;
     initial begin
+    $dumpfile("atomic_contention.vcd");
+    $dumpvars(0, tb_atomic_contention_minimal);
+    // Waveform debugging enabled
         for (gmem_i = 0; gmem_i < 16384; gmem_i = gmem_i + 1) begin
             global_mem[gmem_i] = 32'h0;
         end
@@ -258,6 +273,9 @@ module tb_atomic_contention_minimal;
     reg [31:0] counter;
 
     initial begin
+    $dumpfile("atomic_contention.vcd");
+    $dumpvars(0, tb_atomic_contention_minimal);
+    // Waveform debugging enabled
         $display("=== Atomic Contention Minimal Test ===");
         reset_dut();
         #50;
@@ -268,7 +286,7 @@ module tb_atomic_contention_minimal;
         write_csr(12'h00C, 32'd1);    // GRID_DIM_X
         write_csr(12'h010, 32'd1);    // GRID_DIM_Y
         write_csr(12'h014, 32'd1);    // GRID_DIM_Z
-        write_csr(12'h018, 32'd128);  // BLOCK_DIM_X
+        write_csr(12'h018, 32'd32);  // BLOCK_DIM_X
         write_csr(12'h01C, 32'd1);    // BLOCK_DIM_Y
         write_csr(12'h020, 32'd1);    // BLOCK_DIM_Z
         write_csr(12'h008, 32'd0);    // KERNEL_PC
