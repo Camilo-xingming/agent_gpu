@@ -533,3 +533,13 @@ help:
 #============================================================================
 # NUM_SM=4 make sim  - 使用4个SM仿真
 # 注意: 需要修改gpu_defines.vh中的参数
+
+# warp_inst_valid_d1 stall scenario test
+test_warp_valid_d1: $(BUILD_DIR)/tb_warp_inst_valid_d1.vvp
+	@echo "========================================"
+	@echo "Running warp_inst_valid_d1 Stall Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_warp_inst_valid_d1.vvp
+
+$(BUILD_DIR)/tb_warp_inst_valid_d1.vvp: $(TB_DIR)/tb_warp_inst_valid_d1.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_warp_inst_valid_d1.v
