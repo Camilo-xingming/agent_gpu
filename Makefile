@@ -286,6 +286,7 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/warp_shuffle.v \
 	$(RTL_DIR)/atomic_unit.v \
 	$(RTL_DIR)/async_copy_engine.v \
+	$(RTL_DIR)/tma_unit.v \
 	$(RTL_DIR)/mbarrier_unit.v \
 	$(RTL_DIR)/wgmma.v \
 	$(RTL_DIR)/wgmma_tile_engine.v \
