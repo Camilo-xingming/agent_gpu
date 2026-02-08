@@ -45,6 +45,7 @@ module mul_unit (
     // 两级流水线实现 (可选，用于提高频率)
     //------------------------------------------------------------------------
     reg [63:0] mul_reg;
+    reg [31:0] mul24_reg;
     reg [31:0] operand_c_reg;
     reg [31:0] div_reg_s, div_reg_u;
     reg [31:0] rem_reg_s, rem_reg_u;
@@ -57,6 +58,7 @@ module mul_unit (
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             mul_reg <= 64'b0;
+            mul24_reg <= 32'b0;
             operand_c_reg <= 32'b0;
             div_reg_s <= 32'b0;
             div_reg_u <= 32'b0;
@@ -67,6 +69,7 @@ module mul_unit (
             valid_reg <= 1'b0;
         end else begin
             mul_reg <= mul_result;
+            mul24_reg <= mul24_lo;
             operand_c_reg <= operand_c;
             div_reg_s <= div_result_s;
             div_reg_u <= div_result_u;
@@ -101,8 +104,8 @@ module mul_unit (
                     `FUNC_MUL_HI: result <= mul_reg[63:32];
                     `FUNC_MAD_LO: result <= mul_reg[31:0] + operand_c_reg;
                     `FUNC_MAD_HI: result <= mul_reg[63:32] + operand_c_reg;
-                    `FUNC_MUL24:  result <= mul24_lo;
-                    `FUNC_MAD24:  result <= mul24_lo + operand_c_reg;
+                    `FUNC_MUL24:  result <= mul24_reg;
+                    `FUNC_MAD24:  result <= mul24_reg + operand_c_reg;
                     `FUNC_MAD_LO_CC: begin
                         {carry_out_dummy, result} <= mul_reg[31:0] + operand_c_reg;
                     end

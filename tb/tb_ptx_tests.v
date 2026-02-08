@@ -17,7 +17,7 @@ module tb_ptx_tests;
     // Parameters
     //------------------------------------------------------------------------
     localparam CLK_PERIOD = 10;  // 100 MHz
-    localparam TIMEOUT_CYCLES = 200000;  // Per-test timeout
+    localparam TIMEOUT_CYCLES = 50000;  // Per-test timeout (reduced for faster debug)
 
     // Memory layout
     localparam IMEM_BASE = 32'h0000_0000;

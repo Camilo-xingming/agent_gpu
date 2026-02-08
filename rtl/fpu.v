@@ -232,9 +232,38 @@ module fpu (
                     end else if (b_is_inf) begin
                         result <= {sign_a ^ sign_b, 31'h0};
                     end else begin
-                        // 实际除法需要迭代实现，这里简化为近似
-                        result <= {sign_a ^ sign_b, 8'd127, 23'h0};
-                        inexact <= 1'b1;
+                        // FP32 division via mantissa long division
+                        begin : div_block
+                            reg [47:0] dnd;
+                            reg [23:0] dvr;
+                            reg [24:0] dq;
+                            reg [9:0]  dexp;
+                            integer    di;
+
+                            dnd = {1'b0, 1'b1, man_a, 24'b0};  // 1.man_a << 24
+                            dvr = {1'b1, man_b};                 // 1.man_b
+                            dq  = 0;
+
+                            for (di = 24; di >= 0; di = di - 1) begin
+                                if ({1'b0, dnd[47:24]} >= {1'b0, dvr}) begin
+                                    dq[di] = 1'b1;
+                                    dnd[47:24] = dnd[47:24] - dvr;
+                                end
+                                if (di > 0) dnd = dnd << 1;
+                            end
+
+                            dexp = {2'b0, exp_a} - {2'b0, exp_b} + 10'd127;
+
+                            if (dq[24]) begin
+                                // Quotient in [1.0, 2.0): normal case
+                                result <= {sign_a ^ sign_b, dexp[7:0], dq[23:1]};
+                            end else begin
+                                // Quotient in [0.5, 1.0): shift left, decrement exponent
+                                result <= {sign_a ^ sign_b, dexp[7:0] - 8'd1, dq[22:0]};
+                            end
+
+                            if (dnd != 0) inexact <= 1'b1;
+                        end
                     end
                 end
 

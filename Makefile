@@ -445,6 +445,13 @@ test: test_alu test_mul test_decoder test_regfile test_smem test_warp
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
 
+test_ptx: $(BUILD_DIR)
+	@echo "========================================"
+	@echo "Running PTX Comprehensive Test Suite"
+	@echo "========================================"
+	$(IVERILOG) -g2012 $(INCLUDES) -o $(BUILD_DIR)/tb_ptx_tests $(TB_DIR)/tb_ptx_tests.v $(filter %.v,$(RTL_SRCS))
+	cd $(BUILD_DIR) && $(VVP) tb_ptx_tests
+
 test_all: test test_vector_add test_multi_sm sim
 	@echo "========================================"
 	@echo "All Tests Completed (Unit + Integration)"
