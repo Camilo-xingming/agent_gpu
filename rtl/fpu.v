@@ -255,10 +255,10 @@ module fpu (
                             dexp = {2'b0, exp_a} - {2'b0, exp_b} + 10'd127;
 
                             if (dq[24]) begin
-                                // Quotient in [1.0, 2.0): normal case
+                                // Quotient >= 1.0: normal case
                                 result <= {sign_a ^ sign_b, dexp[7:0], dq[23:1]};
                             end else begin
-                                // Quotient in [0.5, 1.0): shift left, decrement exponent
+                                // Quotient < 1.0: shift left, decrement exponent
                                 result <= {sign_a ^ sign_b, dexp[7:0] - 8'd1, dq[22:0]};
                             end
 
