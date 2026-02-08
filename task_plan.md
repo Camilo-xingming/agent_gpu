@@ -15,14 +15,14 @@ Create comprehensive PTX test suite with:
 |------|-------------|--------------|--------|
 | test_01_alu_basic | ADD, SUB, AND, OR, XOR, NOT, SHL, SHR | 46 | PASS |
 | test_02_alu_extended | MIN, MAX, ABS, NEG, POPC, CLZ, BREV | 43 | PASS |
-| test_03_multiply | MUL.LO, MUL.HI, MAD.LO, MUL24, MAD24 | 41 | FAIL |
-| test_04_fp32_arith | ADD.F32, SUB.F32, MUL.F32, DIV.F32, FMA | 39 | FAIL |
+| test_03_multiply | MUL.LO, MUL.HI, MAD.LO, MUL24, MAD24 | 41 | PASS (fixed 2026-02-07: mul24 pipeline bug) |
+| test_04_fp32_arith | ADD.F32, SUB.F32, MUL.F32, DIV.F32, FMA | 39 | PASS (fixed 2026-02-07: FP32 div impl) |
 | test_05_fp32_special | RCP, SQRT, MIN, MAX, ABS, NEG | 40 | PASS |
-| test_06_fp16_arith | FP16 arithmetic operations | 39 | FAIL |
+| test_06_fp16_arith | FP16 arithmetic operations | 39 | PASS (fixed earlier) |
 | test_07_memory_global | LD.GLOBAL, ST.GLOBAL | 43 | PASS |
-| test_08_memory_shared | LD.SHARED, ST.SHARED | 47 | TIMEOUT |
-| test_09_atomic | ATOM.ADD, ATOM.CAS, etc. | 76 | TIMEOUT |
-| test_10_cvt | Type conversion CVT operations | 53 | FAIL |
+| test_08_memory_shared | LD.SHARED, ST.SHARED | 47 | PASS (fixed earlier) |
+| test_09_atomic | ATOM.ADD, ATOM.CAS, etc. | 76 | FAIL (0xDEAD) |
+| test_10_cvt | Type conversion CVT operations | 53 | FAIL (0xDEAD) |
 | test_11_special_regs | %laneid, %warpid, %smid | 26 | PASS |
 | test_12_setp_compare | SETP comparison operations | 40 | - |
 | test_13_video_ops | VADD4, VSUB4, DP4A | 92 | - |
