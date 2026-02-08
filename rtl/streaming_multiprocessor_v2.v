@@ -1158,6 +1158,17 @@ module streaming_multiprocessor_v2 #(
         end
     end
 
+    // Delay warp_inst_buf_valid by 1 cycle to avoid same-cycle set/consume race
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            warp_inst_valid_d1 <= {NUM_WARPS{1'b0}};
+        end else if (kernel_start) begin
+            warp_inst_valid_d1 <= {NUM_WARPS{1'b0}};
+        end else begin
+            warp_inst_valid_d1 <= warp_inst_buf_valid;
+        end
+    end
+
     // GTO warp selection
     always @(*) begin
         warp_selected = 1'b0;
@@ -1279,6 +1290,7 @@ module streaming_multiprocessor_v2 #(
     // Per-warp Instruction Buffers
     reg [31:0] warp_inst_buf [0:NUM_WARPS-1];
     reg [NUM_WARPS-1:0] warp_inst_buf_valid;
+    reg [NUM_WARPS-1:0] warp_inst_valid_d1;
     wire [NUM_WARPS-1:0] warp_inst_consume;
 
     // Fetch Arbitration - Pipelined Fetch Architecture
@@ -1633,7 +1645,7 @@ module streaming_multiprocessor_v2 #(
         .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
         .warp_at_barrier(warp_stalled_sync),
         .warp_inst(warp_inst_buf),
-        .warp_inst_valid(warp_inst_buf_valid),
+        .warp_inst_valid(warp_inst_valid_d1),
         .warp_inst_consume(warp_inst_consume),
         .warp_rd(pd_rd),
         .warp_rs1(pd_rs1),
@@ -1690,7 +1702,7 @@ module streaming_multiprocessor_v2 #(
         .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
         .warp_at_barrier(warp_stalled_sync),
         .warp_inst(warp_inst_buf),
-        .warp_inst_valid(warp_inst_buf_valid),
+        .warp_inst_valid(warp_inst_valid_d1),
         .warp_inst_consume(warp_inst_consume),
         .warp_rd(pd_rd),
         .warp_rs1(pd_rs1),
@@ -5286,12 +5298,12 @@ module streaming_multiprocessor_v2 #(
 
             // Branch stall management: set stall when branch is scheduled, clear when it resolves
             // Set stall when branch is issued from scheduler
-// DISABLED:             if (issue0_fire && pd_is_branch[sched_issue_warp_id[0]] && !branch_flush_dec0) begin
-// DISABLED:                 warp_stalled_branch[sched_issue_warp_id[0]] <= 1'b1;
-// DISABLED:             end
-// DISABLED:             if (issue1_fire && pd_is_branch[sched_issue_warp_id[1]] && !branch_flush_dec1) begin
-// DISABLED:                 warp_stalled_branch[sched_issue_warp_id[1]] <= 1'b1;
-// DISABLED:             end
+// DISABLED: // DISABLED:             if (issue0_fire && pd_is_branch[sched_issue_warp_id[0]] && !branch_flush_dec0) begin
+// DISABLED: // DISABLED:                 warp_stalled_branch[sched_issue_warp_id[0]] <= 1'b1;
+// DISABLED: // DISABLED:             end
+// DISABLED: // DISABLED:             if (issue1_fire && pd_is_branch[sched_issue_warp_id[1]] && !branch_flush_dec1) begin
+// DISABLED: // DISABLED:                 warp_stalled_branch[sched_issue_warp_id[1]] <= 1'b1;
+// DISABLED: // DISABLED:             end
 
             // Branch handling (uses combinational simple_branch_taken for immediate response)
             if (issue_valid && issue_branch_op) begin
