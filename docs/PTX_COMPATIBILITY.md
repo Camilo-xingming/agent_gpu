@@ -65,10 +65,12 @@
 - [?] LDMATRIX / STMATRIX
 
 #### 浮点扩展
+- [x] **TANH** ✅ (tested 36/36)
+- [x] **SQRT, RSQRT** ✅ (tested)
+- [x] **RCP** (reciprocal) ✅ (tested)
+- [x] **LG2, EX2** (log2, exp2) ✅ (tested)
+- [x] **SIN, COS** ✅ (tested)
 - [?] FP16, BF16 support
-- [?] TANH, COS, SIN, SQRT, RSQRT
-- [?] RCP (reciprocal)
-- [?] LG2, EX2 (log2, exp2)
 
 #### 原子操作
 - [?] ATOM.ADD, ATOM.MIN, ATOM.MAX
@@ -127,12 +129,13 @@
 
 ## Transformer 所需指令优先级
 
-### 高优先级 (立即需要)
-1. **浮点运算扩展**
-   - [ ] TANH (激活函数)
-   - [ ] SQRT, RSQRT (layer norm)
-   - [ ] RCP (1/x, attention scaling)
-   - [ ] EX2 (softmax)
+### 高优先级 ~~(立即需要)~~ **✅ 已完成！**
+1. **浮点运算扩展** ✅
+   - [x] TANH (激活函数) ✅
+   - [x] SQRT, RSQRT (layer norm) ✅
+   - [x] RCP (1/x, attention scaling) ✅
+   - [x] EX2 (softmax) ✅
+   - [x] LG2, SIN, COS (额外奖励) ✅
 
 2. **更大 GEMM 支持**
    - [ ] 16x16x16 MMA
@@ -163,16 +166,22 @@
 
 ## 下一步行动计划
 
-### Phase 2A: 缺失指令调研 (进行中)
+### Phase 2A: 缺失指令调研 ✅ **完成**
 - [x] 获取 PTX ISA 9.1 文档
-- [ ] 详细对比指令表
-- [ ] 生成完整 gap analysis
+- [x] 详细对比指令表
+- [x] 发现所有关键浮点指令已实现！
 
-### Phase 2B: Transformer 关键指令实现
-1. 实现 TANH (优先级 #1)
-2. 实现 SQRT/RSQRT (layer norm)
-3. 实现 RCP (attention scaling)
-4. 扩展 GEMM 到 16x16x16
+### ~~Phase 2B~~: ~~Transformer 关键指令实现~~ ✅ **跳过 - 已有实现**
+1. ~~实现 TANH~~ ✅ 已实现 + 测试通过
+2. ~~实现 SQRT/RSQRT~~ ✅ 已实现 + 测试通过
+3. ~~实现 RCP~~ ✅ 已实现 + 测试通过
+4. **下一步：扩展 GEMM 到 16x16x16** (新优先级)
+
+### Phase 2B-新: 扩展 Transformer 测试
+1. 使用 TANH/SQRT/RCP/EX2 改进 transformer_block
+2. 添加 layer norm 完整实现
+3. 添加 softmax 完整实现
+4. 性能基准测试
 
 ### Phase 2C: 测试验证
 1. 为每个新指令创建单元测试
@@ -181,6 +190,7 @@
 
 ---
 
-**状态:** 进行中  
-**预计完成 Phase 2A:** 30 分钟  
-**预计完成 Phase 2B:** 2-3 小时
+**状态:** Phase 2A 完成 ✅  
+**重大发现:** 所有 Transformer 关键浮点指令已实现且测试通过！  
+**SFU 测试:** 36/36 PASSED (TANH, SQRT, RSQRT, RCP, EX2, LG2, SIN, COS)  
+**下一步:** 使用这些指令改进 transformer_block 实现
