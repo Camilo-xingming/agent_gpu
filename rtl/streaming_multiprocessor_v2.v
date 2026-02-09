@@ -3113,7 +3113,7 @@ module streaming_multiprocessor_v2 #(
             tensor_issue_count <= {TENSOR_ISSUE_COUNT_W{1'b0}};
         end else begin
 `ifdef SIMULATION
-            if (\$time < 100000) // was: if ((tensor_issue_push_fire || tensor_issue_pop_fire || tensor_wbq_push_fire || (tensor_wbq_pop && wb_found && wb_sel == 4'd6)))
+            if ($time < 100000) // was: if ((tensor_issue_push_fire || tensor_issue_pop_fire || tensor_wbq_push_fire || (tensor_wbq_pop && wb_found && wb_sel == 4'd6)))
                 $display("[%0t] TDEBUG: iq_cnt=%0d push=%b pop=%b tc_rdy=%b wbq_full=%b meta_full=%b wbq_push=%b wbq_pop=%b tc_vout=%b pfu=[%0d,%0d,%0d,%0d]",
                     $time, tensor_issue_count, tensor_issue_push_fire, tensor_issue_pop_fire,
                     tensor_ready, tensor_wbq_full, tensor_meta_full,
