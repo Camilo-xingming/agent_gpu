@@ -1746,8 +1746,8 @@ module streaming_multiprocessor_v2 #(
     
     // Map Scheduler Output to Pipeline Signals
     // Gate issue fire by decode stall — don't accept new instructions while stalled
-    assign issue0_fire = sched_issue_valid_mask[0];
-    assign issue1_fire = sched_issue_valid_mask[1];
+    assign issue0_fire = sched_issue_valid_mask[0] && !decode_stalled_any;
+    assign issue1_fire = sched_issue_valid_mask[1] && !decode_stalled_any;
 
     // DEBUG: Scheduler output
     always @(posedge clk) begin
@@ -1778,7 +1778,7 @@ module streaming_multiprocessor_v2 #(
                 dec0_valid <= 0;
             end else begin
                 dec0_valid <= decode_stalled ? 1'b1 : issue0_fire;  // Hold if stalled
-                if (issue0_fire) begin
+                if (issue0_fire && !decode_stalled_any) begin
                     dec0_warp_id <= sched_issue_warp_id[0];
                     dec0_instruction <= sched_issue_inst[0];
                     dec0_pc <= warp_pc[sched_issue_warp_id[0]]; // Capture current PC
@@ -5888,6 +5888,20 @@ module streaming_multiprocessor_v2 #(
     end
     `endif
 
+
+// META QUEUE BOOKKEEPING DEBUG
+`ifdef SIMULATION
+always @(posedge clk) begin
+    if (rst_n) begin
+        if (tensor_issue_pop_fire)
+            $display("[%0t] META_PUSH: iq_warp=%0d iq_rd=%0d", $time, tensor_issue_warp, tensor_issue_rd);
+        if (tensor_wbq_push_fire)
+            $display("[%0t] META_POP: meta_warp=%0d meta_rd=%0d -> WBQ", $time, tensor_meta_warp, tensor_meta_rd);
+        if (wb_valid && wb_sel == 4'd6)
+            $display("[%0t] TENSOR_WB: warp=%0d rd=%0d", $time, wb_warp_id, wb_rd);
+    end
+end
+`endif
 endmodule
 
 
@@ -5953,6 +5967,20 @@ module simd_fp16 #(
     endgenerate
 
     assign ready = 1'b1;
+
+// META QUEUE BOOKKEEPING DEBUG
+`ifdef SIMULATION
+always @(posedge clk) begin
+    if (rst_n) begin
+        if (tensor_issue_pop_fire)
+            $display("[%0t] META_PUSH: iq_warp=%0d iq_rd=%0d", $time, tensor_issue_warp, tensor_issue_rd);
+        if (tensor_wbq_push_fire)
+            $display("[%0t] META_POP: meta_warp=%0d meta_rd=%0d -> WBQ", $time, tensor_meta_warp, tensor_meta_rd);
+        if (wb_valid && wb_sel == 4'd6)
+            $display("[%0t] TENSOR_WB: warp=%0d rd=%0d", $time, wb_warp_id, wb_rd);
+    end
+end
+`endif
 endmodule
 
 
@@ -6026,4 +6054,18 @@ module wb_fifo #(
         end
     end
 
+
+// META QUEUE BOOKKEEPING DEBUG
+`ifdef SIMULATION
+always @(posedge clk) begin
+    if (rst_n) begin
+        if (tensor_issue_pop_fire)
+            $display("[%0t] META_PUSH: iq_warp=%0d iq_rd=%0d", $time, tensor_issue_warp, tensor_issue_rd);
+        if (tensor_wbq_push_fire)
+            $display("[%0t] META_POP: meta_warp=%0d meta_rd=%0d -> WBQ", $time, tensor_meta_warp, tensor_meta_rd);
+        if (wb_valid && wb_sel == 4'd6)
+            $display("[%0t] TENSOR_WB: warp=%0d rd=%0d", $time, wb_warp_id, wb_rd);
+    end
+end
+`endif
 endmodule
