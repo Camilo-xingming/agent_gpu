@@ -220,7 +220,7 @@ module streaming_multiprocessor_v2 #(
         input [WARP_ID_W-1:0] warp_id;
         input [4:0] rd;
         input [NUM_LANES-1:0] mask;
-        input [2:0] op_type;
+        input [3:0] op_type;
         input [SIMD_WIDTH-1:0] frag_a;
         input [SIMD_WIDTH-1:0] frag_b;
         input [SIMD_WIDTH-1:0] frag_c;
@@ -3074,7 +3074,7 @@ module streaming_multiprocessor_v2 #(
     // Tensor issue queue (captures operands/metadata to align with TC readiness)
     assign tensor_issue_push = issue_valid && issue_tensor_op;
     assign tensor_issue_push_data = pack_tensor_issue(issue_warp_id, issue_rd,
-                                                      issue_mask, issue_func[2:0],
+                                                      issue_mask, issue_func[3:0],
                                                       rf_rd_data_a, rf_rd_data_b,
                                                       rf_rd_data_c);
 
