@@ -5886,7 +5886,6 @@ module streaming_multiprocessor_v2 #(
     end
     `endif
 
-end
 endmodule
 
 
