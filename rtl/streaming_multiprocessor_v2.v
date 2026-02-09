@@ -5968,19 +5968,6 @@ module simd_fp16 #(
 
     assign ready = 1'b1;
 
-// META QUEUE BOOKKEEPING DEBUG
-`ifdef SIMULATION
-always @(posedge clk) begin
-    if (rst_n) begin
-        if (tensor_issue_pop_fire)
-            $display("[%0t] META_PUSH: iq_warp=%0d iq_rd=%0d", $time, tensor_issue_warp, tensor_issue_rd);
-        if (tensor_wbq_push_fire)
-            $display("[%0t] META_POP: meta_warp=%0d meta_rd=%0d -> WBQ", $time, tensor_meta_warp, tensor_meta_rd);
-        if (wb_valid && wb_sel == 4'd6)
-            $display("[%0t] TENSOR_WB: warp=%0d rd=%0d", $time, wb_warp_id, wb_rd);
-    end
-end
-`endif
 endmodule
 
 
@@ -6055,17 +6042,4 @@ module wb_fifo #(
     end
 
 
-// META QUEUE BOOKKEEPING DEBUG
-`ifdef SIMULATION
-always @(posedge clk) begin
-    if (rst_n) begin
-        if (tensor_issue_pop_fire)
-            $display("[%0t] META_PUSH: iq_warp=%0d iq_rd=%0d", $time, tensor_issue_warp, tensor_issue_rd);
-        if (tensor_wbq_push_fire)
-            $display("[%0t] META_POP: meta_warp=%0d meta_rd=%0d -> WBQ", $time, tensor_meta_warp, tensor_meta_rd);
-        if (wb_valid && wb_sel == 4'd6)
-            $display("[%0t] TENSOR_WB: warp=%0d rd=%0d", $time, wb_warp_id, wb_rd);
-    end
-end
-`endif
 endmodule
