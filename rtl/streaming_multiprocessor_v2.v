@@ -1604,7 +1604,7 @@ module streaming_multiprocessor_v2 #(
     wire pipe_compute1_ready = 1'b1;
     // Tensor pipeline ready: both WMMA and WGMMA units must be ready
     // WGMMA shares the tensor pipeline, so stall if WGMMA unit is not ready
-    wire pipe_tensor_ready   = !tensor_issue_full && wgmma_ready;
+    wire pipe_tensor_ready   = !tensor_issue_full_next && wgmma_ready;
     // Memory pipeline ready only if no memory ops in flight AND not stalled
     // Also gate with ace_ready for cp.async backpressure (OP_CPASYNC is classified as memory)
     wire pipe_memory_ready   = (mem_pipe_inflight == 0) && !issue_stall_mem && ace_ready;
@@ -1732,10 +1732,14 @@ module streaming_multiprocessor_v2 #(
     );
 `endif
 
+    // Decode stall: when the decode stage has a valid instruction that can't proceed
+    // (e.g., tensor queue full), prevent the scheduler from overwriting it
+    wire decode_stalled = dec0_valid && !lane0_ready;
+    
     // Map Scheduler Output to Pipeline Signals
-    // Replaces dec0_fire / dec1_fire logic
-    assign issue0_fire = sched_issue_valid_mask[0];
-    assign issue1_fire = sched_issue_valid_mask[1];
+    // Gate issue fire by decode stall — don't accept new instructions while stalled
+    assign issue0_fire = sched_issue_valid_mask[0] && !decode_stalled;
+    assign issue1_fire = sched_issue_valid_mask[1] && !decode_stalled;
 
     // DEBUG: Scheduler output
     always @(posedge clk) begin
@@ -1765,7 +1769,7 @@ module streaming_multiprocessor_v2 #(
             if (branch_flush_dec0) begin
                 dec0_valid <= 0;
             end else begin
-                dec0_valid <= issue0_fire;
+                dec0_valid <= decode_stalled ? 1'b1 : issue0_fire;  // Hold if stalled
                 if (issue0_fire) begin
                     dec0_warp_id <= sched_issue_warp_id[0];
                     dec0_instruction <= sched_issue_inst[0];
@@ -2254,7 +2258,7 @@ module streaming_multiprocessor_v2 #(
         end else begin
             // Mark destination register as busy on issue
             // Note: Unlike RISC-V, CUDA/PTX R0 is a normal register, not hardwired to 0
-            if (issue0_fire && issue0_reg_write_sel) begin
+            if (lane0_ready && issue0_reg_write_sel) begin
                 scoreboard_busy[issue0_warp_sel][issue0_rd_sel] <= 1'b1;
             end
             if (issue1_fire && dec1_reg_write) begin
@@ -3232,6 +3236,7 @@ module streaming_multiprocessor_v2 #(
         .frag_b      (tensor_issue_frag_b),
         .frag_c      (tensor_issue_frag_c),
         .result_valid(tensor_valid_out),
+        .result_ready(tensor_wbq_push_fire),
         .result_data (tensor_result)
     );
 

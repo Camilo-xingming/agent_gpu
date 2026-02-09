@@ -595,6 +595,7 @@ module tensor_core #(
 
     // Result output
     output reg         result_valid,
+    input  wire        result_ready,
     output reg  [NUM_LANES*DATA_WIDTH-1:0] result_data
 );
 
@@ -1149,14 +1150,19 @@ module tensor_core #(
                 slot_type[s] <= 4'b0;
             end
         end else begin
-            result_valid <= 1'b0;
+            // Clear result_valid only when consumer accepts (valid/ready handshake)
+            if (result_valid && result_ready) begin
+                result_valid <= 1'b0;
+            end
 
             for (s = 0; s < TC_NUM_CORES; s = s + 1) begin
                 if (slot_valid[s]) begin
                     if (slot_count[s] > 1) begin
                         slot_count[s] <= slot_count[s] - 1'b1;
                     end else if (slot_count[s] == 1) begin
-                        if (done_sel_valid && (done_sel_idx == s[TC_CORE_W-1:0])) begin
+                        // Only retire slot when result port is free or being consumed
+                        if (done_sel_valid && (done_sel_idx == s[TC_CORE_W-1:0]) &&
+                            (!result_valid || result_ready)) begin
                             slot_valid[s] <= 1'b0;
                             slot_count[s] <= {TC_COUNT_W{1'b0}};
                         end
@@ -1173,7 +1179,8 @@ module tensor_core #(
                 slot_type[slot_free_idx] <= op_data_type;
             end
 
-            if (done_sel_valid) begin
+            // Only produce new result when output port is free or being consumed
+            if (done_sel_valid && (!result_valid || result_ready)) begin
                 result_valid <= 1'b1;
                 result_data <= mma_result_sel;
             end
