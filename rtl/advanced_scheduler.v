@@ -22,7 +22,6 @@ module advanced_warp_scheduler #(
     input  wire [NUM_WARPS-1:0]     warp_ready,         // Not stalled
     input  wire [NUM_WARPS-1:0]     warp_diverged,      // In divergent execution
     input  wire [NUM_WARPS-1:0]     warp_at_barrier,
-    input  wire                     pipeline_stalled,   // Decode stage cannot accept
 
     //------------------------------------------------------------------------
     // Instruction Buffer Interface (per warp)
@@ -308,7 +307,7 @@ module advanced_warp_scheduler #(
             issue_warp_r[0] = selected_tensor;
             `ifdef SIMULATION
             $display("[%0t SCHED] tensor select: warp=%0d ptr=%0d eligible=%04b pipe_stalled=%b",
-                     $time, selected_tensor, tensor_rr_ptr, tensor_eligible, pipeline_stalled);
+                     $time, selected_tensor, tensor_rr_ptr, tensor_eligible);
             `endif
             issue_inst_r[0] = warp_inst[selected_tensor];
             issue_pipe_r[0] = PIPE_TENSOR;
@@ -368,7 +367,7 @@ module advanced_warp_scheduler #(
     always @(*) begin
         warp_consume_r = 0;
         for (cons_i = 0; cons_i < NUM_ISSUE; cons_i = cons_i + 1) begin
-            if (issue_valid_r[cons_i] && !pipeline_stalled) begin
+            if (issue_valid_r[cons_i]) begin
                 warp_consume_r[issue_warp_r[cons_i]] = 1'b1;
             end
         end
@@ -396,7 +395,7 @@ module advanced_warp_scheduler #(
             // captured writes_reg flag (issue_writes_reg_r), NOT warp_rd/warp_writes_reg
             // which point to the current buffer contents (may differ if consumed same cycle)
             for (sb_w = 0; sb_w < NUM_ISSUE; sb_w = sb_w + 1) begin
-                if (issue_valid_r[sb_w] && issue_writes_reg_r[sb_w] && !pipeline_stalled) begin
+                if (issue_valid_r[sb_w] && issue_writes_reg_r[sb_w]) begin
                     // Extract rd from the captured instruction (bits 25:21 for R-type)
                     scoreboard[issue_warp_r[sb_w]][issue_inst_r[sb_w][25:21]] <= 1'b1;
                 end
@@ -408,7 +407,7 @@ module advanced_warp_scheduler #(
             end
 
             // Update round-robin pointers
-            if (issue_valid_r[0] && !pipeline_stalled) begin
+            if (issue_valid_r[0]) begin
                 case (issue_pipe_r[0])
                     PIPE_COMPUTE0, PIPE_COMPUTE1: compute_rr_ptr <= (issue_warp_r[0] + 1) % NUM_WARPS;
                     PIPE_TENSOR: tensor_rr_ptr <= (issue_warp_r[0] + 1) % NUM_WARPS;
