@@ -1312,7 +1312,7 @@ module streaming_multiprocessor_v2 #(
     // Effective buffer empty: consider same-cycle consumes
     wire [NUM_WARPS-1:0] warp_buf_will_be_empty;
     // Gate scheduler consume by decode_stalled so instructions are not lost when pipeline cannot accept
-    wire [NUM_WARPS-1:0] warp_inst_consume_gated = warp_inst_consume & {NUM_WARPS{~decode_stalled}};
+    wire [NUM_WARPS-1:0] warp_inst_consume_gated = warp_inst_consume & ~decode_stalled_per_warp;
     assign warp_buf_will_be_empty = ~warp_inst_buf_valid | warp_inst_consume_gated;
 
     // Warp needs fetch if: buffer will be empty AND no pending fetch
@@ -1736,7 +1736,11 @@ module streaming_multiprocessor_v2 #(
 
     // Decode stall: when the decode stage has a valid instruction that can't proceed
     // (e.g., tensor queue full), prevent the scheduler from overwriting it
-    wire decode_stalled = dec0_valid && !lane0_ready;
+    // Per-warp decode stall tracking
+    wire decode_stalled_any = dec0_valid && !lane0_ready;
+    wire [NUM_WARPS-1:0] decode_stalled_per_warp;
+    assign decode_stalled_per_warp = {NUM_WARPS{decode_stalled_any}} & (1 << dec0_warp_id);
+    wire decode_stalled = decode_stalled_any; // Keep for backward compat in single-warp cases
             // Track which warp is stalled so scheduler can filter it out
             wire [WARP_ID_W-1:0] stalled_warp_id = (dec0_valid && !lane0_ready) ? dec0_warp_id : {WARP_ID_W{1'b1}};
     
