@@ -143,7 +143,8 @@ module tb_sm_v2_perf_tensor_multiwarp;
         .DATA_WIDTH(DATA_WIDTH),
         .TC_NUM_CORES(TC_NUM_CORES),
         .TC_LATENCY(TC_LATENCY),
-        .INIT_WARPS(INIT_WARPS)
+        .INIT_WARPS(INIT_WARPS),
+        .ICACHE_BYPASS(1)
     ) dut (
         .clk           (clk),
         .rst_n         (rst_n),
@@ -285,6 +286,12 @@ module tb_sm_v2_perf_tensor_multiwarp;
                 end
                 if (dut.issue_valid) begin
                     issue_count <= issue_count + 1;
+                end
+                // Debug: check warp scheduling state every 1000 cycles
+                if (cycle_count < 100 || (cycle_count % 5000 == 0)) begin
+                    $display("[cycle %0d] warp_valid=%04b warp_ready=%04b buf_valid=%04b d1=%04b stalled=%b",
+                             cycle_count, dut.warp_valid, dut.warp_ready,
+                             dut.warp_inst_buf_valid, dut.warp_inst_valid_d1, dut.decode_stalled);
                 end
                 if (dut.lane0_stall_raw) begin
                     stall_raw <= stall_raw + 1;

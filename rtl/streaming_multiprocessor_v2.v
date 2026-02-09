@@ -1311,7 +1311,9 @@ module streaming_multiprocessor_v2 #(
 
     // Effective buffer empty: consider same-cycle consumes
     wire [NUM_WARPS-1:0] warp_buf_will_be_empty;
-    assign warp_buf_will_be_empty = ~warp_inst_buf_valid | warp_inst_consume;
+    // Gate scheduler consume by decode_stalled so instructions are not lost when pipeline cannot accept
+    wire [NUM_WARPS-1:0] warp_inst_consume_gated = warp_inst_consume & {NUM_WARPS{~decode_stalled}};
+    assign warp_buf_will_be_empty = ~warp_inst_buf_valid | warp_inst_consume_gated;
 
     // Warp needs fetch if: buffer will be empty AND no pending fetch
     wire [NUM_WARPS-1:0] warp_needs_fetch = warp_buf_will_be_empty & ~warp_fetch_pending;
@@ -1490,7 +1492,7 @@ module streaming_multiprocessor_v2 #(
                 if (warp_fill[w_buf]) begin
                     // Fill takes priority - buffer valid regardless of consume
                     warp_inst_buf_valid[w_buf] <= 1'b1;
-                end else if (warp_inst_consume[w_buf]) begin
+                end else if (warp_inst_consume_gated[w_buf]) begin
                     // Consume only clears if no fill happening
                     warp_inst_buf_valid[w_buf] <= 1'b0;
                 end
@@ -1644,6 +1646,7 @@ module streaming_multiprocessor_v2 #(
         .warp_ready(warp_ready),
         .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
         .warp_at_barrier(warp_stalled_sync),
+        .pipeline_stalled(decode_stalled),
         .warp_inst(warp_inst_buf),
         .warp_inst_valid(warp_inst_valid_d1),
         .warp_inst_consume(warp_inst_consume),
@@ -1701,6 +1704,7 @@ module streaming_multiprocessor_v2 #(
         .warp_ready(warp_ready),
         .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
         .warp_at_barrier(warp_stalled_sync),
+        .pipeline_stalled(decode_stalled),
         .warp_inst(warp_inst_buf),
         .warp_inst_valid(warp_inst_valid_d1),
         .warp_inst_consume(warp_inst_consume),
@@ -1735,6 +1739,8 @@ module streaming_multiprocessor_v2 #(
     // Decode stall: when the decode stage has a valid instruction that can't proceed
     // (e.g., tensor queue full), prevent the scheduler from overwriting it
     wire decode_stalled = dec0_valid && !lane0_ready;
+            // Track which warp is stalled so scheduler can filter it out
+            wire [WARP_ID_W-1:0] stalled_warp_id = (dec0_valid && !lane0_ready) ? dec0_warp_id : {WARP_ID_W{1'b1}};
     
     // Map Scheduler Output to Pipeline Signals
     // Gate issue fire by decode stall — don't accept new instructions while stalled
@@ -1810,7 +1816,7 @@ module streaming_multiprocessor_v2 #(
     // from the scheduler's decision.
 
     // dec0_fire triggers the decoder when we have a valid instruction in decode stage
-    wire dec0_fire = dec0_valid;
+    wire dec0_fire = dec0_valid && !decode_stalled;
     wire dec1_fire = dec1_valid;
 
     //------------------------------------------------------------------------
@@ -2115,7 +2121,13 @@ module streaming_multiprocessor_v2 #(
             // Issue stage triggers when decoder output is valid (dec_valid)
             // This ensures decoder has finished processing before we latch its outputs
             // Suppress issue if branch flush is active for this warp
-            issue_valid <= dec_valid && !branch_flush_dec0;
+            issue_valid <= dec_valid && !decode_stalled && !branch_flush_dec0;
+            // DEBUG: periodic warp scheduling state
+            if ($time < 10000000 && $time % 100000 == 0) begin
+                $display("[%0t SM%0d DEBUG] warp_valid=%04b warp_ready=%04b inst_buf_valid=%04b inst_valid_d1=%04b decode_stalled=%b",
+                         $time, SM_ID, warp_valid, warp_ready, warp_inst_buf_valid, warp_inst_valid_d1, decode_stalled);
+            end
+
             issue1_valid <= dec1_dec_valid && !branch_flush_dec1;  // Set from decoder output
             if (dec_valid && !branch_flush_dec0) begin
                 // With the new scheduler flow, always use lane 0's decoder output
@@ -2288,10 +2300,12 @@ module streaming_multiprocessor_v2 #(
             end
 
             // Increment pending FU count for multi-cycle operations
-            if (issue0_fire && (issue0_fp32_sel || issue0_fp64_sel || issue0_fp16_sel ||
-                                issue0_sfu_sel || issue0_tensor_sel || issue0_mem_read_sel ||
-                                issue0_atomic_sel)) begin
-                pending_fu_count[issue0_warp_sel] <= pending_fu_count[issue0_warp_sel] + 1;
+            // Use issue stage (issue_valid) instead of scheduler stage (issue0_fire)
+            // to avoid stale decoder output causing double-counting on stall transitions
+            if (issue_valid && (issue_fp32_op || issue_fp64_op || issue_fp16_op ||
+                                issue_sfu_op || issue_tensor_op || issue_mem_read ||
+                                issue_atomic_op)) begin
+                pending_fu_count[issue_warp_id] <= pending_fu_count[issue_warp_id] + 1;
             end
             if (issue1_fire && (dec1_fp32_op || dec1_fp64_op || dec1_fp16_op ||
                                 dec1_sfu_op || dec1_tensor_op || dec1_mem_read ||
@@ -3100,6 +3114,14 @@ module streaming_multiprocessor_v2 #(
         if (!rst_n) begin
             tensor_issue_count <= {TENSOR_ISSUE_COUNT_W{1'b0}};
         end else begin
+`ifdef SIMULATION
+            if (\$time < 100000) // was: if ((tensor_issue_push_fire || tensor_issue_pop_fire || tensor_wbq_push_fire || (tensor_wbq_pop && wb_found && wb_sel == 4'd6)))
+                $display("[%0t] TDEBUG: iq_cnt=%0d push=%b pop=%b tc_rdy=%b wbq_full=%b meta_full=%b wbq_push=%b wbq_pop=%b tc_vout=%b pfu=[%0d,%0d,%0d,%0d]",
+                    $time, tensor_issue_count, tensor_issue_push_fire, tensor_issue_pop_fire,
+                    tensor_ready, tensor_wbq_full, tensor_meta_full,
+                    tensor_wbq_push_fire, (tensor_wbq_pop && wb_found && wb_sel == 4'd6),
+                    tensor_valid_out, pending_fu_count[0], pending_fu_count[1], pending_fu_count[2], pending_fu_count[3]);
+`endif
             case ({tensor_issue_push_fire, tensor_issue_pop_fire})
                 2'b10: tensor_issue_count <= tensor_issue_count + 1'b1;
                 2'b01: tensor_issue_count <= tensor_issue_count - 1'b1;
@@ -5864,6 +5886,7 @@ module streaming_multiprocessor_v2 #(
     end
     `endif
 
+end
 endmodule
 
 
@@ -6001,4 +6024,5 @@ module wb_fifo #(
             endcase
         end
     end
+
 endmodule

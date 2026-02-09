@@ -31,6 +31,7 @@ module blackwell_scheduler #(
     input  wire [NUM_WARPS-1:0]     warp_ready,         // Not stalled
     input  wire [NUM_WARPS-1:0]     warp_diverged,      // In divergent execution
     input  wire [NUM_WARPS-1:0]     warp_at_barrier,
+    input  wire                     pipeline_stalled,   // Decode stage cannot accept
 
     //------------------------------------------------------------------------
     // Instruction Buffer Interface (same as advanced_warp_scheduler)

@@ -1,0 +1,12 @@
+@@ -23,6 +23,11 @@
+     
+     initial begin
+         (build/atomic_test.vcd);
++        (0, tb_atomic_contention_minimal);
++        // Dump key signals
++        (1, u_dut.u_sm[0].u_atomic);
++        (1, u_dut.u_sm[0].atomic_q_push);
++        (1, u_dut.u_sm[0].atomic_q_mask);
+     end
+ 
+     // Clock generation
