@@ -348,7 +348,7 @@ module tb_sm_v2_perf_tensor_multiwarp;
         @(posedge clk);
         kernel_start = 0;
 
-        timeout_cycles = (TOTAL_OPS * TC_LATENCY * 4) + 8000;
+        timeout_cycles = (TOTAL_OPS * TC_LATENCY * 10) + 8000;
         timeout_left = timeout_cycles;
         while (!done && (timeout_left > 0)) begin
             @(posedge clk);

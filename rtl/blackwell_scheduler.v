@@ -103,6 +103,10 @@ module blackwell_scheduler #(
     // Writeback Interface (for scoreboard clearing)
     //------------------------------------------------------------------------
     input  wire                     pipeline_stall,
+    // Tensor scoreboard deferred SET: SM signals when tensor push actually succeeds
+    input  wire                     tensor_sb_set_valid,
+    input  wire [$clog2(NUM_WARPS)-1:0] tensor_sb_set_warp,
+    input  wire [4:0]               tensor_sb_set_rd,
     input  wire                     tensor_issue_conflict, // lane1 tensor suppressed by lane0
 
     input  wire                     wb_valid,
@@ -373,8 +377,10 @@ module blackwell_scheduler #(
                 if (issue_valid_r[sb_s] && !pipeline_stall && 
                     !(sb_s > 0 && tensor_issue_conflict)) begin
                     // Standard register scoreboard update
-                    // Don't track R0 in scoreboard (R0 is hardwired to zero)
-                    if (warp_writes_reg[issue_warp_r[sb_s]] && warp_rd[issue_warp_r[sb_s]] != 5'b0) begin
+                    // For tensor ops: defer scoreboard SET to tensor_sb_set feedback
+                    // (scoreboard set happens when SM's tensor push actually succeeds)
+                    if (warp_writes_reg[issue_warp_r[sb_s]] && warp_rd[issue_warp_r[sb_s]] != 5'b0 &&
+                        issue_pipe_r[sb_s] != PIPE_TENSOR) begin
                         scoreboard[issue_warp_r[sb_s]][warp_rd[issue_warp_r[sb_s]]] <= 1'b1;
                     end
 
@@ -476,17 +482,17 @@ module blackwell_scheduler #(
             // Debug output
             `ifdef SIMULATION
             if (cycle_count < 200) begin
-                $display("[%0t BLACKWELL_SCHED] cycle=%0d issue_valid=%b consume=%b num_issued=%0d async_mma=%0d",
+                if(0) $display("[%0t BLACKWELL_SCHED] cycle=%0d issue_valid=%b consume=%b num_issued=%0d async_mma=%0d",
                          $time, cycle_count, issue_valid_r, issue_consume_r, num_issued, num_async_mma_issued);
-                $display("  eligible=%b inst_valid=%b hazard=%b async_hazard=%b tmem_hazard=%b",
+                if(0) $display("  eligible=%b inst_valid=%b hazard=%b async_hazard=%b tmem_hazard=%b",
                          warp_eligible, warp_inst_valid, warp_has_hazard, warp_has_async_hazard, warp_has_tmem_hazard);
-                $display("  valid=%b ready=%b diverged=%b barrier=%b tcgen05=%b",
+                if(0) $display("  valid=%b ready=%b diverged=%b barrier=%b tcgen05=%b",
                          warp_valid, warp_ready, warp_diverged, warp_at_barrier, warp_is_tcgen05);
                 if (issue_valid_r[0])
-                    $display("  sched0: warp=%0d pipe=%0d inst=0x%08x async_mma=%b",
+                    if(0) $display("  sched0: warp=%0d pipe=%0d inst=0x%08x async_mma=%b",
                              issue_warp_r[0], issue_pipe_r[0], issue_inst_r[0], issue_is_async_mma_r[0]);
                 if (NUM_SCHEDULERS > 1 && issue_valid_r[1])
-                    $display("  sched1: warp=%0d pipe=%0d inst=0x%08x async_mma=%b",
+                    if(0) $display("  sched1: warp=%0d pipe=%0d inst=0x%08x async_mma=%b",
                              issue_warp_r[1], issue_pipe_r[1], issue_inst_r[1], issue_is_async_mma_r[1]);
             end
             `endif
