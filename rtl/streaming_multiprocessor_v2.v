@@ -1675,6 +1675,10 @@ module streaming_multiprocessor_v2 #(
         .tensor_pipe_ready(pipe_tensor_ready),
         .memory_pipe_ready(pipe_memory_ready),
         .branch_unit_ready(pipe_branch_ready),
+        // Detect tensor conflict: both scheduler slots selected tensor, but only one can push
+        .tensor_issue_conflict(sched_issue_valid_mask[0] && sched_issue_valid_mask[1] &&
+                               sched_issue_pipe[0] == 3'd2 && sched_issue_pipe[1] == 3'd2),
+        .pipeline_stall(decode_stalled_any),
         .issue_valid(sched_issue_valid_mask),
         .issue_warp_id(sched_issue_warp_id),
         .issue_inst(sched_issue_inst),
@@ -2309,10 +2313,10 @@ module streaming_multiprocessor_v2 #(
                                 issue_atomic_op)) begin
                 pending_fu_count[issue_warp_id] <= pending_fu_count[issue_warp_id] + 1;
             end
-            if (issue1_fire && (dec1_fp32_op || dec1_fp64_op || dec1_fp16_op ||
-                                dec1_sfu_op || dec1_tensor_op || dec1_mem_read ||
-                                dec1_atomic_op)) begin
-                pending_fu_count[dec1_warp_id] <= pending_fu_count[dec1_warp_id] + 1;
+            if (issue1_valid && (issue1_fp32_op || issue1_fp64_op || issue1_fp16_op ||
+                                issue1_sfu_op || issue1_tensor_op || issue1_mem_read ||
+                                issue1_atomic_op)) begin
+                pending_fu_count[issue1_warp_id] <= pending_fu_count[issue1_warp_id] + 1;
             end
 
             // Decrement pending count on writeback
@@ -3092,11 +3096,19 @@ module streaming_multiprocessor_v2 #(
     end
 
     // Tensor issue queue (captures operands/metadata to align with TC readiness)
-    assign tensor_issue_push = issue_valid && issue_tensor_op;
-    assign tensor_issue_push_data = pack_tensor_issue(issue_warp_id, issue_rd,
-                                                      issue_mask, issue_func[3:0],
-                                                      rf_rd_data_a, rf_rd_data_b,
-                                                      rf_rd_data_c);
+    // Tensor issue queue accepts from BOTH lanes (lane0 priority)
+    wire tensor_push_lane0 = issue_valid && issue_tensor_op;
+    wire tensor_push_lane1 = issue1_valid && issue1_tensor_op && !tensor_push_lane0;
+    assign tensor_issue_push = tensor_push_lane0 || tensor_push_lane1;
+    assign tensor_issue_push_data = tensor_push_lane0 ?
+        pack_tensor_issue(issue_warp_id, issue_rd,
+                          issue_mask, issue_func[3:0],
+                          rf_rd_data_a, rf_rd_data_b,
+                          rf_rd_data_c) :
+        pack_tensor_issue(issue1_warp_id, issue1_rd,
+                          issue1_mask, issue1_func[3:0],
+                          rf1_rd_data_a, rf1_rd_data_b,
+                          rf1_rd_data_c);
 
     assign tensor_issue_empty = (tensor_issue_count == 0);
     assign tensor_issue_full = (tensor_issue_count == TENSOR_ISSUE_DEPTH_VAL);

@@ -102,6 +102,9 @@ module blackwell_scheduler #(
     //------------------------------------------------------------------------
     // Writeback Interface (for scoreboard clearing)
     //------------------------------------------------------------------------
+    input  wire                     pipeline_stall,
+    input  wire                     tensor_issue_conflict, // lane1 tensor suppressed by lane0
+
     input  wire                     wb_valid,
     input  wire [$clog2(NUM_WARPS)-1:0] wb_warp_id,
     input  wire [4:0]               wb_rd,
@@ -341,7 +344,9 @@ module blackwell_scheduler #(
         end
     end
 
-    assign warp_inst_consume = issue_consume_r;
+    // Suppress consume when stalled OR when slot 1 tensor was suppressed
+    wire [NUM_WARPS-1:0] conflict_mask = tensor_issue_conflict ? (1 << issue_warp_r[1]) : {NUM_WARPS{1'b0}};
+    assign warp_inst_consume = pipeline_stall ? {NUM_WARPS{1'b0}} : (issue_consume_r & ~conflict_mask);
 
     //------------------------------------------------------------------------
     // Scoreboard Update (Enhanced for Blackwell async operations)
@@ -364,7 +369,9 @@ module blackwell_scheduler #(
             // Note: R0 is a normal register in GPU (not hardwired zero like RISC-V)
             // NOP/BAR_SYNC/etc. won't set scoreboard because warp_writes_reg=0 for them
             for (sb_s = 0; sb_s < NUM_SCHEDULERS; sb_s = sb_s + 1) begin
-                if (issue_valid_r[sb_s]) begin
+                // Skip scoreboard SET when pipeline stalled or when slot 1 tensor was suppressed
+                if (issue_valid_r[sb_s] && !pipeline_stall && 
+                    !(sb_s > 0 && tensor_issue_conflict)) begin
                     // Standard register scoreboard update
                     // Don't track R0 in scoreboard (R0 is hardwired to zero)
                     if (warp_writes_reg[issue_warp_r[sb_s]] && warp_rd[issue_warp_r[sb_s]] != 5'b0) begin
@@ -388,8 +395,9 @@ module blackwell_scheduler #(
                     // Note: dealloc is implicit on kernel exit, but tracked for safety
                     // tcgen05.dealloc is required before kernel exit
 
-                    // Update round-robin pointer for fairness
-                    sched_rr_ptr[sb_s] <= (sched_rr_ptr[sb_s] + 1) % WARPS_PER_SCHED;
+                    // Update round-robin pointer for fairness (gated by stall and conflict)
+                    if (!pipeline_stall && !(sb_s > 0 && tensor_issue_conflict))
+                        sched_rr_ptr[sb_s] <= (sched_rr_ptr[sb_s] + 1) % WARPS_PER_SCHED;
                 end
             end
 

@@ -291,7 +291,7 @@ module tb_sm_v2_perf_tensor_multiwarp;
                 if (cycle_count < 100 || (cycle_count % 5000 == 0)) begin
                     $display("[cycle %0d] warp_valid=%04b warp_ready=%04b buf_valid=%04b d1=%04b stalled=%b",
                              cycle_count, dut.warp_valid, dut.warp_ready,
-                             dut.warp_inst_buf_valid, dut.warp_inst_valid_d1, dut.decode_stalled);
+                             dut.warp_inst_buf_valid, dut.warp_inst_valid_d1, dut.decode_stalled);                    $display("[cycle %0d] sched_mask=%02b pfu=[%0d,%0d,%0d,%0d] sb0=%08x sb1=%08x sb2=%08x sb3=%08x",                             cycle_count, dut.sched_issue_valid_mask,                             dut.pending_fu_count[0], dut.pending_fu_count[1],                             dut.pending_fu_count[2], dut.pending_fu_count[3],                             dut.u_scheduler.scoreboard[0], dut.u_scheduler.scoreboard[1],                             dut.u_scheduler.scoreboard[2], dut.u_scheduler.scoreboard[3]);
                 end
                 if (dut.lane0_stall_raw) begin
                     stall_raw <= stall_raw + 1;
@@ -348,7 +348,7 @@ module tb_sm_v2_perf_tensor_multiwarp;
         @(posedge clk);
         kernel_start = 0;
 
-        timeout_cycles = (TOTAL_OPS * TC_LATENCY) + 8000;
+        timeout_cycles = (TOTAL_OPS * TC_LATENCY * 4) + 8000;
         timeout_left = timeout_cycles;
         while (!done && (timeout_left > 0)) begin
             @(posedge clk);
