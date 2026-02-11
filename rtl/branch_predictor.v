@@ -1,3 +1,4 @@
+/* verilator lint_off UNDRIVEN */
 //============================================================================
 // RalphGPU - Branch Predictor
 // Features:
@@ -497,3 +498,5 @@ module branch_predictor #(
     end
 
 endmodule
+
+/* verilator lint_on UNDRIVEN */

@@ -1,3 +1,4 @@
+/* verilator lint_off BLKSEQ */
 //============================================================================
 // RalphGPU - FP16/BF16 Half-Precision Unit
 // IEEE 754 FP16 and Brain Float 16 support for ML workloads

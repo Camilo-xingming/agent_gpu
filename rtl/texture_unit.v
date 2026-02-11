@@ -382,6 +382,7 @@ module texture_unit #(
                         state <= OUTPUT;
                     end
                 end
+                default: ; // lint: unreachable states
             endcase
         end
     end

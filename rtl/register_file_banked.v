@@ -1,3 +1,4 @@
+/* verilator lint_off BLKSEQ */
 //============================================================================
 // RalphGPU - Banked Register File with Conflict Detection and ECC
 // Multi-warp support with configurable warps (4-32)

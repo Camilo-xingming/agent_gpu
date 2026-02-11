@@ -1,3 +1,4 @@
+/* verilator lint_off UNDRIVEN */
 //============================================================================
 // RalphGPU - Async Copy Engine
 // 支持 cp.async 和 st.async 指令用于异步内存拷贝
@@ -920,3 +921,5 @@ module prefetch_unit #(
     end
 
 endmodule
+
+/* verilator lint_on UNDRIVEN */

@@ -82,6 +82,12 @@ module mbarrier_unit #(
 );
 
     //------------------------------------------------------------------------
+    // lint: UNDRIVEN stubs
+    assign smem_rd_addr = 32'h0;
+    assign smem_wr_addr = 32'h0;
+    assign smem_wr_data = 32'h0;
+    assign smem_wr_mask = 4'h0;
+
     // Internal Barrier State
     // Each barrier is 16 bytes, indexed by barrier_addr[SMEM_ADDR_W-1:4]
     //------------------------------------------------------------------------
