@@ -109,6 +109,11 @@ module blackwell_scheduler #(
     input  wire [4:0]               tensor_sb_set_rd,
     input  wire                     tensor_issue_conflict, // lane1 tensor suppressed by lane0
 
+    // WGMMA completion (clears scoreboard for async MMA ops)
+    input  wire                     wgmma_sb_clr_valid,
+    input  wire [$clog2(NUM_WARPS)-1:0] wgmma_sb_clr_warp,
+    input  wire [4:0]               wgmma_sb_clr_rd,
+
     input  wire                     wb_valid,
     input  wire [$clog2(NUM_WARPS)-1:0] wb_warp_id,
     input  wire [4:0]               wb_rd,
@@ -407,9 +412,20 @@ module blackwell_scheduler #(
                 end
             end
 
+
+            // Deferred scoreboard SET for tensor ops
+            // (tensor ops skip SET at issue; SET happens when SM tensor push succeeds)
+            if (tensor_sb_set_valid && tensor_sb_set_rd != 5'b0) begin
+                scoreboard[tensor_sb_set_warp][tensor_sb_set_rd] <= 1'b1;
+            end
             // Clear scoreboard on writeback
             if (wb_valid) begin
                 scoreboard[wb_warp_id][wb_rd] <= 1'b0;
+            end
+
+            // Clear scoreboard on WGMMA completion
+            if (wgmma_sb_clr_valid) begin
+                scoreboard[wgmma_sb_clr_warp][wgmma_sb_clr_rd] <= 1'b0;
             end
 
             // Clear async MMA pending on completion (from tensor_core)
