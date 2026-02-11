@@ -163,6 +163,24 @@ mov.u32 rd, %ntid.x    // Block维度
 | 0x00C | GRID_DIM_X | Grid X维度 |
 | 0x018 | BLOCK_DIM_X | Block X维度 |
 
+
+## 测试
+
+### 快速回归
+
+```bash
+make test IVERILOG=/opt/homebrew/bin/iverilog VVP=/opt/homebrew/bin/vvp
+```
+
+### Tensor Multiwarp 性能测试
+
+```bash
+/opt/homebrew/bin/iverilog -g2012 -Irtl -DSM_V2 -DSIMULATION -o build/tb_multiwarp.vvp tb/tb_sm_v2_perf_tensor_multiwarp.v rtl/*.v
+cd build && /opt/homebrew/bin/vvp tb_multiwarp.vvp
+```
+
+更多测试说明见 `docs/TESTING.md`。
+
 ## 扩展路线图
 
 - [x] Phase 1: 整数运算、基本内存操作
