@@ -411,7 +411,7 @@ module decoder (
                     sync_op <= 1'b1;  // Also set sync_op to trigger stall handling
                 end
 
-                `OP_EXIT, `OP_RET: begin
+                `OP_EXIT, `OP_RET, 6'h3f: begin
                     exit_op <= 1'b1;
                 end
 

@@ -1,0 +1,44 @@
+========================================
+Running Decoder Unit Test
+========================================
+cd build && vvp tb_decoder.vvp
+============================================================
+RalphGPU Decoder Unit Test
+============================================================
+VCD info: dumpfile tb_decoder.vcd opened for output.
+
+--- ALU Instruction Tests ---
+[PASS]     ADD r1,r2,r3: opcode=0x00, rd=1, ra=2, rb=3, func=0x00
+[PASS]     SUB r4,r5,r6: opcode=0x00, rd=4, ra=5, rb=6, func=0x01
+[PASS]     AND r7,r8,r9: opcode=0x00, rd=7, ra=8, rb=9, func=0x02
+[PASS]  SHL r10,r11,r12: opcode=0x00, rd=10, ra=11, rb=12, func=0x06
+
+--- MUL Instruction Tests ---
+[PASS]  MUL.LO r1,r2,r3: opcode=0x01, rd=1, ra=2, rb=3, func=0x00
+[PASS] D.LO r4,r5,r6,r7: opcode=0x01, rd=4, ra=5, rb=6, func=0x02
+
+--- Memory Instruction Tests ---
+[PASS] D.GLOBAL r1,[r2]: opcode=0x05, rd=1, ra=2, rb=0, func=0x00
+[PASS] T.GLOBAL [r1],r2: opcode=0x06, rd=0, ra=1, rb=2, func=0x00
+[PASS] D.SHARED r3,[r4]: opcode=0x07, rd=3, ra=4, rb=0, func=0x00
+[PASS] T.SHARED [r5],r6: opcode=0x08, rd=0, ra=5, rb=6, func=0x00
+
+--- Special Register Tests ---
+[PASS]    MOV r0,%tid.x: opcode=0x09, rd=0, ra=0, rb=0, func=0x00
+[PASS]  MOV r1,%ctaid.x: opcode=0x09, rd=1, ra=3, rb=0, func=0x00
+
+--- Control Flow Tests ---
+[PASS]           BRANCH: opcode=0x04, rd=0, ra=0, rb=0, func=0x00
+[PASS]         BAR.SYNC: opcode=0x0a, rd=0, ra=0, rb=0, func=0x00
+
+--- NOP Test ---
+[PASS]              NOP: opcode=0x3f, rd=0, ra=0, rb=0, func=0x00
+
+--- Register Field Tests ---
+[PASS] Register fields: rd=31, ra=30, rb=29, rc=28
+
+============================================================
+Decoder Test Summary: 16 PASSED, 0 FAILED
+============================================================
+*** ALL TESTS PASSED ***
+tb/tb_decoder.v:327: $finish called at 695000 (1ps)

@@ -710,7 +710,7 @@ module streaming_multiprocessor_v2 #(
     // Scoreboard for Dependency Tracking (Per-warp register busy bits)
     //========================================================================
     // Each warp has a 32-bit mask indicating which registers have pending writes
-    // [REMOVED] scoreboard_busy - consolidated into u_scheduler.scoreboard
+    reg [31:0] scoreboard_busy [0:NUM_WARPS-1];
 
     // Per-warp pending instruction count (for FU stall tracking)
     reg [3:0] pending_fu_count [0:NUM_WARPS-1];
@@ -724,9 +724,9 @@ module streaming_multiprocessor_v2 #(
 
     // Lane 0 dependency checks
     // Note: Unlike RISC-V, CUDA/PTX R0 is a normal register, not hardwired to 0
-    wire lane0_ra_busy = dec0_valid && u_scheduler.scoreboard[dec0_warp_id][dec_ra];
-    wire lane0_rb_busy = dec0_valid && u_scheduler.scoreboard[dec0_warp_id][dec_rb];
-    wire lane0_rc_busy = dec0_valid && u_scheduler.scoreboard[dec0_warp_id][dec_rc];
+    wire lane0_ra_busy = dec0_valid && scoreboard_busy[dec0_warp_id][dec_ra];
+    wire lane0_rb_busy = dec0_valid && scoreboard_busy[dec0_warp_id][dec_rb];
+    wire lane0_rc_busy = dec0_valid && scoreboard_busy[dec0_warp_id][dec_rc];
     wire lane0_stall_raw = dec0_valid && (lane0_ra_busy || lane0_rb_busy || lane0_rc_busy);
     wire lane0_stall_fu = dec0_valid && (pending_fu_count[dec0_warp_id] >= 8);
     wire lane0_stall_mem = dec0_valid && !dec_atomic_op && (
@@ -757,9 +757,9 @@ module streaming_multiprocessor_v2 #(
 
     // Lane 1 dependency checks (compute-only)
     // Note: Unlike RISC-V, CUDA/PTX R0 is a normal register, not hardwired to 0
-    wire lane1_ra_busy = dec1_valid && u_scheduler.scoreboard[dec1_warp_id][dec1_ra];
-    wire lane1_rb_busy = dec1_valid && u_scheduler.scoreboard[dec1_warp_id][dec1_rb];
-    wire lane1_rc_busy = dec1_valid && u_scheduler.scoreboard[dec1_warp_id][dec1_rc];
+    wire lane1_ra_busy = dec1_valid && scoreboard_busy[dec1_warp_id][dec1_ra];
+    wire lane1_rb_busy = dec1_valid && scoreboard_busy[dec1_warp_id][dec1_rb];
+    wire lane1_rc_busy = dec1_valid && scoreboard_busy[dec1_warp_id][dec1_rc];
     wire lane1_stall_raw = dec1_valid && (lane1_ra_busy || lane1_rb_busy || lane1_rc_busy);
     wire lane1_stall_fu = dec1_valid && (pending_fu_count[dec1_warp_id] >= 8);
     wire lane1_stall_wbq = dec1_valid && (
@@ -1688,7 +1688,7 @@ module streaming_multiprocessor_v2 #(
         // Deferred tensor scoreboard SET: only set when tensor push actually succeeds
         .tensor_sb_set_valid(tensor_issue_push_fire),
         .tensor_sb_set_warp(tensor_push_lane0 ? issue_warp_id : issue1_warp_id),
-        .tensor_sb_set_rd(tensor_push_lane0 ? issue_rd : issue1_rd),        .wgmma_sb_clr_valid(wgmma_done && wgmma_pending_valid),        .wgmma_sb_clr_warp(wgmma_pending_warp),        .wgmma_sb_clr_rd(wgmma_pending_rd),
+        .tensor_sb_set_rd(tensor_push_lane0 ? issue_rd : issue1_rd),
         .issue_valid(sched_issue_valid_mask),
         .issue_warp_id(sched_issue_warp_id),
         .issue_inst(sched_issue_inst),
@@ -2272,7 +2272,7 @@ module streaming_multiprocessor_v2 #(
         if (!rst_n) begin
             // Initialize scoreboards
             for (sb_init = 0; sb_init < NUM_WARPS; sb_init = sb_init + 1) begin
-                // [REMOVED] scoreboard_busy init
+                scoreboard_busy[sb_init] <= 32'b0;
                 pending_fu_count[sb_init] <= 4'b0;
             end
             barrier_pending <= 1'b0;
@@ -2287,10 +2287,10 @@ module streaming_multiprocessor_v2 #(
             // Mark destination register as busy on issue
             // Note: Unlike RISC-V, CUDA/PTX R0 is a normal register, not hardwired to 0
             if (lane0_ready && issue0_reg_write_sel) begin
-                // [REMOVED] scoreboard_busy SET - now in scheduler
+                scoreboard_busy[issue0_warp_sel][issue0_rd_sel] <= 1'b1;
             end
             if (issue1_fire && dec1_reg_write) begin
-                // [REMOVED] scoreboard_busy SET - now in scheduler
+                scoreboard_busy[dec1_warp_id][dec1_rd] <= 1'b1;
             end
 
             // WGMMA MMA tracking: mark destination busy and track pending operation
@@ -2306,12 +2306,12 @@ module streaming_multiprocessor_v2 #(
 
             // Clear on writeback
             if (wb_valid) begin
-                // [REMOVED] scoreboard_busy CLR - now in scheduler
+                scoreboard_busy[wb_warp_id][wb_rd] <= 1'b0;
             end
 
             // Clear WGMMA pending when operation completes
             if (wgmma_done && wgmma_pending_valid) begin
-                // [REMOVED] scoreboard_busy CLR - now in scheduler
+                scoreboard_busy[wgmma_pending_warp][wgmma_pending_rd] <= 1'b0;
                 wgmma_pending_valid <= 1'b0;
             end
 
@@ -2330,7 +2330,7 @@ module streaming_multiprocessor_v2 #(
             end
 
             // Decrement pending count on writeback
-            if (wb_valid) begin
+            if (wb_valid && wb_rd != 0) begin
                 if (pending_fu_count[wb_warp_id] > 0) begin
                     pending_fu_count[wb_warp_id] <= pending_fu_count[wb_warp_id] - 1;
                 end
@@ -5828,15 +5828,12 @@ module streaming_multiprocessor_v2 #(
             if (issue_valid && issue_exit_op) begin
                 warp_exit_pending[issue_warp_id] <= 1'b1;
             end
-            if (issue1_valid && issue1_exit_op) begin
-                warp_exit_pending[issue1_warp_id] <= 1'b1;
-            end
 
             for (w = 0; w < NUM_WARPS; w = w + 1) begin
                 if (warp_exit_pending[w] &&
                     (pending_fu_count[w] == 0) &&
                     (cp_async_pending[w] == 0) &&
-                    (u_scheduler.scoreboard[w] == 0) &&
+                    (scoreboard_busy[w] == 0) &&
                     (!mem_pending_valid || (mem_warp_pending != w[WARP_ID_W-1:0])) &&
                     (!smem_pending_valid || (smem_warp_pending != w[WARP_ID_W-1:0])) &&
                     (!store_pending_valid || (store_warp_pending != w[WARP_ID_W-1:0])) &&

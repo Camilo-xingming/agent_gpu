@@ -1,0 +1,60 @@
+iverilog -Irtl -o build/tb_alu.vvp tb/tb_alu.v rtl/alu.v
+========================================
+Running ALU Unit Test
+========================================
+cd build && vvp tb_alu.vvp
+============================================================
+RalphGPU ALU Unit Test
+============================================================
+
+--- ADD Tests ---
+[PASS]  100+200: result=0x0000012c, zero=0, neg=0
+[PASS] ADD 50+0: result=0x00000032, zero=0, neg=0
+[PASS]  ADD 0+0: result=0x00000000, zero=1, neg=0
+[PASS] ADD -1+1: result=0x00000000, zero=1, neg=0
+[PASS] verflow): result=0x80000000, zero=0, neg=1
+
+--- SUB Tests ---
+[PASS]  300-100: result=0x000000c8, zero=0, neg=0
+[PASS]  100-100: result=0x00000000, zero=1, neg=0
+[PASS] egative): result=0xffffffce, zero=0, neg=1
+
+--- AND Tests ---
+[PASS] patterns: result=0x0f000f00, zero=0, neg=0
+[PASS]  & zeros: result=0x00000000, zero=1, neg=0
+
+--- OR Tests ---
+[PASS] patterns: result=0xffffffff, zero=0, neg=1
+[PASS] OR zeros: result=0x00000000, zero=1, neg=0
+
+--- XOR Tests ---
+[PASS] patterns: result=0xffffffff, zero=0, neg=1
+[PASS] me value: result=0x00000000, zero=1, neg=0
+
+--- NOT Tests ---
+[PASS] all-ones: result=0x00000000, zero=1, neg=0
+[PASS] OT zeros: result=0xffffffff, zero=0, neg=1
+
+--- SHL Tests ---
+[PASS] SHL 1<<4: result=0x00000010, zero=0, neg=0
+[PASS] overflow: result=0x00000000, zero=1, neg=0
+[PASS] L to MSB: result=0x80000000, zero=0, neg=1
+
+--- SHR_U Tests ---
+[PASS] _U 16>>4: result=0x00000001, zero=0, neg=0
+[PASS] sign bit: result=0x08000000, zero=0, neg=0
+
+--- SHR_S Tests ---
+[PASS] n extend: result=0xf8000000, zero=0, neg=1
+[PASS] positive: result=0x07ffffff, zero=0, neg=0
+
+--- Boundary Tests ---
+[PASS]  max+max: result=0xfffffffe, zero=0, neg=1
+[PASS] SHL by 0: result=0xffffffff, zero=0, neg=1
+[PASS]  5 bits): result=0xffffffff, zero=0, neg=1
+
+============================================================
+ALU Test Summary: 26 PASSED, 0 FAILED
+============================================================
+*** ALL TESTS PASSED ***
+tb/tb_alu.v:221: $finish called at 26000 (1ps)

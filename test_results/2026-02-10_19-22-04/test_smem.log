@@ -1,0 +1,47 @@
+========================================
+Running Shared Memory Unit Test
+========================================
+cd build && vvp tb_shared_memory.vvp
+============================================================
+RalphGPU Shared Memory Test
+============================================================
+VCD info: dumpfile tb_shared_memory.vcd opened for output.
+
+--- No-Conflict Write Test ---
+[PASS] No conflict with stride=1
+
+--- No-Conflict Read Test ---
+[PASS] No-conflict read data correct
+
+--- Bank Conflict Detection Test ---
+[PASS] Bank conflict correctly detected (all access bank 0)
+
+--- Partial Conflict Test ---
+[PASS] Partial conflict detected (lanes 0,1 -> bank 0)
+
+--- Mask Disable Conflict Test ---
+[PASS] No conflict when one conflicting lane is masked
+
+--- Write-Read Consistency Test ---
+[PASS] Write-read consistency verified
+
+--- Boundary Address Test ---
+[PASS] High address access works
+
+--- Selective Write Test ---
+[PASS] Selective write with mask works
+
+--- Async Write Port Test (4 bytes) ---
+[PASS] Async write 4 bytes works
+
+--- Async Write Port Test (8 bytes) ---
+[PASS] Async write 8 bytes works
+
+--- Async Write Port Test (16 bytes) ---
+[PASS] Async write 16 bytes works
+
+============================================================
+Shared Memory Test Summary: 11 PASSED, 0 FAILED
+============================================================
+*** ALL TESTS PASSED ***
+tb/tb_shared_memory.v:470: $finish called at 675000 (1ps)

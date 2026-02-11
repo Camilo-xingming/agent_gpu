@@ -1,0 +1,6 @@
+test_alu: PASS
+test_mul: PASS
+test_decoder: PASS
+test_regfile: PASS
+test_smem: PASS
+test_warp: PASS

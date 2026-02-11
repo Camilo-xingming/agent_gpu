@@ -1,0 +1,57 @@
+iverilog -g2012 -Irtl -o build/tb_warp_scheduler.vvp tb/tb_warp_scheduler.v rtl/warp_scheduler.v
+========================================
+Running Warp Scheduler Unit Test
+========================================
+cd build && vvp tb_warp_scheduler.vvp
+============================================================
+RalphGPU Warp Scheduler Test
+============================================================
+VCD info: dumpfile tb_warp_scheduler.vcd opened for output.
+
+=== Warp Scheduler Tests ===
+
+--- No Valid Warps Test ---
+[PASS] No selection when no warp valid
+
+--- Single Valid Warp Test ---
+[PASS] Single warp (1) correctly selected
+
+--- Round-Robin Scheduling Test ---
+       Cycle 0: Selected Warp 1
+       Cycle 1: Selected Warp 2
+       Cycle 2: Selected Warp 3
+       Cycle 3: Selected Warp 0
+       Cycle 4: Selected Warp 1
+       Cycle 5: Selected Warp 2
+       Cycle 6: Selected Warp 3
+       Cycle 7: Selected Warp 0
+[PASS] Round-robin: all warps selected at least once
+
+--- Waiting Exclusion Test ---
+[PASS] Waiting warps (0,2) excluded from scheduling
+
+=== Warp State Tests ===
+
+--- Warp Allocation Test ---
+[PASS] Warp 0 allocated with PC=0x1000
+
+--- PC Update Test ---
+[PASS] PC updated to 0x1004
+
+--- Sync Wait Test ---
+[PASS] Warp 0 entered sync waiting state
+
+--- Sync Complete Test ---
+[PASS] Warp 0 exited waiting state after sync complete
+
+--- Warp Deallocation Test ---
+[PASS] Warp 0 deallocated
+
+--- Multi-Warp Allocation Test ---
+[PASS] All 4 warps allocated
+
+============================================================
+Warp Scheduler Test Summary: 10 PASSED, 0 FAILED
+============================================================
+*** ALL TESTS PASSED ***
+tb/tb_warp_scheduler.v:435: $finish called at 665000 (1ps)

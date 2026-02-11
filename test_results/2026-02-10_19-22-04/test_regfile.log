@@ -1,0 +1,39 @@
+========================================
+Running Register File Unit Test
+========================================
+cd build && vvp tb_register_file.vvp
+============================================================
+RalphGPU Register File Test
+============================================================
+VCD info: dumpfile tb_register_file.vcd opened for output.
+
+--- Reset Value Tests ---
+[PASS]         Reset r0: reg[0] correct
+[PASS]        Reset r15: reg[15] correct
+[PASS]        Reset r31: reg[31] correct
+
+--- Basic Write/Read Tests ---
+[PASS]    Write/Read r1: reg[1] correct
+[PASS]    Write/Read r2: reg[2] correct
+[PASS]     r1 unchanged: reg[1] correct
+
+--- Write Mask Tests ---
+[PASS] Write mask: selective update works
+
+--- Empty Mask Test ---
+[PASS] Empty mask no-op: reg[10] correct
+
+--- Multi-Port Read Test ---
+[PASS] Multi-port read: all 3 ports work
+
+--- All Registers Test ---
+[PASS] All 32 registers write/read correctly
+
+--- Single Lane Mask Test ---
+[PASS] Single lane mask works (lane 15)
+
+============================================================
+Register File Test Summary: 11 PASSED, 0 FAILED
+============================================================
+*** ALL TESTS PASSED ***
+tb/tb_register_file.v:343: $finish called at 1916000 (1ps)

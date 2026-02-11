@@ -1,0 +1,55 @@
+========================================
+Running Multiply Unit Test
+========================================
+cd build && vvp tb_mul_unit.vvp
+============================================================
+RalphGPU Multiply Unit Test
+============================================================
+VCD info: dumpfile tb_mul_unit.vcd opened for output.
+
+--- MUL.LO Tests ---
+[PASS]     MUL_LO 10*20: 10 * 20 = 0x000000c8
+[PASS]   MUL_LO 100*100: 100 * 100 = 0x00002710
+[PASS]       MUL_LO x*0: 12345 * 0 = 0x00000000
+[PASS]       MUL_LO x*1: 12345 * 1 = 0x00003039
+[PASS]  MUL_LO overflow: 65536 * 65536 = 0x00000000
+[PASS]  MUL_LO 0xFFFF^2: 65535 * 65535 = 0xfffe0001
+
+--- MUL.HI Tests ---
+[PASS]   MUL_HI 100*100: 100 * 100 = 0x00000000
+[PASS]  MUL_HI overflow: 65536 * 65536 = 0x00000001
+[PASS] L_HI -1*2 signed: 4294967295 * 2 = 0xffffffff
+[PASS] _HI signed -1*-1: 4294967295 * 4294967295 = 0x00000000
+
+--- MAD.LO Tests ---
+[PASS]   MAD_LO 10*20+5: 10 * 20 = 0x000000cd
+[PASS]     MAD_LO 0*x+0: 0 * 100 = 0x00000000
+[PASS]   MAD_LO 3*7+100: 3 * 7 = 0x00000079
+[PASS] LO 1000*1000+999: 1000 * 1000 = 0x000f4627
+
+--- MAD.HI Tests ---
+[PASS] 0000*0x10000 + 2: 65536 * 65536 = 0x00000003
+[PASS] ned -2*3 +1 high: 4294967294 * 3 = 0x00000000
+
+--- MUL24/MAD24 Tests ---
+[PASS] UL24 0xFF * 0x10: 255 * 16 = 0x00000ff0
+[PASS]   MUL24 -128 * 2: 16777088 * 2 = 0xffffff00
+[PASS] D24 0x100*0x10+5: 256 * 16 = 0x00001005
+[PASS]  -1*2+1 (24-bit): 16777215 * 2 = 0xffffffff
+
+--- Boundary Tests ---
+[PASS] MUL_LO MAX_POS*1: 2147483647 * 1 = 0x7fffffff
+[PASS]      MUL_LO -2*3: 4294967294 * 3 = 0xfffffffa
+
+--- DIV/REM Tests ---
+[PASS]       DIV_S 10/3: 10 / 3 = 0x00000003
+[PASS]      DIV_S -10/3: 4294967286 / 3 = 0xfffffffd
+[PASS] V_U 0xFFFFFFFE/2: 4294967294 / 2 = 0x7fffffff
+[PASS]      REM_S -10%3: 4294967286 / 3 = 0xffffffff
+[PASS]       REM_U 10%3: 10 / 3 = 0x00000001
+
+============================================================
+Multiply Unit Test Summary: 27 PASSED, 0 FAILED
+============================================================
+*** ALL TESTS PASSED ***
+tb/tb_mul_unit.v:258: $finish called at 1295000 (1ps)
