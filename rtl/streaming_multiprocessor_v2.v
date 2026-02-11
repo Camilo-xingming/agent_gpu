@@ -1350,7 +1350,7 @@ module streaming_multiprocessor_v2 #(
             // Debug first few fetch cycles
             if (fetch_debug_cnt < 20) begin
                 `ifdef SIMULATION
-                if(0) $display("[SM%0d FETCH] req=%b ready=%b fire=%b warp_valid=%04b needs_fetch=%04b pending=%04b buf_valid=%04b",
+                if(1) $display("[SM%0d FETCH] req=%b ready=%b fire=%b warp_valid=%04b needs_fetch=%04b pending=%04b buf_valid=%04b",
                          SM_ID, fetch_req, icache_ready, fetch_fire,
                          warp_valid, warp_needs_fetch, warp_fetch_pending, warp_inst_buf_valid);
                 `endif
