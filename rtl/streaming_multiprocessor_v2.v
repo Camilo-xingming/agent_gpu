@@ -63,11 +63,13 @@ module streaming_multiprocessor_v2 #(
     input  wire                     imem_valid,
 
     // L1 Data Cache Interface
+    /* verilator lint_off UNDRIVEN */
     output wire                     l1d_req_valid,
     output wire                     l1d_req_write,
     output wire [31:0]              l1d_req_addr [0:NUM_LANES-1],
     output wire [31:0]              l1d_req_wdata [0:NUM_LANES-1],
     output wire [NUM_LANES-1:0]     l1d_req_mask,
+    /* verilator lint_on UNDRIVEN */
     input  wire [31:0]              l1d_resp_rdata [0:NUM_LANES-1],
     input  wire                     l1d_resp_valid,
     input  wire                     l1d_resp_hit,
@@ -107,6 +109,7 @@ module streaming_multiprocessor_v2 #(
     //========================================================================
     // Constants and Derived Parameters
     //========================================================================
+
     localparam WARP_ID_W = $clog2(NUM_WARPS);
     localparam SIMD_WIDTH = NUM_LANES * DATA_WIDTH;
     localparam IFQ_DEPTH = 4;
@@ -295,6 +298,7 @@ module streaming_multiprocessor_v2 #(
     reg [31:0]          ifq_inst [0:IFQ_DEPTH-1];
     reg [IFQ_PTR_W-1:0] ifq_head;
     reg [IFQ_PTR_W-1:0] ifq_tail;
+    /* verilator lint_off UNDRIVEN */
     reg [IFQ_COUNT_W-1:0] ifq_count;
     wire                ifq_full = (ifq_count == IFQ_DEPTH_VAL);
     wire                ifq_empty = (ifq_count == 0);
@@ -307,6 +311,7 @@ module streaming_multiprocessor_v2 #(
     reg [IFQ_PTR_W-1:0] frq_head;
     reg [IFQ_PTR_W-1:0] frq_tail;
     reg [IFQ_COUNT_W-1:0] frq_count;
+    /* verilator lint_on UNDRIVEN */
     reg [IFQ_COUNT_W-1:0] frq_drop_count;
     wire                frq_full = (frq_count == IFQ_DEPTH_VAL);
     wire                frq_empty = (frq_count == 0);
@@ -1100,8 +1105,10 @@ module streaming_multiprocessor_v2 #(
     // Warp Scheduler with Round-Robin + Priority (Enhanced with GTO)
     // Supports both simple RR and advanced GTO/dual-issue scheduling
     //========================================================================
+    /* verilator lint_off UNDRIVEN */
     reg [WARP_ID_W-1:0] last_issued_warp;
     reg [WARP_ID_W-1:0] selected_warp;
+    /* verilator lint_on UNDRIVEN */
     reg                 warp_selected;
 
     // Advanced scheduler statistics
@@ -2443,6 +2450,7 @@ module streaming_multiprocessor_v2 #(
                 cp_async_wait_threshold[cp_w] <= 4'd0;
             end
         end else begin
+            /* verilator lint_off BLKSEQ */
             // Track which warp to decrement when ace completes (first warp with pending > 0)
             // This is a simplification; a full implementation would track warp IDs in queue
             for (cp_w = 0; cp_w < NUM_WARPS; cp_w = cp_w + 1) begin
@@ -2475,6 +2483,7 @@ module streaming_multiprocessor_v2 #(
                 end
 
                 cp_async_pending[cp_w] <= pending_val;
+            /* verilator lint_on BLKSEQ */
 
                 // Release warps waiting on wait_group/wait_all
                 // Use the real pending count from tracking
@@ -4898,6 +4907,7 @@ module streaming_multiprocessor_v2 #(
                         debug_pmevent_valid <= 1'b1;
                         debug_pmevent_id <= issue_debug ? rf_rd_data_a[0] : rf1_rd_data_a[0];
                     end
+                    default: ; // lint
                 endcase
             end
 
@@ -5175,6 +5185,7 @@ module streaming_multiprocessor_v2 #(
                                  SM_ID, multimem_wb_rd, multimem_wb_warp, multimem_wb_mask, multimem_result_r);
                         `endif
                     end
+                    default: ; // lint: no-op for unused wb_sel values
                 endcase
             end else begin
                 wb_valid <= 1'b0;
@@ -5313,6 +5324,7 @@ module streaming_multiprocessor_v2 #(
                          SM_ID, block_dim_x, block_dim_y, block_dim_z, kernel_pc);
                 `endif
 
+                /* verilator lint_off BLKSEQ */
                 init_total_threads = block_dim_x * block_dim_y * block_dim_z;
 
                 for (w = 0; w < NUM_WARPS; w = w + 1) begin
@@ -5331,6 +5343,7 @@ module streaming_multiprocessor_v2 #(
                             init_computed_mask = {NUM_LANES{1'b0}};
                         end
 
+                /* verilator lint_on BLKSEQ */
                         warp_valid[w] <= (init_computed_mask != 0);
                         warp_active[w] <= (init_computed_mask != 0);
                         warp_exit_pending[w] <= 1'b0;

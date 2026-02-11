@@ -166,6 +166,7 @@ module memory_interface #(
             end
 
             default: next_state = IDLE;
+                default: ; // lint: unreachable states
         endcase
     end
 
@@ -299,6 +300,7 @@ module memory_interface #(
                         end
                     end
                 end
+                default: ; // lint: unreachable states
             endcase
         end
     end
