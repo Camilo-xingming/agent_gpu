@@ -762,6 +762,7 @@ module streaming_multiprocessor_v2 #(
     wire lane1_rc_busy = dec1_valid && u_scheduler.scoreboard[dec1_warp_id][dec1_rc];
     wire lane1_stall_raw = dec1_valid && (lane1_ra_busy || lane1_rb_busy || lane1_rc_busy);
     wire lane1_stall_fu = dec1_valid && (pending_fu_count[dec1_warp_id] >= 8);
+    wire lane1_stall_tensor = dec1_valid && dec1_tensor_op && tensor_issue_full_next;
     wire lane1_stall_wbq = dec1_valid && (
                            (dec1_alu_op && (alu_inflight == ALU_WBQ_DEPTH_VAL)) ||
                            (dec1_mul_op && (mul_inflight == MUL_WBQ_DEPTH_VAL)) ||
@@ -779,7 +780,7 @@ module streaming_multiprocessor_v2 #(
                           dec1_sync_op || dec1_exit_op || dec1_tensor_op ||
                           dec1_atomic_op;
     wire lane1_ready = dec1_valid && lane1_is_compute && !lane1_blocking &&
-                       !lane1_stall_raw && !lane1_stall_fu && !lane1_stall_wbq;
+                       !lane1_stall_raw && !lane1_stall_fu && !lane1_stall_tensor && !lane1_stall_wbq;
 
     // Dual-issue conflict checks
     wire lane_warp_conflict = lane0_ready && lane1_ready &&
@@ -2319,15 +2320,19 @@ module streaming_multiprocessor_v2 #(
             // Use issue stage (issue_valid) instead of scheduler stage (issue0_fire)
             // to avoid stale decoder output causing double-counting on stall transitions
             if (issue_valid && (issue_fp32_op || issue_fp64_op || issue_fp16_op ||
-                                issue_sfu_op || issue_tensor_op || issue_mem_read ||
+                                issue_sfu_op || issue_mem_read ||
                                 issue_atomic_op)) begin
                 pending_fu_count[issue_warp_id] <= pending_fu_count[issue_warp_id] + 1;
             end
+            if (tensor_issue_push_fire && tensor_push_lane0)
+                pending_fu_count[issue_warp_id] <= pending_fu_count[issue_warp_id] + 1;
             if (issue1_valid && (issue1_fp32_op || issue1_fp64_op || issue1_fp16_op ||
-                                issue1_sfu_op || issue1_tensor_op || issue1_mem_read ||
+                                issue1_sfu_op || issue1_mem_read ||
                                 issue1_atomic_op)) begin
                 pending_fu_count[issue1_warp_id] <= pending_fu_count[issue1_warp_id] + 1;
             end
+            if (tensor_issue_push_fire && tensor_push_lane1)
+                pending_fu_count[issue1_warp_id] <= pending_fu_count[issue1_warp_id] + 1;
 
             // Decrement pending count on writeback
             if (wb_valid) begin
@@ -3107,9 +3112,42 @@ module streaming_multiprocessor_v2 #(
 
     // Tensor issue queue (captures operands/metadata to align with TC readiness)
     // Tensor issue queue accepts from BOTH lanes (lane0 priority)
-    wire tensor_push_lane0 = issue_valid && issue_tensor_op;
-    wire tensor_push_lane1 = issue1_valid && issue1_tensor_op && !tensor_push_lane0;
+    // Per-PC tensor push dedup: tracks last successfully pushed PC per warp.
+    // Catches d1 stale re-issues where the PC hasn't advanced (slot1 during conflicts).
+    // Slot0 re-issues may slip through when PC advances at issue time.
+    // Combined with pfu gate, this eliminates most duplicate tensor writebacks.
+    reg [31:0] tensor_last_issue_pc [0:NUM_WARPS-1];
+    reg [NUM_WARPS-1:0] tensor_last_issue_valid;
+    wire tensor_push_lane0_raw = issue_valid && issue_tensor_op;
+    wire tensor_push_lane1_raw = issue1_valid && issue1_tensor_op && !tensor_push_lane0_raw;
+    wire tensor_reissue_lane0 = tensor_push_lane0_raw &&
+                                tensor_last_issue_valid[issue_warp_id] &&
+                                (tensor_last_issue_pc[issue_warp_id] == issue_pc);
+    wire tensor_reissue_lane1 = tensor_push_lane1_raw &&
+                                tensor_last_issue_valid[issue1_warp_id] &&
+                                (tensor_last_issue_pc[issue1_warp_id] == issue1_pc);
+    wire tensor_push_lane0 = tensor_push_lane0_raw && !tensor_reissue_lane0;
+    wire tensor_push_lane1 = tensor_push_lane1_raw && !tensor_reissue_lane1;
     assign tensor_issue_push = tensor_push_lane0 || tensor_push_lane1;
+    integer tp_i;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            tensor_last_issue_valid <= {NUM_WARPS{1'b0}};
+            for (tp_i = 0; tp_i < NUM_WARPS; tp_i = tp_i + 1)
+                tensor_last_issue_pc[tp_i] <= 32'hFFFFFFFF;
+        end else if (kernel_start)
+            tensor_last_issue_valid <= {NUM_WARPS{1'b0}};
+        else begin
+            if (tensor_issue_push_fire && tensor_push_lane0) begin
+                tensor_last_issue_valid[issue_warp_id] <= 1'b1;
+                tensor_last_issue_pc[issue_warp_id] <= issue_pc;
+            end
+            if (tensor_issue_push_fire && tensor_push_lane1) begin
+                tensor_last_issue_valid[issue1_warp_id] <= 1'b1;
+                tensor_last_issue_pc[issue1_warp_id] <= issue1_pc;
+            end
+        end
+    end
     assign tensor_issue_push_data = tensor_push_lane0 ?
         pack_tensor_issue(issue_warp_id, issue_rd,
                           issue_mask, issue_func[3:0],
