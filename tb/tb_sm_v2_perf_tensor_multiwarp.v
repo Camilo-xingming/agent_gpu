@@ -287,11 +287,59 @@ module tb_sm_v2_perf_tensor_multiwarp;
                 if (dut.issue_valid) begin
                     issue_count <= issue_count + 1;
                 end
-                // Debug: check warp scheduling state every 1000 cycles
-                if (cycle_count < 100 || (cycle_count % 5000 == 0)) begin
+                // Debug: targeted scheduler/retire instrumentation
+                if ((cycle_count % 5000 == 0)) begin
                     $display("[cycle %0d] warp_valid=%04b warp_ready=%04b buf_valid=%04b d1=%04b stalled=%b",
                              cycle_count, dut.warp_valid, dut.warp_ready,
-                             dut.warp_inst_buf_valid, dut.warp_inst_valid_d1, dut.decode_stalled);                    $display("[cycle %0d] sched_mask=%02b pfu=[%0d,%0d,%0d,%0d] sb0=%08x sb1=%08x sb2=%08x sb3=%08x",                             cycle_count, dut.sched_issue_valid_mask,                             dut.pending_fu_count[0], dut.pending_fu_count[1],                             dut.pending_fu_count[2], dut.pending_fu_count[3],                             dut.u_scheduler.scoreboard[0], dut.u_scheduler.scoreboard[1],                             dut.u_scheduler.scoreboard[2], dut.u_scheduler.scoreboard[3]);
+                             dut.warp_inst_buf_valid, dut.warp_inst_valid_d1, dut.decode_stalled);
+                    $display("[cycle %0d] sched_mask=%02b issue_warp=[%0d,%0d] pfu=[%0d,%0d,%0d,%0d]",
+                             cycle_count, dut.sched_issue_valid_mask,
+                             dut.sched_issue_warp_id[0], dut.sched_issue_warp_id[1],
+                             dut.pending_fu_count[0], dut.pending_fu_count[1],
+                             dut.pending_fu_count[2], dut.pending_fu_count[3]);
+                    $display("[cycle %0d] sb=[%08x,%08x,%08x,%08x] exit_pending=%04b active=%04b",
+                             cycle_count,
+                             dut.u_scheduler.scoreboard[0], dut.u_scheduler.scoreboard[1],
+                             dut.u_scheduler.scoreboard[2], dut.u_scheduler.scoreboard[3],
+                             dut.warp_exit_pending, dut.warp_active);
+
+                    // 1) Warp exit conditions (kernel_done decomposition per warp)
+                    $display("[cycle %0d] retire w0: valid=%b exit=%b pfu=%0d cp=%0d sb_zero=%b memblk=%b smemblk=%b stblk=%b atblk=%b pc=0x%08x",
+                             cycle_count,
+                             dut.warp_valid[0], dut.warp_exit_pending[0], dut.pending_fu_count[0], dut.cp_async_pending[0],
+                             (dut.u_scheduler.scoreboard[0] == 0),
+                             (dut.mem_pending_valid  && (dut.mem_warp_pending    == 0)),
+                             (dut.smem_pending_valid && (dut.smem_warp_pending   == 0)),
+                             (dut.store_pending_valid&& (dut.store_warp_pending  == 0)),
+                             (dut.atomic_pending_valid&& (dut.atomic_warp_pending == 0)),
+                             dut.warp_pc[0]);
+                    $display("[cycle %0d] retire w2: valid=%b exit=%b pfu=%0d cp=%0d sb_zero=%b memblk=%b smemblk=%b stblk=%b atblk=%b pc=0x%08x",
+                             cycle_count,
+                             dut.warp_valid[2], dut.warp_exit_pending[2], dut.pending_fu_count[2], dut.cp_async_pending[2],
+                             (dut.u_scheduler.scoreboard[2] == 0),
+                             (dut.mem_pending_valid  && (dut.mem_warp_pending    == 2)),
+                             (dut.smem_pending_valid && (dut.smem_warp_pending   == 2)),
+                             (dut.store_pending_valid&& (dut.store_warp_pending  == 2)),
+                             (dut.atomic_pending_valid&& (dut.atomic_warp_pending == 2)),
+                             dut.warp_pc[2]);
+
+                    // 2) Scheduler/FSM-visible state for disappeared warps 0/2
+                    $display("[cycle %0d] sched w0: ready=%b has_inst=%b fetch_pending=%b stalled[mem/fu/sync/async/br/wgmma]=%b%b%b%b%b%b",
+                             cycle_count,
+                             dut.warp_ready[0], dut.warp_inst_buf_valid[0], dut.warp_fetch_pending[0],
+                             dut.warp_stalled_mem[0], dut.warp_stalled_fu[0], dut.warp_stalled_sync[0],
+                             dut.warp_stalled_async[0], dut.warp_stalled_branch[0], dut.warp_stalled_wgmma[0]);
+                    $display("[cycle %0d] sched w2: ready=%b has_inst=%b fetch_pending=%b stalled[mem/fu/sync/async/br/wgmma]=%b%b%b%b%b%b",
+                             cycle_count,
+                             dut.warp_ready[2], dut.warp_inst_buf_valid[2], dut.warp_fetch_pending[2],
+                             dut.warp_stalled_mem[2], dut.warp_stalled_fu[2], dut.warp_stalled_sync[2],
+                             dut.warp_stalled_async[2], dut.warp_stalled_branch[2], dut.warp_stalled_wgmma[2]);
+
+                    // 3) pfu=5 stuck decode context (warp3 observed in prior run)
+                    $display("[cycle %0d] w3 decode: pc=0x%08x inst=0x%08x opcode=0x%02x func=%0d valid=%b exit=%b",
+                             cycle_count,
+                             dut.warp_pc[3], dut.warp_inst_buf[3], dut.warp_inst_buf[3][31:26], dut.warp_inst_buf[3][5:0],
+                             dut.warp_inst_buf_valid[3], dut.warp_exit_pending[3]);
                 end
                 if (dut.lane0_stall_raw) begin
                     stall_raw <= stall_raw + 1;
@@ -348,7 +396,7 @@ module tb_sm_v2_perf_tensor_multiwarp;
         @(posedge clk);
         kernel_start = 0;
 
-        timeout_cycles = (TOTAL_OPS * TC_LATENCY * 10) + 8000;
+        timeout_cycles = 26000;
         timeout_left = timeout_cycles;
         while (!done && (timeout_left > 0)) begin
             @(posedge clk);

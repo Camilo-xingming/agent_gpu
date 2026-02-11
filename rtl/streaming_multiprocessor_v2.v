@@ -2330,7 +2330,7 @@ module streaming_multiprocessor_v2 #(
             end
 
             // Decrement pending count on writeback
-            if (wb_valid && wb_rd != 0) begin
+            if (wb_valid) begin
                 if (pending_fu_count[wb_warp_id] > 0) begin
                     pending_fu_count[wb_warp_id] <= pending_fu_count[wb_warp_id] - 1;
                 end
