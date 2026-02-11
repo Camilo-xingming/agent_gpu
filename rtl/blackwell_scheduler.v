@@ -286,7 +286,7 @@ module blackwell_scheduler #(
                         // Blackwell tcgen05 instructions (per-thread tensor ops)
                         end else if (warp_is_tcgen05[warp_idx]) begin
                             // tcgen05.mma -> tensor pipe (async, per-thread)
-                            if (warp_is_tcgen05_mma[warp_idx] && tensor_pipe_ready) begin
+                            if (warp_is_tcgen05_mma[warp_idx] && tensor_pipe_ready && !(s > 0 && tensor_issue_conflict)) begin
                                 issue_valid_r[s] = 1'b1;
                                 issue_warp_r[s] = warp_idx[WARP_W-1:0];
                                 issue_inst_r[s] = warp_inst[warp_idx];
@@ -324,7 +324,7 @@ module blackwell_scheduler #(
                             issue_consume_r[warp_idx] = 1'b1;
 
                         // Legacy warp-synchronous tensor ops (WMMA/WGMMA)
-                        end else if (warp_is_tensor[warp_idx] && tensor_pipe_ready) begin
+                        end else if (warp_is_tensor[warp_idx] && tensor_pipe_ready && !(s > 0 && tensor_issue_conflict)) begin
                             issue_valid_r[s] = 1'b1;
                             issue_warp_r[s] = warp_idx[WARP_W-1:0];
                             issue_inst_r[s] = warp_inst[warp_idx];
