@@ -3112,10 +3112,9 @@ module streaming_multiprocessor_v2 #(
 
     // Tensor issue queue (captures operands/metadata to align with TC readiness)
     // Tensor issue queue accepts from BOTH lanes (lane0 priority)
-    // Per-PC tensor push dedup: tracks last successfully pushed PC per warp.
-    // Catches d1 stale re-issues where the PC hasn't advanced (slot1 during conflicts).
-    // Slot0 re-issues may slip through when PC advances at issue time.
-    // Combined with pfu gate, this eliminates most duplicate tensor writebacks.
+    // Dedup only *consecutive stale re-issues* for same (warp, PC).
+    // Arm on successful tensor push; disarm once warp advances to a different PC.
+    // This avoids long-lived PC suppression (e.g. legitimate loop back to same PC).
     reg [31:0] tensor_last_issue_pc [0:NUM_WARPS-1];
     reg [NUM_WARPS-1:0] tensor_last_issue_valid;
     wire tensor_push_lane0_raw = issue_valid && issue_tensor_op;
@@ -3138,6 +3137,15 @@ module streaming_multiprocessor_v2 #(
         end else if (kernel_start)
             tensor_last_issue_valid <= {NUM_WARPS{1'b0}};
         else begin
+            // Warp advanced: disarm dedup so same PC can be validly re-issued later.
+            if (issue_valid && tensor_last_issue_valid[issue_warp_id] &&
+                (issue_pc != tensor_last_issue_pc[issue_warp_id]))
+                tensor_last_issue_valid[issue_warp_id] <= 1'b0;
+            if (issue1_valid && tensor_last_issue_valid[issue1_warp_id] &&
+                (issue1_pc != tensor_last_issue_pc[issue1_warp_id]))
+                tensor_last_issue_valid[issue1_warp_id] <= 1'b0;
+
+            // Arm dedup only when a tensor issue is actually enqueued.
             if (tensor_issue_push_fire && tensor_push_lane0) begin
                 tensor_last_issue_valid[issue_warp_id] <= 1'b1;
                 tensor_last_issue_pc[issue_warp_id] <= issue_pc;
