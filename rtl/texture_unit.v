@@ -205,10 +205,10 @@ module texture_unit #(
         reg [15:0] tmp1, tmp2, tmp3;
         begin
             // Linear interpolation in X
-            tmp1 = (8'd255 - fx) * c00 + fx * c10;
-            tmp2 = (8'd255 - fx) * c01 + fx * c11;
+            tmp1 = (16'd255 - {8'b0, fx}) * c00 + {8'b0, fx} * c10;
+            tmp2 = (16'd255 - {8'b0, fx}) * c01 + {8'b0, fx} * c11;
             // Linear interpolation in Y
-            tmp3 = (8'd255 - fy) * tmp1[15:8] + fy * tmp2[15:8];
+            tmp3 = (16'd255 - {8'b0, fy}) * tmp1[15:8] + {8'b0, fy} * tmp2[15:8];
             bilinear_interp = tmp3[15:8];
         end
     endfunction
@@ -270,8 +270,8 @@ module texture_unit #(
                                 // Single texel
                                 texel_addr[0] <= calc_2d_addr(
                                     tex_base_addr,
-                                    wrap_coord(coord_s_r, tex_w_r, wrap_s_r),
-                                    wrap_coord(coord_t_r, tex_h_r, wrap_t_r),
+                                    wrap_coord(coord_s_r, tex_w_r, wrap_s_r)[15:0],
+                                    wrap_coord(coord_t_r, tex_h_r, wrap_t_r)[15:0],
                                     tex_w_r * 4,  // Assuming RGBA8
                                     4'd4
                                 );
@@ -280,8 +280,8 @@ module texture_unit #(
                                 // Bilinear: 4 texels
                                 // TODO: Calculate 4 neighbor addresses
                                 texel_addr[0] <= calc_2d_addr(tex_base_addr,
-                                    wrap_coord(coord_s_r, tex_w_r, wrap_s_r),
-                                    wrap_coord(coord_t_r, tex_h_r, wrap_t_r),
+                                    wrap_coord(coord_s_r, tex_w_r, wrap_s_r)[15:0],
+                                    wrap_coord(coord_t_r, tex_h_r, wrap_t_r)[15:0],
                                     tex_w_r * 4, 4'd4);
                                 num_texels <= 3'd1;  // Simplified to point for now
                             end
