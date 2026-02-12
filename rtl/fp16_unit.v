@@ -4,6 +4,7 @@
 // IEEE 754 FP16 and Brain Float 16 support for ML workloads
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module fp16_unit (

@@ -4,6 +4,7 @@
 // 支持: shfl.idx, shfl.up, shfl.down, shfl.bfly
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module warp_shuffle #(

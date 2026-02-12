@@ -8,6 +8,7 @@
 // For cluster operation, requests are routed through cluster interconnect
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module multimem_unit #(

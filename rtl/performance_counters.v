@@ -3,6 +3,7 @@
 // Per-SM throughput, memory stalls, and detailed metrics
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module performance_counters #(

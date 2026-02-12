@@ -3,6 +3,7 @@
 // Two-level TLB for virtual to physical address translation
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 `include "memory_config.vh"
 

@@ -5,6 +5,7 @@
 // PTX Instructions: add.f64, sub.f64, mul.f64, div.f64, fma.f64, etc.
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module fpu64 (

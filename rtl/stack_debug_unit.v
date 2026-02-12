@@ -7,6 +7,7 @@
 // Reference: NVIDIA PTX ISA 8.5+
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module stack_debug_unit #(

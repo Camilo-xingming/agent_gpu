@@ -3,6 +3,7 @@
 // Simplified CDC-safe controller with async FIFOs and a basic memory model.
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 `include "memory_config.vh"
 

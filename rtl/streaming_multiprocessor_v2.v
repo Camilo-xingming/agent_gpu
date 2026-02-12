@@ -20,6 +20,7 @@
 // - WGMMA tensor operations
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 `include "memory_config.vh"
 

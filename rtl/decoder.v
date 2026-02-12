@@ -4,6 +4,7 @@
 // 支持完整PTX ISA 8.5+指令集
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module decoder (

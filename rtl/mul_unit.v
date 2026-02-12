@@ -3,6 +3,7 @@
 // 支持 mul.lo, mul.hi, mad (multiply-add)
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module mul_unit (

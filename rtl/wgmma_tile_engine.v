@@ -6,6 +6,7 @@
 // - Software-managed tile scheduling
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module wgmma_tile_engine #(

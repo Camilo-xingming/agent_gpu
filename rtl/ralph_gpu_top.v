@@ -22,6 +22,7 @@
 // - Banked Register File for dual-issue (register_file_banked)
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module ralph_gpu_top #(

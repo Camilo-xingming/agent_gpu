@@ -4,6 +4,7 @@
 // Supports dual-issue and multi-warp scheduling
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module advanced_warp_scheduler #(

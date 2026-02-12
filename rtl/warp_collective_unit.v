@@ -8,6 +8,7 @@
 // Reference: PTX ISA 8.5+, CUDA Programming Guide (Warp-Level Primitives)
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module warp_collective_unit #(

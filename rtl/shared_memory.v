@@ -4,6 +4,7 @@
 // 默认大小: 16KB
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module shared_memory #(

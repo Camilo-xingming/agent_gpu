@@ -6,6 +6,7 @@
 // Reference: NVIDIA Blackwell Architecture, PTX ISA 8.5+
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module dpx_unit #(

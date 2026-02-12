@@ -15,6 +15,7 @@
 // [63:56]  - Box height in rows
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module tma_unit #(

@@ -7,6 +7,7 @@
 //                   st.async.global, st.async.shared
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module async_copy_engine #(
