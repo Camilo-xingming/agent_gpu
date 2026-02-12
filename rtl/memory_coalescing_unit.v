@@ -96,8 +96,8 @@ module memory_coalescing_unit #(
 
         // 扫描所有活跃线程，找出不同的cache line
         for (i = 0; i < THREADS; i = i + 1) begin
+            found = 0;
             if (saved_mask[i]) begin
-                found = 0;
 
                 // 检查是否已经在列表中
                 for (j = 0; j < MAX_COALESCED; j = j + 1) begin
