@@ -1335,6 +1335,13 @@ module streaming_multiprocessor_v2 #(
     reg [NUM_WARPS-1:0] warp_inst_valid_d1;
     wire [NUM_WARPS-1:0] warp_inst_consume;
 
+    // Per-warp next-instruction buffer (RALPH-8 P0: bypass fetch optimization)
+    // When a 64-bit fetch returns 2 instructions, buffer the upper word
+    // to serve the next sequential PC without a memory fetch
+    reg [31:0] warp_next_inst [0:NUM_WARPS-1];
+    reg [31:0] warp_next_inst_pc [0:NUM_WARPS-1];  // PC this buffered inst corresponds to
+    reg [NUM_WARPS-1:0] warp_next_inst_valid;
+
     // Fetch Arbitration - Pipelined Fetch Architecture
     // Allows multiple warps to have in-flight fetches simultaneously
     // This hides fetch latency by overlapping fetches for different warps
@@ -1357,8 +1364,17 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_WARPS-1:0] warp_inst_consume_gated = warp_inst_consume & ~decode_stalled_per_warp;
     assign warp_buf_will_be_empty = ~warp_inst_buf_valid | warp_inst_consume_gated;
 
-    // Warp needs fetch if: buffer will be empty AND no pending fetch
-    wire [NUM_WARPS-1:0] warp_needs_fetch = warp_buf_will_be_empty & ~warp_fetch_pending;
+    // Check if warp's next PC matches buffered instruction
+    wire [NUM_WARPS-1:0] warp_next_inst_hit;
+    generate
+        for (genvar wi = 0; wi < NUM_WARPS; wi = wi + 1) begin : gen_next_inst_hit
+            assign warp_next_inst_hit[wi] = warp_next_inst_valid[wi] &&
+                                            (warp_fetch_pc[wi] == warp_next_inst_pc[wi]);
+        end
+    endgenerate
+
+    // Warp needs fetch if: buffer will be empty AND no pending fetch AND no buffered hit
+    wire [NUM_WARPS-1:0] warp_needs_fetch = warp_buf_will_be_empty & ~warp_fetch_pending & ~warp_next_inst_hit;
 
     integer f_i;
     always @(*) begin
@@ -1507,10 +1523,12 @@ module streaming_multiprocessor_v2 #(
                  warp_inst_buf[w_buf] <= 0;
              end
              warp_inst_buf_valid <= 0;
+             warp_next_inst_valid <= 0;
         end else begin
             // Clear instruction buffer on new kernel start (prevents stale instructions)
             if (kernel_start) begin
                 warp_inst_buf_valid <= 0;
+                warp_next_inst_valid <= 0;
             end else begin
             // Debug: trace consume/fill
             // Handle each warp's buffer valid bit
@@ -1535,6 +1553,32 @@ module streaming_multiprocessor_v2 #(
                 // Delayed response: use warp ID from final pipeline stage
                 warp_inst_buf[fetch_pipe_warp[FETCH_PIPE_DEPTH-1]] <= icache_data;
             end
+
+            // RALPH-8 P0: Buffer the upper 32-bit word from 64-bit fetch response
+            // In bypass mode, imem_data = {instr[PC/4+1], instr[PC/4]}
+            // The upper word is the next sequential instruction
+            if (ICACHE_BYPASS && fill_valid) begin
+                warp_next_inst[fill_warp_id] <= imem_data[63:32];
+                // The filled instruction is at warp_fetch_pc - 4 (PC already advanced)
+                // So the next instruction is at warp_fetch_pc (current fetch PC)
+                warp_next_inst_pc[fill_warp_id] <= warp_fetch_pc[fill_warp_id];
+                warp_next_inst_valid[fill_warp_id] <= 1'b1;
+            end
+
+            // RALPH-8 P0: Serve from next-inst buffer when there's a hit
+            // This replaces a memory fetch with a buffer read
+            for (w_buf = 0; w_buf < NUM_WARPS; w_buf = w_buf + 1) begin
+                if (warp_next_inst_hit[w_buf] && warp_buf_will_be_empty[w_buf]
+                    && !warp_fill[w_buf] && !warp_fetch_pending[w_buf]) begin
+                    warp_inst_buf[w_buf] <= warp_next_inst[w_buf];
+                    warp_inst_buf_valid[w_buf] <= 1'b1;
+                    warp_next_inst_valid[w_buf] <= 1'b0;  // Consume buffer
+                    warp_fetch_pc[w_buf] <= warp_fetch_pc[w_buf] + 4;  // Advance PC
+                end
+            end
+
+            // Invalidate next-inst buffer on branch/jump (PC changes unexpectedly)
+            // This is handled implicitly: if PC doesn't match, warp_next_inst_hit=0
 
             // PC advances when fetch request is sent (not on response)
             // This ensures PC points to the NEXT instruction to fetch
