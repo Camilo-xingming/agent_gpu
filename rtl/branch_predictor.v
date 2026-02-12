@@ -71,6 +71,8 @@ module branch_predictor #(
     localparam BTB_TAG_WIDTH = ADDR_WIDTH - BTB_IDX_WIDTH - 2;
     localparam WARP_WIDTH = $clog2(NUM_WARPS);
     localparam RAS_PTR_WIDTH = $clog2(RAS_DEPTH);
+    localparam [($clog2(BTB_WAYS))-1:0] BTB_WAYS_MINUS_1 = $clog2(BTB_WAYS)'(BTB_WAYS - 1);
+    localparam [RAS_PTR_WIDTH-1:0] RAS_DEPTH_MINUS_1 = RAS_PTR_WIDTH'(RAS_DEPTH - 1);
 
     //------------------------------------------------------------------------
     // Branch History Register (per warp)
@@ -104,7 +106,7 @@ module branch_predictor #(
         for (btb_w = 0; btb_w < BTB_WAYS; btb_w = btb_w + 1) begin
             if (btb_valid[btb_idx][btb_w] && btb_tag[btb_idx][btb_w] == btb_lookup_tag) begin
                 btb_hit = 1;
-                btb_hit_way = btb_w;
+                btb_hit_way = btb_w[$clog2(BTB_WAYS)-1:0];
                 btb_hit_target = btb_target[btb_idx][btb_w];
                 btb_hit_type = btb_type[btb_idx][btb_w];
             end
@@ -222,7 +224,7 @@ module branch_predictor #(
         for (prov_t = TAGE_TABLES - 1; prov_t >= 0; prov_t = prov_t - 1) begin
             if (tage_hit[prov_t] && !provider_found) begin
                 final_pred_counter = tage_pred[prov_t];
-                provider_table = prov_t;
+                provider_table = prov_t[1:0];
                 provider_found = 1;
             end
         end
@@ -260,7 +262,7 @@ module branch_predictor #(
         for (loop_i = 0; loop_i < LOOP_ENTRIES; loop_i = loop_i + 1) begin
             if (loop_valid[loop_i] && loop_pc[loop_i] == pred_pc) begin
                 loop_hit = 1;
-                loop_hit_idx = loop_i;
+                loop_hit_idx = loop_i[$clog2(LOOP_ENTRIES)-1:0];
                 loop_pred_exit = loop_confident[loop_i] &&
                                 (loop_count[loop_i] >= loop_limit[loop_i] - 1);
             end
@@ -382,7 +384,7 @@ module branch_predictor #(
                         if (btb_valid[upd_btb_idx][upd_w] &&
                             btb_tag[upd_btb_idx][upd_w] == upd_tag) begin
                             found_way = 1;
-                            alloc_way = upd_w;
+                            alloc_way = upd_w[$clog2(BTB_WAYS)-1:0];
                         end
                     end
 
@@ -393,16 +395,25 @@ module branch_predictor #(
                                                         update_is_return ? 2'd3 : 2'd0;
 
                     if (!found_way)
-                        btb_lru[upd_btb_idx] <= (btb_lru[upd_btb_idx] + 1) % BTB_WAYS;
+                        btb_lru[upd_btb_idx] <=
+                            (btb_lru[upd_btb_idx] == BTB_WAYS_MINUS_1) ?
+                            {$clog2(BTB_WAYS){1'b0}} :
+                            (btb_lru[upd_btb_idx] + 1'b1);
                 end
             end
 
             // Update RAS
             if (update_is_call) begin
                 // Push return address
-                ras_ptr[update_warp_id] <= (ras_ptr[update_warp_id] + 1) % RAS_DEPTH;
-                ras_stack[update_warp_id][(ras_ptr[update_warp_id] + 1) % RAS_DEPTH] <=
-                    update_pc + 4;
+                if (ras_ptr[update_warp_id] == RAS_DEPTH_MINUS_1)
+                    ras_ptr[update_warp_id] <= {RAS_PTR_WIDTH{1'b0}};
+                else
+                    ras_ptr[update_warp_id] <= ras_ptr[update_warp_id] + 1'b1;
+
+                ras_stack[update_warp_id]
+                    [(ras_ptr[update_warp_id] == RAS_DEPTH_MINUS_1) ?
+                     {RAS_PTR_WIDTH{1'b0}} :
+                     (ras_ptr[update_warp_id] + 1'b1)] <= update_pc + 4;
             end else if (update_is_return) begin
                 // Pop
                 if (ras_ptr[update_warp_id] > 0)
