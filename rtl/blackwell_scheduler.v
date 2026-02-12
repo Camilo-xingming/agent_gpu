@@ -272,7 +272,9 @@ module blackwell_scheduler #(
                 if (!issue_valid_r[s]) begin
                     // Use round-robin starting point for fairness
                     integer warp_idx;
+                    /* verilator lint_off WIDTHEXPAND */ // integer RR math; width-normalized by warp_idx type
                     warp_idx = s + ((sched_rr_ptr[s] + sw) % WARPS_PER_SCHED) * NUM_SCHEDULERS;
+                    /* verilator lint_on WIDTHEXPAND */
 
                     if (warp_idx < NUM_WARPS && warp_eligible[warp_idx]) begin
                         // Priority order: Branch > tcgen05 > Memory > Tensor > Compute
@@ -453,15 +455,15 @@ module blackwell_scheduler #(
     reg [31:0] tcgen05_issued_count;
 
     /* verilator lint_off SELRANGE */
-    wire [3:0] num_issued = issue_valid_r[0] + issue_valid_r[1] +
-                            ((NUM_SCHEDULERS > 2) ? issue_valid_r[2] : 1'b0) +
-                            ((NUM_SCHEDULERS > 3) ? issue_valid_r[3] : 1'b0);
+    wire [3:0] num_issued = {3'b0, issue_valid_r[0]} + {3'b0, issue_valid_r[1]} +
+                            ((NUM_SCHEDULERS > 2) ? {3'b0, issue_valid_r[2]} : 4'b0) +
+                            ((NUM_SCHEDULERS > 3) ? {3'b0, issue_valid_r[3]} : 4'b0);
 
     // Count async MMA and tcgen05 issues this cycle
-    wire [3:0] num_async_mma_issued = issue_is_async_mma_r[0] +
-                                       ((NUM_SCHEDULERS > 1) ? issue_is_async_mma_r[1] : 1'b0) +
-                                       ((NUM_SCHEDULERS > 2) ? issue_is_async_mma_r[2] : 1'b0) +
-                                       ((NUM_SCHEDULERS > 3) ? issue_is_async_mma_r[3] : 1'b0);
+    wire [3:0] num_async_mma_issued = {3'b0, issue_is_async_mma_r[0]} +
+                                       ((NUM_SCHEDULERS > 1) ? {3'b0, issue_is_async_mma_r[1]} : 4'b0) +
+                                       ((NUM_SCHEDULERS > 2) ? {3'b0, issue_is_async_mma_r[2]} : 4'b0) +
+                                       ((NUM_SCHEDULERS > 3) ? {3'b0, issue_is_async_mma_r[3]} : 4'b0);
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -486,7 +488,9 @@ module blackwell_scheduler #(
             end
 
             // Blackwell-specific statistics
+            /* verilator lint_off WIDTHEXPAND */ // 4-bit per-cycle tally into 32-bit counter
             async_mma_issued_count <= async_mma_issued_count + num_async_mma_issued;
+            /* verilator lint_on WIDTHEXPAND */
 
             if (async_mma_complete) begin
                 async_mma_completed_count <= async_mma_completed_count + 1;

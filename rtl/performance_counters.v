@@ -142,7 +142,7 @@ module performance_counters #(
         begin
             count_ones = 0;
             for (i = 0; i < NUM_SM; i = i + 1) begin
-                count_ones = count_ones + vec[i];
+                count_ones = count_ones + {15'b0, vec[i]};
             end
         end
     endfunction
@@ -153,7 +153,7 @@ module performance_counters #(
         begin
             count_warp_ones = 0;
             for (i = 0; i < NUM_SM*NUM_WARPS; i = i + 1) begin
-                count_warp_ones = count_warp_ones + vec[i];
+                count_warp_ones = count_warp_ones + {15'b0, vec[i]};
             end
         end
     endfunction
@@ -194,6 +194,9 @@ module performance_counters #(
                 counters[rst_i] <= 0;
             end
         end else if (enable) begin
+            // Safe width expansions: narrow per-cycle tallies into 64-bit counters.
+            // Keep arithmetic unchanged; waive noisy WIDTHEXPAND in this accumulation block.
+            /* verilator lint_off WIDTHEXPAND */
             // Core counters
             counters[CTR_CYCLES] <= counters[CTR_CYCLES] + 1;
             counters[CTR_INSTRUCTIONS] <= counters[CTR_INSTRUCTIONS] + total_issue;
@@ -238,6 +241,7 @@ module performance_counters #(
             for (rst_i = 0; rst_i < NUM_SM && rst_i < (NUM_COUNTERS - CTR_SM_BASE); rst_i = rst_i + 1) begin
                 counters[CTR_SM_BASE + rst_i] <= counters[CTR_SM_BASE + rst_i] + sm_issue_valid[rst_i];
             end
+            /* verilator lint_on WIDTHEXPAND */
         end
     end
 
@@ -442,7 +446,7 @@ module sm_performance_monitor #(
                 fu_busy_counter <= fu_busy_counter + 1;
             end
 
-            active_warp_sum <= active_warp_sum + active_warps;
+            active_warp_sum <= active_warp_sum + {{27{1'b0}}, active_warps};
 
             // Sample at interval
             if (cycle_counter >= SAMPLE_INTERVAL - 1) begin
