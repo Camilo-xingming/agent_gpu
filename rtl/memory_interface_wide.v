@@ -222,7 +222,7 @@ module memory_interface_wide #(
         free_mshr_valid = 0;
         for (mshr_i = 0; mshr_i < MSHR_ENTRIES; mshr_i = mshr_i + 1) begin
             if (!mshr_valid[mshr_i] && !free_mshr_valid) begin
-                free_mshr = mshr_i;
+                free_mshr = mshr_i[MSHR_IDX_WIDTH-1:0];
                 free_mshr_valid = 1;
             end
         end
@@ -250,7 +250,7 @@ module memory_interface_wide #(
                         mshr_valid[free_mshr] <= 1;
                         mshr_warp_mask[free_mshr] <= lane_warp_contrib[alloc_l];
                         mshr_base_addr[free_mshr] <= coalesce_base[alloc_l];
-                        mshr_lane_idx[free_mshr] <= alloc_l;
+                        mshr_lane_idx[free_mshr] <= alloc_l[7:0];
                     end
                 end
             end
@@ -260,7 +260,7 @@ module memory_interface_wide #(
                 if (lane_resp_valid[alloc_l]) begin
                     for (alloc_m = 0; alloc_m < MSHR_ENTRIES; alloc_m = alloc_m + 1) begin
                         if (mshr_valid[alloc_m] && mshr_waiting[alloc_m] &&
-                            mshr_lane_idx[alloc_m] == alloc_l) begin
+                            mshr_lane_idx[alloc_m] == alloc_l[7:0]) begin
                             mshr_valid[alloc_m] <= 0;
                             mshr_waiting[alloc_m] <= 0;
                         end
@@ -273,7 +273,7 @@ module memory_interface_wide #(
                 if (lane_req_valid[alloc_l] && lane_req_ready[alloc_l]) begin
                     for (alloc_m = 0; alloc_m < MSHR_ENTRIES; alloc_m = alloc_m + 1) begin
                         if (mshr_valid[alloc_m] && !mshr_waiting[alloc_m] &&
-                            mshr_lane_idx[alloc_m] == alloc_l) begin
+                            mshr_lane_idx[alloc_m] == alloc_l[7:0]) begin
                             mshr_waiting[alloc_m] <= 1;
                         end
                     end
@@ -308,7 +308,7 @@ module memory_interface_wide #(
             for (lane_i = 0; lane_i < NUM_LANES; lane_i = lane_i + 1) begin
                 for (lane_m = 0; lane_m < MSHR_ENTRIES; lane_m = lane_m + 1) begin
                     if (mshr_valid[lane_m] && !mshr_waiting[lane_m] &&
-                        mshr_lane_idx[lane_m] == lane_i && !lane_req_valid_r[lane_i]) begin
+                        mshr_lane_idx[lane_m] == lane_i[7:0] && !lane_req_valid_r[lane_i]) begin
                         lane_req_valid_r[lane_i] <= 1;
                         lane_req_write_r[lane_i] <= 0;  // Simplified: reads only for now
                         lane_req_addr_r[lane_i] <= mshr_base_addr[lane_m];
@@ -351,7 +351,7 @@ module memory_interface_wide #(
                 if (lane_resp_valid[resp_l]) begin
                     for (resp_m = 0; resp_m < MSHR_ENTRIES; resp_m = resp_m + 1) begin
                         if (mshr_valid[resp_m] && mshr_waiting[resp_m] &&
-                            mshr_lane_idx[resp_m] == resp_l) begin
+                            mshr_lane_idx[resp_m] == resp_l[7:0]) begin
                             // Distribute to all warps that contributed
                             for (resp_w = 0; resp_w < NUM_WARPS; resp_w = resp_w + 1) begin
                                 if (mshr_warp_mask[resp_m][resp_w]) begin
@@ -403,10 +403,14 @@ module memory_interface_wide #(
                         completed_reqs = completed_reqs + 1;
                 end
 
-                outstanding_count <= outstanding_count + new_reqs - completed_reqs;
+                outstanding_count <= outstanding_count + {3'b0, new_reqs} - {3'b0, completed_reqs};
 
-                if (outstanding_count + new_reqs - completed_reqs > outstanding_peak)
-                    outstanding_peak <= outstanding_count + new_reqs - completed_reqs;
+                begin
+                    reg [31:0] next_outstanding;
+                    next_outstanding = {25'b0, outstanding_count} + {28'b0, new_reqs} - {28'b0, completed_reqs};
+                    if (next_outstanding > outstanding_peak)
+                        outstanding_peak <= next_outstanding;
+                end
             end
         end
     end
