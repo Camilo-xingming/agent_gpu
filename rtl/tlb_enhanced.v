@@ -179,6 +179,7 @@ module tlb_enhanced #(
     reg [$clog2(L1_WAYS)-1:0] l1_hit_way [0:NUM_SMS-1];
 
     integer l1_s, l1_w;
+    /* verilator lint_off LATCH */
     always @(*) begin
         for (l1_s = 0; l1_s < NUM_SMS; l1_s = l1_s + 1) begin
             l1_hit[l1_s] = 0;
@@ -224,6 +225,7 @@ module tlb_enhanced #(
             end
         end
     end
+    /* verilator lint_on LATCH */
 
     //------------------------------------------------------------------------
     // L2 TLB Lookup
@@ -235,6 +237,7 @@ module tlb_enhanced #(
     reg [$clog2(L2_WAYS)-1:0] l2_hit_way_r;
 
     integer l2_w;
+    /* verilator lint_off LATCH */
     always @(*) begin
         l2_hit = 0;
         l2_ppn_r = 0;
