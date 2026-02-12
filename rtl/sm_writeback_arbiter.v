@@ -193,29 +193,32 @@ module sm_writeback_arbiter #(
     always @(*) begin
         wb_found_r = 1'b0;
         wb_sel_r = 0;
+        // wb_i is an integer loop counter; index arithmetic is intentionally modulo-17.
+        /* verilator lint_off WIDTHEXPAND */
         for (wb_i = 0; wb_i < 17; wb_i = wb_i + 1) begin
             if (!wb_found_r && fu_ready[(wb_arb_priority + wb_i) % 17]) begin
                 wb_sel_r = (wb_arb_priority + wb_i) % 17;
                 wb_found_r = 1'b1;
             end
         end
+        /* verilator lint_on WIDTHEXPAND */
     end
 
     assign wb_found = wb_found_r;
     assign wb_sel   = wb_sel_r;
 
     // WBQ pop signals
-    assign alu_wbq_pop     = wb_found && (wb_sel == 4'd0);
-    assign mul_wbq_pop     = wb_found && (wb_sel == 4'd1);
-    assign fpu32_wbq_pop   = wb_found && (wb_sel == 4'd2);
-    assign fpu64_wbq_pop   = wb_found && (wb_sel == 4'd3);
-    assign fp16_wbq_pop    = wb_found && (wb_sel == 4'd4);
-    assign sfu_wbq_pop     = wb_found && (wb_sel == 4'd5);
-    assign tensor_wbq_pop  = wb_found && (wb_sel == 4'd6);
-    assign shfl_wbq_pop    = wb_found && (wb_sel == 4'd8);
-    assign special_wbq_pop = wb_found && (wb_sel == 4'd10);
-    assign tex_wbq_pop     = wb_found && (wb_sel == 4'd12);
-    assign video_wbq_pop   = wb_found && (wb_sel == 4'd13);
+    assign alu_wbq_pop     = wb_found && (wb_sel == 5'd0);
+    assign mul_wbq_pop     = wb_found && (wb_sel == 5'd1);
+    assign fpu32_wbq_pop   = wb_found && (wb_sel == 5'd2);
+    assign fpu64_wbq_pop   = wb_found && (wb_sel == 5'd3);
+    assign fp16_wbq_pop    = wb_found && (wb_sel == 5'd4);
+    assign sfu_wbq_pop     = wb_found && (wb_sel == 5'd5);
+    assign tensor_wbq_pop  = wb_found && (wb_sel == 5'd6);
+    assign shfl_wbq_pop    = wb_found && (wb_sel == 5'd8);
+    assign special_wbq_pop = wb_found && (wb_sel == 5'd10);
+    assign tex_wbq_pop     = wb_found && (wb_sel == 5'd12);
+    assign video_wbq_pop   = wb_found && (wb_sel == 5'd13);
 
     // Writeback arbiter FSM
     always @(posedge clk or negedge rst_n) begin
@@ -228,49 +231,49 @@ module sm_writeback_arbiter #(
                 wb_arb_priority <= (wb_sel + 1) % 17;
 
                 case (wb_sel)
-                    4'd0: begin  // ALU
+                    5'd0: begin  // ALU
                         wb_warp_id <= alu_wbq_warp;
                         wb_rd      <= alu_wbq_rd;
                         wb_data    <= alu_wbq_data;
                         wb_mask    <= alu_wbq_mask;
                     end
-                    4'd1: begin  // MUL
+                    5'd1: begin  // MUL
                         wb_warp_id <= mul_wbq_warp;
                         wb_rd      <= mul_wbq_rd;
                         wb_data    <= mul_wbq_data;
                         wb_mask    <= mul_wbq_mask;
                     end
-                    4'd2: begin  // FPU32
+                    5'd2: begin  // FPU32
                         wb_warp_id <= fpu32_wbq_warp;
                         wb_rd      <= fpu32_wbq_rd;
                         wb_data    <= fpu32_wbq_data;
                         wb_mask    <= fpu32_wbq_mask;
                     end
-                    4'd3: begin  // FPU64
+                    5'd3: begin  // FPU64
                         wb_warp_id <= fpu64_wbq_warp;
                         wb_rd      <= fpu64_wbq_rd;
                         wb_data    <= fpu64_wbq_data;
                         wb_mask    <= fpu64_wbq_mask;
                     end
-                    4'd4: begin  // FP16
+                    5'd4: begin  // FP16
                         wb_warp_id <= fp16_wbq_warp;
                         wb_rd      <= fp16_wbq_rd;
                         wb_data    <= fp16_wbq_data;
                         wb_mask    <= fp16_wbq_mask;
                     end
-                    4'd5: begin  // SFU
+                    5'd5: begin  // SFU
                         wb_warp_id <= sfu_wbq_warp;
                         wb_rd      <= sfu_wbq_rd;
                         wb_data    <= sfu_wbq_data;
                         wb_mask    <= sfu_wbq_mask;
                     end
-                    4'd6: begin  // Tensor
+                    5'd6: begin  // Tensor
                         wb_warp_id <= tensor_wbq_warp;
                         wb_rd      <= tensor_wbq_rd;
                         wb_data    <= tensor_wbq_data;
                         wb_mask    <= tensor_wbq_mask;
                     end
-                    4'd7: begin  // Memory
+                    5'd7: begin  // Memory
                         if (smem_resp_latched) begin
                             wb_warp_id <= smem_resp_warp;
                             wb_rd      <= smem_resp_rd;
@@ -289,49 +292,49 @@ module sm_writeback_arbiter #(
                             wb_mask    <= store_mask_pending;
                         end
                     end
-                    4'd8: begin  // Shuffle
+                    5'd8: begin  // Shuffle
                         wb_warp_id <= shfl_wbq_warp;
                         wb_rd      <= shfl_wbq_rd;
                         wb_data    <= shfl_wbq_data;
                         wb_mask    <= shfl_wbq_mask;
                     end
-                    4'd9: begin  // Atomic
+                    5'd9: begin  // Atomic
                         wb_warp_id <= atomic_warp_pending;
                         wb_rd      <= atomic_rd_pending;
                         wb_data    <= atomic_result;
                         wb_mask    <= atomic_mask_pending;
                     end
-                    4'd10: begin  // Special registers
+                    5'd10: begin  // Special registers
                         wb_warp_id <= special_wbq_warp;
                         wb_rd      <= special_wbq_rd;
                         wb_data    <= special_wbq_data;
                         wb_mask    <= special_wbq_mask;
                     end
-                    4'd11: begin  // mbarrier
+                    5'd11: begin  // mbarrier
                         wb_warp_id <= mbarrier_wb_warp;
                         wb_rd      <= mbarrier_wb_rd;
                         wb_data    <= {NUM_LANES{mbarrier_wb_result}};
                         wb_mask    <= mbarrier_wb_mask;
                     end
-                    4'd12: begin  // Texture
+                    5'd12: begin  // Texture
                         wb_warp_id <= tex_warp_pending;
                         wb_rd      <= tex_rd_pending;
                         wb_data    <= {(NUM_LANES/4){tex_result_latched}};
                         wb_mask    <= tex_mask_pending;
                     end
-                    4'd13: begin  // Video SIMD
+                    5'd13: begin  // Video SIMD
                         wb_warp_id <= video_wbq_warp;
                         wb_rd      <= video_wbq_rd;
                         wb_data    <= video_wbq_data;
                         wb_mask    <= video_wbq_mask;
                     end
-                    4'd14: begin  // Cache policy
+                    5'd14: begin  // Cache policy
                         wb_warp_id <= cache_policy_wb_warp;
                         wb_rd      <= cache_policy_wb_rd;
                         wb_data    <= {NUM_LANES{cache_policy_token_r}};
                         wb_mask    <= cache_policy_wb_mask;
                     end
-                    4'd15: begin  // Stack
+                    5'd15: begin  // Stack
                         wb_warp_id <= stack_wb_warp;
                         wb_rd      <= stack_wb_rd;
                         wb_data    <= {NUM_LANES{stack_result_r}};
