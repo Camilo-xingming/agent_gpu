@@ -163,7 +163,7 @@ module sm_writeback_arbiter #(
     localparam SIMD_WIDTH = NUM_LANES * DATA_WIDTH;
 
     // Round-robin priority state
-    reg [3:0] wb_arb_priority;
+    reg [4:0] wb_arb_priority;
 
     // Collect all ready FU outputs for round-robin arbitration
     wire [16:0] fu_ready;
@@ -196,8 +196,8 @@ module sm_writeback_arbiter #(
         // wb_i is an integer loop counter; index arithmetic is intentionally modulo-17.
         /* verilator lint_off WIDTHEXPAND */
         for (wb_i = 0; wb_i < 17; wb_i = wb_i + 1) begin
-            if (!wb_found_r && fu_ready[(wb_arb_priority + wb_i) % 17]) begin
-                wb_sel_r = (wb_arb_priority + wb_i) % 17;
+            if (!wb_found_r && fu_ready[(wb_arb_priority + wb_i[4:0]) % 5'd17]) begin
+                wb_sel_r = (wb_arb_priority + wb_i[4:0]) % 5'd17;
                 wb_found_r = 1'b1;
             end
         end
@@ -228,7 +228,7 @@ module sm_writeback_arbiter #(
         end else begin
             if (wb_found) begin
                 wb_valid <= 1'b1;
-                wb_arb_priority <= (wb_sel + 1) % 17;
+                wb_arb_priority <= (wb_sel + 5'd1) % 5'd17;
 
                 case (wb_sel)
                     5'd0: begin  // ALU
