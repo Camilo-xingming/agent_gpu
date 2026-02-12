@@ -68,8 +68,8 @@ module alu (
         begin
             clz32 = 32;
             found = 0;
-            for (i = 31; i >= 0 && !found; i = i - 1) begin
-                if (val[i]) begin
+            for (i = 31; i >= 0; i = i - 1) begin
+                if (!found && val[i]) begin
                     clz32 = 31 - i;
                     found = 1;
                 end
@@ -91,8 +91,8 @@ module alu (
             search_val = (is_signed && val[31]) ? ~val : val;
             bfind32 = 32'hFFFFFFFF;  // -1 表示未找到
             found = 0;
-            for (i = 31; i >= 0 && !found; i = i - 1) begin
-                if (search_val[i]) begin
+            for (i = 31; i >= 0; i = i - 1) begin
+                if (!found && search_val[i]) begin
                     bfind32 = i;
                     found = 1;
                 end
