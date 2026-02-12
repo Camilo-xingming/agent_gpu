@@ -15,6 +15,7 @@
 // - Supports per-thread tensor operations via tcgen05 instructions
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module tensor_memory #(

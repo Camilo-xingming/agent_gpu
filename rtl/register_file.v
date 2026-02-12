@@ -4,6 +4,7 @@
 // NUM_WARPS × 32个线程 × 32个寄存器 × 32位
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module register_file #(

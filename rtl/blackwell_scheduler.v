@@ -11,6 +11,7 @@
 // - TMEM operation tracking for tcgen05.alloc/ld/st/mma
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module blackwell_scheduler #(

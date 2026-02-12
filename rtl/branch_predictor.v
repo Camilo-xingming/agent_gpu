@@ -9,6 +9,7 @@
 //   - Per-warp prediction state
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module branch_predictor #(

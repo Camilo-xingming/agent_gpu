@@ -4,6 +4,7 @@
 // Supports 1D/2D/3D/Cube textures with filtering and LOD
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module texture_unit #(

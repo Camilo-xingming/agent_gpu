@@ -4,6 +4,7 @@
 // Based on NVIDIA IPDOM (Immediate Post-Dominator) reconvergence
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module reconvergence_stack #(

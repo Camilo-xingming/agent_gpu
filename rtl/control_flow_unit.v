@@ -4,6 +4,7 @@
 // Supports divergent execution with convergence tracking
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module control_flow_unit #(

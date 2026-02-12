@@ -4,6 +4,7 @@
 // Supports prefetch and fetch buffer
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 `include "memory_config.vh"
 

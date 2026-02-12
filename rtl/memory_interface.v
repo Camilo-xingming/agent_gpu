@@ -4,6 +4,7 @@
 // 支持合并访问 (coalescing) 以提高带宽利用率
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module memory_interface #(

@@ -8,6 +8,7 @@
 // Reference: NVIDIA PTX ISA 8.5+, Hopper/Blackwell Architecture
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module griddep_unit #(

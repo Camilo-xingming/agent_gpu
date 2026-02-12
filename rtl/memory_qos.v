@@ -8,6 +8,7 @@
 //   - Bandwidth throttling for power management
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module memory_qos #(

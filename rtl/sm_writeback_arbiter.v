@@ -12,6 +12,7 @@
 //            wb_found, wb_sel (for external latch-clearing logic)
 //            Per-FU pop signals (WBQ drain)
 //============================================================================
+`timescale 1ns / 1ps
 module sm_writeback_arbiter #(
     parameter NUM_WARPS   = 4,
     parameter NUM_LANES   = 32,

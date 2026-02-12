@@ -6,6 +6,7 @@
 // RAS Features: SEC-DED ECC for single-bit error correction and double-bit detection
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module register_file_banked #(

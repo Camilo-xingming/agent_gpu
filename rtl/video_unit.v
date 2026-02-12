@@ -4,6 +4,7 @@
 // Supports SIMD byte/half-word operations and dot products
 //============================================================================
 
+`timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module video_unit (
