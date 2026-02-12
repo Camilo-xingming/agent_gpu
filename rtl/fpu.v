@@ -161,6 +161,7 @@ module fpu (
             invalid     <= 1'b0;
             div_by_zero <= 1'b0;
 
+            /* verilator lint_off CASEOVERLAP */
             case (func)
                 `FP_ADD, `FP_SUB: begin
                     `ifdef SIMULATION
@@ -272,7 +273,8 @@ module fpu (
                     result    <= 32'b0;
                     valid_out <= 1'b0;
                 end
-            endcase
+                        /* verilator lint_on CASEOVERLAP */
+endcase
         end else begin
             valid_out <= 1'b0;
         end
