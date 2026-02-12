@@ -901,6 +901,7 @@ module prefetch_unit #(
                             l2_prefetch_valid <= 1'b1;
                             l2_prefetch_addr <= pf_queue[pf_tail];
                         end
+                        default: ; // lint: CASEINCOMPLETE
                     endcase
                     state <= ST_WAIT;
                 end

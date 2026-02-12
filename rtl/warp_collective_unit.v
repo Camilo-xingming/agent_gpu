@@ -319,6 +319,7 @@ module warp_collective_unit #(
                                 `RED_ASYNC_AND: reduction_acc <= reduction_acc & lane_data_copy[red_lane_idx];
                                 `RED_ASYNC_OR:  reduction_acc <= reduction_acc | lane_data_copy[red_lane_idx];
                                 `RED_ASYNC_XOR: reduction_acc <= reduction_acc ^ lane_data_copy[red_lane_idx];
+                                default: ; // lint: CASEINCOMPLETE
                             endcase
                         end
                         red_lane_idx <= red_lane_idx + 1;

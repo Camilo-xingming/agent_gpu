@@ -522,6 +522,7 @@ module texture_cache #(
                     req_ready <= 1'b1;
                     state <= IDLE;
                 end
+                default: ; // lint: CASEINCOMPLETE
             endcase
         end
     end

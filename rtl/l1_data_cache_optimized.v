@@ -637,6 +637,7 @@ module l1_data_cache_optimized #(
                     // Complete state
                     prefetch_active <= 0;
                 end
+                default: ; // lint: CASEINCOMPLETE
             endcase
 
             // Handle prefetch completions (background)

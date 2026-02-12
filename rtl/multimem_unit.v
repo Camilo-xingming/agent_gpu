@@ -193,6 +193,7 @@ module multimem_unit #(
                                 saved_red_op <= remote_req_red_op;
                                 state <= ST_REDUCE_READ;
                             end
+                            default: ; // lint: CASEINCOMPLETE
                         endcase
                     end
                     // Handle local requests

@@ -412,6 +412,7 @@ module advanced_warp_scheduler #(
                     PIPE_COMPUTE0, PIPE_COMPUTE1: compute_rr_ptr <= (issue_warp_r[0] + 1) % NUM_WARPS;
                     PIPE_TENSOR: tensor_rr_ptr <= (issue_warp_r[0] + 1) % NUM_WARPS;
                     PIPE_MEMORY: memory_rr_ptr <= (issue_warp_r[0] + 1) % NUM_WARPS;
+                    default: ; // lint: CASEINCOMPLETE
                 endcase
             end
         end

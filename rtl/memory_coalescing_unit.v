@@ -251,6 +251,7 @@ module memory_coalescing_unit #(
                 ST_DONE: begin
                     state <= ST_IDLE;
                 end
+                default: ; // lint: CASEINCOMPLETE
             endcase
         end
     end

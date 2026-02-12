@@ -299,6 +299,7 @@ module memory_interface #(
                         end
                     end
                 end
+                default: ; // lint: CASEINCOMPLETE
             endcase
         end
     end
