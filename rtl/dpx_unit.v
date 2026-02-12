@@ -199,6 +199,7 @@ module dpx_unit #(
         end
     end
 
+    /* verilator lint_on BLKSEQ */
 endmodule
 
 //============================================================================
@@ -273,6 +274,7 @@ module sparse_mma_unit #(
     reg [1:0] idx0, idx1;
     reg [DATA_WIDTH-1:0] val0, val1;
 
+    /* verilator lint_off BLKSEQ */
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             state <= ST_IDLE;
@@ -321,6 +323,7 @@ module sparse_mma_unit #(
                                 `endif
                             end
                         endcase
+    /* verilator lint_on BLKSEQ */
                     end
                 end
 

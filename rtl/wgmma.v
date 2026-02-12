@@ -695,6 +695,7 @@ module fp8_mma_unit #(
     reg [31:0] temp_sum;
     reg [31:0] a_fp32, b_fp32;
 
+    /* verilator lint_off BLKSEQ */
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             matrix_d <= 0;
@@ -723,6 +724,7 @@ module fp8_mma_unit #(
             valid_out <= 1'b0;
         end
     end
+    /* verilator lint_on BLKSEQ */
 
 endmodule
 
@@ -796,6 +798,7 @@ module fp6_mma_unit #(
     reg [31:0] temp_sum;
     reg [31:0] a_fp32, b_fp32;
 
+    /* verilator lint_off BLKSEQ */
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             matrix_d <= 0;
@@ -819,5 +822,6 @@ module fp6_mma_unit #(
             valid_out <= 1'b0;
         end
     end
+    /* verilator lint_on BLKSEQ */
 
 endmodule
