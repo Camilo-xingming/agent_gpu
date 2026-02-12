@@ -205,6 +205,7 @@ module icache #(
     reg [DATA_WIDTH-1:0] fetch_data_r;
     reg mem_req_valid_r;
     reg [ADDR_WIDTH-1:0] mem_req_addr_r;
+    reg [ADDR_WIDTH-1:0] fetch_addr_latched;  // Latch on miss
     reg invalidate_done_r;
     reg fetch_ready_r;
 
@@ -297,7 +298,8 @@ module icache #(
                             prefetch_valid[prefetch_hit_idx] <= 1'b0;
                             // Stay in IDLE
                         end else begin
-                            // Cache miss - go to TAG_CHECK to handle miss path
+                            // Cache miss - latch addr, go to TAG_CHECK
+                            fetch_addr_latched <= fetch_addr;
                             state <= ST_TAG_CHECK;
                             fetch_ready_r <= 1'b0;
                         end
@@ -308,8 +310,8 @@ module icache #(
                     // This state is now only entered on cache miss from IDLE
                     // Start the miss handling
                     miss_count <= miss_count + 1;
-                    miss_addr <= {fetch_addr[ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
-                    miss_word <= req_word;  // Latch word offset for fill
+                    miss_addr <= {fetch_addr_latched[ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
+                    miss_word <= fetch_addr_latched[2 +: WORD_BITS];
                     replace_way <= victim_way;
                     is_prefetch_miss <= 1'b0;
                     state <= ST_MISS_REQ;
@@ -327,42 +329,42 @@ module icache #(
 
                 ST_MISS_WAIT: begin
                     if (mem_resp_valid) begin
-                        state <= ST_FILL;
+                        if (!is_prefetch_miss) begin
+                            // Fill cache line directly (same cycle as response)
+                            tag_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= miss_addr[ADDR_WIDTH-1 -: TAG_BITS];
+                            data_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= mem_resp_data;
+                            valid_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= 1'b1;
+                            update_lru(miss_addr[OFFSET_BITS +: INDEX_BITS], replace_way);
+
+                            // Return data immediately
+                            fetch_data_r <= mem_resp_data[miss_word * DATA_WIDTH +: DATA_WIDTH];
+                            fetch_valid_r <= 1'b1;
+
+                            if (need_prefetch) begin
+                                state <= ST_PREFETCH;
+                                miss_addr <= next_line_addr;
+                                is_prefetch_miss <= 1'b1;
+                            end else begin
+                                state <= ST_IDLE;
+                                fetch_ready_r <= 1'b1;
+                            end
+                        end else begin
+                            // Fill prefetch buffer
+                            prefetch_addr[prefetch_head] <= miss_addr;
+                            prefetch_data[prefetch_head] <= mem_resp_data;
+                            prefetch_valid[prefetch_head] <= 1'b1;
+                            prefetch_head <= (prefetch_head + 1) % PREFETCH_DEPTH;
+
+                            state <= ST_IDLE;
+                            fetch_ready_r <= 1'b1;
+                        end
                     end
                 end
 
                 ST_FILL: begin
-                    if (!is_prefetch_miss) begin
-                        // Fill cache line - use latched miss_addr for index/tag
-                        // miss_addr is line-aligned, extract index from it
-                        tag_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= miss_addr[ADDR_WIDTH-1 -: TAG_BITS];
-                        data_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= mem_resp_data;
-                        valid_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= 1'b1;
-                        update_lru(miss_addr[OFFSET_BITS +: INDEX_BITS], replace_way);
-
-                        // Return data - use latched miss_word for word selection
-                        fetch_data_r <= mem_resp_data[miss_word * DATA_WIDTH +: DATA_WIDTH];
-                        fetch_valid_r <= 1'b1;
-
-                        // Trigger prefetch if possible
-                        if (need_prefetch) begin
-                            state <= ST_PREFETCH;
-                            miss_addr <= next_line_addr;
-                            is_prefetch_miss <= 1'b1;
-                        end else begin
-                            state <= ST_IDLE;
-                            fetch_ready_r <= 1'b1;  // Ready for next request immediately
-                        end
-                    end else begin
-                        // Fill prefetch buffer
-                        prefetch_addr[prefetch_head] <= miss_addr;
-                        prefetch_data[prefetch_head] <= mem_resp_data;
-                        prefetch_valid[prefetch_head] <= 1'b1;
-                        prefetch_head <= (prefetch_head + 1) % PREFETCH_DEPTH;
-
-                        state <= ST_IDLE;
-                        fetch_ready_r <= 1'b1;  // Ready for next request immediately
-                    end
+                    // Unused - fill merged into ST_MISS_WAIT
+                    state <= ST_IDLE;
+                    fetch_ready_r <= 1'b1;
                 end
 
                 ST_PREFETCH: begin
