@@ -19,7 +19,7 @@ module reconvergence_stack #(
     //------------------------------------------------------------------------
     // Warp Selection
     //------------------------------------------------------------------------
-    input  wire [$clog2(NUM_WARPS)-1:0] warp_id,
+    input  wire [(NUM_WARPS > 1 ? $clog2(NUM_WARPS) : 1)-1:0] warp_id,
 
     //------------------------------------------------------------------------
     // Branch/Divergence Interface

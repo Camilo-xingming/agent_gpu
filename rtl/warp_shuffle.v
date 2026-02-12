@@ -45,7 +45,9 @@ module warp_shuffle #(
                     // shfl.up: 从低位lane获取数据
                     // 当前lane i 从 lane (i - offset) 获取
                     `SHFL_UP: begin
+                        /* verilator lint_off CMPCONST */
                         if (my_lane >= lane_offset) begin
+                        /* verilator lint_on CMPCONST */
                             src_lane_id = my_lane - lane_offset;
                             lane_valid = membermask[src_lane_id];
                         end else begin
