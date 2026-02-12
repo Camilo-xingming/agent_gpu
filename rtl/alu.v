@@ -92,7 +92,7 @@ module alu (
             bfind32 = 32'hFFFFFFFF;  // -1 表示未找到
             found = 0;
             for (i = 31; i >= 0; i = i - 1) begin
-                if (search_val[i]) begin
+                if (!found && search_val[i]) begin
                     bfind32 = i;
                     found = 1;
                 end
