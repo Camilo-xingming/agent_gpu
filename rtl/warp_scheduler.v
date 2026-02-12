@@ -39,7 +39,11 @@ module warp_scheduler #(
 
     // 优先级编码器 - 找到第一个可调度的Warp
     reg [WARP_ID_W-1:0] found_warp;
+    reg [WARP_ID_W-1:0] scan_warp;
     reg found_valid;
+    localparam [WARP_ID_W-1:0] NUM_WARPS_W = NUM_WARPS[WARP_ID_W-1:0];
+    localparam [WARP_ID_W-1:0] ONE_WARP = {{(WARP_ID_W-1){1'b0}}, 1'b1};
+    localparam [WARP_ID_W-1:0] LAST_WARP_ID = NUM_WARPS_W - ONE_WARP;
 
     integer i;
     always @(*) begin
@@ -50,10 +54,14 @@ module warp_scheduler #(
         for (i = 0; i < NUM_WARPS; i = i + 1) begin
             if (!found_valid) begin
                 // 计算实际检查的Warp索引 (轮询)
-                // 简化：直接从0开始轮询
-                if (schedulable[(next_warp + i) % NUM_WARPS]) begin
+                scan_warp = next_warp + i[WARP_ID_W-1:0];
+                if (scan_warp >= NUM_WARPS_W) begin
+                    scan_warp = scan_warp - NUM_WARPS_W;
+                end
+
+                if (schedulable[scan_warp]) begin
                     found_valid = 1'b1;
-                    found_warp = (next_warp + i) % NUM_WARPS;
+                    found_warp = scan_warp;
                 end
             end
         end
@@ -75,7 +83,7 @@ module warp_scheduler #(
                 warp_selected  <= 1'b1;
                 warp_active_oh <= (1 << found_warp);
                 last_warp      <= found_warp;
-                next_warp      <= (found_warp + 1) % NUM_WARPS;
+                next_warp      <= (found_warp == LAST_WARP_ID) ? {WARP_ID_W{1'b0}} : (found_warp + ONE_WARP);
             end else begin
                 warp_selected  <= 1'b0;
                 warp_active_oh <= {NUM_WARPS{1'b0}};
