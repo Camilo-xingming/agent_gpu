@@ -333,11 +333,13 @@ module sparse_mma_unit #(
                     // Real implementation would expand 2:4 pattern
                     for (decomp_group = 0; decomp_group < TILE_M * TILE_K / 4; decomp_group = decomp_group + 1) begin
                         // Get 2-bit index for this group (simplified - use lower bits)
+                        /* verilator lint_off BLKSEQ */
                         idx0 = sparse_a_indices[decomp_group * 2 +: 2];
 
                         // Extract compressed values
                         val0 = sparse_a_data[decomp_group * DATA_WIDTH * 2 +: DATA_WIDTH];
                         val1 = sparse_a_data[decomp_group * DATA_WIDTH * 2 + DATA_WIDTH +: DATA_WIDTH];
+                        /* verilator lint_on BLKSEQ */
 
                         // Place in dense array at proper positions (simplified)
                         // Full implementation would use idx0/idx1 to place values
