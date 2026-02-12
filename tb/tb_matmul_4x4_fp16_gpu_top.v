@@ -179,7 +179,7 @@ module tb_matmul_4x4_fp16_gpu_top;
         begin
             // OP_FP16_ARITH = 6'b010000, FP16_MUL = 6'b000010
             // Format: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:11]=rb, [10:6]=rc, [5:0]=func
-            encode_fp16_mul = {`OP_FP16_ARITH, rd, ra, rb, 5'b0, `FP16_MUL};
+            encode_fp16_mul = {`OP_FP16_ARITH, rd, ra, rb, 5'b0, `FP16_MUL_F32};
         end
     endfunction
 
@@ -219,7 +219,12 @@ module tb_matmul_4x4_fp16_gpu_top;
     //------------------------------------------------------------------------
     // Global Memory Model (Data)
     //------------------------------------------------------------------------
-    reg [31:0] global_mem [0:4095];  // 16KB memory
+    reg [31:0] global_mem [0:4095];
+
+    // Pending write address (for split AW/W AXI4 handling)
+    reg [31:0] pending_aw_addr;
+    reg [3:0]  pending_aw_id;
+    reg        pending_aw_valid;  // 16KB memory
 
     // FP16 encoding helper
     function [15:0] real_to_fp16;
@@ -345,6 +350,9 @@ module tb_matmul_4x4_fp16_gpu_top;
             m_axi_awready <= 1'b1;
             m_axi_wready <= 1'b1;
             m_axi_bvalid <= 1'b0;
+            pending_aw_addr <= 0;
+            pending_aw_id <= 0;
+            pending_aw_valid <= 0;
             m_axi_bresp <= 2'b00;
             m_axi_bid <= 4'b0;
         end else begin
@@ -373,13 +381,22 @@ module tb_matmul_4x4_fp16_gpu_top;
 
             // Write channel
             if (m_axi_wvalid && m_axi_wready) begin
-                global_mem[m_axi_awaddr[13:2]] <= m_axi_wdata;
-                $display("  AXI Write: addr=0x%08h data=0x%08h", m_axi_awaddr, m_axi_wdata);
+                global_mem[pending_aw_addr[13:2]] <= m_axi_wdata;
+                $display("  AXI Write: addr=0x%08h data=0x%08h", pending_aw_addr, m_axi_wdata);
             end
 
-            if (m_axi_awvalid && m_axi_awready && m_axi_wvalid && m_axi_wready) begin
+            // Latch write address (AW and W channels can be split in AXI4)
+            if (m_axi_awvalid && m_axi_awready) begin
+                pending_aw_addr <= m_axi_awaddr;
+                pending_aw_id <= m_axi_awid;
+                pending_aw_valid <= 1'b1;
+            end
+
+            // Write response on W channel completion (using latched address)
+            if (m_axi_wvalid && m_axi_wready && pending_aw_valid) begin
                 m_axi_bvalid <= 1'b1;
-                m_axi_bid <= m_axi_awid;
+                m_axi_bid <= pending_aw_id;
+                pending_aw_valid <= 1'b0;
             end else if (m_axi_bvalid && m_axi_bready) begin
                 m_axi_bvalid <= 1'b0;
             end
