@@ -104,7 +104,20 @@ module streaming_multiprocessor_v2 #(
     input  wire [1:0]               m_axi_rresp,
     input  wire                     m_axi_rlast,
     input  wire                     m_axi_rvalid,
-    output wire                     m_axi_rready
+    output wire                     m_axi_rready,
+
+    // Performance counter outputs (RALPH-7)
+    output wire                     perf_issue_valid,
+    output wire                     perf_dual_issue,
+    output wire                     perf_stall_scoreboard,
+    output wire                     perf_stall_mem,
+    output wire                     perf_stall_ifetch,
+    output wire                     perf_fu_alu_active,
+    output wire                     perf_fu_fpu_active,
+    output wire                     perf_fu_ldst_active,
+    output wire                     perf_fu_tensor_active,
+    output wire                     perf_branch_taken,
+    output wire                     perf_branch_divergent
 );
 
     //========================================================================
@@ -955,6 +968,22 @@ module streaming_multiprocessor_v2 #(
     wire video_issue = video_issue0 || video_issue1;
     wire special_reg_issue = special_reg_issue0 || special_reg_issue1;
     wire tex_issue = tex_issue0 || tex_issue1;
+
+    //========================================================================
+    // Performance Counter Signal Outputs (RALPH-7)
+    //========================================================================
+    assign perf_issue_valid        = issue_valid;
+    assign perf_dual_issue         = issue1_valid;
+    assign perf_stall_scoreboard   = |( warp_valid & ~warp_ready & ~warp_stalled_mem );
+    assign perf_stall_mem          = |( warp_valid & warp_stalled_mem );
+    assign perf_stall_ifetch       = |( warp_valid & ~warp_inst_buf_valid & ~warp_stalled_mem );
+    assign perf_fu_alu_active      = alu_issue;
+    assign perf_fu_fpu_active      = fpu32_issue || fp16_issue || fpu64_issue;
+    assign perf_fu_ldst_active     = issue_valid && (issue_mem_read || issue_mem_write);
+    assign perf_fu_tensor_active   = tensor_issue_push_fire;
+    assign perf_branch_taken       = branch_taken_combined;
+    assign perf_branch_divergent   = divergent_branch;
+
 
     //========================================================================
     // Multi-Cycle FU Tracking (Track which warp issued to each pipelined FU)
