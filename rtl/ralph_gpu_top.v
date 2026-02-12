@@ -143,6 +143,7 @@ module ralph_gpu_top #(
     reg [NUM_SM-1:0] sm_busy;
     wire [NUM_SM-1:0] sm_done;
     reg [NUM_SM-1:0] sm_kernel_start;
+    wire [NUM_SM-1:0] sm_active = sm_kernel_start & ~sm_done;  // SM active when started but not done
 
     //------------------------------------------------------------------------
     // SM实例化
@@ -182,6 +183,19 @@ module ralph_gpu_top #(
 
     genvar sm;
     genvar lane;
+    // Performance counter wires (RALPH-7)
+    wire [NUM_SM-1:0] sm_perf_issue_valid;
+    wire [NUM_SM-1:0] sm_perf_dual_issue;
+    wire [NUM_SM-1:0] sm_perf_stall_scoreboard;
+    wire [NUM_SM-1:0] sm_perf_stall_mem;
+    wire [NUM_SM-1:0] sm_perf_stall_ifetch;
+    wire [NUM_SM-1:0] sm_perf_fu_alu_active;
+    wire [NUM_SM-1:0] sm_perf_fu_fpu_active;
+    wire [NUM_SM-1:0] sm_perf_fu_ldst_active;
+    wire [NUM_SM-1:0] sm_perf_fu_tensor_active;
+    wire [NUM_SM-1:0] sm_perf_branch_taken;
+    wire [NUM_SM-1:0] sm_perf_branch_divergent;
+
     generate
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_gen
             wire        sm_l1d_req_valid;
@@ -374,7 +388,20 @@ module ralph_gpu_top #(
                 .m_axi_rresp   (m_axi_rresp),
                 .m_axi_rlast   (m_axi_rlast),
                 .m_axi_rvalid  (m_axi_rvalid),
-                .m_axi_rready  (sm_axi_rready[sm])
+                .m_axi_rready  (sm_axi_rready[sm]),
+
+                // Performance counter outputs
+                .perf_issue_valid       (sm_perf_issue_valid[sm]),
+                .perf_dual_issue        (sm_perf_dual_issue[sm]),
+                .perf_stall_scoreboard  (sm_perf_stall_scoreboard[sm]),
+                .perf_stall_mem         (sm_perf_stall_mem[sm]),
+                .perf_stall_ifetch      (sm_perf_stall_ifetch[sm]),
+                .perf_fu_alu_active     (sm_perf_fu_alu_active[sm]),
+                .perf_fu_fpu_active     (sm_perf_fu_fpu_active[sm]),
+                .perf_fu_ldst_active    (sm_perf_fu_ldst_active[sm]),
+                .perf_fu_tensor_active  (sm_perf_fu_tensor_active[sm]),
+                .perf_branch_taken      (sm_perf_branch_taken[sm]),
+                .perf_branch_divergent  (sm_perf_branch_divergent[sm])
             );
             // L1D response is now handled by l1d_bypass or l1d_full above
         end
@@ -729,9 +756,71 @@ module ralph_gpu_top #(
             CSR_BLOCK_DIM_X: csr_rd_data = block_dim_x;
             CSR_BLOCK_DIM_Y: csr_rd_data = block_dim_y;
             CSR_BLOCK_DIM_Z: csr_rd_data = block_dim_z;
-            default:         csr_rd_data = 32'b0;
+            default: begin
+                // Performance counter read: CSR address 0x100-0x13F
+                if (csr_addr >= 12'h100 && csr_addr <= 12'h13F)
+                    csr_rd_data = perf_counter_value[31:0];  // Lower 32 bits
+                else if (csr_addr >= 12'h140 && csr_addr <= 12'h17F)
+                    csr_rd_data = {{16{1'b0}}, perf_counter_value[47:32]};  // Upper 16 bits
+                else
+                    csr_rd_data = 32'b0;
+            end
         endcase
     end
+
+    //------------------------------------------------------------------------
+    // Performance Counters (RALPH-7)
+    //------------------------------------------------------------------------
+    wire [47:0] perf_counter_value;
+    wire        perf_counter_enable = gpu_busy;  // Count while kernel running
+    wire        perf_counter_clear  = kernel_start_reg;  // Auto-clear on kernel launch
+
+    performance_counters #(
+        .NUM_SM       (NUM_SM),
+        .NUM_WARPS    (4),
+        .NUM_COUNTERS (64),
+        .COUNTER_WIDTH(48)
+    ) u_perf_counters (
+        .clk                (clk),
+        .rst_n              (rst_n),
+        .enable             (perf_counter_enable),
+        .clear              (perf_counter_clear),
+        .select             (csr_addr[5:0]),
+        .counter_value      (perf_counter_value),
+
+        .sm_active          (sm_active),
+        .sm_issue_valid     (sm_perf_issue_valid),
+        .sm_dual_issue      (sm_perf_dual_issue),
+        .sm_stall_scoreboard(sm_perf_stall_scoreboard),
+        .sm_stall_ifetch    (sm_perf_stall_ifetch),
+        .sm_stall_mem       (sm_perf_stall_mem),
+        .sm_stall_sync      ({NUM_SM{1'b0}}),  // TODO: wire when sync tracking added
+        .sm_stall_other     ({NUM_SM{1'b0}}),  // TODO: wire when needed
+
+        .fu_alu_active      (sm_perf_fu_alu_active),
+        .fu_fpu_active      (sm_perf_fu_fpu_active),
+        .fu_sfu_active      ({NUM_SM{1'b0}}),  // TODO: wire SFU
+        .fu_tensor_active   (sm_perf_fu_tensor_active),
+        .fu_ldst_active     (sm_perf_fu_ldst_active),
+
+        .l1_hit             ({NUM_SM{1'b0}}),  // TODO: wire from L1 cache
+        .l1_miss            ({NUM_SM{1'b0}}),
+        .l2_hit             (1'b0),
+        .l2_miss            (1'b0),
+        .dram_access        (1'b0),
+
+        .warp_issued        ({NUM_SM*4{1'b0}}),  // TODO: per-warp tracking
+        .warp_stalled       ({NUM_SM*4{1'b0}}),
+        .warp_diverged      ({NUM_SM*4{1'b0}}),
+
+        .branch_taken       (sm_perf_branch_taken),
+        .branch_divergent   (sm_perf_branch_divergent),
+        .branch_reconverge  ({NUM_SM{1'b0}}),
+
+        .tensor_mma_issued  (1'b0),  // TODO: wire from tensor core
+        .tensor_mma_completed(1'b0),
+        .tensor_flops       (16'b0)
+    );
 
     //------------------------------------------------------------------------
     // 中断
