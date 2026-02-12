@@ -1,3 +1,6 @@
+SHELL := /bin/bash
+export PATH := /opt/homebrew/bin:$(PATH)
+
 #============================================================================
 # RalphGPU Makefile
 # CUDA/PTX兼容GPU IP
