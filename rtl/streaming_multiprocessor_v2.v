@@ -1425,11 +1425,13 @@ module streaming_multiprocessor_v2 #(
                 fetch_pipe_warp[fp_i] <= 0;
             end
         end else begin
-            // Shift pipeline (valid, warp ID, and PC bit 2)
-            fetch_pipe_valid[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_valid[FETCH_PIPE_DEPTH-2:0];
-            fetch_pipe_pc_bit2[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_pc_bit2[FETCH_PIPE_DEPTH-2:0];
-            for (fp_i = FETCH_PIPE_DEPTH-1; fp_i > 0; fp_i = fp_i - 1) begin
-                fetch_pipe_warp[fp_i] <= fetch_pipe_warp[fp_i-1];
+            // Shift pipeline only when icache is ready (stall during miss)
+            if (icache_ready) begin
+                fetch_pipe_valid[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_valid[FETCH_PIPE_DEPTH-2:0];
+                fetch_pipe_pc_bit2[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_pc_bit2[FETCH_PIPE_DEPTH-2:0];
+                for (fp_i = FETCH_PIPE_DEPTH-1; fp_i > 0; fp_i = fp_i - 1) begin
+                    fetch_pipe_warp[fp_i] <= fetch_pipe_warp[fp_i-1];
+                end
             end
 
             // New fetch enters pipeline stage 0
@@ -1438,7 +1440,8 @@ module streaming_multiprocessor_v2 #(
                 fetch_pipe_warp[0] <= fetch_warp_id;
                 fetch_pipe_pc_bit2[0] <= warp_fetch_pc[fetch_warp_id][2];
                 warp_fetch_pending[fetch_warp_id] <= 1'b1;
-            end else begin
+            end else if (icache_ready) begin
+                // Only clear stage 0 when icache is ready (not during stall)
                 fetch_pipe_valid[0] <= 1'b0;
                 fetch_pipe_warp[0] <= 0;
                 fetch_pipe_pc_bit2[0] <= 0;
