@@ -819,6 +819,51 @@ module tb_tiny_mlp;
 
         $display("");
         $display("============================================================");
+
+        // ============================================================
+        // Performance Counter Report (RALPH-7)
+        // ============================================================
+        $display("");
+        $display("============================================================");
+        $display("Performance Counters:");
+        $display("============================================================");
+        
+        @(posedge clk); csr_addr <= 12'h100; @(posedge clk); @(posedge clk);
+        $display("  Cycles                   = %0d", csr_rd_data);
+        @(posedge clk); csr_addr <= 12'h101; @(posedge clk); @(posedge clk);
+        $display("  Instructions             = %0d", csr_rd_data);
+        @(posedge clk); csr_addr <= 12'h102; @(posedge clk); @(posedge clk);
+        $display("  Dual Issued              = %0d", csr_rd_data);
+        @(posedge clk); csr_addr <= 12'h103; @(posedge clk); @(posedge clk);
+        $display("  Stall: Scoreboard        = %0d", csr_rd_data);
+        @(posedge clk); csr_addr <= 12'h104; @(posedge clk); @(posedge clk);
+        $display("  Stall: I-Fetch           = %0d", csr_rd_data);
+        @(posedge clk); csr_addr <= 12'h105; @(posedge clk); @(posedge clk);
+        $display("  Stall: Memory            = %0d", csr_rd_data);
+        @(posedge clk); csr_addr <= 12'h108; @(posedge clk); @(posedge clk);
+        $display("  FU: ALU Active           = %0d", csr_rd_data);
+        @(posedge clk); csr_addr <= 12'h109; @(posedge clk); @(posedge clk);
+        $display("  FU: FPU Active           = %0d", csr_rd_data);
+        @(posedge clk); csr_addr <= 12'h10C; @(posedge clk); @(posedge clk);
+        $display("  FU: LDST Active          = %0d", csr_rd_data);
+        @(posedge clk); csr_addr <= 12'h118; @(posedge clk); @(posedge clk);
+        $display("  Branch Taken             = %0d", csr_rd_data);
+        @(posedge clk); csr_addr <= 12'h119; @(posedge clk); @(posedge clk);
+        $display("  Branch Divergent         = %0d", csr_rd_data);
+        
+        // IPC
+        begin
+            reg [31:0] perf_c, perf_i;
+            @(posedge clk); csr_addr <= 12'h100; @(posedge clk); @(posedge clk);
+            perf_c = csr_rd_data;
+            @(posedge clk); csr_addr <= 12'h101; @(posedge clk); @(posedge clk);
+            perf_i = csr_rd_data;
+            if (perf_c > 0)
+                $display("  IPC = %0d / %0d = %f", perf_i, perf_c,
+                         $itor(perf_i) / $itor(perf_c));
+        end
+        $display("============================================================");
+
         $display("Test Complete");
         $display("============================================================");
 
