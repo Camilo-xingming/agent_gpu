@@ -189,7 +189,7 @@ module memory_controller_hbm #(
                 l2_req_write, l2_req_addr, l2_req_wdata, l2_req_wmask,
                 l2_req_id, global_timestamp
             };
-            ch_req_tail[req_channel] <= (ch_req_tail[req_channel] + 1) % REQ_QUEUE_DEPTH;
+            ch_req_tail[req_channel] <= ch_req_tail[req_channel] + 1'b1;
             ch_req_count[req_channel] <= ch_req_count[req_channel] + 1;
         end
     end
@@ -216,14 +216,16 @@ module memory_controller_hbm #(
         reg [PTR_W-1:0] oldest_idx;
         reg [31:0] oldest_ts;
         reg [REQ_ENTRY_WIDTH-1:0] entry;
-        integer i, count, idx;
+        integer i;
+            reg [PTR_W:0] count;
+            reg [PTR_W-1:0] idx;
         begin
             oldest_ts = 32'hFFFFFFFF;
             oldest_idx = 0;
             count = ch_req_count[ch];
 
             for (i = 0; i < REQ_QUEUE_DEPTH && i < count; i = i + 1) begin
-                idx = (ch_req_head[ch] + i) % REQ_QUEUE_DEPTH;
+                idx = ch_req_head[ch] + i[PTR_W-1:0];
                 entry = ch_req_queue[ch][idx];
 
                 // Track oldest for FCFS fallback
@@ -389,7 +391,7 @@ module memory_controller_hbm #(
                             // Queue response with latency (tCL)
                             if (resp_count < REQ_QUEUE_DEPTH) begin
                                 resp_queue[resp_tail] <= {rdata, req_id};
-                                resp_tail <= (resp_tail + 1) % REQ_QUEUE_DEPTH;
+                                resp_tail <= resp_tail + 1'b1;
                                 resp_count <= resp_count + 1;
                             end
 
@@ -397,7 +399,7 @@ module memory_controller_hbm #(
                             bank_busy_counter[sch_ch][bank] <= tCL + BURST_LENGTH;
 
                             // Remove from request queue
-                            ch_req_head[sch_ch] <= (ch_req_head[sch_ch] + 1) % REQ_QUEUE_DEPTH;
+                            ch_req_head[sch_ch] <= ch_req_head[sch_ch] + 1'b1;
                             ch_req_count[sch_ch] <= ch_req_count[sch_ch] - 1;
 
                             scheduler_state[sch_ch] <= SCH_IDLE;
@@ -429,7 +431,7 @@ module memory_controller_hbm #(
                             bank_busy_counter[sch_ch][bank] <= tCL + BURST_LENGTH + tWR;
 
                             // Remove from request queue
-                            ch_req_head[sch_ch] <= (ch_req_head[sch_ch] + 1) % REQ_QUEUE_DEPTH;
+                            ch_req_head[sch_ch] <= ch_req_head[sch_ch] + 1'b1;
                             ch_req_count[sch_ch] <= ch_req_count[sch_ch] - 1;
 
                             scheduler_state[sch_ch] <= SCH_IDLE;
@@ -460,7 +462,7 @@ module memory_controller_hbm #(
                 l2_resp_rdata_r <= resp_queue[resp_head][RESP_ENTRY_WIDTH-1:8];
                 l2_resp_id_r <= resp_queue[resp_head][7:0];
                 l2_resp_valid_r <= 1;
-                resp_head <= (resp_head + 1) % REQ_QUEUE_DEPTH;
+                resp_head <= resp_head + 1'b1;
                 resp_count <= resp_count - 1;
             end
         end
