@@ -486,6 +486,7 @@
 `define FP16_CMP_GE     6'b001111   // setp.ge.f16
 `define FP16_CMP_NUM    6'b011000   // setp.num.f16 (ordered: both not NaN)
 `define FP16_CMP_NAN    6'b011001   // setp.nan.f16 (unordered: either is NaN)
+`define FP16_MUL_F32    6'b010010   // mul.f16.f32 - FP16 inputs, FP32 output (mixed precision)
 // Mixed FP16-FP32 compare (convert FP16 to FP32, then compare)
 `define FP16_CMP_EQ_F32 6'b011010   // setp.eq.f16.f32 (mixed precision)
 `define FP16_CMP_LT_F32 6'b011011   // setp.lt.f16.f32 (mixed precision)

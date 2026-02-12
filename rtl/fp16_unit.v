@@ -363,6 +363,22 @@ module fp16_unit (
                         result <= {16'b0, fp16_result_lo};
                     end
 
+                    `FP16_MUL_F32: begin
+                        // Mixed precision: FP16 inputs, FP32 output
+                        if (fp16_a_is_nan || fp16_b_is_nan) begin
+                            result <= 32'h7FC00000; // FP32 NaN
+                        end else if ((fp16_a_is_inf && fp16_b_is_zero) ||
+                                    (fp16_a_is_zero && fp16_b_is_inf)) begin
+                            result <= 32'h7FC00000; // FP32 NaN
+                        end else if (fp16_a_is_zero || fp16_b_is_zero) begin
+                            result <= {fp16_a_sign ^ fp16_b_sign, 31'b0};
+                        end else if (fp16_a_is_inf || fp16_b_is_inf) begin
+                            result <= {fp16_a_sign ^ fp16_b_sign, 8'hFF, 23'b0};
+                        end else begin
+                            result <= fp32_mul(fp32_a, fp32_b); // Return FP32 product directly
+                        end
+                    end
+
                     `FP16_FMA: begin
                         // a * b + c
                         if (fp16_a_is_nan || fp16_b_is_nan ||
