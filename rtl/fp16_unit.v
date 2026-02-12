@@ -227,10 +227,26 @@ module fp16_unit (
     wire [31:0] fp32_b_hi = fp16_to_fp32(op_b_r2[31:16]);
     wire [31:0] fp32_c_hi = fp16_to_fp32(op_c_r2[31:16]);
 
+    // Pre-computed FP32 intermediates (Yosys cannot synthesize nested function calls)
+    wire [31:0] fp32_add_ab    = fp32_add(fp32_a, fp32_b);
+    wire [31:0] fp32_add_ab_neg = fp32_add(fp32_a, {~fp32_b[31], fp32_b[30:0]});
+    wire [31:0] fp32_mul_ab    = fp32_mul(fp32_a, fp32_b);
+    wire [31:0] fp32_fma_ab_c  = fp32_add(fp32_mul_ab, fp32_c);
+    wire [31:0] fp32_add_ab_hi    = fp32_add(fp32_a_hi, fp32_b_hi);
+    wire [31:0] fp32_add_ab_neg_hi = fp32_add(fp32_a_hi, {~fp32_b_hi[31], fp32_b_hi[30:0]});
+    wire [31:0] fp32_mul_ab_hi    = fp32_mul(fp32_a_hi, fp32_b_hi);
+    wire [31:0] fp32_fma_ab_c_hi  = fp32_add(fp32_mul_ab_hi, fp32_c_hi);
+
     // BF16 to FP32 (from stage 2 operands)
     wire [31:0] bf32_a = bf16_to_fp32(op_a_r2[15:0]);
     wire [31:0] bf32_b = bf16_to_fp32(op_b_r2[15:0]);
     wire [31:0] bf32_c = bf16_to_fp32(op_c_r2[15:0]);
+
+    // Pre-computed BF32 intermediates (Yosys synthesis)
+    wire [31:0] bf32_add_ab    = fp32_add(bf32_a, bf32_b);
+    wire [31:0] bf32_add_ab_neg = fp32_add(bf32_a, {~bf32_b[31], bf32_b[30:0]});
+    wire [31:0] bf32_mul_ab    = fp32_mul(bf32_a, bf32_b);
+    wire [31:0] bf32_fma_ab_c  = fp32_add(bf32_mul_ab, bf32_c);
 
     //------------------------------------------------------------------------
     // FP32 arithmetic results (using simple operations)
@@ -320,7 +336,7 @@ module fp16_unit (
                             fp16_result_lo = op_a_r2[15:0];
                         end else begin
                             // Use FP32 intermediate
-                            fp16_result_lo = fp32_to_fp16(fp32_add(fp32_a, fp32_b));
+                            fp16_result_lo = fp32_to_fp16(fp32_add_ab);
                         end
                         result <= {16'b0, fp16_result_lo};
                     end
@@ -331,8 +347,7 @@ module fp16_unit (
                             fp16_result_lo = FP16_NAN;
                             invalid <= 1'b1;
                         end else begin
-                            fp16_result_lo = fp32_to_fp16(fp32_add(fp32_a,
-                                {~fp32_b[31], fp32_b[30:0]}));
+                            fp16_result_lo = fp32_to_fp16(fp32_add_ab_neg);
                         end
                         result <= {16'b0, fp16_result_lo};
                     end
@@ -354,10 +369,10 @@ module fp16_unit (
                         end else if (fp16_a_is_inf || fp16_b_is_inf) begin
                             fp16_result_lo = {fp16_a_sign ^ fp16_b_sign, 5'h1F, 10'b0};
                         end else begin
-                            fp16_result_lo = fp32_to_fp16(fp32_mul(fp32_a, fp32_b));
+                            fp16_result_lo = fp32_to_fp16(fp32_mul_ab);
                             `ifdef SIMULATION
                             $display("[%0t FP16_MUL] fp32_product=0x%08x fp16_result=0x%04x",
-                                     $time, fp32_mul(fp32_a, fp32_b), fp16_result_lo);
+                                     $time, fp32_mul_ab, fp16_result_lo);
                             `endif
                         end
                         result <= {16'b0, fp16_result_lo};
@@ -386,8 +401,7 @@ module fp16_unit (
                             fp16_result_lo = FP16_NAN;
                             invalid <= 1'b1;
                         end else begin
-                            fp16_result_lo = fp32_to_fp16(
-                                fp32_add(fp32_mul(fp32_a, fp32_b), fp32_c));
+                            fp16_result_lo = fp32_to_fp16(fp32_fma_ab_c);
                         end
                         result <= {16'b0, fp16_result_lo};
                     end
@@ -431,7 +445,7 @@ module fp16_unit (
                             result <= {16'b0, BF16_NAN};
                             invalid <= 1'b1;
                         end else begin
-                            result <= {16'b0, fp32_to_bf16(fp32_add(bf32_a, bf32_b))};
+                            result <= {16'b0, fp32_to_bf16(bf32_add_ab)};
                         end
                     end
 
@@ -446,43 +460,39 @@ module fp16_unit (
                             result <= {16'b0, BF16_NAN};
                             invalid <= 1'b1;
                         end else begin
-                            result <= {16'b0, fp32_to_bf16(fp32_mul(bf32_a, bf32_b))};
+                            result <= {16'b0, fp32_to_bf16(bf32_mul_ab)};
                         end
                     end
 
                     `BF16_FMA: begin
                         result <= {16'b0, fp32_to_bf16(
-                            fp32_add(fp32_mul(bf32_a, bf32_b), bf32_c))};
+                            bf32_fma_ab_c)};
                     end
 
                     //----------------------------------------------------
                     // Packed FP16x2 Operations (SIMD)
                     //----------------------------------------------------
                     `FP16X2_ADD: begin
-                        fp16_result_lo = fp32_to_fp16(fp32_add(fp32_a, fp32_b));
-                        fp16_result_hi = fp32_to_fp16(fp32_add(fp32_a_hi, fp32_b_hi));
+                        fp16_result_lo = fp32_to_fp16(fp32_add_ab);
+                        fp16_result_hi = fp32_to_fp16(fp32_add_ab_hi);
                         result <= {fp16_result_hi, fp16_result_lo};
                     end
 
                     `FP16X2_SUB: begin
-                        fp16_result_lo = fp32_to_fp16(fp32_add(fp32_a,
-                            {~fp32_b[31], fp32_b[30:0]}));
-                        fp16_result_hi = fp32_to_fp16(fp32_add(fp32_a_hi,
-                            {~fp32_b_hi[31], fp32_b_hi[30:0]}));
+                        fp16_result_lo = fp32_to_fp16(fp32_add_ab_neg);
+                        fp16_result_hi = fp32_to_fp16(fp32_add_ab_neg_hi);
                         result <= {fp16_result_hi, fp16_result_lo};
                     end
 
                     `FP16X2_MUL: begin
-                        fp16_result_lo = fp32_to_fp16(fp32_mul(fp32_a, fp32_b));
-                        fp16_result_hi = fp32_to_fp16(fp32_mul(fp32_a_hi, fp32_b_hi));
+                        fp16_result_lo = fp32_to_fp16(fp32_mul_ab);
+                        fp16_result_hi = fp32_to_fp16(fp32_mul_ab_hi);
                         result <= {fp16_result_hi, fp16_result_lo};
                     end
 
                     `FP16X2_FMA: begin
-                        fp16_result_lo = fp32_to_fp16(
-                            fp32_add(fp32_mul(fp32_a, fp32_b), fp32_c));
-                        fp16_result_hi = fp32_to_fp16(
-                            fp32_add(fp32_mul(fp32_a_hi, fp32_b_hi), fp32_c_hi));
+                        fp16_result_lo = fp32_to_fp16(fp32_fma_ab_c);
+                        fp16_result_hi = fp32_to_fp16(fp32_fma_ab_c_hi);
                         result <= {fp16_result_hi, fp16_result_lo};
                     end
 
@@ -742,10 +752,31 @@ module fp16_unit (
                 r_mant = r_mant >> 1;
                 r_exp = r_exp + 1;
             end else if (r_mant != 25'b0) begin
-                while (r_mant[23] == 1'b0 && r_exp > 0) begin
-                    r_mant = r_mant << 1;
-                    r_exp = r_exp - 1;
-                end
+                // Fixed-iteration normalization (synthesizable, replaces while loop)
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
+                if (!r_mant[23] && r_exp > 0) begin r_mant = r_mant << 1; r_exp = r_exp - 1; end
             end
 
             // Check for zero result
