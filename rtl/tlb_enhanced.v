@@ -85,6 +85,8 @@ module tlb_enhanced #(
     localparam PPN_WIDTH = PADDR_WIDTH - PAGE_OFFSET;
     localparam L1_TAG_WIDTH = VPN_WIDTH - L1_IDX_WIDTH;
     localparam L2_TAG_WIDTH = VPN_WIDTH - L2_IDX_WIDTH;
+    localparam [$clog2(L1_WAYS)-1:0] L1_WAY_LAST = $clog2(L1_WAYS)'(L1_WAYS-1);
+    localparam [$clog2(L2_WAYS)-1:0] L2_WAY_LAST = $clog2(L2_WAYS)'(L2_WAYS-1);
 
     // Page sizes
     localparam PAGE_4K  = 2'b00;
@@ -215,7 +217,7 @@ module tlb_enhanced #(
 
                             if (valid && e_asid == asid && e_tag == tag) begin
                                 l1_hit[l1_s] = 1;
-                                l1_hit_way[l1_s] = l1_w;
+                                l1_hit_way[l1_s] = l1_w[$clog2(L1_WAYS)-1:0];
                                 l1_ppn[l1_s] = entry[PPN_WIDTH+6-1:6];
                                 l1_page_size[l1_s] = entry[5:4];
                                 l1_perms[l1_s] = entry[3:0];
@@ -272,7 +274,7 @@ module tlb_enhanced #(
 
                         if (valid && e_asid == asid && e_tag == tag) begin
                             l2_hit = 1;
-                            l2_hit_way_r = l2_w;
+                            l2_hit_way_r = l2_w[$clog2(L2_WAYS)-1:0];
                             l2_ppn_r = entry[PPN_WIDTH+6-1:6];
                             l2_page_size_r = entry[5:4];
                             l2_perms_r = entry[3:0];
@@ -358,7 +360,8 @@ module tlb_enhanced #(
 
                         // Update LRU
                         l1_lru[ctrl_s][l1_index(vaddr)] <=
-                            (l1_hit_way[ctrl_s] + 1) % L1_WAYS;
+                            (l1_hit_way[ctrl_s] == L1_WAY_LAST) ?
+                            {$clog2(L1_WAYS){1'b0}} : (l1_hit_way[ctrl_s] + 1'b1);
                     end
                 end else if (req_valid[ctrl_s] && !pending_requests[ctrl_s]) begin
                     pending_requests[ctrl_s] <= 1;
@@ -371,7 +374,7 @@ module tlb_enhanced #(
                 for (ctrl_s = 0; ctrl_s < NUM_SMS; ctrl_s = ctrl_s + 1) begin
                     if (pending_requests[ctrl_s] && !processing) begin
                         processing <= 1;
-                        current_sm <= ctrl_s;
+                        current_sm <= ctrl_s[SM_WIDTH-1:0];
                     end
                 end
             end else if (processing) begin
@@ -405,7 +408,8 @@ module tlb_enhanced #(
                             l2_perms_r
                         };
                         l1_lru[current_sm][l1_idx] <=
-                            (l1_lru[current_sm][l1_idx] + 1) % L1_WAYS;
+                            (l1_lru[current_sm][l1_idx] == L1_WAY_LAST) ?
+                            {$clog2(L1_WAYS){1'b0}} : (l1_lru[current_sm][l1_idx] + 1'b1);
 
                         // Return translation
                         resp_valid_r[current_sm] <= 1;
@@ -423,7 +427,7 @@ module tlb_enhanced #(
                             ptw_write <= req_write[current_sm];
                             // Start at PML4 (level 4)
                             ptw_next_addr <= page_table_base +
-                                {ptw_vaddr[47:39], 3'b000};  // PML4 index
+                                {{(PADDR_WIDTH-12){1'b0}}, ptw_vaddr[47:39], 3'b000};  // PML4 index
                             ptw_state <= PTW_L4;
                             ptw_page_size <= PAGE_4K;
                         end
@@ -441,7 +445,7 @@ module tlb_enhanced #(
                                     ptw_state <= PTW_FAULT;
                                 end else if (ptw_resp_data[7] || ptw_state == PTW_L1) begin
                                     // Large page or final level
-                                    ptw_ppn <= ptw_resp_data[51:12];
+                                    ptw_ppn <= ptw_resp_data[12 + PPN_WIDTH - 1:12];
                                     ptw_permissions <= ptw_resp_data[3:0];
                                     if (ptw_state == PTW_L3)
                                         ptw_page_size <= PAGE_1G;
@@ -454,18 +458,18 @@ module tlb_enhanced #(
                                     // Continue walking
                                     case (ptw_state)
                                         PTW_L4: begin
-                                            ptw_next_addr <= {ptw_resp_data[51:12], 12'b0} +
-                                                {ptw_vaddr[38:30], 3'b000};
+                                            ptw_next_addr <= {ptw_resp_data[12 + PPN_WIDTH - 1:12], 12'b0} +
+                                                {{(PADDR_WIDTH-12){1'b0}}, ptw_vaddr[38:30], 3'b000};
                                             ptw_state <= PTW_L3;
                                         end
                                         PTW_L3: begin
-                                            ptw_next_addr <= {ptw_resp_data[51:12], 12'b0} +
-                                                {ptw_vaddr[29:21], 3'b000};
+                                            ptw_next_addr <= {ptw_resp_data[12 + PPN_WIDTH - 1:12], 12'b0} +
+                                                {{(PADDR_WIDTH-12){1'b0}}, ptw_vaddr[29:21], 3'b000};
                                             ptw_state <= PTW_L2;
                                         end
                                         PTW_L2: begin
-                                            ptw_next_addr <= {ptw_resp_data[51:12], 12'b0} +
-                                                {ptw_vaddr[20:12], 3'b000};
+                                            ptw_next_addr <= {ptw_resp_data[12 + PPN_WIDTH - 1:12], 12'b0} +
+                                                {{(PADDR_WIDTH-12){1'b0}}, ptw_vaddr[20:12], 3'b000};
                                             ptw_state <= PTW_L1;
                                         end
                                         default: ptw_state <= PTW_FAULT;
@@ -502,7 +506,8 @@ module tlb_enhanced #(
                                     ptw_page_size,
                                     ptw_permissions
                                 };
-                                l2_lru[l2_idx] <= (l2_lru[l2_idx] + 1) % L2_WAYS;
+                                l2_lru[l2_idx] <= (l2_lru[l2_idx] == L2_WAY_LAST) ?
+                                                  {$clog2(L2_WAYS){1'b0}} : (l2_lru[l2_idx] + 1'b1);
 
                                 // Install in L1
                                 l1_tlb[current_sm][l1_idx][l1_lru[current_sm][l1_idx]] <= {
@@ -514,7 +519,8 @@ module tlb_enhanced #(
                                     ptw_permissions
                                 };
                                 l1_lru[current_sm][l1_idx] <=
-                                    (l1_lru[current_sm][l1_idx] + 1) % L1_WAYS;
+                                    (l1_lru[current_sm][l1_idx] == L1_WAY_LAST) ?
+                                    {$clog2(L1_WAYS){1'b0}} : (l1_lru[current_sm][l1_idx] + 1'b1);
 
                                 // Return translation
                                 resp_valid_r[current_sm] <= 1;
