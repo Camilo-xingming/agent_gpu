@@ -476,6 +476,32 @@ assemble: $(EXAMPLES_DIR)/vector_add.ptx
 #----------------------------------------------------------------------------
 # 语法检查
 #----------------------------------------------------------------------------
+# Performance Benchmarks (RALPH-7)
+#----------------------------------------------------------------------------
+PERF_RTL = $(shell find $(RTL_DIR) -name '*.v' | sort)
+
+perf: $(BUILD_DIR)
+	@echo "============================================================"
+	@echo "RalphGPU Performance Benchmarks"
+	@echo "============================================================"
+	@echo ""
+	@echo "--- Building MatMul 4x4 ---"
+	$(IVERILOG) -g2012 $(INCLUDES) -DSM_V2 -DSIMULATION -o $(BUILD_DIR)/tb_matmul_perf.vvp $(PERF_RTL) $(TB_DIR)/tb_matmul_4x4_fp16_gpu_top.v
+	@echo "--- Running MatMul 4x4 ---"
+	cd $(BUILD_DIR) && $(VVP) tb_matmul_perf.vvp > matmul_perf.log 2>&1
+	$(PYTHON) $(TOOLS_DIR)/perf_report.py $(BUILD_DIR)/matmul_perf.log "FP16 MatMul 4x4"
+	@echo ""
+	@echo "--- Building Tiny MLP ---"
+	$(IVERILOG) -g2012 $(INCLUDES) -DSM_V2 -DSIMULATION -o $(BUILD_DIR)/tb_mlp_perf.vvp $(PERF_RTL) $(TB_DIR)/tb_tiny_mlp.v
+	@echo "--- Running Tiny MLP ---"
+	cd $(BUILD_DIR) && $(VVP) tb_mlp_perf.vvp > mlp_perf.log 2>&1
+	$(PYTHON) $(TOOLS_DIR)/perf_report.py $(BUILD_DIR)/mlp_perf.log "Tiny MLP (4->4->1)"
+	@echo ""
+	@echo "============================================================"
+	@echo "Benchmarks Complete"
+	@echo "============================================================"
+
+#----------------------------------------------------------------------------
 lint:
 	$(VERILATOR) --lint-only --top ralph_gpu_top $(INCLUDES) $(filter %.v,$(RTL_SRCS))
 
