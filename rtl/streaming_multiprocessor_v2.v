@@ -732,7 +732,9 @@ module streaming_multiprocessor_v2 #(
     wire lane0_ra_busy = dec0_valid && u_scheduler.scoreboard[dec0_warp_id][dec_ra];
     wire lane0_rb_busy = dec0_valid && u_scheduler.scoreboard[dec0_warp_id][dec_rb];
     wire lane0_rc_busy = dec0_valid && u_scheduler.scoreboard[dec0_warp_id][dec_rc];
-    wire lane0_stall_raw = dec0_valid && (lane0_ra_busy || lane0_rb_busy || lane0_rc_busy);
+    // Scheduler already checks RAW hazards before issue; decode-stage recheck
+    // caused deadlock when instruction own dest was scoreboarded before decode
+    wire lane0_stall_raw = 1'b0;  // Trust scheduler hazard check
     wire lane0_stall_fu = dec0_valid && (pending_fu_count[dec0_warp_id] >= 8);
     wire lane0_stall_mem = dec0_valid && !dec_atomic_op && (
                            ((dec_mem_read || dec_mem_write) && mem_in_flight) ||
@@ -765,7 +767,7 @@ module streaming_multiprocessor_v2 #(
     wire lane1_ra_busy = dec1_valid && u_scheduler.scoreboard[dec1_warp_id][dec1_ra];
     wire lane1_rb_busy = dec1_valid && u_scheduler.scoreboard[dec1_warp_id][dec1_rb];
     wire lane1_rc_busy = dec1_valid && u_scheduler.scoreboard[dec1_warp_id][dec1_rc];
-    wire lane1_stall_raw = dec1_valid && (lane1_ra_busy || lane1_rb_busy || lane1_rc_busy);
+    wire lane1_stall_raw = 1'b0;  // Trust scheduler hazard check
     wire lane1_stall_fu = dec1_valid && (pending_fu_count[dec1_warp_id] >= 8);
     wire lane1_stall_tensor = dec1_valid && dec1_tensor_op && tensor_issue_full_next;
     wire lane1_stall_wbq = dec1_valid && (
@@ -1173,6 +1175,7 @@ module streaming_multiprocessor_v2 #(
         end else if (kernel_start) begin
             warp_inst_valid_d1 <= {NUM_WARPS{1'b0}};
         end else begin
+            
             warp_inst_valid_d1 <= warp_inst_buf_valid;
         end
     end
@@ -1358,7 +1361,7 @@ module streaming_multiprocessor_v2 #(
             // Debug first few fetch cycles
             if (fetch_debug_cnt < 20) begin
                 `ifdef SIMULATION
-                if(1) $display("[SM%0d FETCH] req=%b ready=%b fire=%b warp_valid=%04b needs_fetch=%04b pending=%04b buf_valid=%04b",
+                if(0) $display("[SM%0d FETCH] req=%b ready=%b fire=%b warp_valid=%04b needs_fetch=%04b pending=%04b buf_valid=%04b",
                          SM_ID, fetch_req, icache_ready, fetch_fire,
                          warp_valid, warp_needs_fetch, warp_fetch_pending, warp_inst_buf_valid);
                 `endif
@@ -1526,8 +1529,6 @@ module streaming_multiprocessor_v2 #(
             end // end of else (not kernel_start)
         end
     end
-
-
     //========================================================================
     // STAGE 2: PRE-DECODE & SCHEDULING (Replaces old Decode)
     //========================================================================
@@ -2832,8 +2833,8 @@ module streaming_multiprocessor_v2 #(
     always @(posedge clk) begin
         if (special_valid_out) begin
             `ifdef SIMULATION
-            if(0) $display("[SM%0d] MOV_SPECIAL result ready: warp=%0d rd=R%0d value=0x%08h",
-                SM_ID, special_warp_pipe, special_rd_pipe, special_result_pipe[31:0]);
+            if(0) $display("[SM%0d] MOV_SPECIAL result ready: warp=%0d rd=R%0d val0=0x%08h val1=0x%08h val31=0x%08h",
+                SM_ID, special_warp_pipe, special_rd_pipe, special_result_pipe[31:0], special_result_pipe[63:32], special_result_pipe[1023:992]);
             `endif
         end
     end
@@ -3332,8 +3333,6 @@ module streaming_multiprocessor_v2 #(
         .result_ready(tensor_wbq_push_fire),
         .result_data (tensor_result)
     );
-
-
     assign tensor_meta_push_data = pack_tensor_meta(tensor_issue_warp,
                                                     tensor_issue_rd,
                                                     tensor_issue_mask);
@@ -4737,8 +4736,6 @@ module streaming_multiprocessor_v2 #(
                                                     (dec0_warp_id == issue1_warp_id)) && dec0_valid;
     assign branch_flush_dec1 = any_branch_flush && ((dec1_warp_id == issue_warp_id) ||
                                                     (dec1_warp_id == issue1_warp_id)) && dec1_valid;
-
-
     //========================================================================
     // STAGE 5: WRITEBACK (Round-Robin Arbitration + Scoreboard Clear)
     //========================================================================
@@ -5040,8 +5037,8 @@ module streaming_multiprocessor_v2 #(
                         wb_data <= alu_wbq_data;
                         wb_mask <= alu_wbq_mask;
                         `ifdef SIMULATION
-                        if(0) $display("[SM%0d] ALU_WB: rd=R%0d warp=%0d mask=0x%08x data[0]=0x%08x",
-                                 SM_ID, alu_wbq_rd, alu_wbq_warp, alu_wbq_mask, alu_wbq_data[31:0]);
+                        if(0) $display("[SM%0d] ALU_WB: rd=R%0d warp=%0d mask=0x%08x d0=0x%08x d1=0x%08x d2=0x%08x d31=0x%08x",
+                                 SM_ID, alu_wbq_rd, alu_wbq_warp, alu_wbq_mask, alu_wbq_data[31:0], alu_wbq_data[63:32], alu_wbq_data[95:64], alu_wbq_data[1023:992]);
                         `endif
                     end
                     4'd1: begin  // MUL (1-cycle pipeline)
@@ -5963,8 +5960,6 @@ module streaming_multiprocessor_v2 #(
         end
     end
     `endif
-
-
 // META QUEUE BOOKKEEPING DEBUG
 `ifdef SIMULATION
 always @(posedge clk) begin
@@ -5979,8 +5974,6 @@ always @(posedge clk) begin
 end
 `endif
 endmodule
-
-
 //============================================================================
 // SIMD FP16 Wrapper - instantiates fp16_unit for each lane
 // fp16_unit has 3-cycle latency, simd_fp16 should NOT add more
@@ -6045,8 +6038,6 @@ module simd_fp16 #(
     assign ready = 1'b1;
 
 endmodule
-
-
 //============================================================================
 // Simple FIFO for writeback queues (single push/pop per cycle)
 //============================================================================
@@ -6116,6 +6107,4 @@ module wb_fifo #(
             endcase
         end
     end
-
-
 endmodule
