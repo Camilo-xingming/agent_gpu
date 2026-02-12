@@ -306,7 +306,7 @@ module advanced_warp_scheduler #(
             issue_valid_r[0] = 1'b1;
             issue_warp_r[0] = selected_tensor;
             `ifdef SIMULATION
-            $display("[%0t SCHED] tensor select: warp=%0d ptr=%0d eligible=%04b pipe_stalled=%b",
+            $display("[%0t SCHED] tensor select: warp=%0d ptr=%0d eligible=%04b",
                      $time, selected_tensor, tensor_rr_ptr, tensor_eligible);
             `endif
             issue_inst_r[0] = warp_inst[selected_tensor];
