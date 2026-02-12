@@ -326,7 +326,7 @@ module ralph_gpu_top #(
             streaming_multiprocessor_v2 #(
                 .SM_ID (sm),
                 .INIT_WARPS (4),    // Enable 4 warps for dual-issue
-                ..ICACHE_BYPASS (1)  // Bypass icache (icache tested but slower for cold-cache workloads)
+                .ICACHE_BYPASS (1)  // Bypass icache (icache tested but slower for cold-cache workloads)
             ) u_sm (
                 .clk           (clk),
                 .rst_n         (rst_n),
