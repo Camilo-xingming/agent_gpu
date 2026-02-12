@@ -438,6 +438,7 @@ module lz4_decompressor #(
                 ST_ERROR: begin
                     error <= 1'b1;
                 end
+                default: ; // lint: CASEINCOMPLETE
             endcase
         end
     end

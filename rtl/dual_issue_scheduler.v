@@ -181,6 +181,7 @@ module dual_issue_scheduler #(
                     OP_LOAD:   if (mem_ready)    begin found_warp0 = 1; selected_warp0 = i[WARP_ID_W-1:0]; end
                     OP_STORE:  if (mem_ready)    begin found_warp0 = 1; selected_warp0 = i[WARP_ID_W-1:0]; end
                     OP_BRANCH: if (branch_ready) begin found_warp0 = 1; selected_warp0 = i[WARP_ID_W-1:0]; end
+                    default: ; // lint: CASEINCOMPLETE
                 endcase
             end
         end
@@ -204,6 +205,7 @@ module dual_issue_scheduler #(
                                 OP_LOAD:   if (mem_ready)    begin found_warp1 = 1; selected_warp1 = j[WARP_ID_W-1:0]; end
                                 OP_STORE:  if (mem_ready)    begin found_warp1 = 1; selected_warp1 = j[WARP_ID_W-1:0]; end
                                 OP_BRANCH: if (branch_ready) begin found_warp1 = 1; selected_warp1 = j[WARP_ID_W-1:0]; end
+                                default: ; // lint: CASEINCOMPLETE
                             endcase
                         end
                     end

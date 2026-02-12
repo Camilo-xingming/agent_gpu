@@ -328,6 +328,7 @@ module chi_controller #(
                     next_state = ST_IDLE;
                 end
             end
+            default: ; // lint: CASEINCOMPLETE
         endcase
     end
 
@@ -522,6 +523,7 @@ module chi_controller #(
                         txn_count <= txn_count - 1;
                     end
                 end
+                default: ; // lint: CASEINCOMPLETE
             endcase
         end
     end

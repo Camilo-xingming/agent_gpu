@@ -710,6 +710,7 @@ module ralph_gpu_top #(
                     CSR_BLOCK_DIM_X: block_dim_x      <= csr_wr_data;
                     CSR_BLOCK_DIM_Y: block_dim_y      <= csr_wr_data;
                     CSR_BLOCK_DIM_Z: block_dim_z      <= csr_wr_data;
+                    default: ; // lint: CASEINCOMPLETE
                 endcase
             end
         end
