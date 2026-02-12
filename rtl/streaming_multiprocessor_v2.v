@@ -1896,6 +1896,7 @@ module streaming_multiprocessor_v2 #(
     wire                 dec1_multimem_op;
     wire                 dec1_barrier_cluster_op;
 
+    /* verilator lint_off PINMISSING */
     decoder u_decoder0 (
         .clk         (clk),
         .rst_n       (rst_n),
@@ -1967,11 +1968,13 @@ module streaming_multiprocessor_v2 #(
         .multimem_op (dec_multimem_op),
         .barrier_cluster_op (dec_barrier_cluster_op)
     );
+    /* verilator lint_on PINMISSING */
 
     //------------------------------------------------------------------------
     // Instruction Decoder (lane 1)
     //------------------------------------------------------------------------
     wire dec1_dec_valid;
+    /* verilator lint_off PINMISSING */
     decoder u_decoder1 (
         .clk         (clk),
         .rst_n       (rst_n),
@@ -2043,6 +2046,7 @@ module streaming_multiprocessor_v2 #(
         .multimem_op (dec1_multimem_op),
         .barrier_cluster_op (dec1_barrier_cluster_op)
     );
+    /* verilator lint_on PINMISSING */
 
     // Map decoder outputs to V2 signal names
     assign dec_sfu_op = dec_fp32_special;
@@ -2580,6 +2584,7 @@ module streaming_multiprocessor_v2 #(
     register_file_banked #(
         .NUM_WARPS(NUM_WARPS),
         .NUM_BANKS(4)
+    /* verilator lint_off PINMISSING */
     ) u_regfile0 (
         .clk       (clk),
         .rst_n     (rst_n),
@@ -2613,10 +2618,12 @@ module streaming_multiprocessor_v2 #(
         .stat_bank_conflicts(rf_stat_bank_conflicts),
         .stat_total_accesses(rf_stat_total_accesses)
     );
+    /* verilator lint_on PINMISSING */
 
     register_file_banked #(
         .NUM_WARPS(NUM_WARPS),
         .NUM_BANKS(4)
+    /* verilator lint_off PINMISSING */
     ) u_regfile1 (
         .clk       (clk),
         .rst_n     (rst_n),
@@ -2650,6 +2657,7 @@ module streaming_multiprocessor_v2 #(
         .stat_bank_conflicts(rf1_stat_bank_conflicts),
         .stat_total_accesses(rf1_stat_total_accesses)
     );
+    /* verilator lint_on PINMISSING */
 
     //========================================================================
     // STAGE 4: EXECUTE (Multiple Functional Units)
