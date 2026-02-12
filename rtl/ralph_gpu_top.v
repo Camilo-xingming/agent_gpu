@@ -526,7 +526,7 @@ module ralph_gpu_top #(
         imem_arb_sel = imem_rr_ptr;
         imem_arb_valid = 1'b0;
         for (imem_i = 0; imem_i < NUM_SM; imem_i = imem_i + 1) begin
-            imem_idx = imem_rr_ptr + imem_i + 1;
+            imem_idx = {{(32-SM_ID_W){1'b0}}, imem_rr_ptr} + imem_i + 1;
             if (imem_idx >= NUM_SM) begin
                 imem_idx = imem_idx - NUM_SM;
             end
@@ -582,12 +582,12 @@ module ralph_gpu_top #(
         end else begin
             if (imem_accept) begin
                 imem_q[imem_q_tail] <= imem_arb_sel;
-                imem_q_tail <= (imem_q_tail == IMEM_Q_DEPTH-1) ?
+                imem_q_tail <= (imem_q_tail == IMEM_Q_PTR_W'(IMEM_Q_DEPTH-1)) ?
                                {IMEM_Q_PTR_W{1'b0}} : imem_q_tail + 1'b1;
                 imem_rr_ptr <= imem_arb_sel;
             end
             if (imem_valid && !imem_q_empty) begin
-                imem_q_head <= (imem_q_head == IMEM_Q_DEPTH-1) ?
+                imem_q_head <= (imem_q_head == IMEM_Q_PTR_W'(IMEM_Q_DEPTH-1)) ?
                                {IMEM_Q_PTR_W{1'b0}} : imem_q_head + 1'b1;
             end
 
@@ -609,7 +609,7 @@ module ralph_gpu_top #(
         axi_arb_sel = 0;
         for (i = 0; i < NUM_SM; i = i + 1) begin
             if (sm_axi_awvalid[i] || sm_axi_arvalid[i]) begin
-                axi_arb_sel = i;
+                axi_arb_sel = i[$clog2(NUM_SM)-1:0];
             end
         end
     end
