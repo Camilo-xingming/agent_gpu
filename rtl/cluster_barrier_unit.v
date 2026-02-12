@@ -85,6 +85,7 @@ module cluster_barrier_unit #(
     reg [THREAD_COUNT_W-1:0] arrive_cnt, init_cnt;
     reg arrive_found, init_found;
 
+    /* verilator lint_off BLKSEQ */
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             barrier_valid <= 0;
@@ -142,6 +143,7 @@ module cluster_barrier_unit #(
                         `endif
                     end
                 end
+    /* verilator lint_on BLKSEQ */
             end
 
             // Reset completed barriers that have no waiters

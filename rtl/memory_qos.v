@@ -255,6 +255,7 @@ module memory_qos #(
     reg [CH_WIDTH-1:0] iss_channel;
 
     integer iss_ch;
+    /* verilator lint_off BLKSEQ */
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             ch_req_valid_r <= 0;
@@ -296,7 +297,6 @@ module memory_qos #(
             end
         end
     end
-
     // Output assignments
     genvar chi;
     generate
@@ -411,4 +411,5 @@ module memory_qos #(
         end
     end
 
+    /* verilator lint_on BLKSEQ */
 endmodule
