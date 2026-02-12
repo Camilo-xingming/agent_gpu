@@ -319,6 +319,7 @@ module alu (
         result_hi = 32'b0;
         carry_out = 1'b0;
 
+        /* verilator lint_off CASEOVERLAP */
         case (func)
             // 基础运算
             `FUNC_ADD:   begin
@@ -410,7 +411,8 @@ module alu (
             end
 
             default:     result = 32'b0;
-        endcase
+                /* verilator lint_on CASEOVERLAP */
+endcase
     end
 
     //------------------------------------------------------------------------

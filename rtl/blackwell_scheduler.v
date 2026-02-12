@@ -362,6 +362,8 @@ module blackwell_scheduler #(
     // Scoreboard Update (Enhanced for Blackwell async operations)
     //------------------------------------------------------------------------
     integer sb_w, sb_s;
+    /* verilator lint_on SELRANGE */
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             for (sb_w = 0; sb_w < NUM_WARPS; sb_w = sb_w + 1) begin
@@ -450,6 +452,7 @@ module blackwell_scheduler #(
     reg [31:0] async_mma_completed_count;
     reg [31:0] tcgen05_issued_count;
 
+    /* verilator lint_off SELRANGE */
     wire [3:0] num_issued = issue_valid_r[0] + issue_valid_r[1] +
                             ((NUM_SCHEDULERS > 2) ? issue_valid_r[2] : 1'b0) +
                             ((NUM_SCHEDULERS > 3) ? issue_valid_r[3] : 1'b0);

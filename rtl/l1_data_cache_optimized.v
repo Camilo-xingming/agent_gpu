@@ -556,7 +556,7 @@ module l1_data_cache_optimized #(
                     mshr_addr[mshr_free_idx] <= {primary_tag, primary_index, {OFFSET_BITS{1'b0}}};
                     mshr_mask[mshr_free_idx] <= saved_mask;
                     mshr_write[mshr_free_idx] <= saved_write;
-                    mshr_id[mshr_free_idx] <= mshr_free_idx[3:0];
+                    mshr_id[mshr_free_idx] <= mshr_free_idx;
                     for (i = 0; i < THREADS; i = i + 1) begin
                         mshr_wdata[mshr_free_idx][i] <= saved_wdata[i];
                     end

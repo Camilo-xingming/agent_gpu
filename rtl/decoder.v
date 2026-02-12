@@ -329,6 +329,7 @@ module decoder (
             tcgen05_dtype <= inst_rc[3:0];  // Data type from RC field
 
             // 根据OPCODE设置控制信号
+            /* verilator lint_off CASEOVERLAP */
             case (inst_opcode)
                 `OP_ALU: begin
                     alu_op    <= 1'b1;
@@ -622,7 +623,7 @@ module decoder (
                                 $display("[DECODER] TCGEN05_UNKNOWN: func=%0d", inst_func);
                                 `endif
                             end
-                        endcase
+endcase
                     end else begin
                         // Regular MMA operation (func[5:4]=00)
                         mma_op    <= 1'b1;
@@ -955,6 +956,7 @@ module decoder (
                     // 空操作，不设置任何控制信号
                 end
 
+            /* verilator lint_on CASEOVERLAP */
                 default: begin
                     // 未知指令，当作NOP
                 end

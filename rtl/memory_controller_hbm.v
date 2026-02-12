@@ -144,12 +144,14 @@ module memory_controller_hbm #(
         end
     endfunction
 
+    /* verilator lint_off SELRANGE */
     function [ROW_WIDTH-1:0] get_row;
         input [ADDR_WIDTH-1:0] addr;
         begin
             get_row = addr[ROW_LSB +: ROW_WIDTH];
         end
     endfunction
+    /* verilator lint_on SELRANGE */
 
     function [COL_WIDTH-1:0] get_col;
         input [ADDR_WIDTH-1:0] addr;

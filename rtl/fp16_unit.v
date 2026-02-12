@@ -314,6 +314,7 @@ module fp16_unit (
             `endif
 
             if (valid_r2) begin
+                /* verilator lint_off CASEOVERLAP */
                 case (func_r2)
                     //----------------------------------------------------
                     // FP16 Operations
@@ -619,7 +620,8 @@ module fp16_unit (
                     default: begin
                         result <= 32'b0;
                     end
-                endcase
+                                /* verilator lint_on CASEOVERLAP */
+endcase
             end
         end
     end

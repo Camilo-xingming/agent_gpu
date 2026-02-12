@@ -843,6 +843,8 @@ module streaming_multiprocessor_v2 #(
                            !lane_warp_conflict && !lane_reg_conflict &&
                            !lane_unit_conflict && !lane0_control;  // Renamed
 
+    wire lane0_issued;
+    wire lane1_issued;
     assign lane0_issued = issue0_sel_lane0;
     assign lane1_issued = issue0_sel_lane1 || issue1_fire;
 
@@ -1843,6 +1845,8 @@ module streaming_multiprocessor_v2 #(
     wire dec1_fp32_special;
     wire dec1_wmma_mma;
     wire dec1_shfl_op;
+    wire dec1_shuffle_op;
+    wire dec1_atomic_op;
     wire                 dec1_mem_param, dec1_mem_const, dec1_mem_local, dec1_mem_vector;
     wire [1:0]           dec1_vec_size;
     wire                 dec1_vote_op, dec1_redux_op;
