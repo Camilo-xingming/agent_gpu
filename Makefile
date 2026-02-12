@@ -8,6 +8,8 @@ IVERILOG = iverilog
 VVP = vvp
 GTKWAVE = gtkwave
 PYTHON = python3
+VERILATOR ?= verilator
+YOSYS ?= /opt/homebrew/bin/yosys
 
 # 目录
 RTL_DIR = rtl
@@ -475,7 +477,13 @@ assemble: $(EXAMPLES_DIR)/vector_add.ptx
 # 语法检查
 #----------------------------------------------------------------------------
 lint:
-	verilator --lint-only $(INCLUDES) $(filter %.v,$(RTL_SRCS))
+	$(VERILATOR) --lint-only $(INCLUDES) $(filter %.v,$(RTL_SRCS))
+
+#----------------------------------------------------------------------------
+# 综合检查 (Yosys)
+#----------------------------------------------------------------------------
+synth: $(BUILD_DIR)
+	$(YOSYS) -q -p "read_verilog -sv $(filter %.v,$(RTL_SRCS)); hierarchy -check -top ralph_gpu_top; proc; opt; check -assert" > $(BUILD_DIR)/yosys_synth.log 2>&1
 
 #----------------------------------------------------------------------------
 # 清理
@@ -496,6 +504,7 @@ help:
 	@echo "  wave          - Open waveform viewer (GTKWave)"
 	@echo "  assemble      - Assemble PTX example to machine code"
 	@echo "  lint          - Run Verilator lint check"
+	@echo "  synth         - Run Yosys synthesis/check flow"
 	@echo "  clean         - Remove build artifacts"
 	@echo "  help          - Show this help message"
 	@echo ""
