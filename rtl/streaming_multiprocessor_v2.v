@@ -3158,9 +3158,10 @@ module streaming_multiprocessor_v2 #(
                                     (!tensor_issue_full || tensor_issue_pop);
     assign tensor_issue_pop_fire = tensor_issue_pop;
 
+    // Width-stable +/-1 terms to avoid lint widthexpand noise
     assign tensor_issue_count_next = {1'b0, tensor_issue_count} +
-                                     (tensor_issue_push_fire ? 1'b1 : 1'b0) -
-                                     (tensor_issue_pop_fire ? 1'b1 : 1'b0);
+                                     {{TENSOR_ISSUE_COUNT_W{1'b0}}, tensor_issue_push_fire} -
+                                     {{TENSOR_ISSUE_COUNT_W{1'b0}}, tensor_issue_pop_fire};
     assign tensor_issue_full_next = (tensor_issue_count_next >= TENSOR_ISSUE_DEPTH);
 
     always @(posedge clk or negedge rst_n) begin
@@ -5627,6 +5628,7 @@ module wb_fifo #(
     localparam PTR_W = (DEPTH > 1) ? $clog2(DEPTH) : 1;
     localparam COUNT_W = $clog2(DEPTH + 1);
     localparam [COUNT_W-1:0] DEPTH_VAL = DEPTH;
+    localparam [PTR_W-1:0] PTR_LAST = DEPTH - 1;
 
     reg [WIDTH-1:0] mem [0:DEPTH-1];
     reg [PTR_W-1:0] head;
@@ -5643,10 +5645,10 @@ module wb_fifo #(
     function [PTR_W-1:0] ptr_inc;
         input [PTR_W-1:0] ptr;
         begin
-            if (ptr == DEPTH - 1) begin
+            if (ptr == PTR_LAST) begin
                 ptr_inc = {PTR_W{1'b0}};
             end else begin
-                ptr_inc = ptr + 1'b1;
+                ptr_inc = ptr + {{(PTR_W-1){1'b0}}, 1'b1};
             end
         end
     endfunction
@@ -5671,8 +5673,8 @@ module wb_fifo #(
             end
 
             case ({push_fire, pop_fire})
-                2'b10: count <= count + 1'b1;
-                2'b01: count <= count - 1'b1;
+                2'b10: count <= count + {{(COUNT_W-1){1'b0}}, 1'b1};
+                2'b01: count <= count - {{(COUNT_W-1){1'b0}}, 1'b1};
                 default: count <= count;
             endcase
         end
