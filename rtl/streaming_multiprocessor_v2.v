@@ -398,11 +398,11 @@ module streaming_multiprocessor_v2 #(
     reg  [4:0]           exec_rd;
 
     // Writeback Stage
-    reg                  wb_valid;
-    reg  [WARP_ID_W-1:0] wb_warp_id;
-    reg  [4:0]           wb_rd;
-    reg  [SIMD_WIDTH-1:0] wb_data;
-    reg  [NUM_LANES-1:0] wb_mask;
+    wire                  wb_valid;
+    wire  [WARP_ID_W-1:0] wb_warp_id;
+    wire  [4:0]           wb_rd;
+    wire  [SIMD_WIDTH-1:0] wb_data;
+    wire  [NUM_LANES-1:0] wb_mask;
 
     //========================================================================
     // Decoder Signals
@@ -1035,7 +1035,6 @@ module streaming_multiprocessor_v2 #(
     reg                 tex_result_valid_latched;
 
     // Writeback round-robin arbiter state
-    reg [3:0] wb_arb_priority;
 
     // Writeback output queues (per FU)
     wire [WB_PKT_W-1:0] alu_wbq_in, alu_wbq_out;
@@ -4973,230 +4972,135 @@ module streaming_multiprocessor_v2 #(
     end
 
     // Collect all ready FU outputs for round-robin arbitration
-    wire [16:0] fu_ready;
-    assign fu_ready[0] = !alu_wbq_empty;                     // ALU (queued)
-    assign fu_ready[1] = !mul_wbq_empty;                     // MUL (queued)
-    assign fu_ready[2] = !fpu32_wbq_empty;                   // FPU32 (queued)
-    assign fu_ready[3] = !fpu64_wbq_empty;                   // FPU64 (queued)
-    assign fu_ready[4] = !fp16_wbq_empty;                    // FP16 (queued)
-    assign fu_ready[5] = !sfu_wbq_empty;                     // SFU (queued)
-    assign fu_ready[6] = !tensor_wbq_empty;                  // Tensor (queued)
-    // Memory is ready if we have a latched response (from previous cycle) or store pending
-    // Note: We latch on cycle N when resp_valid arrives, then fu_ready[7]=1 on cycle N+1
-    assign fu_ready[7] = gmem_resp_latched || smem_resp_latched || store_pending_valid;
-    assign fu_ready[8] = !shfl_wbq_empty;                    // Shuffle (queued)
-    assign fu_ready[9] = atomic_valid_out;                   // Atomic
-    assign fu_ready[10] = !special_wbq_empty;                // Special registers (queued)
-    assign fu_ready[11] = mbarrier_result_latched;           // mbarrier (test_wait/try_wait results)
-    assign fu_ready[12] = tex_result_valid_latched;          // Texture (latched results)
-    assign fu_ready[13] = !video_wbq_empty;                  // Video SIMD (queued)
-    assign fu_ready[14] = cache_policy_token_valid_r;        // Cache policy (createpolicy results)
-    assign fu_ready[15] = stack_result_valid_r;              // Stack (alloca/stacksave results)
-    assign fu_ready[16] = multimem_result_valid_r;           // Multimem (distributed smem load results)
+    // Writeback arbiter (extracted to sm_writeback_arbiter.v)
+    wire        wb_found;
+    wire [4:0]  wb_sel;
+    wire        tex_wbq_pop;
 
-    // Round-robin selection for writeback
-    reg [4:0] wb_sel;  // 5 bits for 17 FUs
-    reg       wb_found;
-    integer   wb_i;
+    sm_writeback_arbiter #(
+        .NUM_WARPS  (NUM_WARPS),
+        .NUM_LANES  (NUM_LANES),
+        .DATA_WIDTH (DATA_WIDTH),
+        .SM_ID      (SM_ID)
+    ) u_wb_arbiter (
+        .clk                       (clk),
+        .rst_n                     (rst_n),
+        // Queued FU sources
+        .alu_wbq_empty             (alu_wbq_empty),
+        .alu_wbq_warp              (alu_wbq_warp),
+        .alu_wbq_rd                (alu_wbq_rd),
+        .alu_wbq_mask              (alu_wbq_mask),
+        .alu_wbq_data              (alu_wbq_data),
+        .mul_wbq_empty             (mul_wbq_empty),
+        .mul_wbq_warp              (mul_wbq_warp),
+        .mul_wbq_rd                (mul_wbq_rd),
+        .mul_wbq_mask              (mul_wbq_mask),
+        .mul_wbq_data              (mul_wbq_data),
+        .fpu32_wbq_empty           (fpu32_wbq_empty),
+        .fpu32_wbq_warp            (fpu32_wbq_warp),
+        .fpu32_wbq_rd              (fpu32_wbq_rd),
+        .fpu32_wbq_mask            (fpu32_wbq_mask),
+        .fpu32_wbq_data            (fpu32_wbq_data),
+        .fpu64_wbq_empty           (fpu64_wbq_empty),
+        .fpu64_wbq_warp            (fpu64_wbq_warp),
+        .fpu64_wbq_rd              (fpu64_wbq_rd),
+        .fpu64_wbq_mask            (fpu64_wbq_mask),
+        .fpu64_wbq_data            (fpu64_wbq_data),
+        .fp16_wbq_empty            (fp16_wbq_empty),
+        .fp16_wbq_warp             (fp16_wbq_warp),
+        .fp16_wbq_rd               (fp16_wbq_rd),
+        .fp16_wbq_mask             (fp16_wbq_mask),
+        .fp16_wbq_data             (fp16_wbq_data),
+        .sfu_wbq_empty             (sfu_wbq_empty),
+        .sfu_wbq_warp              (sfu_wbq_warp),
+        .sfu_wbq_rd                (sfu_wbq_rd),
+        .sfu_wbq_mask              (sfu_wbq_mask),
+        .sfu_wbq_data              (sfu_wbq_data),
+        .tensor_wbq_empty          (tensor_wbq_empty),
+        .tensor_wbq_warp           (tensor_wbq_warp),
+        .tensor_wbq_rd             (tensor_wbq_rd),
+        .tensor_wbq_mask           (tensor_wbq_mask),
+        .tensor_wbq_data           (tensor_wbq_data),
+        .shfl_wbq_empty            (shfl_wbq_empty),
+        .shfl_wbq_warp             (shfl_wbq_warp),
+        .shfl_wbq_rd               (shfl_wbq_rd),
+        .shfl_wbq_mask             (shfl_wbq_mask),
+        .shfl_wbq_data             (shfl_wbq_data),
+        .special_wbq_empty         (special_wbq_empty),
+        .special_wbq_warp          (special_wbq_warp),
+        .special_wbq_rd            (special_wbq_rd),
+        .special_wbq_mask          (special_wbq_mask),
+        .special_wbq_data          (special_wbq_data),
+        .video_wbq_empty           (video_wbq_empty),
+        .video_wbq_warp            (video_wbq_warp),
+        .video_wbq_rd              (video_wbq_rd),
+        .video_wbq_mask            (video_wbq_mask),
+        .video_wbq_data            (video_wbq_data),
+        // Non-queued sources
+        .gmem_resp_latched         (gmem_resp_latched),
+        .gmem_resp_warp            (gmem_resp_warp),
+        .gmem_resp_rd              (gmem_resp_rd),
+        .gmem_resp_data            (gmem_resp_data),
+        .gmem_resp_mask            (gmem_resp_mask),
+        .smem_resp_latched         (smem_resp_latched),
+        .smem_resp_warp            (smem_resp_warp),
+        .smem_resp_rd              (smem_resp_rd),
+        .smem_resp_data            (smem_resp_data),
+        .smem_resp_mask            (smem_resp_mask),
+        .store_pending_valid       (store_pending_valid),
+        .store_warp_pending        (store_warp_pending),
+        .store_mask_pending        (store_mask_pending),
+        .atomic_valid_out          (atomic_valid_out),
+        .atomic_warp_pending       (atomic_warp_pending),
+        .atomic_rd_pending         (atomic_rd_pending),
+        .atomic_result             (atomic_result),
+        .atomic_mask_pending       (atomic_mask_pending),
+        .mbarrier_result_latched   (mbarrier_result_latched),
+        .mbarrier_wb_warp          (mbarrier_wb_warp),
+        .mbarrier_wb_rd            (mbarrier_wb_rd),
+        .mbarrier_wb_result        (mbarrier_wb_result),
+        .mbarrier_wb_mask          (mbarrier_wb_mask),
+        .tex_result_valid_latched  (tex_result_valid_latched),
+        .tex_warp_pending          (tex_warp_pending),
+        .tex_rd_pending            (tex_rd_pending),
+        .tex_result_latched        (tex_result_latched),
+        .tex_mask_pending          (tex_mask_pending),
+        .cache_policy_token_valid_r(cache_policy_token_valid_r),
+        .cache_policy_wb_warp      (cache_policy_wb_warp),
+        .cache_policy_wb_rd        (cache_policy_wb_rd),
+        .cache_policy_wb_mask      (cache_policy_wb_mask),
+        .cache_policy_token_r      (cache_policy_token_r),
+        .stack_result_valid_r      (stack_result_valid_r),
+        .stack_wb_warp             (stack_wb_warp),
+        .stack_wb_rd               (stack_wb_rd),
+        .stack_wb_mask             (stack_wb_mask),
+        .stack_result_r            (stack_result_r),
+        .multimem_result_valid_r   (multimem_result_valid_r),
+        .multimem_wb_warp          (multimem_wb_warp),
+        .multimem_wb_rd            (multimem_wb_rd),
+        .multimem_wb_mask          (multimem_wb_mask),
+        .multimem_result_r         (multimem_result_r),
+        // Outputs
+        .wb_valid                  (wb_valid),
+        .wb_warp_id                (wb_warp_id),
+        .wb_rd                     (wb_rd),
+        .wb_data                   (wb_data),
+        .wb_mask                   (wb_mask),
+        .wb_found                  (wb_found),
+        .wb_sel                    (wb_sel),
+        .alu_wbq_pop               (alu_wbq_pop),
+        .mul_wbq_pop               (mul_wbq_pop),
+        .fpu32_wbq_pop             (fpu32_wbq_pop),
+        .fpu64_wbq_pop             (fpu64_wbq_pop),
+        .fp16_wbq_pop              (fp16_wbq_pop),
+        .sfu_wbq_pop               (sfu_wbq_pop),
+        .tensor_wbq_pop            (tensor_wbq_pop),
+        .shfl_wbq_pop              (shfl_wbq_pop),
+        .special_wbq_pop           (special_wbq_pop),
+        .video_wbq_pop             (video_wbq_pop),
+        .tex_wbq_pop               (tex_wbq_pop)
+    );
 
-    always @(*) begin
-        wb_found = 1'b0;
-        wb_sel = 0;
-        // Start from last priority + 1 for fairness (17 FU sources)
-        for (wb_i = 0; wb_i < 17; wb_i = wb_i + 1) begin
-            if (!wb_found && fu_ready[(wb_arb_priority + wb_i) % 17]) begin
-                wb_sel = (wb_arb_priority + wb_i) % 17;
-                wb_found = 1'b1;
-            end
-        end
-    end
-
-    assign alu_wbq_pop = wb_found && (wb_sel == 4'd0);
-    assign mul_wbq_pop = wb_found && (wb_sel == 4'd1);
-    assign fpu32_wbq_pop = wb_found && (wb_sel == 4'd2);
-    assign fpu64_wbq_pop = wb_found && (wb_sel == 4'd3);
-    assign fp16_wbq_pop = wb_found && (wb_sel == 4'd4);
-    assign sfu_wbq_pop = wb_found && (wb_sel == 4'd5);
-    assign tensor_wbq_pop = wb_found && (wb_sel == 4'd6);
-    assign shfl_wbq_pop = wb_found && (wb_sel == 4'd8);
-    assign special_wbq_pop = wb_found && (wb_sel == 4'd10);
-    wire tex_wbq_pop = wb_found && (wb_sel == 4'd12);
-    assign video_wbq_pop = wb_found && (wb_sel == 4'd13);
-
-    // Writeback arbiter with proper warp/rd tracking from FU pipelines
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            wb_valid <= 1'b0;
-            wb_arb_priority <= 0;
-        end else begin
-            if (wb_found) begin
-                wb_valid <= 1'b1;
-                wb_arb_priority <= (wb_sel + 1) % 17;  // Advance for fairness (17 FU sources)
-
-                // DEBUG: trace which FU is causing writebacks
-                `ifdef SIMULATION
-                if(0) $display("[SM%0d] WB_SEL: wb_sel=%0d fu_ready=%014b", SM_ID, wb_sel, fu_ready);
-                `endif
-
-                case (wb_sel)
-                    4'd0: begin  // ALU (1-cycle pipeline for proper timing)
-                        wb_warp_id <= alu_wbq_warp;
-                        wb_rd <= alu_wbq_rd;
-                        wb_data <= alu_wbq_data;
-                        wb_mask <= alu_wbq_mask;
-                        `ifdef SIMULATION
-                        if(0) $display("[SM%0d] ALU_WB: rd=R%0d warp=%0d mask=0x%08x d0=0x%08x d1=0x%08x d2=0x%08x d31=0x%08x",
-                                 SM_ID, alu_wbq_rd, alu_wbq_warp, alu_wbq_mask, alu_wbq_data[31:0], alu_wbq_data[63:32], alu_wbq_data[95:64], alu_wbq_data[1023:992]);
-                        `endif
-                    end
-                    4'd1: begin  // MUL (1-cycle pipeline)
-                        wb_warp_id <= mul_wbq_warp;
-                        wb_rd <= mul_wbq_rd;
-                        wb_data <= mul_wbq_data;
-                        wb_mask <= mul_wbq_mask;
-                    end
-                    4'd2: begin  // FPU32 (4-cycle pipeline)
-                        wb_warp_id <= fpu32_wbq_warp;
-                        wb_rd <= fpu32_wbq_rd;
-                        wb_data <= fpu32_wbq_data;
-                        wb_mask <= fpu32_wbq_mask;
-                        `ifdef SIMULATION
-                        if(0) $display("[SM%0d] FPU32_WB: rd=R%0d warp=%0d mask=0x%08x data[0]=0x%08x",
-                                 SM_ID, fpu32_wbq_rd, fpu32_wbq_warp, fpu32_wbq_mask, fpu32_wbq_data[31:0]);
-                        `endif
-                    end
-                    4'd3: begin  // FPU64 (truncated)
-                        wb_warp_id <= fpu64_wbq_warp;
-                        wb_rd <= fpu64_wbq_rd;
-                        wb_data <= fpu64_wbq_data;
-                        wb_mask <= fpu64_wbq_mask;
-                    end
-                    4'd4: begin  // FP16 (2-cycle pipeline)
-                        wb_warp_id <= fp16_wbq_warp;
-                        wb_rd <= fp16_wbq_rd;
-                        wb_data <= fp16_wbq_data;
-                        wb_mask <= fp16_wbq_mask;
-                    end
-                    4'd5: begin  // SFU (8-cycle pipeline)
-                        wb_warp_id <= sfu_wbq_warp;
-                        wb_rd <= sfu_wbq_rd;
-                        wb_data <= sfu_wbq_data;
-                        wb_mask <= sfu_wbq_mask;
-                        `ifdef SIMULATION
-                        if(0) $display("[SM%0d] SFU_WB: rd=R%0d warp=%0d mask=0x%08x data[0]=0x%08x",
-                                 SM_ID, sfu_wbq_rd, sfu_wbq_warp, sfu_wbq_mask, sfu_wbq_data[31:0]);
-                        `endif
-                    end
-                    4'd6: begin  // Tensor (variable latency)
-                        wb_warp_id <= tensor_wbq_warp;
-                        wb_rd <= tensor_wbq_rd;
-                        wb_data <= tensor_wbq_data;
-                        wb_mask <= tensor_wbq_mask;
-                    end
-                    4'd7: begin  // Memory - use latched values
-                        `ifdef SIMULATION
-                        // if(0) $display("[%0t SM%0d CASE7] ...", $time, SM_ID, ...); // Debug disabled
-                        `endif
-                        if (smem_resp_latched) begin
-                            wb_warp_id <= smem_resp_warp;
-                            wb_rd <= smem_resp_rd;
-                            wb_data <= smem_resp_data;
-                            wb_mask <= smem_resp_mask;
-                        end else if (gmem_resp_latched) begin
-                            wb_warp_id <= gmem_resp_warp;
-                            wb_rd <= gmem_resp_rd;
-                            wb_data <= gmem_resp_data;
-                            wb_mask <= gmem_resp_mask;
-                        end else begin
-                            // Store completion (no register writeback)
-                            wb_warp_id <= store_warp_pending;
-                            wb_rd <= 0;
-                            wb_data <= 0;
-                            wb_mask <= store_mask_pending;
-                        end
-                    end
-                    4'd8: begin  // Shuffle (1-cycle pipeline for proper timing)
-                        wb_warp_id <= shfl_wbq_warp;
-                        wb_rd <= shfl_wbq_rd;
-                        wb_data <= shfl_wbq_data;
-                        wb_mask <= shfl_wbq_mask;
-                    end
-                    4'd9: begin  // Atomic
-                        wb_warp_id <= atomic_warp_pending;
-                        wb_rd <= atomic_rd_pending;
-                        wb_data <= atomic_result;
-                        wb_mask <= atomic_mask_pending;  // Reverted: atomic_result_mask caused deadlock
-                    end
-                    4'd10: begin  // Special registers (MOV_SPECIAL)
-                        wb_warp_id <= special_wbq_warp;
-                        wb_rd <= special_wbq_rd;
-                        wb_data <= special_wbq_data;
-                        wb_mask <= special_wbq_mask;
-                    end
-                    4'd11: begin  // mbarrier (test_wait/try_wait results)
-                        wb_warp_id <= mbarrier_wb_warp;
-                        wb_rd <= mbarrier_wb_rd;
-                        wb_data <= {NUM_LANES{mbarrier_wb_result}};  // Replicate result to all lanes
-                        wb_mask <= mbarrier_wb_mask;
-                    end
-                    4'd12: begin  // Texture unit (tex/txq/suld/sust/sured)
-                        wb_warp_id <= tex_warp_pending;
-                        wb_rd <= tex_rd_pending;
-                        // Texture returns 128-bit result (RGBA 4x32-bit), replicate across lanes
-                        wb_data <= {(NUM_LANES/4){tex_result_latched}};
-                        wb_mask <= tex_mask_pending;
-                        `ifdef SIMULATION
-                        if(0) $display("[SM%0d] TEX_WB: rd=R%0d warp=%0d mask=0x%08x result=0x%032x",
-                                 SM_ID, tex_rd_pending, tex_warp_pending, tex_mask_pending, tex_result_latched);
-                        `endif
-                    end
-                    4'd13: begin  // Video SIMD unit (VADD4/VSUB4/DP4A/DP2A/etc)
-                        wb_warp_id <= video_wbq_warp;
-                        wb_rd <= video_wbq_rd;
-                        wb_data <= video_wbq_data;
-                        wb_mask <= video_wbq_mask;
-                        `ifdef SIMULATION
-                        if(0) $display("[SM%0d] VIDEO_WB: rd=R%0d warp=%0d mask=0x%08x data[0]=0x%08x",
-                                 SM_ID, video_wbq_rd, video_wbq_warp, video_wbq_mask, video_wbq_data[31:0]);
-                        `endif
-                    end
-                    4'd14: begin  // Cache policy (createpolicy token result)
-                        wb_warp_id <= cache_policy_wb_warp;
-                        wb_rd <= cache_policy_wb_rd;
-                        wb_data <= {NUM_LANES{cache_policy_token_r}};  // Replicate token to all lanes
-                        wb_mask <= cache_policy_wb_mask;
-                        `ifdef SIMULATION
-                        if(0) $display("[SM%0d] CACHE_POLICY_WB: rd=R%0d warp=%0d mask=0x%08x token=0x%08x",
-                                 SM_ID, cache_policy_wb_rd, cache_policy_wb_warp, cache_policy_wb_mask, cache_policy_token_r);
-                        `endif
-                    end
-                    4'd15: begin  // Stack (alloca/stacksave result)
-                        wb_warp_id <= stack_wb_warp;
-                        wb_rd <= stack_wb_rd;
-                        wb_data <= {NUM_LANES{stack_result_r}};  // Replicate stack pointer to all lanes
-                        wb_mask <= stack_wb_mask;
-                        `ifdef SIMULATION
-                        if(0) $display("[SM%0d] STACK_WB: rd=R%0d warp=%0d mask=0x%08x ptr=0x%08x",
-                                 SM_ID, stack_wb_rd, stack_wb_warp, stack_wb_mask, stack_result_r);
-                        `endif
-                    end
-                    5'd16: begin  // Multimem (distributed shared memory load result)
-                        wb_warp_id <= multimem_wb_warp;
-                        wb_rd <= multimem_wb_rd;
-                        wb_data <= {NUM_LANES{multimem_result_r}};  // Replicate result to all lanes
-                        wb_mask <= multimem_wb_mask;
-                        `ifdef SIMULATION
-                        if(0) $display("[SM%0d] MULTIMEM_WB: rd=R%0d warp=%0d mask=0x%08x data=0x%08x",
-                                 SM_ID, multimem_wb_rd, multimem_wb_warp, multimem_wb_mask, multimem_result_r);
-                        `endif
-                    end
-                    default: ; // lint: no-op for unused wb_sel values
-                endcase
-            end else begin
-                wb_valid <= 1'b0;
-            end
-        end
-    end
 
     // Register file write
     // Note: PTX/CUDA allows writes to R0 (unlike RISC-V where R0 is hardwired to 0)
