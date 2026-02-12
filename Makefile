@@ -477,7 +477,7 @@ assemble: $(EXAMPLES_DIR)/vector_add.ptx
 # 语法检查
 #----------------------------------------------------------------------------
 lint:
-	$(VERILATOR) --lint-only $(INCLUDES) $(filter %.v,$(RTL_SRCS))
+	$(VERILATOR) --lint-only --top ralph_gpu_top $(INCLUDES) $(filter %.v,$(RTL_SRCS))
 
 #----------------------------------------------------------------------------
 # 综合检查 (Yosys)
