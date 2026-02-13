@@ -95,8 +95,10 @@ module register_file_banked #(
     function [BANK_BITS-1:0] get_bank;
         input [4:0] reg_addr;
         input [LANE_W-1:0] lane_id;
+        reg [BANK_BITS:0] bank_sum;
         begin
-            get_bank = (reg_addr[BANK_BITS-1:0] + lane_id[BANK_BITS-1:0]) % NUM_BANKS;
+            bank_sum = {1'b0, reg_addr[BANK_BITS-1:0]} + {1'b0, lane_id[BANK_BITS-1:0]};
+            get_bank = bank_sum[BANK_BITS-1:0] % NUM_BANKS[BANK_BITS-1:0];
         end
     endfunction
 
@@ -260,7 +262,9 @@ module register_file_banked #(
     reg [NUM_LANES-1:0] rd_single_error_a, rd_single_error_b, rd_single_error_c;
     reg [NUM_LANES-1:0] rd_double_error_a, rd_double_error_b, rd_double_error_c;
 
-    integer rd_lane, rd_bank, rd_lane_in_bank;
+    integer rd_lane;
+    reg [BANK_BITS-1:0] rd_bank;
+    integer rd_lane_in_bank;
     reg [PROTECTED_WIDTH-1:0] raw_data;
     reg [DATA_WIDTH+1:0] decoded_result;
 
@@ -337,7 +341,8 @@ module register_file_banked #(
     reg [NUM_LANES-1:0] oc_single_error [0:NUM_READ_PORTS-1];
     reg [NUM_LANES-1:0] oc_double_error [0:NUM_READ_PORTS-1];
 
-    integer oc_port, oc_lane, oc_bank_idx, oc_lane_idx;
+    integer oc_port, oc_lane, oc_lane_idx;
+    reg [BANK_BITS-1:0] oc_bank_idx;
     reg [PROTECTED_WIDTH-1:0] oc_raw_data;
     reg [DATA_WIDTH+1:0] oc_decoded_result;
 
@@ -377,7 +382,8 @@ module register_file_banked #(
     // Write Logic (Sequential) with ECC Encoding
     //------------------------------------------------------------------------
     integer wr_w, wr_b, wr_l, wr_r;
-    integer wr_bank_idx, wr_lane_idx;
+    reg [BANK_BITS-1:0] wr_bank_idx;
+    integer wr_lane_idx;
     reg [DATA_WIDTH-1:0] wr_data_lane;
     reg [ECC_BITS-1:0] wr_ecc;
 
@@ -407,7 +413,7 @@ module register_file_banked #(
                             {wr_ecc, wr_data_lane};
                     end else begin
                         bank_regs[wr_bank_idx][wr_warp_id][wr_lane_idx][wr_addr] <=
-                            wr_data_lane;
+                            {{(PROTECTED_WIDTH-DATA_WIDTH){1'b0}}, wr_data_lane};
                     end
                 end
             end
@@ -628,7 +634,7 @@ module operand_collector #(
                 for (coll_o = 0; coll_o < NUM_OPERANDS; coll_o = coll_o + 1) begin
                     entry_addr[alloc_ptr][coll_o] <= req_addr[coll_o];
                 end
-                alloc_ptr <= (alloc_ptr + 1) % COLLECTOR_DEPTH;
+                alloc_ptr <= alloc_ptr + 1'b1;
             end
 
             // Collect operands from RF
@@ -643,7 +649,7 @@ module operand_collector #(
                 // Check if all needed operands collected
                 if ((entry_collected[issue_ptr] | rf_ready) == entry_need[issue_ptr]) begin
                     entry_complete[issue_ptr] <= 1'b1;
-                    issue_ptr <= (issue_ptr + 1) % COLLECTOR_DEPTH;
+                    issue_ptr <= issue_ptr + 1'b1;
                 end
             end
 
@@ -652,7 +658,7 @@ module operand_collector #(
                 entry_valid[complete_ptr] <= 1'b0;
                 entry_complete[complete_ptr] <= 1'b0;
                 entry_collected[complete_ptr] <= 0;
-                complete_ptr <= (complete_ptr + 1) % COLLECTOR_DEPTH;
+                complete_ptr <= complete_ptr + 1'b1;
             end
         end
     end
