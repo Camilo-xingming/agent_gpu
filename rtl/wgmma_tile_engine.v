@@ -145,7 +145,7 @@ module wgmma_tile_engine #(
         input [STAGE_PTR_W-1:0] stage;
         input [8:0] offset;
         begin
-            calc_smem_addr_a = (stage * SMEM_STAGE_STRIDE) + SMEM_A_BASE + offset;
+            calc_smem_addr_a = (stage * SMEM_STAGE_STRIDE) + SMEM_A_BASE + {5'b0, offset};
         end
     endfunction
 
@@ -153,7 +153,7 @@ module wgmma_tile_engine #(
         input [STAGE_PTR_W-1:0] stage;
         input [8:0] offset;
         begin
-            calc_smem_addr_b = (stage * SMEM_STAGE_STRIDE) + SMEM_B_BASE + offset;
+            calc_smem_addr_b = (stage * SMEM_STAGE_STRIDE) + SMEM_B_BASE + {5'b0, offset};
         end
     endfunction
 
@@ -166,7 +166,7 @@ module wgmma_tile_engine #(
         input [8:0] offset;
         begin
             // A[m_off : m_off + TILE_M, k_tile * TILE_K : (k_tile+1) * TILE_K]
-            calc_gmem_addr_a = m_off * 1024 + (k_tile * TILE_K * (DATA_WIDTH/8)) + offset;
+            calc_gmem_addr_a = m_off * 1024 + (k_tile * TILE_K * (DATA_WIDTH/8)) + {23'b0, offset};
         end
     endfunction
 
@@ -176,7 +176,7 @@ module wgmma_tile_engine #(
         input [8:0] offset;
         begin
             // B[k_tile * TILE_K : (k_tile+1) * TILE_K, n_off : n_off + TILE_N]
-            calc_gmem_addr_b = n_off * 1024 + (k_tile * TILE_K * (DATA_WIDTH/8)) + offset;
+            calc_gmem_addr_b = n_off * 1024 + (k_tile * TILE_K * (DATA_WIDTH/8)) + {23'b0, offset};
         end
     endfunction
 
@@ -315,8 +315,8 @@ module wgmma_tile_engine #(
 
                                 // Start next prefetch if possible, or go to compute
                                 if (k_tile_idx + 1 < k_tiles_total &&
-                                    !stage_valid[(load_stage + 1) % NUM_STAGES]) begin
-                                    load_stage <= (load_stage + 1) % NUM_STAGES;
+                                    !stage_valid[load_stage + 1'b1]) begin
+                                    load_stage <= load_stage + 1'b1;
                                     k_tile_idx <= k_tile_idx + 1;
                                     prefetch_a_done <= 0;
                                     prefetch_b_done <= 0;
@@ -377,9 +377,9 @@ module wgmma_tile_engine #(
 
                         // Check if more tiles to process
                         if (compute_stage != load_stage || k_tile_idx >= k_tiles_total) begin
-                            compute_stage <= (compute_stage + 1) % NUM_STAGES;
+                            compute_stage <= compute_stage + 1'b1;
 
-                            if ((compute_stage + 1) % NUM_STAGES == load_stage &&
+                            if (compute_stage + 1'b1 == load_stage &&
                                 k_tile_idx >= k_tiles_total) begin
                                 state <= ST_WRITEBACK;
                             end else begin
@@ -609,14 +609,14 @@ module tensor_pipeline_scheduler #(
                 issue_queue[queue_tail] <= {mma_req_warp, mma_req_rd, mma_req_op,
                                            mma_req_accum, mma_req_frag_b, mma_req_frag_a};
                 queue_valid[queue_tail] <= 1'b1;
-                queue_tail <= (queue_tail + 1) % ISSUE_DEPTH;
+                queue_tail <= queue_tail + 1'b1;
                 queue_count <= queue_count + 1;
 
                 // Update reuse buffer
                 if (!found_reuse_a) begin
                     reuse_a[reuse_ptr_a] <= mma_req_frag_a;
                     reuse_valid_a[reuse_ptr_a] <= 1'b1;
-                    reuse_ptr_a <= (reuse_ptr_a + 1) % REUSE_DEPTH;
+                    reuse_ptr_a <= reuse_ptr_a + 1'b1;
                 end else begin
                     reuse_hit_count <= reuse_hit_count + 1;
                 end
@@ -624,7 +624,7 @@ module tensor_pipeline_scheduler #(
                 if (!found_reuse_b) begin
                     reuse_b[reuse_ptr_b] <= mma_req_frag_b;
                     reuse_valid_b[reuse_ptr_b] <= 1'b1;
-                    reuse_ptr_b <= (reuse_ptr_b + 1) % REUSE_DEPTH;
+                    reuse_ptr_b <= reuse_ptr_b + 1'b1;
                 end else begin
                     reuse_hit_count <= reuse_hit_count + 1;
                 end
@@ -641,7 +641,7 @@ module tensor_pipeline_scheduler #(
 
                 tc_busy[free_tc] <= 1'b1;
                 queue_valid[queue_head] <= 1'b0;
-                queue_head <= (queue_head + 1) % ISSUE_DEPTH;
+                queue_head <= queue_head + 1'b1;
                 queue_count <= queue_count - 1;
                 mma_count <= mma_count + 1;
             end

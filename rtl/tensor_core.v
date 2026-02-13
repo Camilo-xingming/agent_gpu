@@ -133,7 +133,7 @@ module fp16_mul (
     wire [21:0] product = sig_a * sig_b;
 
     // 指数 (bias 15 -> bias 127)
-    wire signed [7:0] exp_sum = (exp_a - 15) + (exp_b - 15) + 127;
+    wire signed [7:0] exp_sum = ({3'b0, exp_a} - 8'd15) + ({3'b0, exp_b} - 8'd15) + 8'sd127;
 
     // 规范化
     wire norm_shift = product[21];
@@ -624,7 +624,7 @@ module tensor_core #(
                 end else if (exp3 == 3'b111) begin
                     fp4_to_fp16 = {sign, 5'h1F, 10'h000};
                 end else begin
-                    exp16 = (exp3 - 3'd3) + 5'd15;
+                    exp16 = ({2'b0, exp3} - 5'd3) + 5'd15;
                     fp4_to_fp16 = {sign, exp16, man16};
                 end
             end else begin
@@ -641,7 +641,7 @@ module tensor_core #(
                 end else if (exp2 == 2'b11) begin
                     fp4_to_fp16 = {sign, 5'h1F, man ? 10'h200 : 10'h000};
                 end else begin
-                    exp16 = (exp2 - 2'd1) + 5'd15;
+                    exp16 = ({3'b0, exp2} - 5'd1) + 5'd15;
                     man16 = {man, 9'b0};
                     fp4_to_fp16 = {sign, exp16, man16};
                 end
