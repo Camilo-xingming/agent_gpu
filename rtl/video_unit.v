@@ -173,7 +173,7 @@ module video_unit (
     wire signed [17:0] prod2_s = $signed({{8{a_byte2_r[7]}}, a_byte2_r}) * $signed({{8{b_byte2_r[7]}}, b_byte2_r});
     wire signed [17:0] prod3_s = $signed({{8{a_byte3_r[7]}}, a_byte3_r}) * $signed({{8{b_byte3_r[7]}}, b_byte3_r});
 
-    assign dp4a_signed_result = c_signed_r + prod0_s + prod1_s + prod2_s + prod3_s;
+    assign dp4a_signed_result = c_signed_r + $signed({{14{prod0_s[17]}}, prod0_s}) + $signed({{14{prod1_s[17]}}, prod1_s}) + $signed({{14{prod2_s[17]}}, prod2_s}) + $signed({{14{prod3_s[17]}}, prod3_s});
 
     // Unsigned DP4A (using registered operands)
     wire [17:0] prod0_u = {10'b0, a_byte0_r} * {10'b0, b_byte0_r};
@@ -181,7 +181,7 @@ module video_unit (
     wire [17:0] prod2_u = {10'b0, a_byte2_r} * {10'b0, b_byte2_r};
     wire [17:0] prod3_u = {10'b0, a_byte3_r} * {10'b0, b_byte3_r};
 
-    assign dp4a_unsigned_result = op_c_r + prod0_u + prod1_u + prod2_u + prod3_u;
+    assign dp4a_unsigned_result = op_c_r + {14'b0, prod0_u} + {14'b0, prod1_u} + {14'b0, prod2_u} + {14'b0, prod3_u};
 
     //------------------------------------------------------------------------
     // DP2A - 2-element dot product with accumulate (16-bit elements)
