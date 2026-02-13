@@ -242,7 +242,7 @@ module fpu (
                             reg [9:0]  dexp;
                             integer    di;
 
-                            dnd = {1'b0, 1'b1, man_a, 24'b0};  // 1.man_a << 24
+                            dnd = {1'b1, man_a, 24'b0};  // 1.man_a << 24
                             dvr = {1'b1, man_b};                 // 1.man_b
                             dq  = 0;
 
