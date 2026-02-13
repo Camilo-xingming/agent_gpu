@@ -1249,8 +1249,8 @@ module streaming_multiprocessor_v2 #(
             // Fallback to round-robin for any ready warp
             for (wi = 0; wi < NUM_WARPS; wi = wi + 1) begin
                 if (!warp_selected) begin
-                    if (warp_ready[(last_issued_warp + wi + 1) % NUM_WARPS]) begin
-                        selected_warp = (last_issued_warp + wi + 1) % NUM_WARPS;
+                    if (warp_ready[last_issued_warp + wi[WARP_ID_W-1:0] + 1'b1]) begin
+                        selected_warp = last_issued_warp + wi[WARP_ID_W-1:0] + 1'b1;
                         warp_selected = 1'b1;
                     end
                 end
@@ -1383,11 +1383,15 @@ module streaming_multiprocessor_v2 #(
         for (f_i = 0; f_i < NUM_WARPS; f_i = f_i + 1) begin
             if (!fetch_valid_arb) begin
                 // Check if warp needs instruction and isn't stalled or already fetching
-                if (warp_valid[(fetch_arb_ptr + f_i) % NUM_WARPS] &&
-                    warp_needs_fetch[(fetch_arb_ptr + f_i) % NUM_WARPS] &&
-                    !warp_exit_pending[(fetch_arb_ptr + f_i) % NUM_WARPS]) begin
-                    fetch_valid_arb = 1;
-                    fetch_warp_id = (fetch_arb_ptr + f_i) % NUM_WARPS;
+                begin : fetch_arb_check
+                    reg [WARP_ID_W-1:0] f_idx;
+                    f_idx = fetch_arb_ptr + f_i[WARP_ID_W-1:0];
+                    if (warp_valid[f_idx] &&
+                        warp_needs_fetch[f_idx] &&
+                        !warp_exit_pending[f_idx]) begin
+                        fetch_valid_arb = 1;
+                        fetch_warp_id = f_idx;
+                    end
                 end
             end
         end
@@ -1411,7 +1415,7 @@ module streaming_multiprocessor_v2 #(
             end
             // Round-robin update on successful fetch request
             if (fetch_fire) begin
-                fetch_arb_ptr <= (fetch_warp_id + 1) % NUM_WARPS;
+                fetch_arb_ptr <= fetch_warp_id + 1'b1;
             end
         end
     end
@@ -1680,7 +1684,7 @@ module streaming_multiprocessor_v2 #(
     wire tensor_inflight_dec1 = dec1_valid && dec1_tensor_op;
     wire [3:0] tensor_inflight_count = {2'b0, tensor_inflight_dec0} + {2'b0, tensor_inflight_dec1};
     // Reserve queue slots for in-flight tensor ops
-    wire pipe_tensor_ready = (tensor_issue_count + tensor_inflight_count < TENSOR_ISSUE_DEPTH_VAL) && wgmma_ready;
+    wire pipe_tensor_ready = (tensor_issue_count + {{(TENSOR_ISSUE_COUNT_W-4){1'b0}}, tensor_inflight_count} < TENSOR_ISSUE_DEPTH_VAL) && wgmma_ready;
     // Memory pipeline ready only if no memory ops in flight AND not stalled
     // Also gate with ace_ready for cp.async backpressure (OP_CPASYNC is classified as memory)
     wire pipe_memory_ready   = (mem_pipe_inflight == 0) && !issue_stall_mem && ace_ready;
@@ -2725,7 +2729,7 @@ module streaming_multiprocessor_v2 #(
     );
 
     // ALU pipeline tracking (1 stage delay to avoid issue-stage race)
-    reg [3:0] alu_debug_cnt;
+    reg [5:0] alu_debug_cnt;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             alu_valid_pipe <= 1'b0;
@@ -2782,7 +2786,7 @@ module streaming_multiprocessor_v2 #(
             `SREG_NCTAID_X: special_reg_scalar = grid_dim_regs[0];
             `SREG_NCTAID_Y: special_reg_scalar = grid_dim_regs[1];
             `SREG_NCTAID_Z: special_reg_scalar = grid_dim_regs[2];
-            `SREG_WARPID:   special_reg_scalar = special_issue_warp;
+            `SREG_WARPID:   special_reg_scalar = {{(32-WARP_ID_W){1'b0}}, special_issue_warp};
             `SREG_SMID:     special_reg_scalar = SM_ID;
             `SREG_ACTIVEMASK: special_reg_scalar = {{(32-NUM_LANES){1'b0}}, warp_mask[special_issue_warp]};
             default:        special_reg_scalar = 32'd0;
@@ -3226,7 +3230,7 @@ module streaming_multiprocessor_v2 #(
                 if (store_issue_debug_cnt < 4) begin
                     store_issue_debug_cnt <= store_issue_debug_cnt + 1;
                 end
-            end else if (wb_found && (wb_sel == 4'd7) && store_pending_valid &&
+            end else if (wb_found && (wb_sel == 5'd7) && store_pending_valid &&
                          !smem_resp_valid && !gmem_resp_valid) begin
                 store_pending_valid <= 1'b0;
             end
@@ -3541,7 +3545,7 @@ module streaming_multiprocessor_v2 #(
             end
 
             // Clear pending and latch when writeback consumes it
-            if (tex_result_valid_latched && wb_found && wb_sel == 4'd12) begin
+            if (tex_result_valid_latched && wb_found && wb_sel == 5'd12) begin
                 tex_pending_valid <= 1'b0;
                 tex_result_valid_latched <= 1'b0;
             end
@@ -3891,9 +3895,9 @@ module streaming_multiprocessor_v2 #(
     wire ace_is_store = (issue_st_async && (st_async_func == `ST_ASYNC_GLOBAL)) ||
                         (issue1_st_async && (issue1_func == `ST_ASYNC_GLOBAL));
     wire [31:0] ace_store_gmem_addr = issue_st_async ? st_async_addr :
-                                      issue1_st_async ? rf1_rd_data_a[0] : 32'b0;
+                                      issue1_st_async ? rf1_rd_data_a[31:0] : 32'b0;
     wire [127:0] ace_store_data = issue_st_async ? {96'b0, st_async_data} :
-                                  issue1_st_async ? {96'b0, rf1_rd_data_b[0]} : 128'b0;
+                                  issue1_st_async ? {96'b0, rf1_rd_data_b[31:0]} : 128'b0;
 
     // Global memory response for async_copy_engine
     // We create a simple arbiter: ACE gets priority when it has pending requests
@@ -4078,14 +4082,14 @@ module streaming_multiprocessor_v2 #(
 
     // alloca: size from ra register
     wire stack_alloca = stack_active && (stack_func == `STACK_ALLOCA);
-    wire [31:0] stack_alloca_size = issue_stack ? rf_rd_data_a[0] : rf1_rd_data_a[0];
+    wire [31:0] stack_alloca_size = issue_stack ? rf_rd_data_a[31:0] : rf1_rd_data_a[31:0];
 
     // stacksave: no operand (just read stack pointer)
     wire stack_save = stack_active && (stack_func == `STACK_SAVE);
 
     // stackrestore: new stack pointer from ra register
     wire stack_restore = stack_active && (stack_func == `STACK_RESTORE);
-    wire [31:0] stack_restore_ptr = issue_stack ? rf_rd_data_a[0] : rf1_rd_data_a[0];
+    wire [31:0] stack_restore_ptr = issue_stack ? rf_rd_data_a[31:0] : rf1_rd_data_a[31:0];
 
     // Stack result for writeback
     reg stack_result_valid_r;
@@ -4121,7 +4125,7 @@ module streaming_multiprocessor_v2 #(
 
     // nanosleep: delay value from ra register (in cycles for simulation)
     wire misc_nanosleep = misc_active && (misc_func == `MISC_NANOSLEEP);
-    wire [31:0] nanosleep_cycles = issue_misc ? rf_rd_data_a[0] : rf1_rd_data_a[0];
+    wire [31:0] nanosleep_cycles = issue_misc ? rf_rd_data_a[31:0] : rf1_rd_data_a[31:0];
 
     // Per-warp nanosleep counter
     reg [31:0] warp_nanosleep_counter [0:NUM_WARPS-1];
@@ -4148,8 +4152,8 @@ module streaming_multiprocessor_v2 #(
     wire [WARP_ID_W-1:0] st_async_warp_id = issue_st_async ? issue_warp_id : issue1_warp_id;
 
     // st.async store data and address
-    wire [31:0] st_async_addr = issue_st_async ? rf_rd_data_a[0] : rf1_rd_data_a[0];
-    wire [31:0] st_async_data = issue_st_async ? rf_rd_data_b[0] : rf1_rd_data_b[0];
+    wire [31:0] st_async_addr = issue_st_async ? rf_rd_data_a[31:0] : rf1_rd_data_a[31:0];
+    wire [31:0] st_async_data = issue_st_async ? rf_rd_data_b[31:0] : rf1_rd_data_b[31:0];
     wire st_async_to_shared = (st_async_func == `ST_ASYNC_SHARED);
     wire st_async_commit = (st_async_func == `ST_ASYNC_COMMIT);
     wire st_async_wait = (st_async_func == `ST_ASYNC_WAIT);
@@ -4178,8 +4182,8 @@ module streaming_multiprocessor_v2 #(
     wire [WARP_ID_W-1:0] multimem_warp_id = issue_multimem ? issue_warp_id : issue1_warp_id;
 
     // Multimem address includes target SM ID in upper bits: [31:24] = target_sm_mask, [23:0] = smem_addr
-    wire [31:0] multimem_addr = issue_multimem ? rf_rd_data_a[0] : rf1_rd_data_a[0];
-    wire [31:0] multimem_data = issue_multimem ? rf_rd_data_b[0] : rf1_rd_data_b[0];
+    wire [31:0] multimem_addr = issue_multimem ? rf_rd_data_a[31:0] : rf1_rd_data_a[31:0];
+    wire [31:0] multimem_data = issue_multimem ? rf_rd_data_b[31:0] : rf1_rd_data_b[31:0];
     wire [7:0] multimem_target_mask = multimem_addr[31:24];  // Which SMs to target
     wire [23:0] multimem_smem_addr = multimem_addr[23:0];    // Shared memory address
 
@@ -4206,7 +4210,7 @@ module streaming_multiprocessor_v2 #(
     wire [WARP_ID_W-1:0] wgmma_issue_warp = issue_wgmma ? issue_warp_id : issue1_warp_id;
     // Warpgroup = warp_id / 4 (right shift by 2)
     // Use explicit division to avoid bit-select issues with small WARP_ID_W
-    wire [2:0]  wgmma_warpgroup = wgmma_issue_warp >> 2;
+    wire [2:0]  wgmma_warpgroup = {1'b0, wgmma_issue_warp} >> 2;
 
     // Matrix descriptors from registers (64-bit descriptors from 2 consecutive 32-bit regs)
     wire [63:0] wgmma_desc_a = issue_wgmma ? {rf_rd_data_a[63:0]} : {rf1_rd_data_a[63:0]};
@@ -4373,7 +4377,7 @@ module streaming_multiprocessor_v2 #(
         atomic_req_addr_vec = {NUM_LANES{32'b0}};
         atomic_req_wdata_vec = {SIMD_WIDTH{1'b0}};
         if (atomic_mem_req) begin
-            atomic_req_mask[atomic_mem_lane] = 1'b1;
+            atomic_req_mask[atomic_mem_lane[4:0]] = 1'b1;
             for (atomic_lane_i = 0; atomic_lane_i < NUM_LANES; atomic_lane_i = atomic_lane_i + 1) begin
                 if (atomic_mem_lane == atomic_lane_i[5:0]) begin
                     atomic_req_addr_vec[atomic_lane_i*32 +: 32] = atomic_mem_addr;
@@ -4720,7 +4724,7 @@ module streaming_multiprocessor_v2 #(
                 gmem_resp_rd <= mem_rd_pending;
                 gmem_resp_data <= gmem_resp_rdata;
                 gmem_resp_mask <= mem_mask_pending;
-            end else if (gmem_resp_latched && wb_found && wb_sel == 4'd7 && !smem_resp_latched) begin
+            end else if (gmem_resp_latched && wb_found && wb_sel == 5'd7 && !smem_resp_latched) begin
                 gmem_resp_latched <= 1'b0;  // Clear latch when writeback consumes it
             end
 
@@ -4731,7 +4735,7 @@ module streaming_multiprocessor_v2 #(
                 smem_resp_rd <= smem_rd_pending;
                 smem_resp_data <= smem_resp_rdata;
                 smem_resp_mask <= smem_mask_pending;
-            end else if (smem_resp_latched && wb_found && wb_sel == 4'd7) begin
+            end else if (smem_resp_latched && wb_found && wb_sel == 5'd7) begin
                 smem_resp_latched <= 1'b0;  // Clear latch when writeback consumes it
             end
 
@@ -4742,7 +4746,7 @@ module streaming_multiprocessor_v2 #(
                 mbarrier_wb_rd <= issue_mbarrier ? issue_rd : issue1_rd;
                 mbarrier_wb_result <= mbarrier_result;
                 mbarrier_wb_mask <= mbarrier_mask;
-            end else if (mbarrier_result_latched && wb_found && wb_sel == 4'd11) begin
+            end else if (mbarrier_result_latched && wb_found && wb_sel == 5'd11) begin
                 mbarrier_result_latched <= 1'b0;  // Clear latch when writeback consumes it
             end
 
@@ -4755,7 +4759,7 @@ module streaming_multiprocessor_v2 #(
                 cache_policy_wb_mask <= issue_cache_policy ? issue_mask : issue1_mask;
                 // Generate policy token: [31:24]=magic(0xCA), [23:16]=priority, [15:8]=reserved, [7:0]=policy_id
                 cache_policy_token_r <= {8'hCA, cache_policy_create_priority, 8'h00, 5'b0, cache_policy_create_id};
-            end else if (cache_policy_token_valid_r && wb_found && wb_sel == 4'd14) begin
+            end else if (cache_policy_token_valid_r && wb_found && wb_sel == 5'd14) begin
                 cache_policy_token_valid_r <= 1'b0;  // Clear latch when writeback consumes it
             end
 
@@ -4777,7 +4781,7 @@ module streaming_multiprocessor_v2 #(
             end else if (stack_restore) begin
                 // stackrestore doesn't write to register, just updates stack pointer
                 warp_stack_ptr[stack_warp_id] <= stack_restore_ptr;
-            end else if (stack_result_valid_r && wb_found && wb_sel == 4'd15) begin
+            end else if (stack_result_valid_r && wb_found && wb_sel == 5'd15) begin
                 stack_result_valid_r <= 1'b0;  // Clear latch when writeback consumes it
             end
 
@@ -4791,7 +4795,7 @@ module streaming_multiprocessor_v2 #(
                     `DEBUG_TRAP: debug_trap_event <= 1'b1;
                     `DEBUG_PMEVENT: begin
                         debug_pmevent_valid <= 1'b1;
-                        debug_pmevent_id <= issue_debug ? rf_rd_data_a[0] : rf1_rd_data_a[0];
+                        debug_pmevent_id <= issue_debug ? rf_rd_data_a[31:0] : rf1_rd_data_a[31:0];
                     end
                     default: ; // lint
                 endcase
@@ -5059,7 +5063,7 @@ module streaming_multiprocessor_v2 #(
                         end else if (init_total_threads > (w * NUM_LANES)) begin
                             // Partial warp - only some threads active
                             init_threads_in_warp = init_total_threads - (w * NUM_LANES);
-                            init_computed_mask = (1'b1 << init_threads_in_warp) - 1'b1;
+                            init_computed_mask = (32'd1 << init_threads_in_warp) - 32'd1;
                         end else begin
                             // No threads in this warp
                             init_computed_mask = {NUM_LANES{1'b0}};
@@ -5335,8 +5339,8 @@ module streaming_multiprocessor_v2 #(
                     // Check if all ACTIVE threads have arrived (including this cycle)
                     // total_arrived = bar_sync_arrived[w] | (threads arriving this cycle)
                     if (((bar_sync_arrived[w] |
-                          ((issue_valid && issue_sync_op && !issue_bar_warp_sync && issue_warp_id == w) ? issue_mask : {NUM_LANES{1'b0}}) |
-                          ((issue1_valid && issue1_sync_op && !issue1_bar_warp_sync && issue1_warp_id == w) ? issue1_mask : {NUM_LANES{1'b0}}))
+                          ((issue_valid && issue_sync_op && !issue_bar_warp_sync && issue_warp_id == w[WARP_ID_W-1:0]) ? issue_mask : {NUM_LANES{1'b0}}) |
+                          ((issue1_valid && issue1_sync_op && !issue1_bar_warp_sync && issue1_warp_id == w[WARP_ID_W-1:0]) ? issue1_mask : {NUM_LANES{1'b0}}))
                          & warp_mask[w]) == warp_mask[w]) begin
                         warp_stalled_sync[w] <= 1'b1;
                     end
@@ -5627,8 +5631,12 @@ module wb_fifo #(
 );
     localparam PTR_W = (DEPTH > 1) ? $clog2(DEPTH) : 1;
     localparam COUNT_W = $clog2(DEPTH + 1);
+    /* verilator lint_off WIDTHTRUNC */
+    /* verilator lint_off WIDTHEXPAND */
     localparam [COUNT_W-1:0] DEPTH_VAL = DEPTH;
     localparam [PTR_W-1:0] PTR_LAST = DEPTH - 1;
+    /* verilator lint_on WIDTHEXPAND */
+    /* verilator lint_on WIDTHTRUNC */
 
     reg [WIDTH-1:0] mem [0:DEPTH-1];
     reg [PTR_W-1:0] head;
