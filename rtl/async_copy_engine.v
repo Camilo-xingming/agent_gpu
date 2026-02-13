@@ -251,7 +251,7 @@ module async_copy_engine #(
                                 `ST_ASYNC_COMMIT: begin
                                     // Commit async store group
                                     group_committed[current_group] <= 1'b1;
-                                    current_group <= (current_group + 1) % MAX_GROUPS;
+                                    current_group <= current_group + 1'b1;
                                     done <= 1'b1;
                                 end
 
@@ -294,7 +294,7 @@ module async_copy_engine #(
                                 `CPASYNC_COMMIT: begin
                                 // 提交当前组
                                 group_committed[current_group] <= 1'b1;
-                                current_group <= (current_group + 1) % MAX_GROUPS;
+                                current_group <= current_group + 1'b1;
                                 done <= 1'b1;
                             end
 
@@ -440,7 +440,7 @@ module async_copy_engine #(
                     smem_wr_en <= 1'b1;
                     smem_wr_addr <= req_dst_addr[current_req];
                     smem_wr_data <= data_buffer;
-                    smem_wr_size <= req_size[current_req];
+                    smem_wr_size <= {1'b0, req_size[current_req]};
 
                     // 标记完成
                     req_complete[current_req] <= 1'b1;
