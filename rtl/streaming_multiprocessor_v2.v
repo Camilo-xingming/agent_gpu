@@ -1836,7 +1836,7 @@ module streaming_multiprocessor_v2 #(
     // Map Scheduler Output to Pipeline Signals
     // Gate issue fire by decode stall — don't accept new instructions while stalled
     assign issue0_fire = sched_issue_valid_mask[0] && !decode_stalled_any;
-    assign issue1_fire = sched_issue_valid_mask[1] && !decode_stalled_slot1;
+    assign issue1_fire = sched_issue_valid_mask[1] && !decode_stalled_slot1 && !lane_unit_conflict;
 
     // DEBUG: Scheduler output
     always @(posedge clk) begin
