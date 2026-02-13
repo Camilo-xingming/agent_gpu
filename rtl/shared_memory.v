@@ -77,7 +77,7 @@ module shared_memory #(
             wire [ADDR_WIDTH-1:0] lane_addr = req_addr[lane*ADDR_WIDTH +: ADDR_WIDTH];
             // 低5位选bank，高位是bank内地址
             assign bank_sel[lane]  = lane_addr[BANK_SEL_W-1:0];
-            assign bank_addr[lane] = lane_addr[ADDR_WIDTH-1:BANK_SEL_W];
+            assign bank_addr[lane] = lane_addr[BANK_SEL_W+BANK_ADDR_W-1:BANK_SEL_W];
         end
     endgenerate
 
@@ -99,7 +99,7 @@ module shared_memory #(
         for (i = 0; i < NUM_BANKS; i = i + 1) begin
             if (req_mask[i]) begin
                 for (j = 0; j < NUM_BANKS; j = j + 1) begin
-                    if (bank_sel[i] == j) begin
+                    if (bank_sel[i] == j[BANK_SEL_W-1:0]) begin
                         bank_access_count[j] = bank_access_count[j] + 1;
                     end
                 end
@@ -133,7 +133,7 @@ module shared_memory #(
         end
         if (atomic_req_valid && atomic_req_mask && !atomic_req_write) begin
             atomic_read_data <= bank_mem[atomic_req_addr[BANK_SEL_W-1:0]]
-                                        [atomic_req_addr[ADDR_WIDTH-1:BANK_SEL_W]];
+                                        [atomic_req_addr[BANK_SEL_W+BANK_ADDR_W-1:BANK_SEL_W]];
         end
     end
 
@@ -149,7 +149,7 @@ module shared_memory #(
         end
         if (atomic_req_valid && atomic_req_mask && atomic_req_write) begin
             bank_mem[atomic_req_addr[BANK_SEL_W-1:0]]
-                    [atomic_req_addr[ADDR_WIDTH-1:BANK_SEL_W]] <= atomic_req_wdata;
+                    [atomic_req_addr[BANK_SEL_W+BANK_ADDR_W-1:BANK_SEL_W]] <= atomic_req_wdata;
         end
     end
 
@@ -159,7 +159,7 @@ module shared_memory #(
     // Address format: byte address, converted to word address internally
     //------------------------------------------------------------------------
     wire [BANK_SEL_W-1:0]  async_bank_sel  = async_wr_addr[BANK_SEL_W-1:0];
-    wire [BANK_ADDR_W-1:0] async_bank_addr = async_wr_addr[ADDR_WIDTH-1:BANK_SEL_W];
+    wire [BANK_ADDR_W-1:0] async_bank_addr = async_wr_addr[BANK_SEL_W+BANK_ADDR_W-1:BANK_SEL_W];
 
     // Calculate word addresses for multi-word writes (8B = 2 words, 16B = 4 words)
     wire [ADDR_WIDTH-1:0] async_addr_w0 = async_wr_addr;
@@ -169,13 +169,13 @@ module shared_memory #(
 
     // Bank/addr for each potential word
     wire [BANK_SEL_W-1:0]  async_bank0 = async_addr_w0[BANK_SEL_W-1:0];
-    wire [BANK_ADDR_W-1:0] async_baddr0 = async_addr_w0[ADDR_WIDTH-1:BANK_SEL_W];
+    wire [BANK_ADDR_W-1:0] async_baddr0 = async_addr_w0[BANK_SEL_W+BANK_ADDR_W-1:BANK_SEL_W];
     wire [BANK_SEL_W-1:0]  async_bank1 = async_addr_w1[BANK_SEL_W-1:0];
-    wire [BANK_ADDR_W-1:0] async_baddr1 = async_addr_w1[ADDR_WIDTH-1:BANK_SEL_W];
+    wire [BANK_ADDR_W-1:0] async_baddr1 = async_addr_w1[BANK_SEL_W+BANK_ADDR_W-1:BANK_SEL_W];
     wire [BANK_SEL_W-1:0]  async_bank2 = async_addr_w2[BANK_SEL_W-1:0];
-    wire [BANK_ADDR_W-1:0] async_baddr2 = async_addr_w2[ADDR_WIDTH-1:BANK_SEL_W];
+    wire [BANK_ADDR_W-1:0] async_baddr2 = async_addr_w2[BANK_SEL_W+BANK_ADDR_W-1:BANK_SEL_W];
     wire [BANK_SEL_W-1:0]  async_bank3 = async_addr_w3[BANK_SEL_W-1:0];
-    wire [BANK_ADDR_W-1:0] async_baddr3 = async_addr_w3[ADDR_WIDTH-1:BANK_SEL_W];
+    wire [BANK_ADDR_W-1:0] async_baddr3 = async_addr_w3[BANK_SEL_W+BANK_ADDR_W-1:BANK_SEL_W];
 
     always @(posedge clk) begin
         if (async_wr_en) begin
@@ -183,7 +183,7 @@ module shared_memory #(
             bank_mem[async_bank0][async_baddr0] <= async_wr_data[31:0];
 
             // Write word 1 (for size >= 8)
-            if (async_wr_size >= 4'd8) begin
+            if (async_wr_size >= 5'd8) begin
                 bank_mem[async_bank1][async_baddr1] <= async_wr_data[63:32];
             end
 
@@ -242,12 +242,12 @@ module shared_memory #(
             // Matrix A addresses (16 consecutive words)
             assign wgmma_addr_a[w] = wgmma_rd_addr_a + w[ADDR_WIDTH-1:0];
             assign wgmma_bank_a[w] = wgmma_addr_a[w][BANK_SEL_W-1:0];
-            assign wgmma_baddr_a[w] = wgmma_addr_a[w][ADDR_WIDTH-1:BANK_SEL_W];
+            assign wgmma_baddr_a[w] = wgmma_addr_a[w][BANK_SEL_W+BANK_ADDR_W-1:BANK_SEL_W];
 
             // Matrix B addresses (16 consecutive words)
             assign wgmma_addr_b[w] = wgmma_rd_addr_b + w[ADDR_WIDTH-1:0];
             assign wgmma_bank_b[w] = wgmma_addr_b[w][BANK_SEL_W-1:0];
-            assign wgmma_baddr_b[w] = wgmma_addr_b[w][ADDR_WIDTH-1:BANK_SEL_W];
+            assign wgmma_baddr_b[w] = wgmma_addr_b[w][BANK_SEL_W+BANK_ADDR_W-1:BANK_SEL_W];
         end
     endgenerate
 
