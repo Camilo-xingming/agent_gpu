@@ -182,7 +182,7 @@ module icache #(
                 lru_array[index] <= ~accessed_way;
             end else begin
                 // Simple round-robin for >2 ways
-                lru_array[index] <= (accessed_way + 1) % NUM_WAYS;
+                lru_array[index] <= accessed_way + 1'b1;
             end
         end
     endtask
@@ -353,7 +353,7 @@ module icache #(
                             prefetch_addr[prefetch_head] <= miss_addr;
                             prefetch_data[prefetch_head] <= mem_resp_data;
                             prefetch_valid[prefetch_head] <= 1'b1;
-                            prefetch_head <= (prefetch_head + 1) % PREFETCH_DEPTH;
+                            prefetch_head <= prefetch_head + 1'b1;
 
                             state <= ST_IDLE;
                             fetch_ready_r <= 1'b1;
