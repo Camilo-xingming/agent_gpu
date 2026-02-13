@@ -397,10 +397,14 @@ module blackwell_scheduler #(
                     // Async MMA scoreboard update (Blackwell)
                     if (issue_is_async_mma_r[sb_s]) begin
                         // Mark this async MMA op as pending
-                        async_mma_pending[issue_warp_r[sb_s]][issue_async_mma_id_r[sb_s]] <= 1'b1;
+                        async_mma_pending[issue_warp_r[sb_s]][issue_async_mma_id_r[sb_s][2:0]] <= 1'b1;
                         // Increment next ID (wrap around)
-                        async_mma_next_id[issue_warp_r[sb_s]] <=
-                            (async_mma_next_id[issue_warp_r[sb_s]] + 1) % MAX_ASYNC_MMA_OPS;
+                        begin : async_mma_id_wrap
+                            reg [3:0] next_mma_id;
+                            next_mma_id = async_mma_next_id[issue_warp_r[sb_s]] + 1'b1;
+                            async_mma_next_id[issue_warp_r[sb_s]] <=
+                                (next_mma_id < MAX_ASYNC_MMA_OPS) ? next_mma_id : 4'd0;
+                        end
                         async_mma_count[issue_warp_r[sb_s]] <= async_mma_count[issue_warp_r[sb_s]] + 1;
                     end
 
@@ -413,7 +417,11 @@ module blackwell_scheduler #(
 
                     // Update round-robin pointer for fairness (gated by stall and conflict)
                     if (!pipeline_stall && !(sb_s > 0 && tensor_issue_conflict))
-                        sched_rr_ptr[sb_s] <= (sched_rr_ptr[sb_s] + 1) % WARPS_PER_SCHED;
+                        begin : rr_ptr_wrap
+                            reg [WARP_W-1:0] next_rr;
+                            next_rr = sched_rr_ptr[sb_s] + 1'b1;
+                            sched_rr_ptr[sb_s] <= (next_rr < WARPS_PER_SCHED[WARP_W-1:0]) ? next_rr : {WARP_W{1'b0}};
+                        end
                 end
             end
 
@@ -435,7 +443,7 @@ module blackwell_scheduler #(
 
             // Clear async MMA pending on completion (from tensor_core)
             if (async_mma_complete) begin
-                async_mma_pending[async_mma_warp_id][async_mma_op_id] <= 1'b0;
+                async_mma_pending[async_mma_warp_id][async_mma_op_id[2:0]] <= 1'b0;
                 if (async_mma_count[async_mma_warp_id] > 0) begin
                     async_mma_count[async_mma_warp_id] <= async_mma_count[async_mma_warp_id] - 1;
                 end

@@ -144,7 +144,7 @@ module memory_qos #(
                         sm_req_priority[enq_sm*2 +: 2],
                         sm_req_latency_sensitive[enq_sm]
                     };
-                    sm_queue_tail[enq_sm] <= (sm_queue_tail[enq_sm] + 1) % REQ_QUEUE_DEPTH;
+                    sm_queue_tail[enq_sm] <= sm_queue_tail[enq_sm] + 1'b1;
                     sm_queue_count[enq_sm] <= sm_queue_count[enq_sm] + 1;
                 end
             end
@@ -223,7 +223,7 @@ module memory_qos #(
             // Fallback: round-robin if no fair selection
             if (!selected_valid) begin
                 for (arb_sm = 0; arb_sm < NUM_SMS; arb_sm = arb_sm + 1) begin
-                    arb_check_sm = (last_serviced_sm + 1 + arb_sm[SM_WIDTH-1:0]) % NUM_SMS;
+                    arb_check_sm = last_serviced_sm + 1'b1 + arb_sm[SM_WIDTH-1:0];
                     if (sm_queue_count[arb_check_sm] > 0 && !selected_valid) begin
                         selected_sm = arb_check_sm;
                         selected_valid = 1;
@@ -287,7 +287,7 @@ module memory_qos #(
 
                     // Dequeue
                     sm_queue_head[selected_sm] <=
-                        (sm_queue_head[selected_sm] + 1) % REQ_QUEUE_DEPTH;
+                        sm_queue_head[selected_sm] + 1'b1;
                     sm_queue_count[selected_sm] <= sm_queue_count[selected_sm] - 1;
 
                     // Update tracking

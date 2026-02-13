@@ -190,12 +190,14 @@ module memory_interface #(
         input [NUM_LANES-1:0] mask;
         integer j;
         reg found;
+        reg [4:0] idx;
         begin
             find_next_lane = start;
             found = 0;
             for (j = 0; j < NUM_LANES; j = j + 1) begin
-                if (!found && mask[(start + j) % NUM_LANES]) begin
-                    find_next_lane = (start + j) % NUM_LANES;
+                idx = start[4:0] + j[4:0];  // Natural 5-bit wrap = mod 32
+                if (!found && mask[idx]) begin
+                    find_next_lane = {1'b0, idx};
                     found = 1;
                 end
             end
