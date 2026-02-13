@@ -282,7 +282,7 @@ module wgmma #(
         begin
             // Simplified: extract mantissa and multiply
             // Real implementation needs proper FP32 multiplier
-            product = (a[22:0] | 23'h800000) * (b[22:0] | 23'h800000);
+            product = ({9'b0, a[22:0]} | 32'h00800000) * ({9'b0, b[22:0]} | 32'h00800000);
             // Simplified accumulation (not IEEE compliant)
             fp32_mac = c + product[31:0];
         end
