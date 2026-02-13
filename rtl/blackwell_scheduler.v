@@ -104,6 +104,7 @@ module blackwell_scheduler #(
     // Writeback Interface (for scoreboard clearing)
     //------------------------------------------------------------------------
     input  wire                     pipeline_stall,
+    input  wire                     pipeline_stall_slot1,
     // Tensor scoreboard deferred SET: SM signals when tensor push actually succeeds
     input  wire                     tensor_sb_set_valid,
     input  wire [$clog2(NUM_WARPS)-1:0] tensor_sb_set_warp,
@@ -358,7 +359,15 @@ module blackwell_scheduler #(
 
     // Suppress consume when stalled OR when slot 1 tensor was suppressed
     wire [NUM_WARPS-1:0] conflict_mask = tensor_issue_conflict ? (1 << issue_warp_r[1]) : {NUM_WARPS{1'b0}};
-    assign warp_inst_consume = pipeline_stall ? {NUM_WARPS{1'b0}} : (issue_consume_r & ~conflict_mask);
+    // Per-slot stall: even warps (0,2) use slot 0 stall, odd warps (1,3) use slot 1 stall
+    wire [NUM_WARPS-1:0] stall_mask;
+    genvar sm_w;
+    generate
+        for (sm_w = 0; sm_w < NUM_WARPS; sm_w = sm_w + 1) begin : gen_stall_mask
+            assign stall_mask[sm_w] = (sm_w % 2 == 0) ? pipeline_stall : pipeline_stall_slot1;
+        end
+    endgenerate
+    assign warp_inst_consume = (issue_consume_r & ~conflict_mask & ~stall_mask);
 
     //------------------------------------------------------------------------
     // Scoreboard Update (Enhanced for Blackwell async operations)
