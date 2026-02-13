@@ -543,7 +543,8 @@ module sfu #(
     // SQRT: sqrt(x) = 2^((e-127)/2) * sqrt(m)
     wire signed [8:0] sqrt_exp_adj = $signed({1'b0, p2_exp}) - 9'sd127;
     wire sqrt_exp_odd = sqrt_exp_adj[0];
-    wire [7:0] sqrt_new_exp = ((sqrt_exp_adj[8] ? sqrt_exp_adj - 1 : sqrt_exp_adj) >>> 1) + 8'd127;
+    wire signed [8:0] sqrt_half_exp = (sqrt_exp_adj[8] ? sqrt_exp_adj - 1 : sqrt_exp_adj) >>> 1;
+    wire [7:0] sqrt_new_exp = sqrt_half_exp[7:0] + 8'd127;
 
     // RSQRT: 1/sqrt(x) = 2^(-(e-127)/2) * (1/sqrt(m))
     // For x = 2^n: rsqrt = 2^(-n/2)

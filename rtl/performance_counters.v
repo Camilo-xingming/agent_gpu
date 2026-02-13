@@ -275,12 +275,14 @@ module performance_counters #(
     // IPC calculation (instructions / cycles * 100)
     wire [63:0] instructions = {16'b0, counters[CTR_INSTRUCTIONS]};
     wire [63:0] cycles = {16'b0, counters[CTR_CYCLES]};
-    assign achieved_ipc = (cycles > 0) ? ((instructions * 100) / cycles) : 0;
+    wire [63:0] ipc_raw = (cycles > 0) ? ((instructions * 100) / cycles) : 64'd0;
+    assign achieved_ipc = ipc_raw[31:0];
 
     // Memory throughput (bytes/cycle * 100, assuming 128B cache lines)
     wire [63:0] mem_accesses = {16'b0, counters[CTR_L1_HITS]} + {16'b0, counters[CTR_L1_MISSES]};
     wire [63:0] mem_bytes = mem_accesses * 128;  // 128B per access
-    assign memory_throughput = (cycles > 0) ? ((mem_bytes * 100) / cycles) : 0;
+    wire [63:0] throughput_raw = (cycles > 0) ? ((mem_bytes * 100) / cycles) : 64'd0;
+    assign memory_throughput = throughput_raw[31:0];
 
     //------------------------------------------------------------------------
     // Summary Outputs

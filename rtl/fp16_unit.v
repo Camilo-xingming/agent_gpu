@@ -134,7 +134,7 @@ module fp16_unit (
                 mant32 = {mant16, 13'b0};
             end else begin
                 // Normal number
-                exp32  = exp16 + 8'd112;  // bias adjust: 127-15=112
+                exp32  = {3'b0, exp16} + 8'd112;  // bias adjust: 127-15=112
                 mant32 = {mant16, 13'b0};
             end
 
@@ -176,7 +176,11 @@ module fp16_unit (
                 mant16 = 10'b0;
             end else begin
                 // Normal range
-                exp16 = exp32 - 8'd112;
+                begin : fp32_to_fp16_normal
+                    reg [7:0] exp_diff;
+                    exp_diff = exp32 - 8'd112;
+                    exp16 = exp_diff[4:0];
+                end
                 mant16 = mant32[22:13];
                 // Round to nearest
                 round_bit = mant32[12];
