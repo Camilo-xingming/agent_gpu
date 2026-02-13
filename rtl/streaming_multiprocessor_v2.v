@@ -1725,7 +1725,7 @@ module streaming_multiprocessor_v2 #(
         .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
         .warp_at_barrier(warp_stalled_sync),
         .warp_inst(warp_inst_buf),
-        .warp_inst_valid(warp_inst_valid_d1),
+        .warp_inst_valid(warp_inst_buf_valid),
         .warp_inst_consume(warp_inst_consume),
         .warp_rd(pd_rd),
         .warp_rs1(pd_rs1),
@@ -1756,7 +1756,8 @@ module streaming_multiprocessor_v2 #(
         // Detect tensor conflict: both scheduler slots selected tensor, but only one can push
         .tensor_issue_conflict(sched_issue_valid_mask[0] && sched_issue_valid_mask[1] &&
                                sched_issue_pipe[0] == 3'd2 && sched_issue_pipe[1] == 3'd2),
-        .pipeline_stall(decode_stalled_any),
+        .pipeline_stall(decode_stalled_slot0),
+        .pipeline_stall_slot1(decode_stalled_slot1),
         // Deferred tensor scoreboard SET: only set when tensor push actually succeeds
         .tensor_sb_set_valid(tensor_issue_push_fire),
         .tensor_sb_set_warp(tensor_push_lane0 ? issue_warp_id : issue1_warp_id),
@@ -1790,7 +1791,7 @@ module streaming_multiprocessor_v2 #(
         .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
         .warp_at_barrier(warp_stalled_sync),
         .warp_inst(warp_inst_buf),
-        .warp_inst_valid(warp_inst_valid_d1),
+        .warp_inst_valid(warp_inst_buf_valid),
         .warp_inst_consume(warp_inst_consume),
         .warp_rd(pd_rd),
         .warp_rs1(pd_rs1),
@@ -1824,6 +1825,8 @@ module streaming_multiprocessor_v2 #(
     // (e.g., tensor queue full), prevent the scheduler from overwriting it
     // Per-warp decode stall tracking
     wire decode_stalled_any = dec0_valid && !lane0_ready;
+    wire decode_stalled_slot0 = dec0_valid && !lane0_ready;
+    wire decode_stalled_slot1 = dec1_valid && !lane1_ready;
     wire [NUM_WARPS-1:0] decode_stalled_per_warp;
     assign decode_stalled_per_warp = {NUM_WARPS{decode_stalled_any}} & (1 << dec0_warp_id);
     wire decode_stalled = decode_stalled_any; // Keep for backward compat in single-warp cases
@@ -1833,7 +1836,7 @@ module streaming_multiprocessor_v2 #(
     // Map Scheduler Output to Pipeline Signals
     // Gate issue fire by decode stall — don't accept new instructions while stalled
     assign issue0_fire = sched_issue_valid_mask[0] && !decode_stalled_any;
-    assign issue1_fire = sched_issue_valid_mask[1] && !decode_stalled_any;
+    assign issue1_fire = sched_issue_valid_mask[1] && !decode_stalled_slot1;
 
     // DEBUG: Scheduler output
     always @(posedge clk) begin
@@ -1859,7 +1862,8 @@ module streaming_multiprocessor_v2 #(
                     dec0_pc <= warp_pc[sched_issue_warp_id[0]]; // Capture current PC
                     // Advance PC at scheduling time for non-branch instructions
                     // (branches will override PC when they resolve)
-                    if (!pd_is_branch[sched_issue_warp_id[0]]) begin
+                    if (!pd_is_branch[sched_issue_warp_id[0]] &&
+                        warp_inst_consume[sched_issue_warp_id[0]]) begin
                         warp_pc[sched_issue_warp_id[0]] <= warp_pc[sched_issue_warp_id[0]] + 4;
                     end
                     // Note: warp_stalled_branch is set in main always block for branch scheduling
@@ -1875,7 +1879,8 @@ module streaming_multiprocessor_v2 #(
                     dec1_warp_id <= sched_issue_warp_id[1];
                     dec1_instruction <= sched_issue_inst[1];
                     dec1_pc <= warp_pc[sched_issue_warp_id[1]];
-                    if (!pd_is_branch[sched_issue_warp_id[1]]) begin
+                    if (!pd_is_branch[sched_issue_warp_id[1]] &&
+                        warp_inst_consume[sched_issue_warp_id[1]]) begin
                         warp_pc[sched_issue_warp_id[1]] <= warp_pc[sched_issue_warp_id[1]] + 4;
                     end
                     // Note: warp_stalled_branch is set in main always block for branch scheduling
