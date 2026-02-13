@@ -438,8 +438,8 @@ module fp64_add (
                       (result_exp > {5'b0, leading_zeros}) ? result_exp - {5'b0, leading_zeros} :
                       11'd0;
 
-    assign norm_man = sum[54] ? sum[53:2] :
-                      ((sum[53:0] << leading_zeros) >> 2);
+    wire [53:0] shifted_sum = sum[53:0] << leading_zeros;
+    assign norm_man = sum[54] ? sum[53:2] : shifted_sum[53:2];
 
     always @(*) begin
         invalid = 1'b0;
@@ -598,7 +598,8 @@ module fp64_div (
     // 除法 (使用移位和减法实现)
     // 商 = sig_a / sig_b, 需要54位精度
     wire [106:0] dividend = {sig_a, 54'b0};
-    wire [53:0] quotient = (dividend / {53'b0, 1'b0, sig_b})[53:0];
+    wire [106:0] quotient_full = dividend / {53'b0, 1'b0, sig_b};
+    wire [53:0] quotient = quotient_full[53:0];
 
     // 指数计算
     wire [11:0] exp_diff = {1'b0, exp_a} - {1'b0, exp_b};
@@ -795,7 +796,8 @@ module fp64_rcp (
     // 尾数倒数 (简化: Newton-Raphson迭代更精确)
     wire [52:0] sig_a = {1'b1, man_a};
     wire [105:0] one_shifted = {1'b1, 105'b0};
-    wire [52:0] rcp_sig = (one_shifted / {53'b0, sig_a})[52:0];
+    wire [105:0] rcp_full = one_shifted / {53'b0, sig_a};
+    wire [52:0] rcp_sig = rcp_full[52:0];
     wire [51:0] rcp_man = rcp_sig[51:0];
 
     always @(*) begin
