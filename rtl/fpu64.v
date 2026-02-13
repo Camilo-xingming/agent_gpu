@@ -391,7 +391,7 @@ module fp64_add (
     wire a_larger = (exp_a > exp_b) || (exp_a == exp_b && man_a >= man_b);
 
     // 对齐 (限制移位量防止数据丢失)
-    wire [6:0] shift_amt = (exp_diff > 7'd55) ? 7'd55 : exp_diff[6:0];
+    wire [6:0] shift_amt = (exp_diff > 11'd55) ? 7'd55 : exp_diff[6:0];
     wire [53:0] aligned_a = a_larger ? {1'b0, sig_a} : ({1'b0, sig_a} >> shift_amt);
     wire [53:0] aligned_b = a_larger ? ({1'b0, sig_b} >> shift_amt) : {1'b0, sig_b};
     wire [10:0] result_exp = a_larger ? exp_a : exp_b;
@@ -432,14 +432,14 @@ module fp64_add (
     wire norm_underflow;
 
     assign norm_overflow = sum[54] && (result_exp >= 11'd2046);
-    assign norm_underflow = (result_exp <= leading_zeros) && !a_zero && !b_zero;
+    assign norm_underflow = (result_exp <= {5'b0, leading_zeros}) && !a_zero && !b_zero;
 
     assign norm_exp = sum[54] ? result_exp + 11'd1 :
                       (result_exp > {5'b0, leading_zeros}) ? result_exp - {5'b0, leading_zeros} :
                       11'd0;
 
     assign norm_man = sum[54] ? sum[53:2] :
-                      (sum << leading_zeros) >> 2;
+                      ((sum[53:0] << leading_zeros) >> 2);
 
     always @(*) begin
         invalid = 1'b0;
@@ -598,7 +598,7 @@ module fp64_div (
     // 除法 (使用移位和减法实现)
     // 商 = sig_a / sig_b, 需要54位精度
     wire [106:0] dividend = {sig_a, 54'b0};
-    wire [53:0] quotient = dividend / {1'b0, sig_b};
+    wire [53:0] quotient = (dividend / {53'b0, 1'b0, sig_b})[53:0];
 
     // 指数计算
     wire [11:0] exp_diff = {1'b0, exp_a} - {1'b0, exp_b};
@@ -795,7 +795,7 @@ module fp64_rcp (
     // 尾数倒数 (简化: Newton-Raphson迭代更精确)
     wire [52:0] sig_a = {1'b1, man_a};
     wire [105:0] one_shifted = {1'b1, 105'b0};
-    wire [52:0] rcp_sig = one_shifted / sig_a;
+    wire [52:0] rcp_sig = (one_shifted / {53'b0, sig_a})[52:0];
     wire [51:0] rcp_man = rcp_sig[51:0];
 
     always @(*) begin
