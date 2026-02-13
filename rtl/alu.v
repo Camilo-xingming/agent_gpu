@@ -54,7 +54,7 @@ module alu (
         begin
             popc32 = 0;
             for (i = 0; i < 32; i = i + 1) begin
-                popc32 = popc32 + val[i];
+                popc32 = popc32 + {5'b0, val[i]};
             end
         end
     endfunction
@@ -71,7 +71,7 @@ module alu (
             found = 0;
             for (i = 31; i >= 0; i = i - 1) begin
                 if (!found && val[i]) begin
-                    clz32 = 31 - i;
+                    clz32 = 6'd31 - i[5:0];
                     found = 1;
                 end
             end
@@ -203,11 +203,11 @@ module alu (
     wire signed [17:0] dp4a_p1 = a_b1_s * b_b1_s;
     wire signed [17:0] dp4a_p2 = a_b2_s * b_b2_s;
     wire signed [17:0] dp4a_p3 = a_b3_s * b_b3_s;
-    wire signed [31:0] dp4a_sum = dp4a_p0 + dp4a_p1 + dp4a_p2 + dp4a_p3 + $signed(operand_c);
+    wire signed [31:0] dp4a_sum = $signed({{14{dp4a_p0[17]}}, dp4a_p0}) + $signed({{14{dp4a_p1[17]}}, dp4a_p1}) + $signed({{14{dp4a_p2[17]}}, dp4a_p2}) + $signed({{14{dp4a_p3[17]}}, dp4a_p3}) + $signed(operand_c);
 
     wire signed [16:0] dp2a_p0 = $signed({operand_a[15], operand_a[15:0]}) * $signed({operand_b[15], operand_b[15:0]});
     wire signed [16:0] dp2a_p1 = $signed({operand_a[31], operand_a[31:16]}) * $signed({operand_b[31], operand_b[31:16]});
-    wire signed [31:0] dp2a_sum = dp2a_p0 + dp2a_p1 + $signed(operand_c);
+    wire signed [31:0] dp2a_sum = $signed({{15{dp2a_p0[16]}}, dp2a_p0}) + $signed({{15{dp2a_p1[16]}}, dp2a_p1}) + $signed(operand_c);
 
     //------------------------------------------------------------------------
     // FP16 <-> FP32 Conversion (for CVT instructions routed through ALU)
@@ -242,7 +242,7 @@ module alu (
                 end
             end else begin
                 // Normal number: rebias exponent (15 -> 127)
-                exp32 = exp16 + 8'd112;  // 127 - 15 = 112
+                exp32 = {3'b0, exp16} + 8'd112;  // 127 - 15 = 112
                 man32 = {man16, 13'b0};
             end
 
@@ -280,7 +280,11 @@ module alu (
                 man16 = 10'b0;
             end else begin
                 // Normal number: rebias exponent (127 -> 15)
-                exp16 = exp32 - 8'd112;
+                begin : fp32_to_fp16_rebias
+                    reg [7:0] rebias_tmp;
+                    rebias_tmp = exp32 - 8'd112;
+                    exp16 = rebias_tmp[4:0];
+                end
                 man16 = man32[22:13];
             end
 
