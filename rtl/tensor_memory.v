@@ -152,7 +152,7 @@ module tensor_memory #(
 
                     // Mark columns as allocated
                     for (i = 0; i < NUM_COLS; i = i + 1) begin
-                        if (i >= alloc_watermark && i < alloc_watermark + aligned_cols) begin
+                        if (i >= {22'b0, alloc_watermark} && i < {22'b0, alloc_watermark} + {22'b0, aligned_cols}) begin
                             col_alloc_bitmap[i] <= 1'b1;
                         end
                     end
@@ -171,14 +171,14 @@ module tensor_memory #(
                 // Simple deallocation: just clear the bitmap
                 // In practice, should validate ownership
                 for (j = 0; j < NUM_COLS; j = j + 1) begin
-                    if (j >= dealloc_col_base && j < dealloc_col_base + dealloc_num_cols) begin
+                    if (j >= {23'b0, dealloc_col_base} && j < {23'b0, dealloc_col_base} + {23'b0, dealloc_num_cols}) begin
                         col_alloc_bitmap[j] <= 1'b0;
                     end
                 end
 
                 // Update watermark if deallocating from the end
-                if (dealloc_col_base + dealloc_num_cols >= alloc_watermark) begin
-                    alloc_watermark <= dealloc_col_base;
+                if ({23'b0, dealloc_col_base} + {23'b0, dealloc_num_cols} >= {22'b0, alloc_watermark}) begin
+                    alloc_watermark <= {1'b0, dealloc_col_base};
                 end
             end
         end
@@ -199,8 +199,8 @@ module tensor_memory #(
             if (ld_valid) begin
                 // Read up to 16 columns starting from ld_col_base
                 for (ld_i = 0; ld_i < 16; ld_i = ld_i + 1) begin
-                    if (ld_i < ld_num_cols && (ld_col_base + ld_i) < NUM_COLS) begin
-                        ld_data[ld_i*32 +: 32] <= tmem[ld_row][ld_col_base + ld_i];
+                    if (ld_i < ld_num_cols && ({23'b0, ld_col_base} + ld_i) < NUM_COLS) begin
+                        ld_data[ld_i*32 +: 32] <= tmem[ld_row][{23'b0, ld_col_base} + ld_i];
                     end else begin
                         ld_data[ld_i*32 +: 32] <= 32'b0;
                     end
@@ -218,8 +218,8 @@ module tensor_memory #(
     always @(posedge clk) begin
         if (st_valid) begin
             for (st_i = 0; st_i < 8; st_i = st_i + 1) begin
-                if (st_mask[st_i] && st_i < st_num_cols && (st_col_base + st_i) < NUM_COLS) begin
-                    tmem[st_row][st_col_base + st_i] <= st_data[st_i*32 +: 32];
+                if (st_mask[st_i] && st_i < st_num_cols && ({23'b0, st_col_base} + st_i) < NUM_COLS) begin
+                    tmem[st_row][{23'b0, st_col_base} + st_i] <= st_data[st_i*32 +: 32];
                 end
             end
         end
@@ -241,8 +241,8 @@ module tensor_memory #(
     always @(posedge clk) begin
         if (mma_wr_valid) begin
             for (mma_wr_i = 0; mma_wr_i < 16; mma_wr_i = mma_wr_i + 1) begin
-                if (mma_wr_mask[mma_wr_i] && (mma_col_base + mma_wr_i) < NUM_COLS) begin
-                    tmem[mma_row][mma_col_base + mma_wr_i] <= mma_wr_data[mma_wr_i*32 +: 32];
+                if (mma_wr_mask[mma_wr_i] && ({23'b0, mma_col_base} + mma_wr_i) < NUM_COLS) begin
+                    tmem[mma_row][{23'b0, mma_col_base} + mma_wr_i] <= mma_wr_data[mma_wr_i*32 +: 32];
                 end
             end
         end
@@ -258,8 +258,8 @@ module tensor_memory #(
 
             if (mma_rd_valid) begin
                 for (mma_rd_i = 0; mma_rd_i < 16; mma_rd_i = mma_rd_i + 1) begin
-                    if ((mma_col_base + mma_rd_i) < NUM_COLS) begin
-                        mma_rd_data[mma_rd_i*32 +: 32] <= tmem[mma_row][mma_col_base + mma_rd_i];
+                    if (({23'b0, mma_col_base} + mma_rd_i) < NUM_COLS) begin
+                        mma_rd_data[mma_rd_i*32 +: 32] <= tmem[mma_row][{23'b0, mma_col_base} + mma_rd_i];
                     end else begin
                         mma_rd_data[mma_rd_i*32 +: 32] <= 32'b0;
                     end
@@ -285,15 +285,15 @@ module tensor_memory #(
                 if (cp_direction == 1'b0) begin
                     // SMEM -> TMEM (write)
                     for (cp_i = 0; cp_i < 16; cp_i = cp_i + 1) begin
-                        if ((cp_col_base + cp_i) < NUM_COLS) begin
-                            tmem[cp_row][cp_col_base + cp_i] <= cp_wr_data[cp_i*32 +: 32];
+                        if (({23'b0, cp_col_base} + cp_i) < NUM_COLS) begin
+                            tmem[cp_row][{23'b0, cp_col_base} + cp_i] <= cp_wr_data[cp_i*32 +: 32];
                         end
                     end
                 end else begin
                     // TMEM -> SMEM (read)
                     for (cp_i = 0; cp_i < 16; cp_i = cp_i + 1) begin
-                        if ((cp_col_base + cp_i) < NUM_COLS) begin
-                            cp_rd_data[cp_i*32 +: 32] <= tmem[cp_row][cp_col_base + cp_i];
+                        if (({23'b0, cp_col_base} + cp_i) < NUM_COLS) begin
+                            cp_rd_data[cp_i*32 +: 32] <= tmem[cp_row][{23'b0, cp_col_base} + cp_i];
                         end else begin
                             cp_rd_data[cp_i*32 +: 32] <= 32'b0;
                         end
