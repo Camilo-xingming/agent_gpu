@@ -92,12 +92,14 @@ module atomic_unit #(
         input [NUM_LANES-1:0] mask;
         integer j;
         reg found;
+        reg [4:0] idx;
         begin
             find_next_lane = start;
             found = 1'b0;
             for (j = 0; j < NUM_LANES; j = j + 1) begin
-                if (!found && mask[(start + j) % NUM_LANES]) begin
-                    find_next_lane = (start + j) % NUM_LANES;
+                idx = start[4:0] + j[4:0];
+                if (!found && mask[idx]) begin
+                    find_next_lane = {1'b0, idx};
                     found = 1'b1;
                 end
             end
@@ -232,7 +234,7 @@ module atomic_unit #(
                                 end
                             end
                         end
-                        pending_mask[current_lane] <= 1'b0;
+                        pending_mask[current_lane[4:0]] <= 1'b0;
                         if ((pending_mask & ~lane_onehot(current_lane)) != 0) begin
                             current_lane <= find_next_lane(current_lane + 1'b1,
                                                            pending_mask & ~lane_onehot(current_lane));
@@ -270,7 +272,7 @@ module atomic_unit #(
                                 end
                             end
                         end
-                        pending_mask[current_lane] <= 1'b0;
+                        pending_mask[current_lane[4:0]] <= 1'b0;
                         if ((pending_mask & ~lane_onehot(current_lane)) != 0) begin
                             current_lane <= find_next_lane(current_lane + 1'b1,
                                                            pending_mask & ~lane_onehot(current_lane));
