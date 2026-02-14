@@ -841,11 +841,10 @@ module streaming_multiprocessor_v2 #(
                               (lane0_shfl && lane1_shfl) ||
                               (lane0_video && lane1_video) ||
                               (lane0_mem && lane1_mem) ||
-                              lane0_control || lane1_control;
+                              lane0_control;
     wire lane0_mem = lane0_ready && (dec_mem_read || dec_mem_write);
     wire lane1_mem = lane1_ready && (dec1_mem_read || dec1_mem_write);
     wire lane0_control = lane0_ready && (dec_branch_op || dec_sync_op || dec_exit_op);
-    wire lane1_control = lane1_ready && (dec1_branch_op || dec1_sync_op || dec1_exit_op);
 
     // Forward declarations - these are driven by the advanced_warp_scheduler
     wire issue0_fire;  // Assigned in scheduler section
