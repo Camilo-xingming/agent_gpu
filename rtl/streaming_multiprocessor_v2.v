@@ -962,15 +962,51 @@ module streaming_multiprocessor_v2 #(
     wire tex_issue0 = issue_valid && issue_tex_op;
     wire tex_issue1 = issue1_valid && issue1_tex_op;
 
-    wire alu_issue = alu_issue0 || alu_issue1;
-    wire mul_issue = mul_issue0 || mul_issue1;
-    wire fpu32_issue = fpu32_issue0 || fpu32_issue1;
-    wire fpu64_issue = fpu64_issue0 || fpu64_issue1;
-    wire fp16_issue = fp16_issue0 || fp16_issue1;
-    wire sfu_issue = sfu_issue0 || sfu_issue1;
-    wire shfl_issue = shfl_issue0 || shfl_issue1;
-    wire video_issue = video_issue0 || video_issue1;
-    wire special_reg_issue = special_reg_issue0 || special_reg_issue1;
+    // Issue-stage FU gating: slot 0 wins when both slots target same FU
+    wire alu_fu_conflict = alu_issue0 && alu_issue1;
+    wire alu_issue1_gated = alu_issue1 && !alu_issue0;
+    wire alu_issue = alu_issue0 || alu_issue1_gated;
+    wire mul_fu_conflict = mul_issue0 && mul_issue1;
+    wire mul_issue1_gated = mul_issue1 && !mul_issue0;
+    wire mul_issue = mul_issue0 || mul_issue1_gated;
+    wire fpu32_fu_conflict = fpu32_issue0 && fpu32_issue1;
+    wire fpu32_issue1_gated = fpu32_issue1 && !fpu32_issue0;
+    wire fpu32_issue = fpu32_issue0 || fpu32_issue1_gated;
+    wire fpu64_fu_conflict = fpu64_issue0 && fpu64_issue1;
+    wire fpu64_issue1_gated = fpu64_issue1 && !fpu64_issue0;
+    wire fpu64_issue = fpu64_issue0 || fpu64_issue1_gated;
+    wire fp16_fu_conflict = fp16_issue0 && fp16_issue1;
+    wire fp16_issue1_gated = fp16_issue1 && !fp16_issue0;
+    wire fp16_issue = fp16_issue0 || fp16_issue1_gated;
+    wire sfu_fu_conflict = sfu_issue0 && sfu_issue1;
+    wire sfu_issue1_gated = sfu_issue1 && !sfu_issue0;
+    wire sfu_issue = sfu_issue0 || sfu_issue1_gated;
+    wire shfl_fu_conflict = shfl_issue0 && shfl_issue1;
+    wire shfl_issue1_gated = shfl_issue1 && !shfl_issue0;
+    wire shfl_issue = shfl_issue0 || shfl_issue1_gated;
+    wire video_fu_conflict = video_issue0 && video_issue1;
+    wire video_issue1_gated = video_issue1 && !video_issue0;
+    wire video_issue = video_issue0 || video_issue1_gated;
+    wire special_fu_conflict = special_reg_issue0 && special_reg_issue1;
+    wire special_reg_issue1_gated = special_reg_issue1 && !special_reg_issue0;
+    wire special_reg_issue = special_reg_issue0 || special_reg_issue1_gated;
+
+    // Combined issue-stage FU conflict: slot 1 instruction was dropped
+    // Must roll back scheduler's scoreboard SET for the dropped instruction
+    wire issue_fu_conflict = alu_fu_conflict || mul_fu_conflict ||
+                             fpu32_fu_conflict || fpu64_fu_conflict ||
+                             fp16_fu_conflict || sfu_fu_conflict ||
+                             shfl_fu_conflict || video_fu_conflict ||
+                             special_fu_conflict;
+    wire fu_conflict_sb_clr_valid = issue_fu_conflict && issue1_valid && issue1_reg_write;
+
+    `ifdef SIMULATION
+    always @(posedge clk) begin
+        if (rst_n && issue_fu_conflict)
+            $display("[SM%0d] FU CONFLICT at %0t: slot0_warp=%0d slot1_warp=%0d slot1_rd=R%0d — slot1 dropped, scoreboard rolled back",
+                     SM_ID, $time, issue_warp_id, issue1_warp_id, issue1_rd);
+    end
+    `endif
     wire tex_issue = tex_issue0 || tex_issue1;
 
     //========================================================================
@@ -1357,6 +1393,14 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_WARPS-1:0]     pd_is_tensor;
     wire [NUM_WARPS-1:0]     pd_is_memory;
     wire [NUM_WARPS-1:0]     pd_is_branch;
+    // Fine-grained FU type for scheduler-level conflict detection
+    wire [NUM_WARPS-1:0]     pd_is_alu;
+    wire [NUM_WARPS-1:0]     pd_is_mul;
+    wire [NUM_WARPS-1:0]     pd_is_fp32;
+    wire [NUM_WARPS-1:0]     pd_is_fp16;
+    wire [NUM_WARPS-1:0]     pd_is_sfu;
+    wire [NUM_WARPS-1:0]     pd_is_shfl;
+    wire [NUM_WARPS-1:0]     pd_is_video;
     wire [NUM_WARPS-1:0]     pd_writes_reg;
 
     genvar pd_i;
@@ -1387,6 +1431,16 @@ module streaming_multiprocessor_v2 #(
                                          (op == `OP_PREFETCH) || (op == `OP_CPASYNC);
             assign pd_is_branch[pd_i]  = (op == `OP_BRANCH) || (op == `OP_EXIT) ||
                                          (op == `OP_BAR_SYNC) || (op == `OP_MEMBAR);
+            // Fine-grained FU type
+            assign pd_is_alu[pd_i]   = (op == `OP_ALU) || (op == `OP_ALU_IMM) ||
+                                       (op == `OP_MOV_IMM) || (op == `OP_SETP) ||
+                                       (op == `OP_CVT) || (op == `OP_MOV_SPECIAL);
+            assign pd_is_mul[pd_i]   = (op == `OP_MUL) || (op == `OP_DIV);
+            assign pd_is_fp32[pd_i]  = (op == `OP_FP32_ARITH);
+            assign pd_is_fp16[pd_i]  = (op == `OP_FP16_ARITH);
+            assign pd_is_sfu[pd_i]   = (op == `OP_SFU);
+            assign pd_is_shfl[pd_i]  = (op == `OP_SHFL);
+            assign pd_is_video[pd_i] = (op == `OP_VIDEO);
             assign pd_writes_reg[pd_i] = (op != `OP_ST_GLOBAL) && (op != `OP_ST_SHARED) &&
                                          (op != `OP_BRANCH) && (op != `OP_EXIT) &&
                                          (op != `OP_NOP) && (op != `OP_BAR_SYNC) &&
@@ -1487,6 +1541,13 @@ module streaming_multiprocessor_v2 #(
         .warp_is_tensor(pd_is_tensor),
         .warp_is_memory(pd_is_memory),
         .warp_is_branch(pd_is_branch),
+        .warp_is_alu(pd_is_alu),
+        .warp_is_mul(pd_is_mul),
+        .warp_is_fp32(pd_is_fp32),
+        .warp_is_fp16(pd_is_fp16),
+        .warp_is_sfu(pd_is_sfu),
+        .warp_is_shfl(pd_is_shfl),
+        .warp_is_video(pd_is_video),
         .warp_writes_reg(pd_writes_reg),
         .warp_is_tcgen05(bw_tcgen05_op),
         .warp_is_tcgen05_mma(bw_tcgen05_mma),
@@ -1510,6 +1571,9 @@ module streaming_multiprocessor_v2 #(
                                sched_issue_pipe[0] == 3'd2 && sched_issue_pipe[1] == 3'd2),
         .pipeline_stall(decode_stalled_slot0),
         .pipeline_stall_slot1(decode_stalled_slot1),
+        .fu_conflict_sb_clr_valid(fu_conflict_sb_clr_valid),
+        .fu_conflict_sb_clr_warp(issue1_warp_id),
+        .fu_conflict_sb_clr_rd(issue1_rd),
         // Deferred tensor scoreboard SET: only set when tensor push actually succeeds
         .tensor_sb_set_valid(tensor_issue_push_fire),
         .tensor_sb_set_warp(tensor_push_lane0 ? issue_warp_id : issue1_warp_id),
@@ -1553,6 +1617,13 @@ module streaming_multiprocessor_v2 #(
         .warp_is_tensor(pd_is_tensor),
         .warp_is_memory(pd_is_memory),
         .warp_is_branch(pd_is_branch),
+        .warp_is_alu(pd_is_alu),
+        .warp_is_mul(pd_is_mul),
+        .warp_is_fp32(pd_is_fp32),
+        .warp_is_fp16(pd_is_fp16),
+        .warp_is_sfu(pd_is_sfu),
+        .warp_is_shfl(pd_is_shfl),
+        .warp_is_video(pd_is_video),
         .warp_writes_reg(pd_writes_reg),
         .compute_pipe0_ready(pipe_compute0_ready),
         .compute_pipe1_ready(pipe_compute1_ready),
