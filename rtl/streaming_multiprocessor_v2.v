@@ -1092,6 +1092,18 @@ module streaming_multiprocessor_v2 #(
     wire                 video_wbq_push, video_wbq_pop, video_wbq_full, video_wbq_empty;
     wire                 special_wbq_pop, special_wbq_full, special_wbq_empty;
 
+    // WBQ drop detection signals
+    wire alu_wbq_dropped;
+    wire mul_wbq_dropped;
+    wire fpu32_wbq_dropped;
+    wire fpu64_wbq_dropped;
+    wire fp16_wbq_dropped;
+    wire sfu_wbq_dropped;
+    wire shfl_wbq_dropped;
+    wire video_wbq_dropped;
+    wire special_wbq_dropped;
+    wire tensor_wbq_dropped;
+
     wire [WARP_ID_W-1:0] alu_wbq_warp;
     wire [WARP_ID_W-1:0] mul_wbq_warp;
     wire [WARP_ID_W-1:0] fpu32_wbq_warp;
@@ -3075,6 +3087,24 @@ module streaming_multiprocessor_v2 #(
     assign tensor_meta_push = tensor_issue_pop_fire;
     assign tensor_meta_pop = tensor_wbq_push_fire;
 
+    // ---- WBQ Drop Detection (all FUs) ----
+    `ifdef SIMULATION
+    always @(posedge clk) begin
+        if (rst_n) begin
+            if (alu_wbq_dropped)     $display("[SM%0d] FATAL: ALU WBQ dropped data at %0t!", SM_ID, $time);
+            if (mul_wbq_dropped)     $display("[SM%0d] FATAL: MUL WBQ dropped data at %0t!", SM_ID, $time);
+            if (fpu32_wbq_dropped)   $display("[SM%0d] FATAL: FPU32 WBQ dropped data at %0t!", SM_ID, $time);
+            if (fpu64_wbq_dropped)   $display("[SM%0d] FATAL: FPU64 WBQ dropped data at %0t!", SM_ID, $time);
+            if (fp16_wbq_dropped)    $display("[SM%0d] FATAL: FP16 WBQ dropped data at %0t!", SM_ID, $time);
+            if (sfu_wbq_dropped)     $display("[SM%0d] FATAL: SFU WBQ dropped data at %0t!", SM_ID, $time);
+            if (shfl_wbq_dropped)    $display("[SM%0d] FATAL: SHFL WBQ dropped data at %0t!", SM_ID, $time);
+            if (video_wbq_dropped)   $display("[SM%0d] FATAL: VIDEO WBQ dropped data at %0t!", SM_ID, $time);
+            if (special_wbq_dropped) $display("[SM%0d] FATAL: SPECIAL WBQ dropped data at %0t!", SM_ID, $time);
+            if (tensor_wbq_dropped)  $display("[SM%0d] FATAL: TENSOR WBQ dropped data at %0t!", SM_ID, $time);
+        end
+    end
+    `endif
+
     assign tensor_wbq_push_data = pack_wb(tensor_meta_warp, tensor_meta_rd,
                                          tensor_meta_mask, tensor_result);
 
@@ -3089,7 +3119,8 @@ module streaming_multiprocessor_v2 #(
         .pop       (tensor_wbq_pop),
         .pop_data  (tensor_wbq_pop_data),
         .full      (tensor_wbq_full),
-        .empty     (tensor_wbq_empty)
+        .empty     (tensor_wbq_empty),
+        .dropped (tensor_wbq_dropped)
     );
 
     assign tensor_wbq_warp = tensor_wbq_pop_data[WB_WARP_MSB:WB_WARP_LSB];
@@ -3349,7 +3380,8 @@ module streaming_multiprocessor_v2 #(
         .pop      (alu_wbq_pop),
         .pop_data (alu_wbq_out),
         .full     (alu_wbq_full),
-        .empty    (alu_wbq_empty)
+        .empty    (alu_wbq_empty),
+        .dropped (alu_wbq_dropped)
     );
 
     wb_fifo #(
@@ -3363,7 +3395,8 @@ module streaming_multiprocessor_v2 #(
         .pop      (mul_wbq_pop),
         .pop_data (mul_wbq_out),
         .full     (mul_wbq_full),
-        .empty    (mul_wbq_empty)
+        .empty    (mul_wbq_empty),
+        .dropped (mul_wbq_dropped)
     );
 
     wb_fifo #(
@@ -3377,7 +3410,8 @@ module streaming_multiprocessor_v2 #(
         .pop      (fpu32_wbq_pop),
         .pop_data (fpu32_wbq_out),
         .full     (fpu32_wbq_full),
-        .empty    (fpu32_wbq_empty)
+        .empty    (fpu32_wbq_empty),
+        .dropped (fpu32_wbq_dropped)
     );
 
     wb_fifo #(
@@ -3391,7 +3425,8 @@ module streaming_multiprocessor_v2 #(
         .pop      (fpu64_wbq_pop),
         .pop_data (fpu64_wbq_out),
         .full     (fpu64_wbq_full),
-        .empty    (fpu64_wbq_empty)
+        .empty    (fpu64_wbq_empty),
+        .dropped (fpu64_wbq_dropped)
     );
 
     wb_fifo #(
@@ -3405,7 +3440,8 @@ module streaming_multiprocessor_v2 #(
         .pop      (fp16_wbq_pop),
         .pop_data (fp16_wbq_out),
         .full     (fp16_wbq_full),
-        .empty    (fp16_wbq_empty)
+        .empty    (fp16_wbq_empty),
+        .dropped (fp16_wbq_dropped)
     );
 
     wb_fifo #(
@@ -3419,7 +3455,8 @@ module streaming_multiprocessor_v2 #(
         .pop      (sfu_wbq_pop),
         .pop_data (sfu_wbq_out),
         .full     (sfu_wbq_full),
-        .empty    (sfu_wbq_empty)
+        .empty    (sfu_wbq_empty),
+        .dropped (sfu_wbq_dropped)
     );
 
     wb_fifo #(
@@ -3433,7 +3470,8 @@ module streaming_multiprocessor_v2 #(
         .pop      (shfl_wbq_pop),
         .pop_data (shfl_wbq_out),
         .full     (shfl_wbq_full),
-        .empty    (shfl_wbq_empty)
+        .empty    (shfl_wbq_empty),
+        .dropped (shfl_wbq_dropped)
     );
 
     // Video SIMD WBQ (2-cycle latency)
@@ -3448,7 +3486,8 @@ module streaming_multiprocessor_v2 #(
         .pop      (video_wbq_pop),
         .pop_data (video_wbq_out),
         .full     (video_wbq_full),
-        .empty    (video_wbq_empty)
+        .empty    (video_wbq_empty),
+        .dropped (video_wbq_dropped)
     );
 
     // Special register WBQ (reuse ALU depth since it's also 1-cycle)
@@ -3463,7 +3502,8 @@ module streaming_multiprocessor_v2 #(
         .pop      (special_wbq_pop),
         .pop_data (special_wbq_out),
         .full     (special_wbq_full),
-        .empty    (special_wbq_empty)
+        .empty    (special_wbq_empty),
+        .dropped (special_wbq_dropped)
     );
 
     assign alu_wbq_warp = alu_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
@@ -5381,7 +5421,8 @@ module wb_fifo #(
     input  wire             pop,
     output wire [WIDTH-1:0] pop_data,
     output wire             full,
-    output wire             empty
+    output wire             empty,
+    output wire             dropped
 );
     localparam PTR_W = (DEPTH > 1) ? $clog2(DEPTH) : 1;
     localparam COUNT_W = $clog2(DEPTH + 1);
@@ -5441,4 +5482,18 @@ module wb_fifo #(
             endcase
         end
     end
+
+    // Detect silent drop: push attempted while full with no pop
+    assign dropped = push && full && !pop;
+
+    `ifdef SIMULATION
+    always @(posedge clk) begin
+        if (rst_n && dropped) begin
+            $display("[WBQ] FATAL: push while full without pop at time %0t", $time);
+            $error("[WBQ] Data silently dropped!");
+            $finish;
+        end
+    end
+    `endif
+
 endmodule
