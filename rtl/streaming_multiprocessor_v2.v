@@ -1204,17 +1204,7 @@ module streaming_multiprocessor_v2 #(
         end
     end
 
-    // Delay warp_inst_buf_valid by 1 cycle to avoid same-cycle set/consume race
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            warp_inst_valid_d1 <= {NUM_WARPS{1'b0}};
-        end else if (kernel_start) begin
-            warp_inst_valid_d1 <= {NUM_WARPS{1'b0}};
-        end else begin
-            
-            warp_inst_valid_d1 <= warp_inst_buf_valid;
-        end
-    end
+    // warp_inst_valid_d1 now produced by sm_fetch_pipeline module
 
     // GTO warp selection
     always @(*) begin
@@ -1263,340 +1253,98 @@ module streaming_multiprocessor_v2 #(
         end
     end
 
-    //========================================================================
-    // Instruction Cache / Bypass
-    //========================================================================
-    wire        icache_req;
-    wire [31:0] icache_addr;
-    wire        icache_ready;
-    wire [31:0] icache_data;
-    wire        icache_valid;
-    wire        icache_fill_req;
-    wire [31:0] icache_fill_addr;
-    wire        icache_fill_ready;
-    wire [511:0] icache_fill_data;
-    wire        icache_fill_valid;
+    // ICache now instantiated inside sm_fetch_pipeline module
 
-    // Pipeline for tracking PC offset (bit 2) to select correct word from response
-    reg [FETCH_PIPE_DEPTH-1:0] fetch_pipe_pc_bit2;
+    //========================================================================
+    // STAGE 1: FETCH (sm_fetch_pipeline module)
+    //========================================================================
 
+    // Pack warp_fetch_pc array into flat wire for module input
+    wire [32*NUM_WARPS-1:0] warp_fetch_pc_flat;
+    genvar fpc_i;
     generate
-    if (ICACHE_BYPASS) begin : gen_icache_bypass
-        // Direct memory access mode - bypasses icache for ideal fetch latency
-        // Memory provides data in same cycle as request (combinatorial)
-        // We route the fetch request directly to memory interface
-
-        // Direct connection to memory
-        assign imem_req = fetch_req;
-        assign imem_addr = warp_fetch_pc[fetch_warp_id];
-
-        // ICache interface signals in bypass mode
-        assign icache_ready = imem_ready;
-        assign icache_valid = imem_valid;
-
-        // Select instruction word from 64-bit memory response
-        // In bypass mode, we fetch at the exact instruction address (not 8-byte aligned).
-        // The memory model returns {imem[word_index+1], imem[word_index]} where word_index = PC/4.
-        // So the LOW word always contains the instruction we requested.
-        // PC[2] selection only applies for 8-byte aligned cache line fetches (icache mode).
-        assign icache_data = imem_data[31:0];  // Always select low word for non-aligned bypass
-
-    end else begin : gen_icache_normal
-        // Normal icache mode
-        icache #(
-            .SIZE_KB(4),
-            .LINE_SIZE(8),   // 2 instructions per cache line
-            .NUM_WAYS(2)
-        ) u_icache (
-            .clk(clk),
-            .rst_n(rst_n),
-            .fetch_req(fetch_req),
-            .fetch_addr(warp_fetch_pc[fetch_warp_id]),
-            .fetch_ready(icache_ready),
-            .fetch_data(icache_data),
-            .fetch_valid(icache_valid),
-            .invalidate_req(1'b0),
-            .invalidate_addr(32'b0),
-            .invalidate_all(1'b0),
-            .invalidate_done(),
-            .mem_req_valid(imem_req),
-            .mem_req_addr(imem_addr),
-            .mem_req_ready(imem_ready),
-            .mem_resp_data(imem_data),  // 64-bit data for 8-byte cache line
-            .mem_resp_valid(imem_valid),
-            .stat_hits(),
-            .stat_misses(),
-            .stat_prefetch_hits()
-        );
-    end
-    endgenerate
-
-    //========================================================================
-    // STAGE 1: FETCH (Updated for ICache)
-    //========================================================================
-    // Per-warp Instruction Buffers
-    reg [31:0] warp_inst_buf [0:NUM_WARPS-1];
-    reg [NUM_WARPS-1:0] warp_inst_buf_valid;
-    reg [NUM_WARPS-1:0] warp_inst_valid_d1;
-    wire [NUM_WARPS-1:0] warp_inst_consume;
-
-    // Per-warp next-instruction buffer (RALPH-8 P0: bypass fetch optimization)
-    // When a 64-bit fetch returns 2 instructions, buffer the upper word
-    // to serve the next sequential PC without a memory fetch
-    reg [31:0] warp_next_inst [0:NUM_WARPS-1];
-    reg [31:0] warp_next_inst_pc [0:NUM_WARPS-1];  // PC this buffered inst corresponds to
-    reg [NUM_WARPS-1:0] warp_next_inst_valid;
-
-    // Fetch Arbitration - Pipelined Fetch Architecture
-    // Allows multiple warps to have in-flight fetches simultaneously
-    // This hides fetch latency by overlapping fetches for different warps
-    reg [WARP_ID_W-1:0] fetch_arb_ptr;
-    reg [WARP_ID_W-1:0] fetch_warp_id;
-    reg                 fetch_valid_arb;
-
-    // Per-warp in-flight fetch tracking (replaces single fetch_inflight_valid)
-    reg [NUM_WARPS-1:0] warp_fetch_pending;  // Which warps have pending fetches
-
-    // Fetch pipeline stages for tracking responses
-    // Stage 0: fetch request sent, Stage 1: response expected
-    localparam FETCH_PIPE_DEPTH = 2;  // Support 2 in-flight fetches (same-cycle response works with icache bypass)
-    reg [WARP_ID_W-1:0] fetch_pipe_warp [0:FETCH_PIPE_DEPTH-1];
-    reg [FETCH_PIPE_DEPTH-1:0] fetch_pipe_valid;
-
-    // Effective buffer empty: consider same-cycle consumes
-    wire [NUM_WARPS-1:0] warp_buf_will_be_empty;
-    // Gate scheduler consume by decode_stalled so instructions are not lost when pipeline cannot accept
-    wire [NUM_WARPS-1:0] warp_inst_consume_gated = warp_inst_consume & ~decode_stalled_per_warp;
-    assign warp_buf_will_be_empty = ~warp_inst_buf_valid | warp_inst_consume_gated;
-
-    // Check if warp's next PC matches buffered instruction
-    wire [NUM_WARPS-1:0] warp_next_inst_hit;
-    generate
-        for (genvar wi = 0; wi < NUM_WARPS; wi = wi + 1) begin : gen_next_inst_hit
-            assign warp_next_inst_hit[wi] = warp_next_inst_valid[wi] &&
-                                            (warp_fetch_pc[wi] == warp_next_inst_pc[wi]);
+        for (fpc_i = 0; fpc_i < NUM_WARPS; fpc_i = fpc_i + 1) begin : gen_pack_fetch_pc
+            assign warp_fetch_pc_flat[32*fpc_i +: 32] = warp_fetch_pc[fpc_i];
         end
     endgenerate
 
-    // Warp needs fetch if: buffer will be empty AND no pending fetch AND no buffered hit
-    wire [NUM_WARPS-1:0] warp_needs_fetch = warp_buf_will_be_empty & ~warp_fetch_pending & ~warp_next_inst_hit;
+    // Module output wires
+    wire [NUM_WARPS-1:0]     fp_inst_buf_valid;
+    wire [NUM_WARPS-1:0]     fp_inst_valid_d1;
+    wire [NUM_WARPS-1:0]     fp_inst_consume_gated;
+    wire [32*NUM_WARPS-1:0]  fp_inst_buf_flat;
+    wire [WARP_ID_W-1:0]     fetch_warp_id;
+    wire [NUM_WARPS-1:0]     fetch_pc_advance;
+    wire [NUM_WARPS-1:0]     nib_pc_advance;
+    wire [NUM_WARPS-1:0]     warp_next_inst_hit;
+    wire [NUM_WARPS-1:0]     warp_buf_will_be_empty;
+    wire [NUM_WARPS-1:0]     warp_fill;
+    wire [NUM_WARPS-1:0]     warp_fetch_pending;
 
-    integer f_i;
-    always @(*) begin
-        fetch_valid_arb = 0;
-        fetch_warp_id = 0;
-        for (f_i = 0; f_i < NUM_WARPS; f_i = f_i + 1) begin
-            if (!fetch_valid_arb) begin
-                // Check if warp needs instruction and isn't stalled or already fetching
-                begin : fetch_arb_check
-                    reg [WARP_ID_W-1:0] f_idx;
-                    f_idx = fetch_arb_ptr + f_i[WARP_ID_W-1:0];
-                    if (warp_valid[f_idx] &&
-                        warp_needs_fetch[f_idx] &&
-                        !warp_exit_pending[f_idx]) begin
-                        fetch_valid_arb = 1;
-                        fetch_warp_id = f_idx;
-                    end
-                end
-            end
+    // Instruction buffer (unpacked from module flat output)
+    wire [31:0] warp_inst_buf [0:NUM_WARPS-1];
+    genvar ubi;
+    generate
+        for (ubi = 0; ubi < NUM_WARPS; ubi = ubi + 1) begin : gen_unpack_inst_buf
+            assign warp_inst_buf[ubi] = fp_inst_buf_flat[32*ubi +: 32];
         end
-    end
+    endgenerate
 
-    // Fetch Request Logic - can issue new fetch each cycle
-    // Only blocked if icache not ready (not by pending fetches)
-    assign fetch_req = fetch_valid_arb;
-    assign fetch_fire = fetch_req && icache_ready;
+    // Aliases for SM-wide use
+    wire [NUM_WARPS-1:0] warp_inst_buf_valid = fp_inst_buf_valid;
+    wire [NUM_WARPS-1:0] warp_inst_valid_d1  = fp_inst_valid_d1;
+    wire [NUM_WARPS-1:0] warp_inst_consume_gated = fp_inst_consume_gated;
+    wire [NUM_WARPS-1:0] warp_inst_consume;  // From scheduler
 
-    reg [31:0] fetch_debug_cnt;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            fetch_arb_ptr <= 0;
-            // warp_inst_buf_valid is managed in the buffer always block
-            fetch_debug_cnt <= 0;
-        end else begin
-            // Debug first few fetch cycles
-            if (fetch_debug_cnt < 20) begin
-                fetch_debug_cnt <= fetch_debug_cnt + 1;
-            end
-            // Round-robin update on successful fetch request
-            if (fetch_fire) begin
-                fetch_arb_ptr <= fetch_warp_id + 1'b1;
-            end
-        end
-    end
+    // Branch flush mask: set by execute stage on branch taken
+    reg [NUM_WARPS-1:0] branch_flush_mask;
 
-    // Combinatorial same-cycle hit detection
-    // When icache_valid comes back in the same cycle as fetch_fire, the fetch pipeline
-    // isn't updated yet (non-blocking assigns), so we need to detect this case.
-    // same_cycle_hit is true when the response comes back before the pipeline is filled.
-    wire same_cycle_hit = fetch_fire && icache_valid && (fetch_pipe_valid == 0);
+    sm_fetch_pipeline #(
+        .NUM_WARPS(NUM_WARPS),
+        .ICACHE_BYPASS(ICACHE_BYPASS),
+        .FETCH_PIPE_DEPTH(2)
+    ) u_fetch_pipeline (
+        .clk(clk),
+        .rst_n(rst_n),
+        .kernel_start(kernel_start),
+        .warp_valid(warp_valid),
+        .warp_exit_pending(warp_exit_pending),
+        .warp_inst_consume(warp_inst_consume),
+        .decode_stalled_per_warp(decode_stalled_per_warp),
+        .branch_flush_mask(branch_flush_mask),
+        .warp_fetch_pc_flat(warp_fetch_pc_flat),
+        .imem_req(imem_req),
+        .imem_addr(imem_addr),
+        .imem_ready(imem_ready),
+        .imem_data(imem_data),
+        .imem_valid(imem_valid),
+        .warp_inst_buf_valid(fp_inst_buf_valid),
+        .warp_inst_valid_d1(fp_inst_valid_d1),
+        .warp_inst_consume_gated(fp_inst_consume_gated),
+        .warp_inst_buf_flat(fp_inst_buf_flat),
+        .fetch_req(fetch_req),
+        .fetch_fire(fetch_fire),
+        .fetch_warp_id_out(fetch_warp_id),
+        .fetch_pc_advance(fetch_pc_advance),
+        .nib_pc_advance(nib_pc_advance),
+        .warp_next_inst_hit(warp_next_inst_hit),
+        .warp_buf_will_be_empty(warp_buf_will_be_empty),
+        .warp_fill(warp_fill),
+        .warp_fetch_pending_out(warp_fetch_pending)
+    );
 
-    // Fetch pipeline and pending tracking
-    integer fp_i;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            warp_fetch_pending <= 0;
-            fetch_pipe_valid <= 0;
-            fetch_pipe_pc_bit2 <= 0;
-            for (fp_i = 0; fp_i < FETCH_PIPE_DEPTH; fp_i = fp_i + 1) begin
-                fetch_pipe_warp[fp_i] <= 0;
-            end
-        end else if (kernel_start) begin
-            // Clear fetch pipeline state on kernel start
-            warp_fetch_pending <= 0;
-            fetch_pipe_valid <= 0;
-            fetch_pipe_pc_bit2 <= 0;
-            for (fp_i = 0; fp_i < FETCH_PIPE_DEPTH; fp_i = fp_i + 1) begin
-                fetch_pipe_warp[fp_i] <= 0;
-            end
-        end else begin
-            // Shift pipeline only when icache is ready (stall during miss)
-            if (icache_ready) begin
-                fetch_pipe_valid[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_valid[FETCH_PIPE_DEPTH-2:0];
-                fetch_pipe_pc_bit2[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_pc_bit2[FETCH_PIPE_DEPTH-2:0];
-                for (fp_i = FETCH_PIPE_DEPTH-1; fp_i > 0; fp_i = fp_i - 1) begin
-                    fetch_pipe_warp[fp_i] <= fetch_pipe_warp[fp_i-1];
-                end
-            end
-
-            // New fetch enters pipeline stage 0
-            if (fetch_fire && !same_cycle_hit) begin
-                fetch_pipe_valid[0] <= 1'b1;
-                fetch_pipe_warp[0] <= fetch_warp_id;
-                fetch_pipe_pc_bit2[0] <= warp_fetch_pc[fetch_warp_id][2];
-                warp_fetch_pending[fetch_warp_id] <= 1'b1;
-            end else if (icache_ready) begin
-                // Only clear stage 0 when icache is ready (not during stall)
-                fetch_pipe_valid[0] <= 1'b0;
-                fetch_pipe_warp[0] <= 0;
-                fetch_pipe_pc_bit2[0] <= 0;
-            end
-
-            // Same-cycle hit doesn't need pipeline tracking
-            if (same_cycle_hit) begin
-                // Pending already cleared (or never set for same-cycle)
-            end
-
-            // Response received - clear pending for the responding warp
-            // Handle both early response (1-cycle latency) and normal delayed response
-            if (icache_valid && fetch_pipe_valid[0] && !fetch_pipe_valid[FETCH_PIPE_DEPTH-1]) begin
-                // Early response: request is in stage 0
-                warp_fetch_pending[fetch_pipe_warp[0]] <= 1'b0;
-            end else if (icache_valid && fetch_pipe_valid[FETCH_PIPE_DEPTH-1]) begin
-                // Delayed response: request reached final stage
-                warp_fetch_pending[fetch_pipe_warp[FETCH_PIPE_DEPTH-1]] <= 1'b0;
-            end
-        end
-    end
-
-    // For compatibility with existing code
-    wire fetch_inflight_valid = |fetch_pipe_valid;
-    wire [WARP_ID_W-1:0] fetch_inflight_warp = fetch_pipe_warp[FETCH_PIPE_DEPTH-1];
-
-    // Write to buffer
-    // Fill/Consume logic must handle simultaneous fill and consume for same warp correctly.
-    // When a warp is consumed AND filled in the same cycle, fill should win (buffer stays valid).
-    integer w_buf;
-    wire [NUM_WARPS-1:0] warp_fill;  // Which warp gets filled this cycle
-    // Handle responses at various pipeline depths
-    // delayed_response_valid: response comes after FETCH_PIPE_DEPTH cycles (normal case)
-    wire delayed_response_valid = icache_valid && fetch_pipe_valid[FETCH_PIPE_DEPTH-1];
-    // early_response_valid: response comes after just 1 cycle (testbench with 1-cycle latency)
-    // In this case, the request is in pipe stage 0 but not yet in the final stage
-    wire early_response_valid = icache_valid && fetch_pipe_valid[0] && !fetch_pipe_valid[FETCH_PIPE_DEPTH-1];
-    // Choose the right warp ID based on which stage has the response
-    wire [WARP_ID_W-1:0] fill_warp_id = same_cycle_hit ? fetch_warp_id :
-                                         early_response_valid ? fetch_pipe_warp[0] :
-                                         fetch_pipe_warp[FETCH_PIPE_DEPTH-1];
-    wire fill_valid = same_cycle_hit || delayed_response_valid || early_response_valid;
-
-    // DEBUG: Track fetch pipeline state - disabled for faster simulation
-    `ifdef DEBUG_FETCH
+    // Apply fetch pipeline PC advance requests
+    // warp_fetch_pc is also written by branch/kernel_start logic in execute stage
+    integer fetch_pc_i;
     always @(posedge clk) begin
-        if (fetch_fire)
-        if (icache_valid)
-        if (fill_valid)
-    end
-    `endif
-
-    genvar fill_w;
-    generate
-        for (fill_w = 0; fill_w < NUM_WARPS; fill_w = fill_w + 1) begin : gen_warp_fill
-            assign warp_fill[fill_w] = fill_valid && (fill_warp_id == fill_w);
-        end
-    endgenerate
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-             for (w_buf = 0; w_buf < NUM_WARPS; w_buf = w_buf + 1) begin
-                 warp_inst_buf[w_buf] <= 0;
-             end
-             warp_inst_buf_valid <= 0;
-             warp_next_inst_valid <= 0;
-        end else begin
-            // Clear instruction buffer on new kernel start (prevents stale instructions)
-            if (kernel_start) begin
-                warp_inst_buf_valid <= 0;
-                warp_next_inst_valid <= 0;
-            end else begin
-            // Debug: trace consume/fill
-            // Handle each warp's buffer valid bit
-            for (w_buf = 0; w_buf < NUM_WARPS; w_buf = w_buf + 1) begin
-                if (warp_fill[w_buf]) begin
-                    // Fill takes priority - buffer valid regardless of consume
-                    warp_inst_buf_valid[w_buf] <= 1'b1;
-                end else if (warp_inst_consume_gated[w_buf]) begin
-                    // Consume only clears if no fill happening
-                    warp_inst_buf_valid[w_buf] <= 1'b0;
-                end
+        if (rst_n && !kernel_start) begin
+            for (fetch_pc_i = 0; fetch_pc_i < NUM_WARPS; fetch_pc_i = fetch_pc_i + 1) begin
+                if (fetch_pc_advance[fetch_pc_i] || nib_pc_advance[fetch_pc_i])
+                    warp_fetch_pc[fetch_pc_i] <= warp_fetch_pc[fetch_pc_i] + 4;
             end
-
-            // Fill instruction data (PC already advanced on fetch_fire)
-            if (same_cycle_hit) begin
-                // Same-cycle hit: use fetch_warp_id (the requesting warp)
-                warp_inst_buf[fetch_warp_id] <= icache_data;
-            end else if (early_response_valid) begin
-                // Early response (1-cycle latency): use warp ID from pipeline stage 0
-                warp_inst_buf[fetch_pipe_warp[0]] <= icache_data;
-            end else if (delayed_response_valid) begin
-                // Delayed response: use warp ID from final pipeline stage
-                warp_inst_buf[fetch_pipe_warp[FETCH_PIPE_DEPTH-1]] <= icache_data;
-            end
-
-            // RALPH-8 P0: Buffer the upper 32-bit word from 64-bit fetch response
-            // In bypass mode, imem_data = {instr[PC/4+1], instr[PC/4]}
-            // The upper word is the next sequential instruction
-            if (ICACHE_BYPASS && fill_valid) begin
-                warp_next_inst[fill_warp_id] <= imem_data[63:32];
-                // The filled instruction is at warp_fetch_pc - 4 (PC already advanced)
-                // So the next instruction is at warp_fetch_pc (current fetch PC)
-                warp_next_inst_pc[fill_warp_id] <= warp_fetch_pc[fill_warp_id];
-                warp_next_inst_valid[fill_warp_id] <= 1'b1;
-            end
-
-            // RALPH-8 P0: Serve from next-inst buffer when there's a hit
-            // This replaces a memory fetch with a buffer read
-            for (w_buf = 0; w_buf < NUM_WARPS; w_buf = w_buf + 1) begin
-                if (warp_next_inst_hit[w_buf] && warp_buf_will_be_empty[w_buf]
-                    && !warp_fill[w_buf] && !warp_fetch_pending[w_buf]) begin
-                    warp_inst_buf[w_buf] <= warp_next_inst[w_buf];
-                    warp_inst_buf_valid[w_buf] <= 1'b1;
-                    warp_next_inst_valid[w_buf] <= 1'b0;  // Consume buffer
-                    warp_fetch_pc[w_buf] <= warp_fetch_pc[w_buf] + 4;  // Advance PC
-                end
-            end
-
-            // Invalidate next-inst buffer on branch/jump (PC changes unexpectedly)
-            // This is handled implicitly: if PC doesn't match, warp_next_inst_hit=0
-
-            // PC advances when fetch request is sent (not on response)
-            // This ensures PC points to the NEXT instruction to fetch
-            if (fetch_fire) begin
-                warp_fetch_pc[fetch_warp_id] <= warp_fetch_pc[fetch_warp_id] + 4;
-            end
-            end // end of else (not kernel_start)
         end
     end
+
     //========================================================================
     // STAGE 2: PRE-DECODE & SCHEDULING (Replaces old Decode)
     //========================================================================
@@ -5145,13 +4893,15 @@ module streaming_multiprocessor_v2 #(
                 // For divergent branches, stall is cleared in the divergent_branch handler below
             end
             // Handle non-divergent branch taken
+            // Clear branch flush (pulse) — branch sets below override via NBA
+            branch_flush_mask <= {NUM_WARPS{1'b0}};
+
             if (branch_taken_combined) begin
                 warp_pc[issue_warp_id] <= branch_target_combined;
                 warp_fetch_pc[issue_warp_id] <= branch_target_combined;
                 warp_mask[issue_warp_id] <= issue_mask;
                 // Flush instruction buffer and pipeline for this warp
-                warp_inst_buf_valid[issue_warp_id] <= 1'b0;
-                warp_fetch_pending[issue_warp_id] <= 1'b0;
+                branch_flush_mask[issue_warp_id] <= 1'b1;
             end
 
             // Handle divergent branch
@@ -5194,8 +4944,7 @@ module streaming_multiprocessor_v2 #(
                 end
 
                 // Flush instruction buffer and pipeline to ensure next fetch uses new mask
-                warp_inst_buf_valid[issue_warp_id] <= 1'b0;
-                warp_fetch_pending[issue_warp_id] <= 1'b0;
+                branch_flush_mask[issue_warp_id] <= 1'b1;
 
                 // Clear branch stall - divergent branch is handled, warp can continue with new mask
                 warp_stalled_branch[issue_warp_id] <= 1'b0;
@@ -5218,8 +4967,7 @@ module streaming_multiprocessor_v2 #(
                 warp_fetch_pc[issue1_warp_id] <= branch1_target_combined;
                 warp_mask[issue1_warp_id] <= issue1_mask;
                 // Flush instruction buffer and pipeline for this warp
-                warp_inst_buf_valid[issue1_warp_id] <= 1'b0;
-                warp_fetch_pending[issue1_warp_id] <= 1'b0;
+                branch_flush_mask[issue1_warp_id] <= 1'b1;
             end
 
             // Handle divergent branch on lane 1
@@ -5260,8 +5008,7 @@ module streaming_multiprocessor_v2 #(
                 end
 
                 // Flush instruction buffer and pipeline
-                warp_inst_buf_valid[issue1_warp_id] <= 1'b0;
-                warp_fetch_pending[issue1_warp_id] <= 1'b0;
+                branch_flush_mask[issue1_warp_id] <= 1'b1;
 
                 // Clear branch stall
                 warp_stalled_branch[issue1_warp_id] <= 1'b0;
@@ -5324,8 +5071,7 @@ module streaming_multiprocessor_v2 #(
                 warp_stalled_branch[issue_warp_id] <= 1'b0;
                 warp_pc[issue_warp_id] <= issue_pc + 32'd4;
                 warp_fetch_pc[issue_warp_id] <= issue_pc + 32'd4;
-                warp_inst_buf_valid[issue_warp_id] <= 1'b0;
-                warp_fetch_pending[issue_warp_id] <= 1'b0;
+                branch_flush_mask[issue_warp_id] <= 1'b1;
             end
             
             // Handle bar.sync from issue slot 1
@@ -5337,8 +5083,7 @@ module streaming_multiprocessor_v2 #(
                 warp_stalled_branch[issue1_warp_id] <= 1'b0;
                 warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
                 warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
-                warp_inst_buf_valid[issue1_warp_id] <= 1'b0;
-                warp_fetch_pending[issue1_warp_id] <= 1'b0;
+                branch_flush_mask[issue1_warp_id] <= 1'b1;
                 
             end
             
