@@ -1567,8 +1567,7 @@ module streaming_multiprocessor_v2 #(
         .memory_pipe_ready(pipe_memory_ready),
         .branch_unit_ready(pipe_branch_ready),
         // Detect tensor conflict: both scheduler slots selected tensor, but only one can push
-        .tensor_issue_conflict(sched_issue_valid_mask[0] && sched_issue_valid_mask[1] &&
-                               sched_issue_pipe[0] == 3'd2 && sched_issue_pipe[1] == 3'd2),
+        .tensor_issue_conflict(tensor_dual_issue_conflict),
         .pipeline_stall(decode_stalled_slot0),
         .pipeline_stall_slot1(decode_stalled_slot1),
         .fu_conflict_sb_clr_valid(fu_conflict_sb_clr_valid),
@@ -1658,8 +1657,12 @@ module streaming_multiprocessor_v2 #(
     
     // Map Scheduler Output to Pipeline Signals
     // Gate issue fire by decode stall — don't accept new instructions while stalled
+    // Detect dual-tensor conflict at SM level: both slots selected tensor but only one can push
+    wire tensor_dual_issue_conflict = sched_issue_valid_mask[0] && sched_issue_valid_mask[1] &&
+                                      sched_issue_pipe[0] == 3'd2 && sched_issue_pipe[1] == 3'd2;
     assign issue0_fire = sched_issue_valid_mask[0] && !decode_stalled_any;
-    assign issue1_fire = sched_issue_valid_mask[1] && !decode_stalled_slot1 && !lane_unit_conflict;
+    assign issue1_fire = sched_issue_valid_mask[1] && !decode_stalled_slot1 && !lane_unit_conflict
+                         && !tensor_dual_issue_conflict;
 
     // DEBUG: Scheduler output
     always @(posedge clk) begin
