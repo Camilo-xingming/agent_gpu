@@ -1035,10 +1035,10 @@ module streaming_multiprocessor_v2 #(
     reg [SIMD_WIDTH-1:0] alu_result_pipe;
     reg                 alu_valid_pipe;
 
-    // MUL pipeline tracking (1 stage)
-    reg [WARP_ID_W-1:0] mul_warp_pipe;
-    reg [4:0]           mul_rd_pipe;
-    reg [NUM_LANES-1:0] mul_mask_pipe;
+    // MUL pipeline tracking (2 stages for 2-cycle mul_unit latency)
+    reg [WARP_ID_W-1:0] mul_warp_pipe [0:1];
+    reg [4:0]           mul_rd_pipe [0:1];
+    reg [NUM_LANES-1:0] mul_mask_pipe [0:1];
 
     // FPU32 pipeline tracking (1 stage for 1-cycle simd_fpu latency)
     reg [WARP_ID_W-1:0] fpu32_warp_pipe [0:0];
@@ -2710,13 +2710,20 @@ module streaming_multiprocessor_v2 #(
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            mul_warp_pipe <= 0;
-            mul_rd_pipe <= 0;
-            mul_mask_pipe <= 0;
-        end else if (mul_issue) begin
-            mul_warp_pipe <= mul_issue_warp;
-            mul_rd_pipe <= mul_issue_rd;
-            mul_mask_pipe <= mul_issue_mask;
+            mul_warp_pipe[0] <= 0; mul_warp_pipe[1] <= 0;
+            mul_rd_pipe[0] <= 0;   mul_rd_pipe[1] <= 0;
+            mul_mask_pipe[0] <= 0; mul_mask_pipe[1] <= 0;
+        end else begin
+            // Stage 0: capture at issue
+            if (mul_issue) begin
+                mul_warp_pipe[0] <= mul_issue_warp;
+                mul_rd_pipe[0]   <= mul_issue_rd;
+                mul_mask_pipe[0] <= mul_issue_mask;
+            end
+            // Stage 1: shift to align with 2-cycle mul_unit valid_out
+            mul_warp_pipe[1] <= mul_warp_pipe[0];
+            mul_rd_pipe[1]   <= mul_rd_pipe[0];
+            mul_mask_pipe[1] <= mul_mask_pipe[0];
         end
     end
 
@@ -3415,7 +3422,7 @@ module streaming_multiprocessor_v2 #(
     // Writeback queues (capture FU outputs for arbitration)
     //------------------------------------------------------------------------
     assign alu_wbq_in = pack_wb(alu_warp_pipe, alu_rd_pipe, alu_mask_pipe, alu_result_pipe);
-    assign mul_wbq_in = pack_wb(mul_warp_pipe, mul_rd_pipe, mul_mask_pipe, mul_result);
+    assign mul_wbq_in = pack_wb(mul_warp_pipe[1], mul_rd_pipe[1], mul_mask_pipe[1], mul_result);
     assign fpu32_wbq_in = pack_wb(fpu32_warp_pipe[0], fpu32_rd_pipe[0], fpu32_mask_pipe[0], fpu32_result);
     assign fpu64_wbq_in = pack_wb(fpu64_warp_pipe[4], fpu64_rd_pipe[4], fpu64_mask_pipe[4], fpu64_result_trunc);
     assign fp16_wbq_in = pack_wb(fp16_warp_pipe[2], fp16_rd_pipe[2], fp16_mask_pipe[2], fp16_result);

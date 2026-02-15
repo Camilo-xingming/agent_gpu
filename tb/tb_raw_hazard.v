@@ -49,12 +49,12 @@ module tb_raw_hazard;
     // ---- Encoding ----
     function [31:0] encode_iadd;
         input [4:0] rd, ra, rb;
-        encode_iadd = {`OP_ALU, rd, ra, rb, 1'b0, 5'h00, 4'h0};
+        encode_iadd = {`OP_ALU, rd, ra, rb, 5'b0, 6'h0};  // Fixed: was 31 bits
     endfunction
 
     function [31:0] encode_imul;
         input [4:0] rd, ra, rb;
-        encode_imul = {`OP_MUL, rd, ra, rb, 1'b0, 5'h00, 4'h0};
+        encode_imul = {`OP_MUL, rd, ra, rb, 5'b0, 6'h0};  // Fixed: was 31 bits
     endfunction
 
     function [31:0] encode_mov_imm;
