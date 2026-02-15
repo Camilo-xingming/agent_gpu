@@ -51,6 +51,14 @@ module blackwell_scheduler #(
     input  wire [NUM_WARPS-1:0]     warp_is_tensor,
     input  wire [NUM_WARPS-1:0]     warp_is_memory,
     input  wire [NUM_WARPS-1:0]     warp_is_branch,
+    // Fine-grained FU types for conflict detection
+    input  wire [NUM_WARPS-1:0]     warp_is_alu,
+    input  wire [NUM_WARPS-1:0]     warp_is_mul,
+    input  wire [NUM_WARPS-1:0]     warp_is_fp32,
+    input  wire [NUM_WARPS-1:0]     warp_is_fp16,
+    input  wire [NUM_WARPS-1:0]     warp_is_sfu,
+    input  wire [NUM_WARPS-1:0]     warp_is_shfl,
+    input  wire [NUM_WARPS-1:0]     warp_is_video,
     input  wire [NUM_WARPS-1:0]     warp_writes_reg,
 
     //------------------------------------------------------------------------
@@ -104,6 +112,10 @@ module blackwell_scheduler #(
     // Writeback Interface (for scoreboard clearing)
     //------------------------------------------------------------------------
     input  wire                     pipeline_stall,
+    // Issue-stage FU conflict scoreboard rollback
+    input  wire                     fu_conflict_sb_clr_valid,
+    input  wire [$clog2(NUM_WARPS)-1:0] fu_conflict_sb_clr_warp,
+    input  wire [4:0]              fu_conflict_sb_clr_rd,
     input  wire                     pipeline_stall_slot1,
     // Tensor scoreboard deferred SET: SM signals when tensor push actually succeeds
     input  wire                     tensor_sb_set_valid,
@@ -233,6 +245,7 @@ module blackwell_scheduler #(
     reg [INST_WIDTH-1:0]     issue_inst_r [0:NUM_SCHEDULERS-1];
     reg [2:0]                issue_pipe_r [0:NUM_SCHEDULERS-1];
     reg [NUM_WARPS-1:0]      issue_consume_r;
+    reg sched_fu_conflict;
 
     // Round-robin pointer per scheduler (for fairness within assigned warps)
     reg [WARP_W-1:0] sched_rr_ptr [0:NUM_SCHEDULERS-1];
@@ -255,6 +268,7 @@ module blackwell_scheduler #(
     integer s, sw;
     always @(*) begin
         issue_valid_r = 0;
+        sched_fu_conflict = 1'b0;
         issue_consume_r = 0;
         issue_is_async_mma_r = 0;
         for (s = 0; s < NUM_SCHEDULERS; s = s + 1) begin
@@ -347,7 +361,24 @@ module blackwell_scheduler #(
                 end
             end
         end
-    end
+    
+        // Compute FU conflict after selection (suppress slot 1 if same FU as slot 0)
+        if (NUM_SCHEDULERS >= 2 && issue_valid_r[0] && issue_valid_r[1]) begin
+            if ((warp_is_alu[issue_warp_r[0]] && warp_is_alu[issue_warp_r[1]]) ||
+                (warp_is_mul[issue_warp_r[0]] && warp_is_mul[issue_warp_r[1]]) ||
+                (warp_is_fp32[issue_warp_r[0]] && warp_is_fp32[issue_warp_r[1]]) ||
+                (warp_is_fp16[issue_warp_r[0]] && warp_is_fp16[issue_warp_r[1]]) ||
+                (warp_is_sfu[issue_warp_r[0]] && warp_is_sfu[issue_warp_r[1]]) ||
+                (warp_is_shfl[issue_warp_r[0]] && warp_is_shfl[issue_warp_r[1]]) ||
+                (warp_is_video[issue_warp_r[0]] && warp_is_video[issue_warp_r[1]]) ||
+                (warp_is_memory[issue_warp_r[0]] && warp_is_memory[issue_warp_r[1]]) ||
+                warp_is_branch[issue_warp_r[0]]) begin
+                sched_fu_conflict = 1'b1;
+                issue_valid_r[1] = 1'b0;  // Suppress slot 1
+                issue_consume_r[issue_warp_r[1]] = 1'b0;  // Don't consume slot 1's instruction
+            end
+        end
+end
 
     // Output async MMA info
     always @(*) begin
@@ -394,7 +425,8 @@ module blackwell_scheduler #(
             for (sb_s = 0; sb_s < NUM_SCHEDULERS; sb_s = sb_s + 1) begin
                 // Skip scoreboard SET when pipeline stalled or when slot 1 tensor was suppressed
                 if (issue_valid_r[sb_s] && !pipeline_stall && 
-                    !(sb_s > 0 && tensor_issue_conflict)) begin
+                    !(sb_s > 0 && tensor_issue_conflict) &&
+                    !(sb_s > 0 && sched_fu_conflict)) begin
                     // Standard register scoreboard update
                     // For tensor ops: defer scoreboard SET to tensor_sb_set feedback
                     // (scoreboard set happens when SM's tensor push actually succeeds)
@@ -425,7 +457,7 @@ module blackwell_scheduler #(
                     // tcgen05.dealloc is required before kernel exit
 
                     // Update round-robin pointer for fairness (gated by stall and conflict)
-                    if (!pipeline_stall && !(sb_s > 0 && tensor_issue_conflict))
+                    if (!pipeline_stall && !(sb_s > 0 && tensor_issue_conflict) && !(sb_s > 0 && sched_fu_conflict))
                         begin : rr_ptr_wrap
                             reg [WARP_W-1:0] next_rr;
                             next_rr = sched_rr_ptr[sb_s] + 1'b1;
@@ -443,6 +475,11 @@ module blackwell_scheduler #(
             // Clear scoreboard on writeback
             if (wb_valid) begin
                 scoreboard[wb_warp_id][wb_rd] <= 1'b0;
+            end
+
+            // Rollback scoreboard SET for issue-stage FU conflict (slot 1 dropped)
+            if (fu_conflict_sb_clr_valid) begin
+                scoreboard[fu_conflict_sb_clr_warp][fu_conflict_sb_clr_rd] <= 1'b0;
             end
 
             // Clear scoreboard on WGMMA completion
