@@ -1502,7 +1502,7 @@ module streaming_multiprocessor_v2 #(
     wire tensor_inflight_dec1 = dec1_valid && dec1_tensor_op;
     wire [3:0] tensor_inflight_count = {2'b0, tensor_inflight_dec0} + {2'b0, tensor_inflight_dec1};
     // Reserve queue slots for in-flight tensor ops
-    wire pipe_tensor_ready = (tensor_issue_count + {{(TENSOR_ISSUE_COUNT_W-4){1'b0}}, tensor_inflight_count} < TENSOR_ISSUE_DEPTH_VAL) && wgmma_ready;
+    wire pipe_tensor_ready = (tensor_issue_count + {{(TENSOR_ISSUE_COUNT_W-4){1'b0}}, tensor_inflight_count} + 4 < TENSOR_ISSUE_DEPTH_VAL) && wgmma_ready;
     // Memory pipeline ready only if no memory ops in flight AND not stalled
     // Also gate with ace_ready for cp.async backpressure (OP_CPASYNC is classified as memory)
     wire pipe_memory_ready   = (mem_pipe_inflight == 0) && !issue_stall_mem && ace_ready;
@@ -1661,7 +1661,8 @@ module streaming_multiprocessor_v2 #(
     // Per-warp decode stall tracking
     wire decode_stalled_any = dec0_valid && !lane0_ready;
     wire decode_stalled_slot0 = dec0_valid && !lane0_ready;
-    wire decode_stalled_slot1 = dec1_valid && !lane1_ready;
+    wire lane1_tensor_can_push = dec1_valid && dec1_tensor_op && !tensor_issue_full_next;
+    wire decode_stalled_slot1 = dec1_valid && !lane1_ready && !lane1_tensor_can_push;
     wire [NUM_WARPS-1:0] decode_stalled_per_warp;
     assign decode_stalled_per_warp = {NUM_WARPS{decode_stalled_any}} & (1 << dec0_warp_id);
     wire decode_stalled = decode_stalled_any; // Keep for backward compat in single-warp cases
@@ -2954,42 +2955,39 @@ module streaming_multiprocessor_v2 #(
 
     // Tensor issue queue (captures operands/metadata to align with TC readiness)
     // Tensor issue queue accepts from BOTH lanes (lane0 priority)
-    // Per-PC tensor push dedup: tracks last successfully pushed PC per warp.
-    // Catches d1 stale re-issues where the PC hasn't advanced (slot1 during conflicts).
-    // Slot0 re-issues may slip through when PC advances at issue time.
-    // Combined with pfu gate, this eliminates most duplicate tensor writebacks.
-    reg [31:0] tensor_last_issue_pc [0:NUM_WARPS-1];
-    reg [NUM_WARPS-1:0] tensor_last_issue_valid;
-    wire tensor_push_lane0_raw = issue_valid && issue_tensor_op;
-    wire tensor_push_lane1_raw = issue1_valid && issue1_tensor_op && !tensor_push_lane0_raw;
-    wire tensor_reissue_lane0 = tensor_push_lane0_raw &&
-                                tensor_last_issue_valid[issue_warp_id] &&
-                                (tensor_last_issue_pc[issue_warp_id] == issue_pc);
-    wire tensor_reissue_lane1 = tensor_push_lane1_raw &&
-                                tensor_last_issue_valid[issue1_warp_id] &&
-                                (tensor_last_issue_pc[issue1_warp_id] == issue1_pc);
-    wire tensor_push_lane0 = tensor_push_lane0_raw && !tensor_reissue_lane0;
-    wire tensor_push_lane1 = tensor_push_lane1_raw && !tensor_reissue_lane1;
-    assign tensor_issue_push = tensor_push_lane0 || tensor_push_lane1;
-    integer tp_i;
+    // 2-cycle per-warp lockout: blocks pipeline echoes after a successful tensor push.
+    // d1 stale re-issues can persist for 2 cycles when warp_inst_consume doesn't
+    // advance the PC immediately (slot1 during conflicts, decode stalls).
+    // Using a 2-bit shift register per warp: bit[0] = cycle N+1, bit[1] = cycle N+2.
+    // No warp_exit_pending gate: the existing drain mechanism (pending_fu_count==0 &&
+    // scoreboard==0) correctly holds warp teardown until tensor writebacks complete.
+    reg [NUM_WARPS-1:0] tensor_push_lockout_0;  // lockout cycle 1
+    reg [NUM_WARPS-1:0] tensor_push_lockout_1;  // lockout cycle 2
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            tensor_last_issue_valid <= {NUM_WARPS{1'b0}};
-            for (tp_i = 0; tp_i < NUM_WARPS; tp_i = tp_i + 1)
-                tensor_last_issue_pc[tp_i] <= 32'hFFFFFFFF;
-        end else if (kernel_start)
-            tensor_last_issue_valid <= {NUM_WARPS{1'b0}};
-        else begin
-            if (tensor_issue_push_fire && tensor_push_lane0) begin
-                tensor_last_issue_valid[issue_warp_id] <= 1'b1;
-                tensor_last_issue_pc[issue_warp_id] <= issue_pc;
-            end
-            if (tensor_issue_push_fire && tensor_push_lane1) begin
-                tensor_last_issue_valid[issue1_warp_id] <= 1'b1;
-                tensor_last_issue_pc[issue1_warp_id] <= issue1_pc;
+            tensor_push_lockout_0 <= {NUM_WARPS{1'b0}};
+            tensor_push_lockout_1 <= {NUM_WARPS{1'b0}};
+        end else if (kernel_start) begin
+            tensor_push_lockout_0 <= {NUM_WARPS{1'b0}};
+            tensor_push_lockout_1 <= {NUM_WARPS{1'b0}};
+        end else begin
+            // Shift: cycle 2 gets cycle 1's value, cycle 1 gets fresh set
+            tensor_push_lockout_1 <= tensor_push_lockout_0;
+            tensor_push_lockout_0 <= {NUM_WARPS{1'b0}};
+            if (tensor_issue_push_fire) begin
+                if (tensor_push_lane0)
+                    tensor_push_lockout_0[issue_warp_id] <= 1'b1;
+                else if (tensor_push_lane1)
+                    tensor_push_lockout_0[issue1_warp_id] <= 1'b1;
             end
         end
     end
+    wire [NUM_WARPS-1:0] tensor_push_locked = tensor_push_lockout_0 | tensor_push_lockout_1;
+    wire tensor_push_lane0_raw = issue_valid && issue_tensor_op;
+    wire tensor_push_lane1_raw = issue1_valid && issue1_tensor_op && !tensor_push_lane0;
+    wire tensor_push_lane0 = tensor_push_lane0_raw && !tensor_push_locked[issue_warp_id];
+    wire tensor_push_lane1 = tensor_push_lane1_raw && !tensor_push_locked[issue1_warp_id];
+    assign tensor_issue_push = tensor_push_lane0 || tensor_push_lane1;
     assign tensor_issue_push_data = tensor_push_lane0 ?
         pack_tensor_issue(issue_warp_id, issue_rd,
                           issue_mask, issue_func[3:0],
