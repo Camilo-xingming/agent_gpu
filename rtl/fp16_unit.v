@@ -442,6 +442,205 @@ module fp16_unit (
                                      {16'b0, op_b_r2[15:0]} : {16'b0, op_a_r2[15:0]};
                         end
                     end
+                    //----------------------------------------------------
+                    // FP16 Transcendental Operations (ML)
+                    //----------------------------------------------------
+                    `FP16_TANH: begin
+                        // tanh(x) approximation
+                        // For |x| >= 3.0, saturate to +/-1.0 (error < 0.005)
+                        // For |x| < 3.0, use rational approx:
+                        //   tanh(x) ~ x * (27 + x^2) / (27 + 9*x^2)
+                        //   (Pade [1/1] based, max error ~2% over [-3,3])
+                        if (fp16_a_is_nan) begin
+                            result <= {16'b0, FP16_NAN};
+                            invalid <= 1'b1;
+                        end else if (fp16_a_is_zero) begin
+                            result <= {16'b0, op_a_r2[15:0]};  // tanh(0) = 0, preserve sign
+                        end else begin
+                            begin : tanh_compute
+                                reg [31:0] abs_x, x_sq, x_sq_9, numer, denom, ratio, tanh_approx;
+                                abs_x = {1'b0, fp32_a[30:0]};
+                                // |x| >= 3.0 (FP16 exp field >= 16 with mant >= 0x200, or exp >= 17)
+                                // 3.0 in FP16 = 0x4200 (exp=16, mant=0x200)
+                                // Simpler: compare raw magnitude bits
+                                if ({1'b0, op_a_r2[14:0]} >= 16'h4200) begin
+                                    result <= {16'b0, op_a_r2[15], 5'b01111, 10'b0};  // +/-1.0
+                                end else begin
+                                    // Pade approx: tanh(x) ~ x * (27 + x^2) / (27 + 9*x^2)
+                                    // 27.0 in FP32 = 0x41D80000
+                                    // 9.0 in FP32  = 0x41100000
+                                    x_sq = fp32_mul(abs_x, abs_x);
+                                    // numerator = 27 + x^2
+                                    numer = fp32_add(32'h41D80000, x_sq);
+                                    // 9 * x^2
+                                    x_sq_9 = fp32_mul(32'h41100000, x_sq);
+                                    // denominator = 27 + 9*x^2
+                                    denom = fp32_add(32'h41D80000, x_sq_9);
+                                    // ratio = numer / denom (using multiply by reciprocal)
+                                    // 1/denom approx: use Newton-Raphson or direct
+                                    // For simplicity and accuracy, use iterative reciprocal:
+                                    // r0 = 1/27 ~ 0.037 = 0x3D170A3D as initial guess
+                                    // But safer: just divide exponents and mantissas
+                                    // Actually for Verilog sim, we can use a division function
+                                    ratio = fp32_div(numer, denom);
+                                    // tanh(x) = sign(x) * |x| * ratio
+                                    tanh_approx = fp32_mul(fp32_a, ratio);
+                                    if ({1'b0, tanh_approx[30:0]} > 32'h3F800000) begin
+                                        result <= {16'b0, tanh_approx[31], 5'b01111, 10'b0};
+                                    end else begin
+                                        result <= {16'b0, fp32_to_fp16(tanh_approx)};
+                                    end
+                                end
+                            end
+                            inexact <= 1'b1;
+                        end
+                    end
+
+                    `FP16_EX2: begin
+                        // 2^x using range reduction + polynomial
+                        // Split x = n + f where n = floor(x), f = x - n (fractional)
+                        // Then 2^x = 2^n * 2^f
+                        // 2^f ~ 1 + f*ln2 + (f*ln2)^2/2 + (f*ln2)^3/6 + (f*ln2)^4/24
+                        // Since |f| < 1, 4-term Taylor converges well
+                        if (fp16_a_is_nan) begin
+                            result <= {16'b0, FP16_NAN};
+                            invalid <= 1'b1;
+                        end else if (fp16_a_is_zero) begin
+                            result <= {16'b0, FP16_ONE};  // 2^0 = 1.0
+                        end else if (fp16_a_is_inf && !op_a_r2[15]) begin
+                            result <= {16'b0, FP16_INF};  // 2^(+inf) = +inf
+                        end else if (fp16_a_is_inf && op_a_r2[15]) begin
+                            result <= {16'b0, FP16_ZERO}; // 2^(-inf) = 0
+                        end else if (!op_a_r2[15] && op_a_r2[14:10] >= 5'd19) begin
+                            // x >= 16.0 -> overflow
+                            result <= {16'b0, FP16_INF};
+                            overflow <= 1'b1;
+                        end else if (op_a_r2[15] && op_a_r2[14:10] >= 5'd19) begin
+                            // x <= -16.0 -> underflow
+                            result <= {16'b0, FP16_ZERO};
+                            underflow <= 1'b1;
+                        end else begin
+                            // Range reduction: 2^x = 2^n * 2^f
+                            // where n = floor(x), f = x - n
+                            begin : ex2_compute
+                                reg [31:0] x_fp32, n_fp32, f_fp32;
+                                reg [31:0] fln2, fln2_sq, fln2_cu, fln2_4th;
+                                reg [31:0] term2, term3, term4, exp_f;
+                                reg signed [7:0] n_int;
+                                reg [7:0] result_exp;
+                                reg [15:0] fp16_exp_f;
+
+                                x_fp32 = fp32_a;
+
+                                // Extract integer part n = floor(x)
+                                // For FP16 range [-15, 15], n fits in small integer
+                                // Use FP32 floor: if exp >= 127, integer part exists
+                                if (x_fp32[30:23] < 8'd127) begin
+                                    // |x| < 1.0, so n=0 (positive) or n=-1 (negative)
+                                    if (x_fp32[31]) begin
+                                        n_int = -1;
+                                        n_fp32 = 32'hBF800000; // -1.0
+                                    end else begin
+                                        n_int = 0;
+                                        n_fp32 = 32'h00000000; // 0.0
+                                    end
+                                end else begin
+                                    begin : extract_int
+                                        reg [7:0] shift;
+                                        reg [22:0] mant_full;
+                                        reg [7:0] abs_n;
+                                        shift = x_fp32[30:23] - 8'd127;
+                                        mant_full = x_fp32[22:0];
+                                        // Integer = (1.mantissa) >> (23 - shift)
+                                        if (shift >= 8'd8)
+                                            abs_n = 8'd15; // clamp
+                                        else if (shift == 0)
+                                            abs_n = 8'd1;
+                                        else if (shift == 1)
+                                            abs_n = {6'b0, 1'b1, mant_full[22]};
+                                        else if (shift == 2)
+                                            abs_n = {5'b0, 1'b1, mant_full[22:21]};
+                                        else if (shift == 3)
+                                            abs_n = {4'b0, 1'b1, mant_full[22:20]};
+                                        else
+                                            abs_n = {3'b0, 1'b1, mant_full[22:19]};
+
+                                        if (x_fp32[31]) begin
+                                            // For negative: floor(-2.3) = -3, need ceiling of magnitude
+                                            // Check if there's a fractional part
+                                            n_int = -abs_n;
+                                            // Reconstruct n as FP32
+                                            n_fp32 = {1'b1, x_fp32[30:23], 23'b0};
+                                            // Mask out fractional bits
+                                            if (shift < 23)
+                                                n_fp32[22:0] = x_fp32[22:0] & ({23{1'b1}} << (23 - shift));
+                                            // For negative floor: need to subtract 1 if there's a fraction
+                                            f_fp32 = fp32_add(x_fp32, {~n_fp32[31], n_fp32[30:0]});
+                                            if (f_fp32[31] && f_fp32[30:0] != 0) begin
+                                                // x - trunc(x) < 0, so floor = trunc - 1
+                                                n_int = n_int - 1;
+                                                n_fp32 = fp32_add(n_fp32, 32'hBF800000);
+                                            end
+                                        end else begin
+                                            n_int = abs_n;
+                                            // Reconstruct n as FP32 (truncate fractional bits)
+                                            n_fp32 = {1'b0, x_fp32[30:23], 23'b0};
+                                            if (shift < 23)
+                                                n_fp32[22:0] = x_fp32[22:0] & ({23{1'b1}} << (23 - shift));
+                                        end
+                                    end
+                                end
+
+                                // f = x - n (fractional part, 0 <= f < 1)
+                                f_fp32 = fp32_add(x_fp32, {~n_fp32[31], n_fp32[30:0]});
+
+                                // 2^f using Taylor: e^(f*ln2)
+                                // ln(2) = 0x3F317218
+                                fln2 = fp32_mul(f_fp32, 32'h3F317218);
+                                fln2_sq = fp32_mul(fln2, fln2);
+                                fln2_cu = fp32_mul(fln2_sq, fln2);
+                                fln2_4th = fp32_mul(fln2_cu, fln2);
+
+                                // term2 = fln2^2 / 2
+                                if (fln2_sq[30:23] > 0)
+                                    term2 = {fln2_sq[31], fln2_sq[30:23] - 8'd1, fln2_sq[22:0]};
+                                else
+                                    term2 = 32'b0;
+                                // term3 = fln2^3 / 6 = fln2^3 * 0.16667
+                                term3 = fp32_mul(fln2_cu, 32'h3E2AAAAB);
+                                // term4 = fln2^4 / 24 = fln2^4 * 0.04167
+                                term4 = fp32_mul(fln2_4th, 32'h3D2AAAAB);
+
+                                // 2^f = 1 + fln2 + term2 + term3 + term4
+                                exp_f = fp32_add(32'h3F800000, fln2);
+                                exp_f = fp32_add(exp_f, term2);
+                                exp_f = fp32_add(exp_f, term3);
+                                exp_f = fp32_add(exp_f, term4);
+
+                                // 2^x = 2^n * 2^f
+                                // 2^n: adjust FP32 exponent by n
+                                if (exp_f[30:23] == 0 || (exp_f[31] && n_int < 0)) begin
+                                    result <= {16'b0, FP16_ZERO};
+                                end else begin
+                                    begin : scale_result
+                                        reg signed [9:0] new_exp;
+                                        new_exp = $signed({2'b0, exp_f[30:23]}) + $signed({{2{n_int[7]}}, n_int});
+                                        if (new_exp >= 10'sd255) begin
+                                            result <= {16'b0, FP16_INF};
+                                            overflow <= 1'b1;
+                                        end else if (new_exp <= 0) begin
+                                            result <= {16'b0, FP16_ZERO};
+                                            underflow <= 1'b1;
+                                        end else begin
+                                            result <= {16'b0, fp32_to_fp16({exp_f[31], new_exp[7:0], exp_f[22:0]})};
+                                        end
+                                    end
+                                end
+                            end
+                            inexact <= 1'b1;
+                        end
+                    end
+
 
                     //----------------------------------------------------
                     // BF16 Operations
@@ -833,6 +1032,56 @@ endcase
                     fp32_mul = {r_sign, 31'b0};  // Underflow to zero
                 end else begin
                     fp32_mul = {r_sign, r_exp[7:0], r_mant};
+                end
+            end
+        end
+    endfunction
+
+    //------------------------------------------------------------------------
+    // Simplified FP32 divider (for internal use)
+    //------------------------------------------------------------------------
+    function [31:0] fp32_div;
+        input [31:0] a, b;
+        reg         r_sign;
+        reg [7:0]   a_exp, b_exp;
+        reg [23:0]  a_mant, b_mant;
+        reg [47:0]  a_ext;
+        reg [24:0]  q;  // 25 bits to handle quotient >= 2^24
+        reg [8:0]   q_exp;
+        begin
+            r_sign = a[31] ^ b[31];
+            a_exp = a[30:23];
+            b_exp = b[30:23];
+
+            if (b_exp == 8'b0) begin
+                fp32_div = {r_sign, 8'hFF, 23'b0};
+            end else if (a_exp == 8'b0) begin
+                fp32_div = {r_sign, 31'b0};
+            end else begin
+                a_mant = {1'b1, a[22:0]};
+                b_mant = {1'b1, b[22:0]};
+
+                // Compute mantissa quotient: (a_mant << 24) / b_mant
+                a_ext = {a_mant, 24'b0};
+                q = a_ext / {1'b0, b_mant};  // 48-bit / 25-bit -> 25-bit quotient
+
+                // Base exponent: a/b = q * 2^(a_exp - b_exp - 24)
+                // IEEE: (q/2^23) * 2^(q_exp - 127), so q_exp = a_exp - b_exp + 126
+                q_exp = {1'b0, a_exp} - {1'b0, b_exp} + 9'd126;
+
+                // When a_mant >= b_mant: q in [2^24, 2^25), shift right & inc exp
+                // When a_mant < b_mant: q in [2^23, 2^24), already normalized
+                if (q[24]) begin
+                    q = q >> 1;
+                    q_exp = q_exp + 1;
+                end
+
+                if (q_exp >= 9'd255) begin
+                    fp32_div = {r_sign, 8'hFF, 23'b0};
+                end else if (q_exp == 0 || q_exp[8]) begin
+                    fp32_div = {r_sign, 31'b0};
+                end else begin
+                    fp32_div = {r_sign, q_exp[7:0], q[22:0]};
                 end
             end
         end
