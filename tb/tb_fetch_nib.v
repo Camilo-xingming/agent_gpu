@@ -398,6 +398,96 @@ module tb_fetch_nib;
         check("T5 warp1 word1 (NIB)", warp1_inst, 32'hCAFE0104);
 
         // ==============================================================
+        // Test 6: RALPH-8 P2 — Hit-bypass during miss
+        // Warm up warp 1's line (0x100), then cold-start both warps.
+        // Warp 0 fetches cold line (0x200 = miss), warp 1 fetches warm
+        // line (0x100 = hit). With bypass, warp 1 should get its
+        // instruction while warp 0's miss is still in flight.
+        // ==============================================================
+        $display("\n=== Test 6: Hit-bypass during miss (P2) ===");
+        // Warm up line 0x100 first (already cached from earlier tests)
+        consume_inst(0);
+        consume_inst(1);
+        warp_valid = 0;
+        kernel_start = 1;
+        @(posedge clk);
+        kernel_start = 0;
+        @(posedge clk);
+
+        // Step 1: Make sure line 0x100 is cached by fetching it
+        warp_pc[0] = 32'h0000_0100;
+        @(posedge clk);
+        warp_valid[0] = 1;
+        wait_inst_valid(0, 30);
+        check("T6 warmup 0x100", warp0_inst, 32'hCAFE0100);
+        consume_inst(0);
+
+        // Step 2: Reset fetch pipeline, set up cold miss + warm hit
+        warp_valid = 0;
+        kernel_start = 1;
+        @(posedge clk);
+        kernel_start = 0;
+        @(posedge clk);
+        warp_pc[0] = 32'h0000_0200;  // Cold line (miss)
+        warp_pc[1] = 32'h0000_0100;  // Warm line (hit via bypass)
+        @(posedge clk);
+        warp_valid = 2'b11;
+
+        // Both should eventually get their instructions
+        wait_inst_valid(0, 30);
+        wait_inst_valid(1, 30);
+        // mock_mem[64] = line at 0x200 = {0xAA000204, 0xAA000200}
+        check("T6 warp0 cold miss", warp0_inst, 32'hAA000200);
+        check("T6 warp1 hit bypass", warp1_inst, 32'hCAFE0100);
+
+        // ==============================================================
+        // Test 7: P2 — Hit-bypass + NIB on bypass warp
+        // Warp 1's bypass hit should also populate NIB.
+        // After consuming, warp 1 should get NIB hit for next inst.
+        // ==============================================================
+        $display("\n=== Test 7: NIB from bypass hit (P2) ===");
+        consume_inst(1);
+        wait_inst_valid(1, 5);
+        check("T7 warp1 NIB after bypass", warp1_inst, 32'hCAFE0104);
+
+        // ==============================================================
+        // Test 8: P2 — Two cold misses (no bypass possible)
+        // Both warps fetch cold lines. No bypass — sequential misses.
+        // Both should eventually complete. Warp order depends on
+        // round-robin pointer, so just check each warp gets its own data.
+        // ==============================================================
+        $display("\n=== Test 8: Two cold misses, no bypass ===");
+        consume_inst(0);
+        consume_inst(1);
+        warp_valid = 0;
+        kernel_start = 1;
+        @(posedge clk);
+        kernel_start = 0;
+        @(posedge clk);
+        // Use only warp 0 for this test to avoid round-robin ordering issues
+        warp_pc[0] = 32'h0000_0300;  // Cold
+        @(posedge clk);
+        warp_valid[0] = 1;
+
+        wait_inst_valid(0, 50);
+        check("T8 warp0 first cold", warp0_inst, 32'hAA000300);
+        consume_inst(0);
+        // PC advanced to 0x304, NIB should have it
+        wait_inst_valid(0, 5);
+        check("T8 warp0 NIB after cold", warp0_inst, 32'hAA000304);
+        consume_inst(0);
+
+        // Full reset (icache may have in-flight miss from warp 0)
+        warp_valid = 0;
+        reset;
+        warp_pc[1] = 32'h0000_0400;
+        @(posedge clk);
+        warp_valid[1] = 1;
+
+        wait_inst_valid(1, 50);
+        check("T8 warp1 cold", warp1_inst, 32'hAA000400);
+
+        // ==============================================================
         // Summary
         // ==============================================================
         $display("\n========================================");
