@@ -34,7 +34,9 @@ module ralph_gpu_top #(
     parameter L2_ENABLE      = 0                  // 1=enable L2 cache, 0=bypass L2 (direct to memory)
 )(
     input  wire                         clk,
+    /* verilator lint_off SYNCASYNCNET */
     input  wire                         rst_n,
+    /* verilator lint_on SYNCASYNCNET */
 
     //------------------------------------------------------------------------
     // 控制/状态接口 (CSR)
@@ -919,8 +921,11 @@ module ralph_gpu_top #(
     // Enhanced TLB with Hardware Page Walker
     // Two-level TLB: L1 per-SM (32 entries), L2 shared (512 entries)
     //------------------------------------------------------------------------
+    // TLB request ports — stub-driven until SMs are wired to TLB
     wire [NUM_SM-1:0] tlb_req_valid;
     wire [32*NUM_SM-1:0] tlb_req_vaddr;
+    assign tlb_req_valid = {NUM_SM{1'b0}};
+    assign tlb_req_vaddr = {(32*NUM_SM){1'b0}};
     wire [NUM_SM-1:0] tlb_resp_valid;
     wire [32*NUM_SM-1:0] tlb_resp_paddr;
     wire [NUM_SM-1:0] tlb_resp_fault;
@@ -965,10 +970,15 @@ module ralph_gpu_top #(
     // HBM Memory Controller
     // FR-FCFS scheduling with real DRAM timing
     //------------------------------------------------------------------------
+    // HBM request ports — stub-driven until L2 is wired to HBM controller
     wire hbm_req_valid;
     wire hbm_req_write;
     wire [31:0] hbm_req_addr;
     wire [1023:0] hbm_req_wdata;
+    assign hbm_req_valid = 1'b0;
+    assign hbm_req_write = 1'b0;
+    assign hbm_req_addr  = 32'b0;
+    assign hbm_req_wdata = 1024'b0;
     wire hbm_req_ready;
     wire hbm_resp_valid;
     wire [1023:0] hbm_resp_rdata;

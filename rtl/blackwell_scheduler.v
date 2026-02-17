@@ -266,11 +266,19 @@ module blackwell_scheduler #(
     // Compute pipe assignment: scheduler 0 -> pipe0, scheduler 1 -> pipe1, etc.
     wire [NUM_SCHEDULERS-1:0] compute_pipe_ready;
     generate
-        if (NUM_SCHEDULERS >= 1) assign compute_pipe_ready[0] = compute_pipe0_ready;
-        if (NUM_SCHEDULERS >= 2) assign compute_pipe_ready[1] = compute_pipe1_ready;
+        if (NUM_SCHEDULERS >= 1) begin : gen_pipe_ready_0
+            assign compute_pipe_ready[0] = compute_pipe0_ready;
+        end
+        if (NUM_SCHEDULERS >= 2) begin : gen_pipe_ready_1
+            assign compute_pipe_ready[1] = compute_pipe1_ready;
+        end
         // For NUM_SCHEDULERS > 2, share pipes (round-robin or priority)
-        if (NUM_SCHEDULERS >= 3) assign compute_pipe_ready[2] = compute_pipe0_ready; // Share with pipe0
-        if (NUM_SCHEDULERS >= 4) assign compute_pipe_ready[3] = compute_pipe1_ready; // Share with pipe1
+        if (NUM_SCHEDULERS >= 3) begin : gen_pipe_ready_2
+            assign compute_pipe_ready[2] = compute_pipe0_ready; // Share with pipe0
+        end
+        if (NUM_SCHEDULERS >= 4) begin : gen_pipe_ready_3
+            assign compute_pipe_ready[3] = compute_pipe1_ready; // Share with pipe1
+        end
     endgenerate
 
     // Async MMA ID allocation per scheduler
