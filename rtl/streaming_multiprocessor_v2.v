@@ -1110,24 +1110,15 @@ module streaming_multiprocessor_v2 #(
 
     // Writeback round-robin arbiter state
 
-    // Writeback output queues (per FU)
-    wire [WB_PKT_W-1:0] alu_wbq_in, alu_wbq_out;
-    wire [WB_PKT_W-1:0] mul_wbq_in, mul_wbq_out;
-    wire [WB_PKT_W-1:0] fpu32_wbq_in, fpu32_wbq_out;
-    wire [WB_PKT_W-1:0] fpu64_wbq_in, fpu64_wbq_out;
-    wire [WB_PKT_W-1:0] fp16_wbq_in, fp16_wbq_out;
-    wire [WB_PKT_W-1:0] sfu_wbq_in, sfu_wbq_out;
-    wire [WB_PKT_W-1:0] shfl_wbq_in, shfl_wbq_out;
-    wire [WB_PKT_W-1:0] video_wbq_in, video_wbq_out;
-    wire [WB_PKT_W-1:0] special_wbq_out;
-    wire                 alu_wbq_push, alu_wbq_pop, alu_wbq_full, alu_wbq_empty;
-    wire                 mul_wbq_push, mul_wbq_pop, mul_wbq_full, mul_wbq_empty;
-    wire                 fpu32_wbq_push, fpu32_wbq_pop, fpu32_wbq_full, fpu32_wbq_empty;
-    wire                 fpu64_wbq_push, fpu64_wbq_pop, fpu64_wbq_full, fpu64_wbq_empty;
-    wire                 fp16_wbq_push, fp16_wbq_pop, fp16_wbq_full, fp16_wbq_empty;
-    wire                 sfu_wbq_push, sfu_wbq_pop, sfu_wbq_full, sfu_wbq_empty;
-    wire                 shfl_wbq_push, shfl_wbq_pop, shfl_wbq_full, shfl_wbq_empty;
-    wire                 video_wbq_push, video_wbq_pop, video_wbq_full, video_wbq_empty;
+    // Writeback queue bank signals (FIFOs in sm_wbq_bank)
+    wire                 alu_wbq_pop, alu_wbq_full, alu_wbq_empty;
+    wire                 mul_wbq_pop, mul_wbq_full, mul_wbq_empty;
+    wire                 fpu32_wbq_pop, fpu32_wbq_full, fpu32_wbq_empty;
+    wire                 fpu64_wbq_pop, fpu64_wbq_full, fpu64_wbq_empty;
+    wire                 fp16_wbq_pop, fp16_wbq_full, fp16_wbq_empty;
+    wire                 sfu_wbq_pop, sfu_wbq_full, sfu_wbq_empty;
+    wire                 shfl_wbq_pop, shfl_wbq_full, shfl_wbq_empty;
+    wire                 video_wbq_pop, video_wbq_full, video_wbq_empty;
     wire                 special_wbq_pop, special_wbq_full, special_wbq_empty;
 
     // WBQ drop detection signals
@@ -3426,207 +3417,92 @@ module streaming_multiprocessor_v2 #(
     end
 
     //------------------------------------------------------------------------
-    // Writeback queues (capture FU outputs for arbitration)
+    // Writeback Queue Bank (9 FU FIFOs — extracted to sm_wbq_bank.v)
     //------------------------------------------------------------------------
-    assign alu_wbq_in = pack_wb(alu_warp_pipe, alu_rd_pipe, alu_mask_pipe, alu_result_pipe);
-    assign mul_wbq_in = pack_wb(mul_warp_pipe[1], mul_rd_pipe[1], mul_mask_pipe[1], mul_result);
-    assign fpu32_wbq_in = pack_wb(fpu32_warp_pipe[0], fpu32_rd_pipe[0], fpu32_mask_pipe[0], fpu32_result);
-    assign fpu64_wbq_in = pack_wb(fpu64_warp_pipe[4], fpu64_rd_pipe[4], fpu64_mask_pipe[4], fpu64_result_trunc);
-    assign fp16_wbq_in = pack_wb(fp16_warp_pipe[2], fp16_rd_pipe[2], fp16_mask_pipe[2], fp16_result);
-    assign sfu_wbq_in = pack_wb(sfu_warp_pipe[7], sfu_rd_pipe[7], sfu_mask_pipe[7], sfu_result);
-    assign shfl_wbq_in = pack_wb(shuffle_warp_pipe, shuffle_rd_pipe, shuffle_mask_pipe, shuffle_result_pipe);
-    assign video_wbq_in = pack_wb(video_warp_pipe[1], video_rd_pipe[1], video_mask_pipe[1], video_result);
-    wire [WB_PKT_W-1:0] special_wbq_in = pack_wb(special_warp_pipe, special_rd_pipe, special_mask_pipe, special_result_pipe);
-
-    assign alu_wbq_push = alu_valid_out;
-
-    // DEBUG: track ALU WBQ pushes
-    always @(posedge clk) begin
-        if (alu_wbq_push) begin
-        end
-    end
-    assign mul_wbq_push = mul_valid_out;
-    assign fpu32_wbq_push = fpu32_valid_out;
-    assign fpu64_wbq_push = fpu64_valid_out;
-    assign fp16_wbq_push = fp16_valid_out;
-    assign sfu_wbq_push = sfu_valid_out;
-    assign shfl_wbq_push = shuffle_valid_out;
-    assign video_wbq_push = video_valid_out;
-    wire special_wbq_push = special_valid_out;
-
-    wb_fifo #(
-        .WIDTH(WB_PKT_W),
-        .DEPTH(ALU_WBQ_DEPTH)
-    ) u_alu_wbq (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .push     (alu_wbq_push),
-        .push_data(alu_wbq_in),
-        .pop      (alu_wbq_pop),
-        .pop_data (alu_wbq_out),
-        .full     (alu_wbq_full),
-        .empty    (alu_wbq_empty),
-        .dropped (alu_wbq_dropped)
+    sm_wbq_bank #(
+        .ALU_WBQ_DEPTH  (ALU_WBQ_DEPTH),
+        .MUL_WBQ_DEPTH  (MUL_WBQ_DEPTH),
+        .FPU32_WBQ_DEPTH(FPU32_WBQ_DEPTH),
+        .FPU64_WBQ_DEPTH(FPU64_WBQ_DEPTH),
+        .FP16_WBQ_DEPTH (FP16_WBQ_DEPTH),
+        .SFU_WBQ_DEPTH  (SFU_WBQ_DEPTH),
+        .SHFL_WBQ_DEPTH (SHFL_WBQ_DEPTH),
+        .VIDEO_WBQ_DEPTH(VIDEO_WBQ_DEPTH)
+    ) u_wbq_bank (
+        .clk(clk), .rst_n(rst_n),
+        // ALU
+        .alu_warp(alu_warp_pipe), .alu_rd(alu_rd_pipe), .alu_mask(alu_mask_pipe),
+        .alu_data(alu_result_pipe), .alu_valid(alu_valid_out),
+        .alu_pop(alu_wbq_pop),
+        .alu_wbq_warp(alu_wbq_warp), .alu_wbq_rd(alu_wbq_rd),
+        .alu_wbq_mask(alu_wbq_mask), .alu_wbq_data(alu_wbq_data),
+        .alu_wbq_full(alu_wbq_full), .alu_wbq_empty(alu_wbq_empty),
+        .alu_wbq_dropped(alu_wbq_dropped),
+        // MUL
+        .mul_warp(mul_warp_pipe[1]), .mul_rd(mul_rd_pipe[1]), .mul_mask(mul_mask_pipe[1]),
+        .mul_data(mul_result), .mul_valid(mul_valid_out),
+        .mul_pop(mul_wbq_pop),
+        .mul_wbq_warp(mul_wbq_warp), .mul_wbq_rd(mul_wbq_rd),
+        .mul_wbq_mask(mul_wbq_mask), .mul_wbq_data(mul_wbq_data),
+        .mul_wbq_full(mul_wbq_full), .mul_wbq_empty(mul_wbq_empty),
+        .mul_wbq_dropped(mul_wbq_dropped),
+        // FPU32
+        .fpu32_warp(fpu32_warp_pipe[0]), .fpu32_rd(fpu32_rd_pipe[0]), .fpu32_mask(fpu32_mask_pipe[0]),
+        .fpu32_data(fpu32_result), .fpu32_valid(fpu32_valid_out),
+        .fpu32_pop(fpu32_wbq_pop),
+        .fpu32_wbq_warp(fpu32_wbq_warp), .fpu32_wbq_rd(fpu32_wbq_rd),
+        .fpu32_wbq_mask(fpu32_wbq_mask), .fpu32_wbq_data(fpu32_wbq_data),
+        .fpu32_wbq_full(fpu32_wbq_full), .fpu32_wbq_empty(fpu32_wbq_empty),
+        .fpu32_wbq_dropped(fpu32_wbq_dropped),
+        // FPU64
+        .fpu64_warp(fpu64_warp_pipe[4]), .fpu64_rd(fpu64_rd_pipe[4]), .fpu64_mask(fpu64_mask_pipe[4]),
+        .fpu64_data(fpu64_result_trunc), .fpu64_valid(fpu64_valid_out),
+        .fpu64_pop(fpu64_wbq_pop),
+        .fpu64_wbq_warp(fpu64_wbq_warp), .fpu64_wbq_rd(fpu64_wbq_rd),
+        .fpu64_wbq_mask(fpu64_wbq_mask), .fpu64_wbq_data(fpu64_wbq_data),
+        .fpu64_wbq_full(fpu64_wbq_full), .fpu64_wbq_empty(fpu64_wbq_empty),
+        .fpu64_wbq_dropped(fpu64_wbq_dropped),
+        // FP16
+        .fp16_warp(fp16_warp_pipe[2]), .fp16_rd(fp16_rd_pipe[2]), .fp16_mask(fp16_mask_pipe[2]),
+        .fp16_data(fp16_result), .fp16_valid(fp16_valid_out),
+        .fp16_pop(fp16_wbq_pop),
+        .fp16_wbq_warp(fp16_wbq_warp), .fp16_wbq_rd(fp16_wbq_rd),
+        .fp16_wbq_mask(fp16_wbq_mask), .fp16_wbq_data(fp16_wbq_data),
+        .fp16_wbq_full(fp16_wbq_full), .fp16_wbq_empty(fp16_wbq_empty),
+        .fp16_wbq_dropped(fp16_wbq_dropped),
+        // SFU
+        .sfu_warp(sfu_warp_pipe[7]), .sfu_rd(sfu_rd_pipe[7]), .sfu_mask(sfu_mask_pipe[7]),
+        .sfu_data(sfu_result), .sfu_valid(sfu_valid_out),
+        .sfu_pop(sfu_wbq_pop),
+        .sfu_wbq_warp(sfu_wbq_warp), .sfu_wbq_rd(sfu_wbq_rd),
+        .sfu_wbq_mask(sfu_wbq_mask), .sfu_wbq_data(sfu_wbq_data),
+        .sfu_wbq_full(sfu_wbq_full), .sfu_wbq_empty(sfu_wbq_empty),
+        .sfu_wbq_dropped(sfu_wbq_dropped),
+        // Shuffle
+        .shfl_warp(shuffle_warp_pipe), .shfl_rd(shuffle_rd_pipe), .shfl_mask(shuffle_mask_pipe),
+        .shfl_data(shuffle_result_pipe), .shfl_valid(shuffle_valid_out),
+        .shfl_pop(shfl_wbq_pop),
+        .shfl_wbq_warp(shfl_wbq_warp), .shfl_wbq_rd(shfl_wbq_rd),
+        .shfl_wbq_mask(shfl_wbq_mask), .shfl_wbq_data(shfl_wbq_data),
+        .shfl_wbq_full(shfl_wbq_full), .shfl_wbq_empty(shfl_wbq_empty),
+        .shfl_wbq_dropped(shfl_wbq_dropped),
+        // Video
+        .video_warp(video_warp_pipe[1]), .video_rd(video_rd_pipe[1]), .video_mask(video_mask_pipe[1]),
+        .video_data(video_result), .video_valid(video_valid_out),
+        .video_pop(video_wbq_pop),
+        .video_wbq_warp(video_wbq_warp), .video_wbq_rd(video_wbq_rd),
+        .video_wbq_mask(video_wbq_mask), .video_wbq_data(video_wbq_data),
+        .video_wbq_full(video_wbq_full), .video_wbq_empty(video_wbq_empty),
+        .video_wbq_dropped(video_wbq_dropped),
+        // Special register
+        .special_warp(special_warp_pipe), .special_rd(special_rd_pipe), .special_mask(special_mask_pipe),
+        .special_data(special_result_pipe), .special_valid(special_valid_out),
+        .special_pop(special_wbq_pop),
+        .special_wbq_warp(special_wbq_warp), .special_wbq_rd(special_wbq_rd),
+        .special_wbq_mask(special_wbq_mask), .special_wbq_data(special_wbq_data),
+        .special_wbq_full(special_wbq_full), .special_wbq_empty(special_wbq_empty),
+        .special_wbq_dropped(special_wbq_dropped)
     );
-
-    wb_fifo #(
-        .WIDTH(WB_PKT_W),
-        .DEPTH(MUL_WBQ_DEPTH)
-    ) u_mul_wbq (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .push     (mul_wbq_push),
-        .push_data(mul_wbq_in),
-        .pop      (mul_wbq_pop),
-        .pop_data (mul_wbq_out),
-        .full     (mul_wbq_full),
-        .empty    (mul_wbq_empty),
-        .dropped (mul_wbq_dropped)
-    );
-
-    wb_fifo #(
-        .WIDTH(WB_PKT_W),
-        .DEPTH(FPU32_WBQ_DEPTH)
-    ) u_fpu32_wbq (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .push     (fpu32_wbq_push),
-        .push_data(fpu32_wbq_in),
-        .pop      (fpu32_wbq_pop),
-        .pop_data (fpu32_wbq_out),
-        .full     (fpu32_wbq_full),
-        .empty    (fpu32_wbq_empty),
-        .dropped (fpu32_wbq_dropped)
-    );
-
-    wb_fifo #(
-        .WIDTH(WB_PKT_W),
-        .DEPTH(FPU64_WBQ_DEPTH)
-    ) u_fpu64_wbq (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .push     (fpu64_wbq_push),
-        .push_data(fpu64_wbq_in),
-        .pop      (fpu64_wbq_pop),
-        .pop_data (fpu64_wbq_out),
-        .full     (fpu64_wbq_full),
-        .empty    (fpu64_wbq_empty),
-        .dropped (fpu64_wbq_dropped)
-    );
-
-    wb_fifo #(
-        .WIDTH(WB_PKT_W),
-        .DEPTH(FP16_WBQ_DEPTH)
-    ) u_fp16_wbq (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .push     (fp16_wbq_push),
-        .push_data(fp16_wbq_in),
-        .pop      (fp16_wbq_pop),
-        .pop_data (fp16_wbq_out),
-        .full     (fp16_wbq_full),
-        .empty    (fp16_wbq_empty),
-        .dropped (fp16_wbq_dropped)
-    );
-
-    wb_fifo #(
-        .WIDTH(WB_PKT_W),
-        .DEPTH(SFU_WBQ_DEPTH)
-    ) u_sfu_wbq (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .push     (sfu_wbq_push),
-        .push_data(sfu_wbq_in),
-        .pop      (sfu_wbq_pop),
-        .pop_data (sfu_wbq_out),
-        .full     (sfu_wbq_full),
-        .empty    (sfu_wbq_empty),
-        .dropped (sfu_wbq_dropped)
-    );
-
-    wb_fifo #(
-        .WIDTH(WB_PKT_W),
-        .DEPTH(SHFL_WBQ_DEPTH)
-    ) u_shfl_wbq (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .push     (shfl_wbq_push),
-        .push_data(shfl_wbq_in),
-        .pop      (shfl_wbq_pop),
-        .pop_data (shfl_wbq_out),
-        .full     (shfl_wbq_full),
-        .empty    (shfl_wbq_empty),
-        .dropped (shfl_wbq_dropped)
-    );
-
-    // Video SIMD WBQ (2-cycle latency)
-    wb_fifo #(
-        .WIDTH(WB_PKT_W),
-        .DEPTH(VIDEO_WBQ_DEPTH)
-    ) u_video_wbq (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .push     (video_wbq_push),
-        .push_data(video_wbq_in),
-        .pop      (video_wbq_pop),
-        .pop_data (video_wbq_out),
-        .full     (video_wbq_full),
-        .empty    (video_wbq_empty),
-        .dropped (video_wbq_dropped)
-    );
-
-    // Special register WBQ (reuse ALU depth since it's also 1-cycle)
-    wb_fifo #(
-        .WIDTH(WB_PKT_W),
-        .DEPTH(ALU_WBQ_DEPTH)
-    ) u_special_wbq (
-        .clk      (clk),
-        .rst_n    (rst_n),
-        .push     (special_wbq_push),
-        .push_data(special_wbq_in),
-        .pop      (special_wbq_pop),
-        .pop_data (special_wbq_out),
-        .full     (special_wbq_full),
-        .empty    (special_wbq_empty),
-        .dropped (special_wbq_dropped)
-    );
-
-    assign alu_wbq_warp = alu_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
-    assign mul_wbq_warp = mul_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
-    assign fpu32_wbq_warp = fpu32_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
-    assign fpu64_wbq_warp = fpu64_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
-    assign fp16_wbq_warp = fp16_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
-    assign sfu_wbq_warp = sfu_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
-    assign shfl_wbq_warp = shfl_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
-    assign video_wbq_warp = video_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
-    assign alu_wbq_rd = alu_wbq_out[WB_RD_MSB:WB_RD_LSB];
-    assign mul_wbq_rd = mul_wbq_out[WB_RD_MSB:WB_RD_LSB];
-    assign fpu32_wbq_rd = fpu32_wbq_out[WB_RD_MSB:WB_RD_LSB];
-    assign fpu64_wbq_rd = fpu64_wbq_out[WB_RD_MSB:WB_RD_LSB];
-    assign fp16_wbq_rd = fp16_wbq_out[WB_RD_MSB:WB_RD_LSB];
-    assign sfu_wbq_rd = sfu_wbq_out[WB_RD_MSB:WB_RD_LSB];
-    assign shfl_wbq_rd = shfl_wbq_out[WB_RD_MSB:WB_RD_LSB];
-    assign video_wbq_rd = video_wbq_out[WB_RD_MSB:WB_RD_LSB];
-    assign alu_wbq_mask = alu_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
-    assign mul_wbq_mask = mul_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
-    assign fpu32_wbq_mask = fpu32_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
-    assign fpu64_wbq_mask = fpu64_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
-    assign fp16_wbq_mask = fp16_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
-    assign sfu_wbq_mask = sfu_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
-    assign shfl_wbq_mask = shfl_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
-    assign video_wbq_mask = video_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
-    assign alu_wbq_data = alu_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
-    assign mul_wbq_data = mul_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
-    assign fpu32_wbq_data = fpu32_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
-    assign fpu64_wbq_data = fpu64_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
-    assign fp16_wbq_data = fp16_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
-    assign sfu_wbq_data = sfu_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
-    assign shfl_wbq_data = shfl_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
-    assign video_wbq_data = video_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
-    assign special_wbq_warp = special_wbq_out[WB_WARP_MSB:WB_WARP_LSB];
-    assign special_wbq_rd = special_wbq_out[WB_RD_MSB:WB_RD_LSB];
-    assign special_wbq_mask = special_wbq_out[WB_MASK_MSB:WB_MASK_LSB];
-    assign special_wbq_data = special_wbq_out[WB_DATA_MSB:WB_DATA_LSB];
 
     //------------------------------------------------------------------------
     // Atomic Unit
