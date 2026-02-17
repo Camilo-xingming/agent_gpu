@@ -174,6 +174,10 @@ module icache #(
     reg [WAY_BITS-1:0] replace_way;
     reg is_prefetch_miss;
 
+    // RALPH-8 P3: Deferred prefetch — set after demand miss fill, serviced in IDLE
+    reg prefetch_pending;
+    reg [ADDR_WIDTH-1:0] prefetch_pending_addr;
+
     //------------------------------------------------------------------------
     // Replacement Policy (Pseudo-LRU)
     //------------------------------------------------------------------------
@@ -216,13 +220,14 @@ module icache #(
     reg invalidate_done_r;
     reg fetch_ready_r;
 
-    // Prefetch next line detection
-    wire [ADDR_WIDTH-1:0] next_line_addr = {fetch_addr[ADDR_WIDTH-1:OFFSET_BITS] + 1'b1, {OFFSET_BITS{1'b0}}};
-    wire should_prefetch = fetch_req && cache_hit && (state == ST_IDLE);
+    // RALPH-8 P3: Next-line prefetch after demand miss fill.
+    // After filling a demand miss, prefetch miss_addr + LINE_SIZE if not cached.
+    // P2 hit-bypass allows serving cache hits while the prefetch is in flight.
+    wire [ADDR_WIDTH-1:0] miss_next_line_addr = {miss_addr[ADDR_WIDTH-1:OFFSET_BITS] + 1'b1, {OFFSET_BITS{1'b0}}};
 
-    // Check if next line is already cached or in prefetch buffer
-    wire [INDEX_BITS-1:0]   next_index   = next_line_addr[OFFSET_BITS +: INDEX_BITS];
-    wire [TAG_BITS-1:0]     next_tag     = next_line_addr[ADDR_WIDTH-1 -: TAG_BITS];
+    // Check if next line after miss is already cached
+    wire [INDEX_BITS-1:0]   next_index   = miss_next_line_addr[OFFSET_BITS +: INDEX_BITS];
+    wire [TAG_BITS-1:0]     next_tag     = miss_next_line_addr[ADDR_WIDTH-1 -: TAG_BITS];
     wire [NUM_WAYS-1:0] next_way_hit;
 
     generate
@@ -239,14 +244,13 @@ module icache #(
     generate
         for (w = 0; w < PREFETCH_DEPTH; w = w + 1) begin : gen_next_prefetch
             wire [ADDR_WIDTH-1:0] pf_line_addr = {prefetch_addr[w][ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
-            assign next_prefetch_hit_vec[w] = prefetch_valid[w] && (pf_line_addr == next_line_addr);
+            assign next_prefetch_hit_vec[w] = prefetch_valid[w] && (pf_line_addr == miss_next_line_addr);
         end
     endgenerate
 
     wire next_line_prefetched = |next_prefetch_hit_vec;
-    // Disable prefetch for now - it blocks subsequent hits from same cache line
-    // TODO: Implement non-blocking prefetch that allows concurrent hits
-    wire need_prefetch = 1'b0;  // was: should_prefetch && !next_line_cached && !next_line_prefetched;
+    // Prefetch triggers on demand miss fill when next line isn't already available
+    wire need_prefetch = !next_line_cached && !next_line_prefetched;
 
     integer rst_i, rst_j;
     always @(posedge clk or negedge rst_n) begin
@@ -266,6 +270,8 @@ module icache #(
             miss_word <= 0;
             replace_way <= 0;
             is_prefetch_miss <= 1'b0;
+            prefetch_pending <= 1'b0;
+            prefetch_pending_addr <= 0;
             prefetch_valid <= 0;
             prefetch_head <= 0;
             prefetch_tail <= 0;
@@ -286,7 +292,11 @@ module icache #(
                     if (invalidate_req) begin
                         state <= ST_INVALIDATE;
                         fetch_ready_r <= 1'b0;
+                        prefetch_pending <= 1'b0;
                     end else if (fetch_req) begin
+                        // Demand fetch takes priority — cancel any pending prefetch
+                        prefetch_pending <= 1'b0;
+
                         // Single-cycle hit path: check hit combinatorially
                         if (cache_hit) begin
                             // Cache hit - combinatorial output handles valid/data
@@ -311,6 +321,13 @@ module icache #(
                             state <= ST_TAG_CHECK;
                             fetch_ready_r <= 1'b0;
                         end
+                    end else if (prefetch_pending) begin
+                        // RALPH-8 P3: No demand fetch — issue deferred prefetch
+                        prefetch_pending <= 1'b0;
+                        miss_addr <= prefetch_pending_addr;
+                        is_prefetch_miss <= 1'b1;
+                        state <= ST_PREFETCH;
+                        fetch_ready_r <= 1'b0;
                     end
                 end
 
@@ -349,14 +366,14 @@ module icache #(
                             fetch_line_data_r <= mem_resp_data;
                             fetch_valid_r <= 1'b1;
 
+                            // RALPH-8 P3: Defer prefetch — return to IDLE immediately.
+                            // Prefetch will be issued from IDLE if no demand fetch arrives.
                             if (need_prefetch) begin
-                                state <= ST_PREFETCH;
-                                miss_addr <= next_line_addr;
-                                is_prefetch_miss <= 1'b1;
-                            end else begin
-                                state <= ST_IDLE;
-                                fetch_ready_r <= 1'b1;
+                                prefetch_pending <= 1'b1;
+                                prefetch_pending_addr <= miss_next_line_addr;
                             end
+                            state <= ST_IDLE;
+                            fetch_ready_r <= 1'b1;
                         end else begin
                             // Fill prefetch buffer
                             prefetch_addr[prefetch_head] <= miss_addr;
@@ -377,11 +394,11 @@ module icache #(
                 end
 
                 ST_PREFETCH: begin
-                    // Issue prefetch request
+                    // Issue prefetch request (same handshake as ST_MISS_REQ)
                     mem_req_valid_r <= 1'b1;
                     mem_req_addr_r <= miss_addr;
 
-                    if (mem_req_ready) begin
+                    if (mem_req_valid_r && mem_req_ready) begin
                         mem_req_valid_r <= 1'b0;
                         state <= ST_MISS_WAIT;
                     end
@@ -441,7 +458,8 @@ module icache #(
     // RALPH-8 P2: Hit-bypass during miss — allows serving cache hits
     // while FSM is blocked handling a miss for a different line.
     // Only fires when FSM is NOT idle (miss in flight) and fetch_req sees a cache hit.
-    wire miss_pending = (state == ST_TAG_CHECK) || (state == ST_MISS_REQ) || (state == ST_MISS_WAIT);
+    // RALPH-8 P3: Include ST_PREFETCH so hit-bypass works during prefetch too
+    wire miss_pending = (state == ST_TAG_CHECK) || (state == ST_MISS_REQ) || (state == ST_MISS_WAIT) || (state == ST_PREFETCH);
     assign fetch_hit_bypass           = miss_pending && fetch_req && cache_hit;
     assign fetch_hit_bypass_data      = hit_data;
     assign fetch_hit_bypass_line_data = hit_line;
