@@ -377,6 +377,15 @@ module blackwell_scheduler #(
                 issue_valid_r[1] = 1'b0;  // Suppress slot 1
                 issue_consume_r[issue_warp_r[1]] = 1'b0;  // Don't consume slot 1's instruction
             end
+            // Tensor-tensor conflict: only one tensor push per cycle.
+            // Suppress slot1 entirely (like FU conflict) instead of using conflict_mask.
+            // This avoids the pipeline stage mismatch where conflict_mask blocks consume
+            // for the current scheduler selection while tensor push operates on previous decode.
+            if (warp_is_tensor[issue_warp_r[0]] && warp_is_tensor[issue_warp_r[1]]) begin
+                sched_fu_conflict = 1'b1;
+                issue_valid_r[1] = 1'b0;
+                issue_consume_r[issue_warp_r[1]] = 1'b0;
+            end
         end
 end
 
@@ -389,7 +398,9 @@ end
     end
 
     // Suppress consume when stalled OR when slot 1 tensor was suppressed
-    wire [NUM_WARPS-1:0] conflict_mask = tensor_issue_conflict ? (1 << issue_warp_r[1]) : {NUM_WARPS{1'b0}};
+    // Tensor-tensor conflict now handled via sched_fu_conflict (slot1 suppressed entirely).
+    // No need for separate conflict_mask on consume path.
+    wire [NUM_WARPS-1:0] conflict_mask = {NUM_WARPS{1'b0}};
     // Per-slot stall: even warps (0,2) use slot 0 stall, odd warps (1,3) use slot 1 stall
     wire [NUM_WARPS-1:0] stall_mask;
     genvar sm_w;
