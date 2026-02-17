@@ -391,7 +391,7 @@ module int_to_fp32 #(
         integer i;
         begin
             clz32 = 32;
-            for (i = 31; i >= 0; i = i - 1) begin
+            for (i = 0; i <= 31; i = i + 1) begin
                 if (val[i]) clz32 = 31 - i;
             end
         end
@@ -494,7 +494,7 @@ module int64_to_fp64 #(
         integer i;
         begin
             clz64 = 64;
-            for (i = 63; i >= 0; i = i - 1) begin
+            for (i = 0; i <= 63; i = i + 1) begin
                 if (val[i]) clz64 = 63 - i;
             end
         end

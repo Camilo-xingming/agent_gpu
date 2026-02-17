@@ -407,23 +407,22 @@ module fp64_add (
                  {1'b0, aligned_a} + {1'b0, aligned_b};
 
     assign result_sign = eff_sub ?
-                         (aligned_a >= aligned_b ? (a_larger ? sign_a : sign_b) :
-                                                   (a_larger ? sign_b : sign_a)) :
+                         (aligned_a >= aligned_b ? sign_a : sign_b) :
                          sign_a;
 
     // 前导零计数 (简化版)
-    function [5:0] clz54;
-        input [53:0] val;
+    function [5:0] clz53;
+        input [52:0] val;
         integer i;
         begin
-            clz54 = 6'd54;
-            for (i = 53; i >= 0; i = i - 1) begin
-                if (val[i]) clz54 = 6'd53 - i[5:0];
+            clz53 = 6'd53;
+            for (i = 0; i <= 52; i = i + 1) begin
+                if (val[i]) clz53 = 6'd52 - i[5:0];
             end
         end
     endfunction
 
-    wire [5:0] leading_zeros = clz54(sum[53:0]);
+    wire [5:0] leading_zeros = clz53(sum[52:0]);
 
     // 规范化
     wire [10:0] norm_exp;
@@ -431,15 +430,18 @@ module fp64_add (
     wire norm_overflow;
     wire norm_underflow;
 
-    assign norm_overflow = sum[54] && (result_exp >= 11'd2046);
-    assign norm_underflow = (result_exp <= {5'b0, leading_zeros}) && !a_zero && !b_zero;
+    assign norm_overflow = (sum[54] || sum[53]) && (result_exp >= 11'd2046);
+    assign norm_underflow = !sum[54] && !sum[53] && (result_exp <= {5'b0, leading_zeros}) && !a_zero && !b_zero;
 
     assign norm_exp = sum[54] ? result_exp + 11'd1 :
+                      sum[53] ? result_exp + 11'd1 :
                       (result_exp > {5'b0, leading_zeros}) ? result_exp - {5'b0, leading_zeros} :
                       11'd0;
 
     wire [53:0] shifted_sum = sum[53:0] << leading_zeros;
-    assign norm_man = sum[54] ? sum[53:2] : shifted_sum[53:2];
+    assign norm_man = sum[54] ? sum[53:2] :
+                      sum[53] ? sum[52:1] :
+                      shifted_sum[51:0];
 
     always @(*) begin
         invalid = 1'b0;
@@ -596,19 +598,32 @@ module fp64_div (
     wire [52:0] sig_b = (exp_b == 0) ? {1'b0, man_b} : {1'b1, man_b};
 
     // 除法 (使用移位和减法实现)
-    // 商 = sig_a / sig_b, 需要54位精度
+    // 商 = sig_a / sig_b, 需要55位精度 (可能 > 2.0 when sig_a > sig_b)
     wire [106:0] dividend = {sig_a, 54'b0};
     wire [106:0] quotient_full = dividend / {53'b0, 1'b0, sig_b};
-    wire [53:0] quotient = quotient_full[53:0];
+    wire [55:0] quotient = quotient_full[55:0];
 
     // 指数计算
     wire [11:0] exp_diff = {1'b0, exp_a} - {1'b0, exp_b};
     wire [11:0] result_exp_raw = exp_diff + 12'd1023;
 
-    // 规范化
-    wire norm_needed = !quotient[53];
-    wire [11:0] result_exp = norm_needed ? result_exp_raw - 12'd1 : result_exp_raw;
-    wire [51:0] result_man = norm_needed ? quotient[51:0] : quotient[52:1];
+    // 规范化: quotient can be in [1.0, 4.0) range
+    // bit 54 set: quotient >= 2.0, shift right by 1, exp+1
+    // bit 53 set: quotient in [1.0, 2.0), normal
+    // neither: quotient < 1.0, shift left (norm_needed)
+    // quotient = sig_a/sig_b * 2^54
+    // Normal: bit 54 set (sig_a/sig_b in [1.0, 2.0)), mantissa = quotient[53:2]
+    // Overflow: bit 55 set (sig_a/sig_b >= 2.0, impossible for normalized), mantissa = quotient[54:3]
+    // Underflow: bit 54 clear (sig_a/sig_b < 1.0), shift left, exp-1
+    wire q_overflow = quotient[55];
+    wire q_normal = !quotient[55] && quotient[54];
+    wire norm_needed = !quotient[55] && !quotient[54];
+    wire [11:0] result_exp = q_overflow  ? result_exp_raw + 12'd1 :
+                             norm_needed ? result_exp_raw - 12'd1 :
+                             result_exp_raw;
+    wire [51:0] result_man = q_overflow  ? quotient[54:3] :
+                             norm_needed ? quotient[52:1] :
+                             quotient[53:2];
 
     // 溢出/下溢检测
     wire exp_overflow = result_exp[11] == 1'b0 && result_exp >= 12'd2047;
