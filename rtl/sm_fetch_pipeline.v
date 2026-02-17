@@ -216,10 +216,20 @@ module sm_fetch_pipeline #(
             warp_fetch_pending <= warp_fetch_pending & ~branch_flush_mask;
 
             if (icache_ready) begin
-                fetch_pipe_valid[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_valid[FETCH_PIPE_DEPTH-2:0];
-                for (fp_i = FETCH_PIPE_DEPTH-1; fp_i > 0; fp_i = fp_i - 1) begin
-                    fetch_pipe_warp[fp_i] <= fetch_pipe_warp[fp_i-1];
-                    fetch_pipe_pc[fp_i] <= fetch_pipe_pc[fp_i-1];
+                // RALPH-8 P3: When early_response consumes position [0] on the
+                // same cycle as a shift, don't propagate the consumed entry to [1].
+                if (early_response_valid) begin
+                    fetch_pipe_valid[FETCH_PIPE_DEPTH-1:1] <= {(FETCH_PIPE_DEPTH-1){1'b0}};
+                    for (fp_i = FETCH_PIPE_DEPTH-1; fp_i > 0; fp_i = fp_i - 1) begin
+                        fetch_pipe_warp[fp_i] <= 0;
+                        fetch_pipe_pc[fp_i] <= 0;
+                    end
+                end else begin
+                    fetch_pipe_valid[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_valid[FETCH_PIPE_DEPTH-2:0];
+                    for (fp_i = FETCH_PIPE_DEPTH-1; fp_i > 0; fp_i = fp_i - 1) begin
+                        fetch_pipe_warp[fp_i] <= fetch_pipe_warp[fp_i-1];
+                        fetch_pipe_pc[fp_i] <= fetch_pipe_pc[fp_i-1];
+                    end
                 end
             end
 

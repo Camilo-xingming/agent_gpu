@@ -488,6 +488,81 @@ module tb_fetch_nib;
         check("T8 warp1 cold", warp1_inst, 32'hAA000400);
 
         // ==============================================================
+        // Test 9: RALPH-8 P3 — Prefetch hit on sequential execution
+        // Cold miss for line at 0x500. After fill, prefetch for 0x508
+        // should fire automatically. Consume both words from line 0x500
+        // (0x500, 0x504 via NIB), then fetch 0x508 — should hit
+        // prefetch buffer (fast path, no memory access).
+        // ==============================================================
+        $display("\n=== Test 9: Prefetch hit on sequential exec (P3) ===");
+        consume_inst(1);
+        warp_valid = 0;
+        reset;
+        warp_pc[0] = 32'h0000_0500;  // Cold line
+        @(posedge clk);
+        warp_valid[0] = 1;
+
+        // Wait for cold miss fill
+        wait_inst_valid(0, 50);
+        check("T9 word at 0x500", warp0_inst, 32'hAA000500);
+
+        // Consume 0x500, NIB serves 0x504
+        consume_inst(0);
+        wait_inst_valid(0, 5);
+        check("T9 NIB at 0x504", warp0_inst, 32'hAA000504);
+
+        // Consume 0x504, need 0x508 (next line).
+        // Prefetch should have fetched line 0x508 in background.
+        consume_inst(0);
+        wait_inst_valid(0, 10);  // Should be fast (prefetch hit)
+        check("T9 prefetch hit at 0x508", warp0_inst, 32'hAA000508);
+
+        // Continue: NIB should have 0x50C from the prefetch line
+        consume_inst(0);
+        wait_inst_valid(0, 5);
+        check("T9 NIB at 0x50C", warp0_inst, 32'hAA00050C);
+
+        // ==============================================================
+        // Test 10: P3 — Prefetch across 3 sequential lines
+        // Continue from T9 (PC=0x510). The line 0x508 was promoted from
+        // prefetch buffer to cache. After consuming 0x508+0x50C, the next
+        // fetch at 0x510 should trigger prefetch for 0x518.
+        // ==============================================================
+        $display("\n=== Test 10: Continued prefetch chain (P3) ===");
+        // PC is now at 0x510 after consuming 0x50C
+        consume_inst(0);
+        wait_inst_valid(0, 50);
+        check("T10 word at 0x510", warp0_inst, 32'hAA000510);
+        consume_inst(0);
+        wait_inst_valid(0, 5);
+        check("T10 NIB at 0x514", warp0_inst, 32'hAA000514);
+        // Consume 0x514, need 0x518 — prefetch should have it
+        consume_inst(0);
+        wait_inst_valid(0, 10);
+        check("T10 prefetch hit at 0x518", warp0_inst, 32'hAA000518);
+
+        // ==============================================================
+        // Test 11: P3 — Demand fetch preempts pending prefetch
+        // Warm up line 0x600 (demand miss → prefetch 0x608 pending).
+        // Before prefetch fires, start warp 1 at a cold address.
+        // Both should eventually complete.
+        // ==============================================================
+        $display("\n=== Test 11: Demand preempts prefetch (P3) ===");
+        consume_inst(0);
+        warp_valid = 0;
+        reset;
+        warp_pc[0] = 32'h0000_0600;  // Cold → demand miss → prefetch 0x608 pending
+        warp_pc[1] = 32'h0000_0700;  // Cold → demand miss
+        @(posedge clk);
+        // Enable both warps simultaneously — demand fetches compete with prefetch
+        warp_valid = 2'b11;
+
+        wait_inst_valid(0, 50);
+        wait_inst_valid(1, 50);
+        check("T11 warp0 at 0x600", warp0_inst, 32'hAA000600);
+        check("T11 warp1 at 0x700", warp1_inst, 32'hAA000700);
+
+        // ==============================================================
         // Summary
         // ==============================================================
         $display("\n========================================");

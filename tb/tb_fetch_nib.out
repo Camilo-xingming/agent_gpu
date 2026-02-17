@@ -1,0 +1,59 @@
+VCD info: dumpfile tb_fetch_nib.vcd opened for output.
+
+=== Test 1: Cache miss + NIB hit (sequential pair) ===
+  PASS: T1 word0 = 0xdead0000
+  PASS: T1 word1 (NIB) = 0xdead0004
+  INFO: fetch_pending=0
+
+=== Test 2: Cache hit + NIB populated ===
+  PASS: T2 word0 (cache hit) = 0xdead0000
+  PASS: T2 word1 (NIB after cache hit) = 0xdead0004
+
+=== Test 3: Odd-word fetch, no NIB ===
+  PASS: T3 word at 0x004 = 0xdead0004
+  PASS: T3 word at 0x008 (no NIB) = 0xbeef0008
+
+=== Test 4: Branch flush invalidates NIB ===
+  PASS: T4 word at 0x100 = 0xcafe0100
+  PASS: T4 word at 0x104 (after flush) = 0xcafe0104
+
+=== Test 5: Multi-warp NIB ===
+  PASS: T5 warp0 word0 = 0xdead0000
+  PASS: T5 warp1 word0 = 0xcafe0100
+  PASS: T5 warp0 word1 (NIB) = 0xdead0004
+  PASS: T5 warp1 word1 (NIB) = 0xcafe0104
+
+=== Test 6: Hit-bypass during miss (P2) ===
+  PASS: T6 warmup 0x100 = 0xcafe0100
+  PASS: T6 warp0 cold miss = 0xaa000200
+  PASS: T6 warp1 hit bypass = 0xcafe0100
+
+=== Test 7: NIB from bypass hit (P2) ===
+  PASS: T7 warp1 NIB after bypass = 0xcafe0104
+
+=== Test 8: Two cold misses, no bypass ===
+  PASS: T8 warp0 first cold = 0xaa000300
+  PASS: T8 warp0 NIB after cold = 0xaa000304
+  PASS: T8 warp1 cold = 0xaa000400
+
+=== Test 9: Prefetch hit on sequential exec (P3) ===
+  PASS: T9 word at 0x500 = 0xaa000500
+  PASS: T9 NIB at 0x504 = 0xaa000504
+  PASS: T9 prefetch hit at 0x508 = 0xaa000508
+  PASS: T9 NIB at 0x50C = 0xaa00050c
+
+=== Test 10: Continued prefetch chain (P3) ===
+  PASS: T10 word at 0x510 = 0xaa000510
+  PASS: T10 NIB at 0x514 = 0xaa000514
+  PASS: T10 prefetch hit at 0x518 = 0xaa000518
+
+=== Test 11: Demand preempts prefetch (P3) ===
+  PASS: T11 warp0 at 0x600 = 0xaa000600
+  PASS: T11 warp1 at 0x700 = 0xaa000700
+
+========================================
+Results: 28 PASS, 0 FAIL
+ALL TESTS PASSED
+========================================
+
+tb/tb_fetch_nib.v:575: $finish called at 1585000 (1ps)
