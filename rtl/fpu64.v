@@ -411,14 +411,19 @@ module fp64_add (
                                                    (a_larger ? sign_b : sign_a)) :
                          sign_a;
 
-    // 前导零计数 (简化版)
+    // 前导零计数 (simplified CLZ for 54-bit value)
     function [5:0] clz54;
         input [53:0] val;
         integer i;
+        reg found;
         begin
             clz54 = 6'd54;
+            found = 1'b0;
             for (i = 53; i >= 0; i = i - 1) begin
-                if (val[i]) clz54 = 6'd53 - i[5:0];
+                if (val[i] && !found) begin
+                    clz54 = 6'd53 - i[5:0];
+                    found = 1'b1;
+                end
             end
         end
     endfunction
@@ -431,15 +436,31 @@ module fp64_add (
     wire norm_overflow;
     wire norm_underflow;
 
-    assign norm_overflow = sum[54] && (result_exp >= 11'd2046);
-    assign norm_underflow = (result_exp <= {5'b0, leading_zeros}) && !a_zero && !b_zero;
+    // In the aligned format, the implicit 1 sits at bit 52 of sig (53-bit).
+    // After addition into sum[54:0]:
+    //   - sum[54]=1: carry out, implicit 1 at bit 54, need right shift → exp+1, man=sum[52:1]
+    //   - sum[53]=1: sum grew by 1 bit, implicit 1 at bit 53 → exp+1, man=sum[52:1]
+    //   - sum[52]=1: already normalized, implicit 1 at bit 52 → exp unchanged, man=sum[51:0]
+    //   - sum[52]=0: need left shift to normalize, leading_zeros > 1
+    // CLZ counts from bit 53: clz=0 means bit53 set, clz=1 means bit52 set (normalized).
+    // Normalization shift = leading_zeros - 1 (since bit52 is the "normal" position).
+    wire sum_carry = sum[54] || sum[53];  // sum overflowed past bit 52
+    wire [5:0] norm_shift = (leading_zeros > 6'd1) ? leading_zeros - 6'd1 : 6'd0;
+
+    assign norm_overflow = sum_carry && (result_exp >= 11'd2046);
+    assign norm_underflow = !sum_carry && (leading_zeros > 6'd1) &&
+                            (result_exp <= {5'b0, norm_shift}) && !a_zero && !b_zero;
 
     assign norm_exp = sum[54] ? result_exp + 11'd1 :
-                      (result_exp > {5'b0, leading_zeros}) ? result_exp - {5'b0, leading_zeros} :
+                      sum[53] ? result_exp + 11'd1 :
+                      (leading_zeros <= 6'd1) ? result_exp :
+                      (result_exp > {5'b0, norm_shift}) ? result_exp - {5'b0, norm_shift} :
                       11'd0;
 
-    wire [53:0] shifted_sum = sum[53:0] << leading_zeros;
-    assign norm_man = sum[54] ? sum[53:2] : shifted_sum[53:2];
+    wire [53:0] shifted_sum = sum[53:0] << ((leading_zeros > 6'd1) ? leading_zeros - 6'd1 : 6'd0);
+    assign norm_man = sum[54] ? sum[52:1] :
+                      sum[53] ? sum[52:1] :
+                      shifted_sum[51:0];
 
     always @(*) begin
         invalid = 1'b0;
