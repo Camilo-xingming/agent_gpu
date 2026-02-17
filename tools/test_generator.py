@@ -581,12 +581,111 @@ class FP16TestGenerator:
             ))
         return tests
 
+    def gen_fp16_fma_tests(self, count: int = 2) -> List[TestCase]:
+        """Generate fma.f16 test cases: a*b+c"""
+        tests = []
+        test_values = [
+            (2.0, 3.0, 1.0, 7.0),   # 2*3+1=7
+            (-1.0, 2.0, 3.0, 1.0),  # -1*2+3=1
+        ]
+
+        for i, (a, b, c, expected) in enumerate(test_values[:count]):
+            a_uint = self.fp16_to_uint16(a)
+            b_uint = self.fp16_to_uint16(b)
+            c_uint = self.fp16_to_uint16(c)
+            expected_uint = self.fp16_to_uint16(expected)
+
+            tests.append(TestCase(
+                name=f"fp16_fma_{i:03d}",
+                category="fp16",
+                ptx_code=[
+                    f"mov.u32 r1, {a_uint}",
+                    f"mov.u32 r2, {b_uint}",
+                    f"mov.u32 r3, {c_uint}",
+                    "fma.f16 r4, r1, r2, r3",
+                    "exit"
+                ],
+                initial_regs={},
+                expected_regs={4: expected_uint}
+            ))
+        return tests
+
+    def gen_fp16_special_tests(self) -> List[TestCase]:
+        """Generate FP16 special value tests (NaN, Inf)"""
+        tests = []
+        nan_uint = 0x7E00   # FP16 NaN
+        inf_uint = 0x7C00   # FP16 +Inf
+        neg_inf_uint = 0xFC00  # FP16 -Inf
+        zero_uint = 0x0000
+        one_uint = self.fp16_to_uint16(1.0)
+        two_uint = self.fp16_to_uint16(2.0)
+
+        # NaN + 1.0 = NaN (NaN propagation)
+        tests.append(TestCase(
+            name="fp16_add_nan_000",
+            category="fp16",
+            ptx_code=[
+                f"mov.u32 r1, {nan_uint}",
+                f"mov.u32 r2, {one_uint}",
+                "add.f16 r3, r1, r2",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: nan_uint}
+        ))
+
+        # Inf * 2.0 = Inf
+        tests.append(TestCase(
+            name="fp16_mul_inf_000",
+            category="fp16",
+            ptx_code=[
+                f"mov.u32 r1, {inf_uint}",
+                f"mov.u32 r2, {two_uint}",
+                "mul.f16 r3, r1, r2",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: inf_uint}
+        ))
+
+        # +Inf + (-Inf) = NaN (invalid operation)
+        tests.append(TestCase(
+            name="fp16_add_inf_neg_000",
+            category="fp16",
+            ptx_code=[
+                f"mov.u32 r1, {inf_uint}",
+                f"mov.u32 r2, {neg_inf_uint}",
+                "add.f16 r3, r1, r2",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: nan_uint}
+        ))
+
+        # 0 * Inf = NaN (invalid operation)
+        tests.append(TestCase(
+            name="fp16_mul_zero_inf_000",
+            category="fp16",
+            ptx_code=[
+                f"mov.u32 r1, {zero_uint}",
+                f"mov.u32 r2, {inf_uint}",
+                "mul.f16 r3, r1, r2",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: nan_uint}
+        ))
+
+        return tests
+
     def gen_all_fp16_tests(self) -> List[TestCase]:
-        """Generate all FP16 test cases"""
+        """Generate all FP16 test cases (15 total)"""
         tests = []
         tests.extend(self.gen_fp16_add_tests(3))
         tests.extend(self.gen_fp16_sub_tests(3))
         tests.extend(self.gen_fp16_mul_tests(3))
+        tests.extend(self.gen_fp16_fma_tests(2))
+        tests.extend(self.gen_fp16_special_tests())
         return tests
 
 
