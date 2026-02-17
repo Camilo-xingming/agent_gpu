@@ -729,7 +729,7 @@ module streaming_multiprocessor_v2 #(
     // Scoreboard for Dependency Tracking (Per-warp register busy bits)
     //========================================================================
     // Each warp has a 32-bit mask indicating which registers have pending writes
-    // [REMOVED] scoreboard_busy - consolidated into u_scheduler.scoreboard
+    // [REMOVED] scoreboard_busy - consolidated into sched_scoreboard
 
     // Per-warp pending instruction count (for FU stall tracking)
     reg [3:0] pending_fu_count [0:NUM_WARPS-1];
@@ -743,9 +743,9 @@ module streaming_multiprocessor_v2 #(
 
     // Lane 0 dependency checks
     // Note: Unlike RISC-V, CUDA/PTX R0 is a normal register, not hardwired to 0
-    wire lane0_ra_busy = dec0_valid && u_scheduler.scoreboard[dec0_warp_id][dec_ra];
-    wire lane0_rb_busy = dec0_valid && u_scheduler.scoreboard[dec0_warp_id][dec_rb];
-    wire lane0_rc_busy = dec0_valid && u_scheduler.scoreboard[dec0_warp_id][dec_rc];
+    wire lane0_ra_busy = dec0_valid && sched_scoreboard[dec0_warp_id][dec_ra];
+    wire lane0_rb_busy = dec0_valid && sched_scoreboard[dec0_warp_id][dec_rb];
+    wire lane0_rc_busy = dec0_valid && sched_scoreboard[dec0_warp_id][dec_rc];
     // Scheduler already checks RAW hazards before issue; decode-stage recheck
     // caused deadlock when instruction own dest was scoreboarded before decode
     wire lane0_stall_raw = 1'b0;  // Trust scheduler hazard check
@@ -778,9 +778,9 @@ module streaming_multiprocessor_v2 #(
 
     // Lane 1 dependency checks (compute-only)
     // Note: Unlike RISC-V, CUDA/PTX R0 is a normal register, not hardwired to 0
-    wire lane1_ra_busy = dec1_valid && u_scheduler.scoreboard[dec1_warp_id][dec1_ra];
-    wire lane1_rb_busy = dec1_valid && u_scheduler.scoreboard[dec1_warp_id][dec1_rb];
-    wire lane1_rc_busy = dec1_valid && u_scheduler.scoreboard[dec1_warp_id][dec1_rc];
+    wire lane1_ra_busy = dec1_valid && sched_scoreboard[dec1_warp_id][dec1_ra];
+    wire lane1_rb_busy = dec1_valid && sched_scoreboard[dec1_warp_id][dec1_rb];
+    wire lane1_rc_busy = dec1_valid && sched_scoreboard[dec1_warp_id][dec1_rc];
     wire lane1_stall_raw = 1'b0;  // Trust scheduler hazard check
     wire lane1_stall_fu = dec1_valid && (pending_fu_count[dec1_warp_id] >= 8);
     wire lane1_stall_tensor = dec1_valid && dec1_tensor_op && tensor_issue_full_next;
@@ -1467,6 +1467,7 @@ module streaming_multiprocessor_v2 #(
     wire [WARP_ID_W-1:0] sched_issue_warp_id [0:SCHED_LANES-1];
     wire [31:0] sched_issue_inst [0:SCHED_LANES-1];
     wire [2:0] sched_issue_pipe [0:SCHED_LANES-1];
+    wire [31:0] sched_scoreboard [0:NUM_WARPS-1];  // Exposed from scheduler
 
     //------------------------------------------------------------------------
     // Memory Pipeline In-Flight Counter
@@ -1605,7 +1606,8 @@ module streaming_multiprocessor_v2 #(
         .stat_stalls(),
         .stat_async_mma_issued(bw_stat_async_mma_issued),
         .stat_async_mma_completed(bw_stat_async_mma_completed),
-        .stat_tcgen05_issued(bw_stat_tcgen05_issued)
+        .stat_tcgen05_issued(bw_stat_tcgen05_issued),
+        .scoreboard_out(sched_scoreboard)
     );
 `else
     advanced_warp_scheduler #(
@@ -1652,7 +1654,8 @@ module streaming_multiprocessor_v2 #(
         .stat_cycles(),
         .stat_single_issue(),
         .stat_dual_issue(),
-        .stat_stalls()
+        .stat_stalls(),
+        .scoreboard_out(sched_scoreboard)
     );
 `endif
 
@@ -5369,7 +5372,7 @@ module streaming_multiprocessor_v2 #(
                 if (warp_exit_pending[w] &&
                     (pending_fu_count[w] == 0) &&
                     (cp_async_pending[w] == 0) &&
-                    (u_scheduler.scoreboard[w] == 0) &&
+                    (sched_scoreboard[w] == 0) &&
                     (!mem_pending_valid || (mem_warp_pending != w[WARP_ID_W-1:0])) &&
                     (!smem_pending_valid || (smem_warp_pending != w[WARP_ID_W-1:0])) &&
                     (!store_pending_valid || (store_warp_pending != w[WARP_ID_W-1:0])) &&
@@ -5481,95 +5484,5 @@ module simd_fp16 #(
     endgenerate
 
     assign ready = 1'b1;
-
-endmodule
-//============================================================================
-// Simple FIFO for writeback queues (single push/pop per cycle)
-//============================================================================
-module wb_fifo #(
-    parameter WIDTH = 32,
-    parameter DEPTH = 2
-)(
-    input  wire             clk,
-    input  wire             rst_n,
-    input  wire             push,
-    input  wire [WIDTH-1:0] push_data,
-    input  wire             pop,
-    output wire [WIDTH-1:0] pop_data,
-    output wire             full,
-    output wire             empty,
-    output wire             dropped
-);
-    localparam PTR_W = (DEPTH > 1) ? $clog2(DEPTH) : 1;
-    localparam COUNT_W = $clog2(DEPTH + 1);
-    /* verilator lint_off WIDTHTRUNC */
-    /* verilator lint_off WIDTHEXPAND */
-    localparam [COUNT_W-1:0] DEPTH_VAL = DEPTH;
-    localparam [PTR_W-1:0] PTR_LAST = DEPTH - 1;
-    /* verilator lint_on WIDTHEXPAND */
-    /* verilator lint_on WIDTHTRUNC */
-
-    reg [WIDTH-1:0] mem [0:DEPTH-1];
-    reg [PTR_W-1:0] head;
-    reg [PTR_W-1:0] tail;
-    reg [COUNT_W-1:0] count;
-
-    wire push_fire = push && (!full || pop);
-    wire pop_fire = pop && !empty;
-
-    assign full = (count == DEPTH_VAL);
-    assign empty = (count == 0);
-    assign pop_data = empty ? {WIDTH{1'b0}} : mem[head];
-
-    function [PTR_W-1:0] ptr_inc;
-        input [PTR_W-1:0] ptr;
-        begin
-            if (ptr == PTR_LAST) begin
-                ptr_inc = {PTR_W{1'b0}};
-            end else begin
-                ptr_inc = ptr + {{(PTR_W-1){1'b0}}, 1'b1};
-            end
-        end
-    endfunction
-
-    integer mi;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            head <= {PTR_W{1'b0}};
-            tail <= {PTR_W{1'b0}};
-            count <= {COUNT_W{1'b0}};
-            for (mi = 0; mi < DEPTH; mi = mi + 1) begin
-                mem[mi] <= {WIDTH{1'b0}};
-            end
-        end else begin
-            if (push_fire) begin
-                mem[tail] <= push_data;
-                tail <= ptr_inc(tail);
-            end
-
-            if (pop_fire) begin
-                head <= ptr_inc(head);
-            end
-
-            case ({push_fire, pop_fire})
-                2'b10: count <= count + {{(COUNT_W-1){1'b0}}, 1'b1};
-                2'b01: count <= count - {{(COUNT_W-1){1'b0}}, 1'b1};
-                default: count <= count;
-            endcase
-        end
-    end
-
-    // Detect silent drop: push attempted while full with no pop
-    assign dropped = push && full && !pop;
-
-    `ifdef SIMULATION
-    always @(posedge clk) begin
-        if (rst_n && dropped) begin
-            $display("[WBQ] FATAL: push while full without pop at time %0t", $time);
-            $error("[WBQ] Data silently dropped!");
-            $finish;
-        end
-    end
-    `endif
 
 endmodule

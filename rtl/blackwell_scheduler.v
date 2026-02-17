@@ -141,7 +141,12 @@ module blackwell_scheduler #(
     output wire [31:0]              stat_stalls,
     output wire [31:0]              stat_async_mma_issued,    // Async MMA ops issued
     output wire [31:0]              stat_async_mma_completed, // Async MMA ops completed
-    output wire [31:0]              stat_tcgen05_issued       // Total tcgen05 ops issued
+    output wire [31:0]              stat_tcgen05_issued,      // Total tcgen05 ops issued
+
+    //------------------------------------------------------------------------
+    // Scoreboard Visibility (eliminates hierarchical references)
+    //------------------------------------------------------------------------
+    output wire [31:0]              scoreboard_out [0:NUM_WARPS-1]
 );
 
     localparam WARP_W = $clog2(NUM_WARPS);
@@ -162,6 +167,14 @@ module blackwell_scheduler #(
     // Per-Warp Scoreboard (register dependencies)
     //------------------------------------------------------------------------
     reg [31:0] scoreboard [0:NUM_WARPS-1];
+
+    // Expose scoreboard to parent module (replaces hierarchical references)
+    genvar sb_gi;
+    generate
+        for (sb_gi = 0; sb_gi < NUM_WARPS; sb_gi = sb_gi + 1) begin : gen_sb_out
+            assign scoreboard_out[sb_gi] = scoreboard[sb_gi];
+        end
+    endgenerate
 
     //------------------------------------------------------------------------
     // Async MMA Scoreboard (Blackwell per-thread tensor tracking)
