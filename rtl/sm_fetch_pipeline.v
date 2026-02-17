@@ -127,6 +127,7 @@ module sm_fetch_pipeline #(
     wire icache_ready;
     wire [31:0] icache_data;
     wire icache_valid;
+    wire [63:0] icache_line_data;  // RALPH-8 P1: full cache line for NIB
 
     generate
     if (ICACHE_BYPASS) begin : gen_icache_bypass
@@ -135,6 +136,7 @@ module sm_fetch_pipeline #(
         assign icache_ready = imem_ready;
         assign icache_valid = imem_valid;
         assign icache_data  = imem_data[31:0];
+        assign icache_line_data = imem_data[63:0];
     end else begin : gen_icache_normal
         icache #(
             .SIZE_KB(4),
@@ -147,6 +149,7 @@ module sm_fetch_pipeline #(
             .fetch_addr(warp_fetch_pc[fetch_warp_id_r]),
             .fetch_ready(icache_ready),
             .fetch_data(icache_data),
+            .fetch_line_data(icache_line_data),
             .fetch_valid(icache_valid),
             .invalidate_req(1'b0),
             .invalidate_addr(32'b0),
@@ -171,6 +174,7 @@ module sm_fetch_pipeline #(
 
     // ---- Fetch pipeline tracking ----
     reg [WARP_ID_W-1:0] fetch_pipe_warp [0:FETCH_PIPE_DEPTH-1];
+    reg [31:0] fetch_pipe_pc [0:FETCH_PIPE_DEPTH-1];  // RALPH-8 P1: track PC at fetch time
     reg [FETCH_PIPE_DEPTH-1:0] fetch_pipe_valid;
 
     wire same_cycle_hit = fetch_fire && icache_valid && (fetch_pipe_valid == 0);
@@ -189,25 +193,31 @@ module sm_fetch_pipeline #(
         if (!rst_n || kernel_start) begin
             warp_fetch_pending <= 0;
             fetch_pipe_valid <= 0;
-            for (fp_i = 0; fp_i < FETCH_PIPE_DEPTH; fp_i = fp_i + 1)
+            for (fp_i = 0; fp_i < FETCH_PIPE_DEPTH; fp_i = fp_i + 1) begin
                 fetch_pipe_warp[fp_i] <= 0;
+                fetch_pipe_pc[fp_i] <= 0;
+            end
         end else begin
             // Branch flush clears pending
             warp_fetch_pending <= warp_fetch_pending & ~branch_flush_mask;
 
             if (icache_ready) begin
                 fetch_pipe_valid[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_valid[FETCH_PIPE_DEPTH-2:0];
-                for (fp_i = FETCH_PIPE_DEPTH-1; fp_i > 0; fp_i = fp_i - 1)
+                for (fp_i = FETCH_PIPE_DEPTH-1; fp_i > 0; fp_i = fp_i - 1) begin
                     fetch_pipe_warp[fp_i] <= fetch_pipe_warp[fp_i-1];
+                    fetch_pipe_pc[fp_i] <= fetch_pipe_pc[fp_i-1];
+                end
             end
 
             if (fetch_fire && !same_cycle_hit) begin
                 fetch_pipe_valid[0] <= 1'b1;
                 fetch_pipe_warp[0] <= fetch_warp_id_r;
+                fetch_pipe_pc[0] <= warp_fetch_pc[fetch_warp_id_r];
                 warp_fetch_pending[fetch_warp_id_r] <= 1'b1;
             end else if (icache_ready) begin
                 fetch_pipe_valid[0] <= 1'b0;
                 fetch_pipe_warp[0] <= 0;
+                fetch_pipe_pc[0] <= 0;
             end
 
             // Clear pending on response
@@ -224,6 +234,10 @@ module sm_fetch_pipeline #(
     wire [WARP_ID_W-1:0] fill_warp_id = same_cycle_hit ? fetch_warp_id_r :
                                          early_response_valid ? fetch_pipe_warp[0] :
                                          fetch_pipe_warp[FETCH_PIPE_DEPTH-1];
+    // RALPH-8 P1: PC at fetch time (for NIB address calculation)
+    wire [31:0] fill_fetch_pc = same_cycle_hit ? warp_fetch_pc[fetch_warp_id_r] :
+                                early_response_valid ? fetch_pipe_pc[0] :
+                                fetch_pipe_pc[FETCH_PIPE_DEPTH-1];
     wire fill_valid = same_cycle_hit || delayed_response_valid || early_response_valid;
 
     genvar fill_w;
@@ -264,10 +278,12 @@ module sm_fetch_pipeline #(
             else if (delayed_response_valid)
                 warp_inst_buf[fetch_pipe_warp[FETCH_PIPE_DEPTH-1]] <= icache_data;
 
-            // RALPH-8 P0: Buffer upper word from 64-bit fetch
-            if (ICACHE_BYPASS && fill_valid) begin
-                warp_next_inst[fill_warp_id] <= imem_data[63:32];
-                warp_next_inst_pc[fill_warp_id] <= warp_fetch_pc[fill_warp_id];
+            // RALPH-8 P0+P1: Buffer upper word from 64-bit cache line
+            // Only populate NIB when fetched address is first word of line (bit[2]==0),
+            // meaning the second word (PC+4) is in the same line.
+            if (fill_valid && !fill_fetch_pc[2]) begin
+                warp_next_inst[fill_warp_id] <= icache_line_data[63:32];
+                warp_next_inst_pc[fill_warp_id] <= fill_fetch_pc + 32'd4;
                 warp_next_inst_valid[fill_warp_id] <= 1'b1;
             end
 
