@@ -368,6 +368,46 @@ module tb_sm_v2_perf_tensor_multiwarp;
     end
 
     //------------------------------------------------------------------------
+    // Tensor Push/Suppress Tracking
+    //------------------------------------------------------------------------
+    integer total_tensor_wb;
+    integer tensor_wb_per_warp [0:NUM_WARPS-1];
+    integer tensor_push_lane0_suppress;
+    integer tensor_push_lane1_suppress;
+    integer tensor_push_conflict_count;
+    integer tw_i;
+    initial begin
+        total_tensor_wb = 0;
+        tensor_push_lane0_suppress = 0;
+        tensor_push_lane1_suppress = 0;
+        tensor_push_conflict_count = 0;
+        for (tw_i = 0; tw_i < NUM_WARPS; tw_i = tw_i + 1)
+            tensor_wb_per_warp[tw_i] = 0;
+    end
+    always @(posedge clk) begin
+        if (running) begin
+            if (wb_fire) begin
+                total_tensor_wb <= total_tensor_wb + 1;
+                tensor_wb_per_warp[dut.wb_warp_id] <= tensor_wb_per_warp[dut.wb_warp_id] + 1;
+            end
+            if (dut.tensor_push_lane0_raw && !dut.tensor_push_lane0)
+                tensor_push_lane0_suppress <= tensor_push_lane0_suppress + 1;
+            if (dut.tensor_push_lane1_raw && !dut.tensor_push_lane1)
+                tensor_push_lane1_suppress <= tensor_push_lane1_suppress + 1;
+            if (dut.tensor_push_lane0 && dut.tensor_push_lane1)
+                tensor_push_conflict_count <= tensor_push_conflict_count + 1;
+        end
+    end
+
+    //------------------------------------------------------------------------
+    // VCD Dump
+    //------------------------------------------------------------------------
+    initial begin
+        $dumpfile("tb_sm_v2_perf_tensor_multiwarp.vcd");
+        $dumpvars(0, tb_sm_v2_perf_tensor_multiwarp);
+    end
+
+    //------------------------------------------------------------------------
     // Test Sequence
     //------------------------------------------------------------------------
     initial begin
@@ -411,6 +451,13 @@ module tb_sm_v2_perf_tensor_multiwarp;
         $display("Stalls: raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d",
                  stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq);
         $display("IPC: %0.3f", ipc);
+
+        $display("Per-warp WB: w0=%0d w1=%0d w2=%0d w3=%0d",
+                 tensor_wb_per_warp[0], tensor_wb_per_warp[1],
+                 tensor_wb_per_warp[2], tensor_wb_per_warp[3]);
+        $display("Tensor suppress: lane0=%0d lane1=%0d conflict=%0d",
+                 tensor_push_lane0_suppress, tensor_push_lane1_suppress,
+                 tensor_push_conflict_count);
 
         if (!done) begin
             $display("FAIL: timeout before kernel_done");

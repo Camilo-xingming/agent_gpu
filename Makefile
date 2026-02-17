@@ -296,7 +296,9 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/wgmma.v \
 	$(RTL_DIR)/wgmma_tile_engine.v \
 	$(RTL_DIR)/video_unit.v \
-	$(RTL_DIR)/texture_unit.v
+	$(RTL_DIR)/texture_unit.v \
+	$(RTL_DIR)/sm_fetch_pipeline.v \
+	$(RTL_DIR)/sm_writeback_arbiter.v
 
 SM_V2_DEFINES = -DSM_V2 -DDEBUG_SM_V2
 

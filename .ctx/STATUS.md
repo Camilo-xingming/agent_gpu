@@ -68,6 +68,12 @@
 - **Tier 2: 100% VERIFIED** (LD/ST.GLOBAL/SHARED, LD.PARAM/CONST, ATOM, MEMBAR) - cp.async DECODE ONLY
 - **Tier 3: FP32 SFU VERIFIED** (21 tests)
 
+## Patch F — Tensor Lane1 Suppress Fix
+- **Status**: ✅ WB=4096 PASS (verified 2026-02-17)
+- **Fix**: 2-cycle per-warp lockout replaces dedup tracker, +4 margin on pipe_tensor_ready
+- **Test**: `test_sm_v2_perf_tensor_multiwarp` — Cycles=16398, IPC=0.250
+- **Pending**: Commit and merge
+
 ## Next MVU (per PROCESS LOOP)
 **MUST ASK Codex+Gemini** - FP16/FP64/CVT or Warp Collectives?
 
@@ -80,4 +86,4 @@
 Continue PROCESS LOOP: ASK Codex/Gemini for next MVU priority
 
 ## Last Updated
-2026-01-20
+2026-02-17
