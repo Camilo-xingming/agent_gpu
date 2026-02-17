@@ -82,7 +82,8 @@ RTL_SRCS = \
     $(RTL_DIR)/stack_debug_unit.v \
     $(RTL_DIR)/tlb.v \
     $(RTL_DIR)/warp_collective_unit.v \
-    $(RTL_DIR)/wb_fifo.v
+    $(RTL_DIR)/wb_fifo.v \
+    $(RTL_DIR)/sm_wbq_bank.v
 
 # Testbench文件
 TB_SRCS = $(TB_DIR)/tb_ralph_gpu.v
@@ -300,7 +301,8 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/texture_unit.v \
 	$(RTL_DIR)/sm_fetch_pipeline.v \
 	$(RTL_DIR)/sm_writeback_arbiter.v \
-	$(RTL_DIR)/wb_fifo.v
+	$(RTL_DIR)/wb_fifo.v \
+	$(RTL_DIR)/sm_wbq_bank.v
 
 SM_V2_DEFINES = -DSM_V2 -DDEBUG_SM_V2
 

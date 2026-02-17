@@ -213,6 +213,12 @@ module texture_unit #(
         end
     endfunction
 
+    // Truncated wrap coordinates for calc_2d_addr (iverilog can't part-select function returns)
+    /* verilator lint_off WIDTHTRUNC */
+    wire [15:0] wrap_s_trunc = wrap_coord(coord_s_r, tex_w_r, wrap_s_r);
+    wire [15:0] wrap_t_trunc = wrap_coord(coord_t_r, tex_h_r, wrap_t_r);
+    /* verilator lint_on WIDTHTRUNC */
+
     //------------------------------------------------------------------------
     // Main state machine
     //------------------------------------------------------------------------
@@ -270,8 +276,8 @@ module texture_unit #(
                                 // Single texel
                                 texel_addr[0] <= calc_2d_addr(
                                     tex_base_addr,
-                                    wrap_coord(coord_s_r, tex_w_r, wrap_s_r)[15:0],
-                                    wrap_coord(coord_t_r, tex_h_r, wrap_t_r)[15:0],
+                                    wrap_s_trunc,
+                                    wrap_t_trunc,
                                     tex_w_r * 4,  // Assuming RGBA8
                                     4'd4
                                 );
@@ -280,8 +286,8 @@ module texture_unit #(
                                 // Bilinear: 4 texels
                                 // TODO: Calculate 4 neighbor addresses
                                 texel_addr[0] <= calc_2d_addr(tex_base_addr,
-                                    wrap_coord(coord_s_r, tex_w_r, wrap_s_r)[15:0],
-                                    wrap_coord(coord_t_r, tex_h_r, wrap_t_r)[15:0],
+                                    wrap_s_trunc,
+                                    wrap_t_trunc,
                                     tex_w_r * 4, 4'd4);
                                 num_texels <= 3'd1;  // Simplified to point for now
                             end
