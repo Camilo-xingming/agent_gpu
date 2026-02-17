@@ -819,7 +819,14 @@ module ralph_gpu_top #(
 
         .tensor_mma_issued  (1'b0),  // TODO: wire from tensor core
         .tensor_mma_completed(1'b0),
-        .tensor_flops       (16'b0)
+        .tensor_flops       (16'b0),
+
+        .sm_occupancy       (),
+        .achieved_ipc       (),
+        .memory_throughput  (),
+        .total_instructions (),
+        .total_cycles       (),
+        .total_memory_bytes ()
     );
 
     //------------------------------------------------------------------------
