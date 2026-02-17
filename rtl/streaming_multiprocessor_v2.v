@@ -267,7 +267,9 @@ module streaming_multiprocessor_v2 #(
     reg  [NUM_WARPS-1:0] warp_stalled_branch; // Branch in pipeline, wait for resolution
     reg  [NUM_WARPS-1:0] warp_exit_pending;  // EXIT issued, waiting for drain
     reg  [31:0]          warp_pc [0:NUM_WARPS-1];
+    /* verilator lint_off MULTIDRIVEN */
     reg  [31:0]          warp_fetch_pc [0:NUM_WARPS-1];
+    /* verilator lint_on MULTIDRIVEN */
     reg  [NUM_LANES-1:0] warp_mask [0:NUM_WARPS-1];  // Active thread mask
     reg  [3:0]           cp_async_pending [0:NUM_WARPS-1];  // Outstanding cp.async copies
     reg  [3:0]           cp_async_wait_threshold [0:NUM_WARPS-1];
@@ -1383,6 +1385,7 @@ module streaming_multiprocessor_v2 #(
     // Apply fetch pipeline PC advance requests
     // warp_fetch_pc is also written by branch/kernel_start logic in execute stage
     integer fetch_pc_i;
+    /* verilator lint_off MULTIDRIVEN */
     always @(posedge clk) begin
         if (rst_n && !kernel_start) begin
             for (fetch_pc_i = 0; fetch_pc_i < NUM_WARPS; fetch_pc_i = fetch_pc_i + 1) begin
@@ -1391,6 +1394,7 @@ module streaming_multiprocessor_v2 #(
             end
         end
     end
+    /* verilator lint_on MULTIDRIVEN */
 
     //========================================================================
     // STAGE 2: PRE-DECODE & SCHEDULING (Replaces old Decode)
@@ -3099,7 +3103,8 @@ module streaming_multiprocessor_v2 #(
         .pop       (tensor_issue_pop_fire),
         .pop_data  (tensor_issue_pop_data),
         .full      (tensor_issue_fifo_full),
-        .empty     (tensor_issue_fifo_empty)
+        .empty     (tensor_issue_fifo_empty),
+        .dropped   ()
     );
 
     assign tensor_issue_frag_a = tensor_issue_pop_data[TENSOR_ISSUE_A_MSB:TENSOR_ISSUE_A_LSB];
@@ -3153,7 +3158,8 @@ module streaming_multiprocessor_v2 #(
         .pop       (tensor_meta_pop),
         .pop_data  (tensor_meta_pop_data),
         .full      (tensor_meta_full),
-        .empty     (tensor_meta_empty)
+        .empty     (tensor_meta_empty),
+        .dropped   ()
     );
 
     assign tensor_meta_warp = tensor_meta_pop_data[TENSOR_META_WARP_MSB:TENSOR_META_WARP_LSB];
@@ -3650,7 +3656,8 @@ module streaming_multiprocessor_v2 #(
         .pop      (atomic_q_pop),
         .pop_data (atomic_q_pop_data),
         .full     (atomic_q_full),
-        .empty    (atomic_q_empty)
+        .empty    (atomic_q_empty),
+        .dropped  ()
     );
 
     wire [WARP_ID_W-1:0] atomic_q_warp = atomic_q_pop_data[ATOMIC_WARP_MSB:ATOMIC_WARP_LSB];

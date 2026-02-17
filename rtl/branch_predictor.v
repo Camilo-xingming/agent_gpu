@@ -410,10 +410,12 @@ module branch_predictor #(
                 else
                     ras_ptr[update_warp_id] <= ras_ptr[update_warp_id] + 1'b1;
 
+                /* verilator lint_off MISINDENT */
                 ras_stack[update_warp_id]
-                    [(ras_ptr[update_warp_id] == RAS_DEPTH_MINUS_1) ?
-                     {RAS_PTR_WIDTH{1'b0}} :
-                     (ras_ptr[update_warp_id] + 1'b1)] <= update_pc + 4;
+                         [(ras_ptr[update_warp_id] == RAS_DEPTH_MINUS_1) ?
+                          {RAS_PTR_WIDTH{1'b0}} :
+                          (ras_ptr[update_warp_id] + 1'b1)] <= update_pc + 4;
+                /* verilator lint_on MISINDENT */
             end else if (update_is_return) begin
                 // Pop
                 if (ras_ptr[update_warp_id] > 0)
