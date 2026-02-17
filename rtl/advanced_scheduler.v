@@ -74,7 +74,12 @@ module advanced_warp_scheduler #(
     output wire [31:0]              stat_cycles,
     output wire [31:0]              stat_single_issue,
     output wire [31:0]              stat_dual_issue,
-    output wire [31:0]              stat_stalls
+    output wire [31:0]              stat_stalls,
+
+    //------------------------------------------------------------------------
+    // Scoreboard Visibility (eliminates hierarchical references)
+    //------------------------------------------------------------------------
+    output wire [31:0]              scoreboard_out [0:NUM_WARPS-1]
 );
 
     localparam WARP_W = $clog2(NUM_WARPS);
@@ -93,6 +98,14 @@ module advanced_warp_scheduler #(
     //------------------------------------------------------------------------
     // Per-warp scoreboard: which registers have pending writes
     reg [31:0] scoreboard [0:NUM_WARPS-1];  // Bit per register
+
+    // Expose scoreboard to parent module (replaces hierarchical references)
+    genvar sb_gi;
+    generate
+        for (sb_gi = 0; sb_gi < NUM_WARPS; sb_gi = sb_gi + 1) begin : gen_sb_out
+            assign scoreboard_out[sb_gi] = scoreboard[sb_gi];
+        end
+    endgenerate
 
     // Check RAW hazard
     function check_raw_hazard;
