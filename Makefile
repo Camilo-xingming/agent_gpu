@@ -84,7 +84,8 @@ RTL_SRCS = \
     $(RTL_DIR)/warp_collective_unit.v \
     $(RTL_DIR)/wb_fifo.v \
     $(RTL_DIR)/sm_wbq_bank.v \
-    $(RTL_DIR)/sm_special_reg.v
+    $(RTL_DIR)/sm_special_reg.v \
+    $(RTL_DIR)/sm_gmem_arbiter.v
 
 # Testbench文件
 TB_SRCS = $(TB_DIR)/tb_ralph_gpu.v
@@ -304,7 +305,8 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/sm_writeback_arbiter.v \
 	$(RTL_DIR)/wb_fifo.v \
 	$(RTL_DIR)/sm_wbq_bank.v \
-	$(RTL_DIR)/sm_special_reg.v
+	$(RTL_DIR)/sm_special_reg.v \
+	$(RTL_DIR)/sm_gmem_arbiter.v
 
 SM_V2_DEFINES = -DSM_V2 -DDEBUG_SM_V2
 

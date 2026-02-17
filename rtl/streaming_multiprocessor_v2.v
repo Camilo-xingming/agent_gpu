@@ -572,9 +572,7 @@ module streaming_multiprocessor_v2 #(
     wire [5:0]            atomic_mem_lane;
     wire                  atomic_mem_ready;
     wire [SIMD_WIDTH-1:0] atomic_mem_rdata;
-    reg                   atomic_mem_ready_gmem;
-    reg  [SIMD_WIDTH-1:0] atomic_mem_rdata_gmem;
-    reg                   atomic_mem_pending;  // Track pending atomic memory request
+    wire                  atomic_mem_pending;  // Track pending atomic memory request
     reg                   atomic_mem_shared_pending;
 
     // Shared Memory Signals
@@ -644,7 +642,7 @@ module streaming_multiprocessor_v2 #(
     wire                  tex_mem_write;
     wire [31:0]           tex_mem_addr;
     wire [127:0]          tex_mem_wdata;
-    reg                   tex_mem_pending;  // Track pending texture memory request
+    wire                  tex_mem_pending;  // Track pending texture memory request
     wire                  tex_mem_ready;    // Ready signal to texture unit
     wire [127:0]          tex_mem_rdata;    // Read data to texture unit
     wire                  tex_mem_valid;    // Response valid to texture unit
@@ -4054,151 +4052,61 @@ module streaming_multiprocessor_v2 #(
     );
 
     //------------------------------------------------------------------------
-    // Global Memory Interface with Async Copy Arbitration
+    // Global Memory Arbiter (Normal > Atomic > ACE > Texture)
     //------------------------------------------------------------------------
-    // Memory arbiter: normal instructions have priority, ACE uses idle cycles
-    // ACE state machine for tracking requests
-    reg         ace_mem_pending;
-    reg [31:0]  ace_mem_addr_saved;
-    reg [4:0]   ace_mem_size_saved;
-
-    // Normal memory request signals
+    wire ace_mem_pending;
     wire gmem_normal_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op &&
                                  (issue_mem_read || issue_mem_write);
-    wire gmem_normal_req_write = issue_mem_write;
+    wire [NUM_LANES-1:0] gmem_req_mask;
 
-    // Priority: Normal > Atomic > ACE > Texture
-    // Atomic requests have high priority (read-modify-write needs low latency)
-    wire gmem_use_atomic = atomic_mem_req && !gmem_normal_req_valid &&
-                           !atomic_mem_pending && !atomic_mem_shared_pending;
-    // ACE requests only when no normal/atomic request and ACE has pending work
-    wire gmem_use_ace = ace_gmem_req_valid && !gmem_normal_req_valid && !gmem_use_atomic && !ace_mem_pending;
-    // Texture requests only when no normal or ACE request
-    wire gmem_use_tex = tex_mem_req && !gmem_normal_req_valid && !gmem_use_atomic && !gmem_use_ace && !tex_mem_pending;
-
-    assign gmem_req_valid = gmem_normal_req_valid || gmem_use_atomic || gmem_use_ace || gmem_use_tex;
-    assign gmem_req_write = gmem_use_atomic ? atomic_mem_write :
-                            gmem_use_ace ? 1'b0 :
-                            gmem_use_tex ? tex_mem_write :
-                            gmem_normal_req_write;
-
-    // For ACE/Texture: replicate single address across all lanes (only lane 0 matters)
-    wire [NUM_LANES*32-1:0] ace_replicated_addr = {NUM_LANES{ace_gmem_req_addr}};
-    wire [NUM_LANES*32-1:0] tex_replicated_addr = {NUM_LANES{tex_mem_addr}};
-
-    // Atomic: one-hot lane mask and per-lane address/data
-    reg [NUM_LANES-1:0] atomic_req_mask;
-    reg [NUM_LANES*32-1:0] atomic_req_addr_vec;
-    reg [SIMD_WIDTH-1:0] atomic_req_wdata_vec;
-    integer atomic_lane_i;
-    always @(*) begin
-        atomic_req_mask = {NUM_LANES{1'b0}};
-        atomic_req_addr_vec = {NUM_LANES{32'b0}};
-        atomic_req_wdata_vec = {SIMD_WIDTH{1'b0}};
-        if (atomic_mem_req) begin
-            atomic_req_mask[atomic_mem_lane[4:0]] = 1'b1;
-            for (atomic_lane_i = 0; atomic_lane_i < NUM_LANES; atomic_lane_i = atomic_lane_i + 1) begin
-                if (atomic_mem_lane == atomic_lane_i[5:0]) begin
-                    atomic_req_addr_vec[atomic_lane_i*32 +: 32] = atomic_mem_addr;
-                    atomic_req_wdata_vec[atomic_lane_i*32 +: 32] = atomic_mem_wdata;
-                end
-            end
-        end
-    end
-
-    assign gmem_req_addr = gmem_use_atomic ? atomic_req_addr_vec :
-                           gmem_use_ace ? ace_replicated_addr :
-                           gmem_use_tex ? tex_replicated_addr :
-                           rf_rd_data_a;
-    // Write data: texture uses 128-bit width replicated to lanes 0-3
-    wire [SIMD_WIDTH-1:0] tex_wdata_extended = {{(SIMD_WIDTH-128){1'b0}}, tex_mem_wdata};
-    assign gmem_req_wdata = gmem_use_atomic ? atomic_req_wdata_vec :
-                            gmem_use_tex ? tex_wdata_extended : rf_rd_data_b;
-
-    // Track Atomic memory request state
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            atomic_mem_pending <= 1'b0;
-            atomic_mem_ready_gmem <= 1'b0;
-            atomic_mem_rdata_gmem <= {SIMD_WIDTH{1'b0}};
-        end else begin
-            atomic_mem_ready_gmem <= 1'b0;  // Default: not ready
-            if (atomic_mem_shared_pending) begin
-                atomic_mem_pending <= 1'b0;
-            end else if (gmem_use_atomic && gmem_req_ready) begin
-                // Atomic request accepted
-                atomic_mem_pending <= 1'b1;
-            end else if (atomic_mem_pending && gmem_resp_valid) begin
-                // Atomic response received
-                atomic_mem_pending <= 1'b0;
-                atomic_mem_ready_gmem <= 1'b1;
-                atomic_mem_rdata_gmem <= gmem_resp_rdata;
-            end
-        end
-    end
-
-    assign atomic_mem_ready = atomic_mem_shared_pending ? smem_atomic_resp_valid : atomic_mem_ready_gmem;
-    assign atomic_mem_rdata = atomic_mem_shared_pending ? {NUM_LANES{smem_atomic_resp_rdata}} : atomic_mem_rdata_gmem;
-
-    // Track ACE memory request state
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            ace_mem_pending <= 1'b0;
-            ace_mem_addr_saved <= 32'b0;
-            ace_mem_size_saved <= 5'b0;
-        end else begin
-            if (gmem_use_ace && gmem_req_ready && !atomic_mem_pending) begin
-                // ACE request accepted
-                ace_mem_pending <= 1'b1;
-                ace_mem_addr_saved <= ace_gmem_req_addr;
-                ace_mem_size_saved <= ace_gmem_req_size;
-            end else if (ace_mem_pending && gmem_resp_valid && !tex_mem_pending && !atomic_mem_pending) begin
-                // ACE response received (only when not waiting for tex or atomic)
-                ace_mem_pending <= 1'b0;
-            end
-        end
-    end
-
-    // Track Texture memory request state
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            tex_mem_pending <= 1'b0;
-        end else begin
-            if (gmem_use_tex && gmem_req_ready) begin
-                // Texture request accepted
-                tex_mem_pending <= 1'b1;
-            end else if (tex_mem_pending && gmem_resp_valid && !ace_mem_pending && !atomic_mem_pending) begin
-                // Texture response received (only when not waiting for ACE or atomic)
-                tex_mem_pending <= 1'b0;
-            end
-        end
-    end
-
-    // Route response to ACE when ACE request is pending
-    // Extract 128-bit data from lane 0-3 of the response
-    assign ace_gmem_resp_valid = ace_mem_pending && gmem_resp_valid && !tex_mem_pending && !atomic_mem_pending;
-    assign ace_gmem_resp_data = {gmem_resp_rdata[127:0]};  // First 128 bits (4 lanes)
-
-    // Route response to Texture unit
-    assign tex_mem_ready = !tex_mem_pending && gmem_req_ready;  // Ready when not pending
-    assign tex_mem_valid = tex_mem_pending && gmem_resp_valid && !ace_mem_pending && !atomic_mem_pending;
-    assign tex_mem_rdata = gmem_resp_rdata[127:0];  // First 128 bits
-
-    // DEBUG: trace first few load/store operations
-    reg [3:0] gmem_debug_cnt;
-    reg [3:0] gmem_store_cnt;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            gmem_debug_cnt <= 0;
-            gmem_store_cnt <= 0;
-        end else if (gmem_req_valid && issue_mem_read && gmem_debug_cnt < 4) begin
-            gmem_debug_cnt <= gmem_debug_cnt + 1;
-        end else if (gmem_req_valid && issue_mem_write && gmem_store_cnt < 4) begin
-            gmem_store_cnt <= gmem_store_cnt + 1;
-        end
-    end
-
-    wire [NUM_LANES-1:0] gmem_req_mask = gmem_use_atomic ? atomic_req_mask : issue_mask;
+    sm_gmem_arbiter u_gmem_arbiter (
+        .clk                (clk),
+        .rst_n              (rst_n),
+        // Normal pipeline LD/ST
+        .normal_req_valid   (gmem_normal_req_valid),
+        .normal_req_write   (issue_mem_write),
+        .normal_req_addr    (rf_rd_data_a),
+        .normal_req_wdata   (rf_rd_data_b),
+        .normal_req_mask    (issue_mask),
+        // Atomic unit
+        .atomic_req         (atomic_mem_req),
+        .atomic_write       (atomic_mem_write),
+        .atomic_lane        (atomic_mem_lane),
+        .atomic_addr        (atomic_mem_addr),
+        .atomic_wdata       (atomic_mem_wdata),
+        .atomic_shared_pending(atomic_mem_shared_pending),
+        .smem_atomic_resp_valid(smem_atomic_resp_valid),
+        .smem_atomic_resp_rdata(smem_atomic_resp_rdata),
+        .atomic_ready       (atomic_mem_ready),
+        .atomic_rdata       (atomic_mem_rdata),
+        .atomic_pending     (atomic_mem_pending),
+        // ACE (async copy)
+        .ace_req_valid      (ace_gmem_req_valid),
+        .ace_req_addr       (ace_gmem_req_addr),
+        .ace_req_size       (ace_gmem_req_size),
+        .ace_resp_valid     (ace_gmem_resp_valid),
+        .ace_resp_data      (ace_gmem_resp_data),
+        .ace_pending        (ace_mem_pending),
+        // Texture
+        .tex_req            (tex_mem_req),
+        .tex_addr           (tex_mem_addr),
+        .tex_write          (tex_mem_write),
+        .tex_wdata          (tex_mem_wdata),
+        .tex_ready          (tex_mem_ready),
+        .tex_resp_valid     (tex_mem_valid),
+        .tex_resp_data      (tex_mem_rdata),
+        .tex_pending        (tex_mem_pending),
+        // Merged output
+        .gmem_req_valid     (gmem_req_valid),
+        .gmem_req_write     (gmem_req_write),
+        .gmem_req_addr      (gmem_req_addr),
+        .gmem_req_wdata     (gmem_req_wdata),
+        .gmem_req_mask      (gmem_req_mask),
+        // From memory_interface
+        .gmem_req_ready     (gmem_req_ready),
+        .gmem_resp_valid    (gmem_resp_valid),
+        .gmem_resp_rdata    (gmem_resp_rdata)
+    );
 
     memory_interface u_mem_if (
         .clk         (clk),
