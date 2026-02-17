@@ -129,6 +129,11 @@ module sm_fetch_pipeline #(
     wire icache_valid;
     wire [63:0] icache_line_data;  // RALPH-8 P1: full cache line for NIB
 
+    // RALPH-8 P2: Hit-bypass during miss
+    wire icache_hit_bypass;
+    wire [31:0] icache_hit_bypass_data;
+    wire [63:0] icache_hit_bypass_line_data;
+
     generate
     if (ICACHE_BYPASS) begin : gen_icache_bypass
         assign imem_req  = fetch_req;
@@ -137,6 +142,10 @@ module sm_fetch_pipeline #(
         assign icache_valid = imem_valid;
         assign icache_data  = imem_data[31:0];
         assign icache_line_data = imem_data[63:0];
+        // No bypass needed in bypass mode (always ready)
+        assign icache_hit_bypass = 1'b0;
+        assign icache_hit_bypass_data = 32'b0;
+        assign icache_hit_bypass_line_data = 64'b0;
     end else begin : gen_icache_normal
         icache #(
             .SIZE_KB(4),
@@ -151,6 +160,9 @@ module sm_fetch_pipeline #(
             .fetch_data(icache_data),
             .fetch_line_data(icache_line_data),
             .fetch_valid(icache_valid),
+            .fetch_hit_bypass(icache_hit_bypass),
+            .fetch_hit_bypass_data(icache_hit_bypass_data),
+            .fetch_hit_bypass_line_data(icache_hit_bypass_line_data),
             .invalidate_req(1'b0),
             .invalidate_addr(32'b0),
             .invalidate_all(1'b0),
@@ -170,6 +182,8 @@ module sm_fetch_pipeline #(
     // ---- Fetch request / fire ----
     assign fetch_req = fetch_valid_arb;
     assign fetch_fire = fetch_req && icache_ready;
+    // RALPH-8 P2: Bypass fire — serves a cache hit while miss is in flight
+    wire bypass_fire = fetch_req && icache_hit_bypass;
     assign fetch_warp_id_out = fetch_warp_id_r;
 
     // ---- Fetch pipeline tracking ----
@@ -183,7 +197,7 @@ module sm_fetch_pipeline #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
             fetch_arb_ptr <= 0;
-        else if (fetch_fire)
+        else if (fetch_fire || bypass_fire)
             fetch_arb_ptr <= fetch_warp_id_r + 1'b1;
     end
 
@@ -231,14 +245,19 @@ module sm_fetch_pipeline #(
     // ---- Fill logic ----
     wire delayed_response_valid = icache_valid && fetch_pipe_valid[FETCH_PIPE_DEPTH-1];
     wire early_response_valid   = icache_valid && fetch_pipe_valid[0] && !fetch_pipe_valid[FETCH_PIPE_DEPTH-1];
-    wire [WARP_ID_W-1:0] fill_warp_id = same_cycle_hit ? fetch_warp_id_r :
+    wire [WARP_ID_W-1:0] fill_warp_id = bypass_fire ? fetch_warp_id_r :
+                                         same_cycle_hit ? fetch_warp_id_r :
                                          early_response_valid ? fetch_pipe_warp[0] :
                                          fetch_pipe_warp[FETCH_PIPE_DEPTH-1];
     // RALPH-8 P1: PC at fetch time (for NIB address calculation)
-    wire [31:0] fill_fetch_pc = same_cycle_hit ? warp_fetch_pc[fetch_warp_id_r] :
+    wire [31:0] fill_fetch_pc = (bypass_fire || same_cycle_hit) ? warp_fetch_pc[fetch_warp_id_r] :
                                 early_response_valid ? fetch_pipe_pc[0] :
                                 fetch_pipe_pc[FETCH_PIPE_DEPTH-1];
-    wire fill_valid = same_cycle_hit || delayed_response_valid || early_response_valid;
+    wire fill_valid = bypass_fire || same_cycle_hit || delayed_response_valid || early_response_valid;
+
+    // RALPH-8 P2: Select data source — bypass uses separate data path
+    wire [31:0] fill_data = bypass_fire ? icache_hit_bypass_data : icache_data;
+    wire [63:0] fill_line_data = bypass_fire ? icache_hit_bypass_line_data : icache_line_data;
 
     genvar fill_w;
     generate
@@ -270,19 +289,19 @@ module sm_fetch_pipeline #(
                     warp_inst_buf_valid[w_buf] <= 1'b0;
             end
 
-            // Fill instruction data
-            if (same_cycle_hit)
-                warp_inst_buf[fetch_warp_id_r] <= icache_data;
+            // Fill instruction data (RALPH-8 P2: uses fill_data for bypass support)
+            if (bypass_fire || same_cycle_hit)
+                warp_inst_buf[fetch_warp_id_r] <= fill_data;
             else if (early_response_valid)
-                warp_inst_buf[fetch_pipe_warp[0]] <= icache_data;
+                warp_inst_buf[fetch_pipe_warp[0]] <= fill_data;
             else if (delayed_response_valid)
-                warp_inst_buf[fetch_pipe_warp[FETCH_PIPE_DEPTH-1]] <= icache_data;
+                warp_inst_buf[fetch_pipe_warp[FETCH_PIPE_DEPTH-1]] <= fill_data;
 
-            // RALPH-8 P0+P1: Buffer upper word from 64-bit cache line
+            // RALPH-8 P0+P1+P2: Buffer upper word from 64-bit cache line
             // Only populate NIB when fetched address is first word of line (bit[2]==0),
             // meaning the second word (PC+4) is in the same line.
             if (fill_valid && !fill_fetch_pc[2]) begin
-                warp_next_inst[fill_warp_id] <= icache_line_data[63:32];
+                warp_next_inst[fill_warp_id] <= fill_line_data[63:32];
                 warp_next_inst_pc[fill_warp_id] <= fill_fetch_pc + 32'd4;
                 warp_next_inst_valid[fill_warp_id] <= 1'b1;
             end
@@ -316,7 +335,7 @@ module sm_fetch_pipeline #(
         fetch_pc_advance = {NUM_WARPS{1'b0}};
         nib_pc_advance   = {NUM_WARPS{1'b0}};
 
-        if (fetch_fire)
+        if (fetch_fire || bypass_fire)
             fetch_pc_advance[fetch_warp_id_r] = 1'b1;
 
         for (f_i = 0; f_i < NUM_WARPS; f_i = f_i + 1) begin

@@ -29,6 +29,11 @@ module icache #(
     output wire [LINE_SIZE*8-1:0]   fetch_line_data,
     output wire                     fetch_valid,
 
+    // RALPH-8 P2: Hit-bypass during miss (non-blocking)
+    output wire                     fetch_hit_bypass,
+    output wire [DATA_WIDTH-1:0]    fetch_hit_bypass_data,
+    output wire [LINE_SIZE*8-1:0]   fetch_hit_bypass_line_data,
+
     //------------------------------------------------------------------------
     // Invalidation Interface
     //------------------------------------------------------------------------
@@ -432,6 +437,14 @@ module icache #(
     assign mem_req_valid   = mem_req_valid_r;
     assign mem_req_addr    = mem_req_addr_r;
     assign invalidate_done = invalidate_done_r;
+
+    // RALPH-8 P2: Hit-bypass during miss — allows serving cache hits
+    // while FSM is blocked handling a miss for a different line.
+    // Only fires when FSM is NOT idle (miss in flight) and fetch_req sees a cache hit.
+    wire miss_pending = (state == ST_TAG_CHECK) || (state == ST_MISS_REQ) || (state == ST_MISS_WAIT);
+    assign fetch_hit_bypass           = miss_pending && fetch_req && cache_hit;
+    assign fetch_hit_bypass_data      = hit_data;
+    assign fetch_hit_bypass_line_data = hit_line;
 
 endmodule
 
