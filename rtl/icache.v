@@ -26,6 +26,7 @@ module icache #(
     input  wire [ADDR_WIDTH-1:0]    fetch_addr,
     output wire                     fetch_ready,
     output wire [DATA_WIDTH-1:0]    fetch_data,
+    output wire [LINE_SIZE*8-1:0]   fetch_line_data,
     output wire                     fetch_valid,
 
     //------------------------------------------------------------------------
@@ -203,6 +204,7 @@ module icache #(
     //------------------------------------------------------------------------
     reg fetch_valid_r;
     reg [DATA_WIDTH-1:0] fetch_data_r;
+    reg [LINE_BITS-1:0] fetch_line_data_r;
     reg mem_req_valid_r;
     reg [ADDR_WIDTH-1:0] mem_req_addr_r;
     reg [ADDR_WIDTH-1:0] fetch_addr_latched;  // Latch on miss
@@ -247,6 +249,7 @@ module icache #(
             state <= ST_IDLE;
             fetch_valid_r <= 1'b0;
             fetch_data_r <= 0;
+            fetch_line_data_r <= 0;
             fetch_ready_r <= 1'b1;
             mem_req_valid_r <= 1'b0;
             mem_req_addr_r <= 0;
@@ -338,6 +341,7 @@ module icache #(
 
                             // Return data immediately
                             fetch_data_r <= mem_resp_data[miss_word * DATA_WIDTH +: DATA_WIDTH];
+                            fetch_line_data_r <= mem_resp_data;
                             fetch_valid_r <= 1'b1;
 
                             if (need_prefetch) begin
@@ -419,6 +423,10 @@ module icache #(
     assign fetch_data      = combo_hit ? hit_data :
                             combo_prefetch_hit ? prefetch_hit_data :
                             fetch_data_r;
+    // Full cache line data for NIB (RALPH-8 P1)
+    assign fetch_line_data = combo_hit ? hit_line :
+                            combo_prefetch_hit ? prefetch_data[prefetch_hit_idx] :
+                            fetch_line_data_r;
     // Combinatorial valid for zero-latency cache hit
     assign fetch_valid     = combo_hit || combo_prefetch_hit || fetch_valid_r;
     assign mem_req_valid   = mem_req_valid_r;
