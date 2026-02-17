@@ -2596,88 +2596,48 @@ module streaming_multiprocessor_v2 #(
 
     //------------------------------------------------------------------------
     // Special Register Execution (MOV_SPECIAL - 1 cycle)
-    // Reads special registers like tid.x, ctaid.x, ntid.x, nctaid.x, etc.
     //------------------------------------------------------------------------
     wire special_use_slot0 = special_reg_issue0;
     wire [WARP_ID_W-1:0] special_issue_warp = special_use_slot0 ? issue_warp_id : issue1_warp_id;
-    wire [4:0] special_issue_rd = special_use_slot0 ? issue_rd : issue1_rd;
-    wire [4:0] special_issue_ra = special_use_slot0 ? issue_ra : issue1_ra;  // Special reg code
-    wire [NUM_LANES-1:0] special_issue_mask = special_use_slot0 ? issue_mask : issue1_mask;
 
-    // Generate special register value
-    // For %tid.x: each lane gets its lane index (0-31)
-    // For other special registers: same value replicated to all lanes
-    reg [31:0] special_reg_scalar;  // Scalar value for non-per-lane registers
-    wire special_is_tid_x = (special_issue_ra == `SREG_TID_X);
-    wire special_is_laneid = (special_issue_ra == `SREG_LANEID);
+    sm_special_reg #(
+        .SM_ID    (SM_ID)
+    ) u_special_reg (
+        .clk            (clk),
+        .rst_n          (rst_n),
+        .issue_valid    (special_reg_issue),
+        .use_slot0      (special_reg_issue0),
+        .slot0_warp_id  (issue_warp_id),
+        .slot1_warp_id  (issue1_warp_id),
+        .slot0_rd       (issue_rd),
+        .slot1_rd       (issue1_rd),
+        .slot0_ra       (issue_ra),
+        .slot1_ra       (issue1_ra),
+        .slot0_mask     (issue_mask),
+        .slot1_mask     (issue1_mask),
+        .warp_active_mask(warp_mask[special_issue_warp]),
+        .kernel_start   (kernel_start),
+        .block_id_x     (block_id_x),
+        .block_id_y     (block_id_y),
+        .block_id_z     (block_id_z),
+        .block_dim_x    (block_dim_x),
+        .block_dim_y    (block_dim_y),
+        .block_dim_z    (block_dim_z),
+        .grid_dim_x     (grid_dim_x),
+        .grid_dim_y     (grid_dim_y),
+        .grid_dim_z     (grid_dim_z),
+        .valid_out      (special_valid_out),
+        .warp_out       (special_warp_pipe),
+        .rd_out         (special_rd_pipe),
+        .mask_out       (special_mask_pipe),
+        .result_out     (special_result_pipe)
+    );
 
-    always @(*) begin
-        case (special_issue_ra)
-            `SREG_TID_X:    special_reg_scalar = 32'd0;  // Not used - per-lane below
-            `SREG_TID_Y:    special_reg_scalar = 32'd0;
-            `SREG_TID_Z:    special_reg_scalar = 32'd0;
-            `SREG_CTAID_X:  special_reg_scalar = block_id_regs[0];
-            `SREG_CTAID_Y:  special_reg_scalar = block_id_regs[1];
-            `SREG_CTAID_Z:  special_reg_scalar = block_id_regs[2];
-            `SREG_NTID_X:   special_reg_scalar = block_dim_regs[0];
-            `SREG_NTID_Y:   special_reg_scalar = block_dim_regs[1];
-            `SREG_NTID_Z:   special_reg_scalar = block_dim_regs[2];
-            `SREG_NCTAID_X: special_reg_scalar = grid_dim_regs[0];
-            `SREG_NCTAID_Y: special_reg_scalar = grid_dim_regs[1];
-            `SREG_NCTAID_Z: special_reg_scalar = grid_dim_regs[2];
-            `SREG_WARPID:   special_reg_scalar = {{(32-WARP_ID_W){1'b0}}, special_issue_warp};
-            `SREG_SMID:     special_reg_scalar = SM_ID;
-            `SREG_ACTIVEMASK: special_reg_scalar = {{(32-NUM_LANES){1'b0}}, warp_mask[special_issue_warp]};
-            default:        special_reg_scalar = 32'd0;
-        endcase
-    end
-
-    // Generate per-lane thread IDs for %tid.x, or replicate scalar for others
-    // Lane IDs: lane 0=0, lane 1=1, ..., lane 31=31
-    wire [SIMD_WIDTH-1:0] special_result;
-    genvar sr_i;
-    generate
-        for (sr_i = 0; sr_i < NUM_LANES; sr_i = sr_i + 1) begin : gen_special_reg
-            assign special_result[sr_i*32 +: 32] =
-                special_is_tid_x ? (special_issue_warp * NUM_LANES + sr_i) :
-                special_is_laneid ? sr_i[31:0] :
-                special_reg_scalar;
-        end
-    endgenerate
-
-    // Special register pipeline tracking (1 stage)
-    reg                  special_valid_pipe;
-    reg [WARP_ID_W-1:0]  special_warp_pipe;
-    reg [4:0]            special_rd_pipe;
-    reg [NUM_LANES-1:0]  special_mask_pipe;
-    reg [SIMD_WIDTH-1:0] special_result_pipe;
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            special_valid_pipe <= 1'b0;
-            special_warp_pipe <= 0;
-            special_rd_pipe <= 0;
-            special_mask_pipe <= 0;
-            special_result_pipe <= 0;
-        end else begin
-            special_valid_pipe <= special_reg_issue;
-            if (special_reg_issue) begin
-                special_warp_pipe <= special_issue_warp;
-                special_rd_pipe <= special_issue_rd;
-                special_mask_pipe <= special_issue_mask;
-                special_result_pipe <= special_result;
-                // DEBUG - show per-lane values to verify %tid.x
-            end
-        end
-    end
-
-    wire special_valid_out = special_valid_pipe;
-
-    // DEBUG: special writeback
-    always @(posedge clk) begin
-        if (special_valid_out) begin
-        end
-    end
+    wire special_valid_out;
+    wire [WARP_ID_W-1:0]  special_warp_pipe;
+    wire [4:0]            special_rd_pipe;
+    wire [NUM_LANES-1:0]  special_mask_pipe;
+    wire [SIMD_WIDTH-1:0] special_result_pipe;
 
     //------------------------------------------------------------------------
     // SIMD Multiplier
@@ -5279,26 +5239,7 @@ module streaming_multiprocessor_v2 #(
                             !smem_resp_latched;
     assign kernel_done = (warp_valid == 0) && !kernel_start && all_mem_complete;
 
-    //========================================================================
-    // Special Register Generation
-    //========================================================================
-    reg [31:0] block_id_regs [0:2];
-    reg [31:0] block_dim_regs [0:2];
-    reg [31:0] grid_dim_regs [0:2];
-
-    always @(posedge clk) begin
-        if (kernel_start) begin
-            block_id_regs[0] <= block_id_x;
-            block_id_regs[1] <= block_id_y;
-            block_id_regs[2] <= block_id_z;
-            block_dim_regs[0] <= block_dim_x;
-            block_dim_regs[1] <= block_dim_y;
-            block_dim_regs[2] <= block_dim_z;
-            grid_dim_regs[0] <= grid_dim_x;
-            grid_dim_regs[1] <= grid_dim_y;
-            grid_dim_regs[2] <= grid_dim_z;
-        end
-    end
+    // Special register generation moved to sm_special_reg module
 
     //========================================================================
     // Debug: Track warp_valid and fetch state after kernel_start
