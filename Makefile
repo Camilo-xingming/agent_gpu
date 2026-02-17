@@ -11,7 +11,7 @@ IVERILOG = iverilog
 VVP = vvp
 GTKWAVE = gtkwave
 PYTHON = python3
-VERILATOR ?= verilator
+VERILATOR ?= /opt/homebrew/bin/verilator
 YOSYS ?= /opt/homebrew/bin/yosys
 
 # 目录
@@ -85,7 +85,9 @@ RTL_SRCS = \
     $(RTL_DIR)/wb_fifo.v \
     $(RTL_DIR)/sm_wbq_bank.v \
     $(RTL_DIR)/sm_special_reg.v \
-    $(RTL_DIR)/sm_gmem_arbiter.v
+    $(RTL_DIR)/sm_gmem_arbiter.v \
+    $(RTL_DIR)/sm_fetch_pipeline.v \
+    $(RTL_DIR)/sm_writeback_arbiter.v
 
 # Testbench文件
 TB_SRCS = $(TB_DIR)/tb_ralph_gpu.v
@@ -516,7 +518,10 @@ perf: $(BUILD_DIR)
 
 #----------------------------------------------------------------------------
 lint:
-	$(VERILATOR) --lint-only --top ralph_gpu_top $(INCLUDES) $(filter %.v,$(RTL_SRCS))
+	$(VERILATOR) --lint-only --top ralph_gpu_top -Wall \
+		-Wno-DECLFILENAME -Wno-PINCONNECTEMPTY \
+		-Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+		$(INCLUDES) $(filter %.v,$(RTL_SRCS))
 
 #----------------------------------------------------------------------------
 # 综合检查 (Yosys)

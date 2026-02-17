@@ -184,7 +184,6 @@ module ralph_gpu_top #(
     reg [31:0] l1d_bypass_mem [0:16383];  // 64KB shared for bypass mode
 
     genvar sm;
-    genvar lane;
     // Performance counter wires (RALPH-7)
     wire [NUM_SM-1:0] sm_perf_issue_valid;
     wire [NUM_SM-1:0] sm_perf_dual_issue;
