@@ -3202,8 +3202,7 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_WARPS-1:0] tensor_push_locked = tensor_push_lockout_0 | tensor_push_lockout_1;
     wire tensor_push_lane0_raw = issue_valid && issue_tensor_op;
     wire tensor_push_lane1_raw = issue1_valid && issue1_tensor_op && !tensor_push_lane0;
-    // Keep lockout suppression on slot1 only; slot0 must not be blocked.
-    wire tensor_push_lane0 = tensor_push_lane0_raw;
+    wire tensor_push_lane0 = tensor_push_lane0_raw && !tensor_push_locked[issue_warp_id];
     wire tensor_push_lane1 = tensor_push_lane1_raw && !tensor_push_locked[issue1_warp_id];
     assign tensor_issue_push = tensor_push_lane0 || tensor_push_lane1;
     assign tensor_issue_push_data = tensor_push_lane0 ?
