@@ -389,10 +389,15 @@ module int_to_fp32 #(
     function [4:0] clz32;
         input [31:0] val;
         integer i;
+        reg found;
         begin
             clz32 = 32;
+            found = 1'b0;
             for (i = 31; i >= 0; i = i - 1) begin
-                if (val[i]) clz32 = 31 - i;
+                if (val[i] && !found) begin
+                    clz32 = 31 - i;
+                    found = 1'b1;
+                end
             end
         end
     endfunction
