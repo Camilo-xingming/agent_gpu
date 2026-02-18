@@ -40,13 +40,16 @@ module sm_fetch_pipeline #(
     output reg  [NUM_WARPS-1:0]     warp_inst_buf_valid,
     output reg  [NUM_WARPS-1:0]     warp_inst_valid_d1,
     output wire [NUM_WARPS-1:0]     warp_inst_consume_gated,
+    // RALPH-10c: Combinational bypass outputs — same-cycle fill visibility
+    output wire [NUM_WARPS-1:0]     warp_inst_valid_fast,
+    output wire [32*NUM_WARPS-1:0]  warp_inst_buf_fast_flat,
     output wire [32*NUM_WARPS-1:0]  warp_inst_buf_flat,
     output wire                     fetch_req,
     output wire                     fetch_fire,
     output wire [WARP_ID_W-1:0]     fetch_warp_id_out,
 
     // PC advance requests (SM applies these)
-    output reg  [NUM_WARPS-1:0]     fetch_pc_advance,      // advance by 4 on fetch_fire
+    output reg  [NUM_WARPS-1:0]     fetch_pc_advance,      // advance by 4 on committed fill
     output reg  [NUM_WARPS-1:0]     nib_pc_advance,        // advance by 4 on NIB hit
 
     // Status outputs
@@ -73,6 +76,47 @@ module sm_fetch_pipeline #(
     generate
         for (pki = 0; pki < NUM_WARPS; pki = pki + 1) begin : gen_pack_buf
             assign warp_inst_buf_flat[32*pki +: 32] = warp_inst_buf[pki];
+        end
+    endgenerate
+
+    // ---- RALPH-10c: Combinational fill bypass ----
+    // Exposes fill data in the same cycle as ICache hit / NIB hit so the
+    // scheduler can pick the warp without waiting for the register edge.
+    // This eliminates the 1-cycle IFetch bubble on non-NIB cache hits.
+
+    // NIB hit/consume handshake (combinational, shared by state + PC advance)
+    wire [NUM_WARPS-1:0] nib_take;
+
+    // NIB hit condition (combinational, mirrors the registered block)
+    wire [NUM_WARPS-1:0] nib_will_serve;
+    generate
+        for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_nib_serve
+            // Keep nib_take independent from same-cycle consume to avoid
+            // combinational loop: fast_valid -> scheduler -> consume -> nib_take.
+            assign nib_take[upi] = warp_next_inst_hit[upi]
+                                && !warp_inst_buf_valid[upi]
+                                && !warp_fill[upi]
+                                && !warp_fetch_pending[upi]
+                                && !branch_flush_mask[upi];
+            assign nib_will_serve[upi] = nib_take[upi];
+        end
+    endgenerate
+
+    // Fast valid: registered | NIB_this_cycle.
+    // Only NIB hits bypass; ICache fills use the normal registered path to
+    // avoid double-issue when fill and consume overlap on the same cycle.
+    generate
+        for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_fast_valid
+            assign warp_inst_valid_fast[upi] = warp_inst_buf_valid[upi] | nib_will_serve[upi];
+        end
+    endgenerate
+
+    // Fast data mux: NIB > registered buffer (no fill bypass)
+    generate
+        for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_fast_data
+            assign warp_inst_buf_fast_flat[32*upi +: 32] =
+                nib_will_serve[upi]  ? warp_next_inst[upi] :
+                                       warp_inst_buf[upi];
         end
     endgenerate
 
@@ -318,9 +362,7 @@ module sm_fetch_pipeline #(
 
             // NIB hit: serve from buffer
             for (w_buf = 0; w_buf < NUM_WARPS; w_buf = w_buf + 1) begin
-                if (warp_next_inst_hit[w_buf] && warp_buf_will_be_empty[w_buf]
-                    && !warp_fill[w_buf] && !warp_fetch_pending[w_buf]
-                    && !branch_flush_mask[w_buf]) begin
+                if (nib_take[w_buf]) begin
                     warp_inst_buf[w_buf] <= warp_next_inst[w_buf];
                     warp_inst_buf_valid[w_buf] <= 1'b1;
                     warp_next_inst_valid[w_buf] <= 1'b0;
@@ -342,18 +384,13 @@ module sm_fetch_pipeline #(
 
     // ---- PC advance requests (combinational outputs to SM) ----
     always @(*) begin
-        fetch_pc_advance = {NUM_WARPS{1'b0}};
+        // Advance PC only when an instruction is actually committed to warp buffer.
+        fetch_pc_advance = warp_fill;
         nib_pc_advance   = {NUM_WARPS{1'b0}};
 
-        if (fetch_fire || bypass_fire)
-            fetch_pc_advance[fetch_warp_id_r] = 1'b1;
-
         for (f_i = 0; f_i < NUM_WARPS; f_i = f_i + 1) begin
-            if (warp_next_inst_hit[f_i] && warp_buf_will_be_empty[f_i]
-                && !warp_fill[f_i] && !warp_fetch_pending[f_i]
-                && !branch_flush_mask[f_i])
+            if (nib_take[f_i])
                 nib_pc_advance[f_i] = 1'b1;
         end
     end
-
 endmodule

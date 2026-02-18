@@ -87,7 +87,10 @@ RTL_SRCS = \
     $(RTL_DIR)/sm_special_reg.v \
     $(RTL_DIR)/sm_gmem_arbiter.v \
     $(RTL_DIR)/sm_fetch_pipeline.v \
-    $(RTL_DIR)/sm_writeback_arbiter.v
+    $(RTL_DIR)/sm_writeback_arbiter.v \
+    $(RTL_DIR)/chi_controller.v \
+    $(RTL_DIR)/lz4_decompressor.v \
+    $(RTL_DIR)/tensor_memory.v
 
 # Testbench文件
 TB_SRCS = $(TB_DIR)/tb_ralph_gpu.v

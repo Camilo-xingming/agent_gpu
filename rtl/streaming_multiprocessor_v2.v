@@ -1311,6 +1311,9 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_WARPS-1:0]     fp_inst_valid_d1;
     wire [NUM_WARPS-1:0]     fp_inst_consume_gated;
     wire [32*NUM_WARPS-1:0]  fp_inst_buf_flat;
+    // RALPH-10c: combinational bypass from fetch pipeline
+    wire [NUM_WARPS-1:0]     fp_inst_valid_fast;
+    wire [32*NUM_WARPS-1:0]  fp_inst_buf_fast_flat;
     wire [WARP_ID_W-1:0]     fetch_warp_id;
     wire [NUM_WARPS-1:0]     fetch_pc_advance;
     wire [NUM_WARPS-1:0]     nib_pc_advance;
@@ -1328,8 +1331,18 @@ module streaming_multiprocessor_v2 #(
         end
     endgenerate
 
+    // RALPH-10c: Unpack fast bypass instruction buffer
+    wire [31:0] warp_inst_buf_fast [0:NUM_WARPS-1];
+    genvar ufbi;
+    generate
+        for (ufbi = 0; ufbi < NUM_WARPS; ufbi = ufbi + 1) begin : gen_unpack_fast_buf
+            assign warp_inst_buf_fast[ufbi] = fp_inst_buf_fast_flat[32*ufbi +: 32];
+        end
+    endgenerate
+
     // Aliases for SM-wide use
     wire [NUM_WARPS-1:0] warp_inst_buf_valid = fp_inst_buf_valid;
+    wire [NUM_WARPS-1:0] warp_inst_valid_fast = fp_inst_valid_fast;  // RALPH-10c
     wire [NUM_WARPS-1:0] warp_inst_valid_d1  = fp_inst_valid_d1;
     wire [NUM_WARPS-1:0] warp_inst_consume_gated = fp_inst_consume_gated;
     wire [NUM_WARPS-1:0] warp_inst_consume;  // From scheduler
@@ -1359,6 +1372,8 @@ module streaming_multiprocessor_v2 #(
         .warp_inst_buf_valid(fp_inst_buf_valid),
         .warp_inst_valid_d1(fp_inst_valid_d1),
         .warp_inst_consume_gated(fp_inst_consume_gated),
+        .warp_inst_valid_fast(fp_inst_valid_fast),
+        .warp_inst_buf_fast_flat(fp_inst_buf_fast_flat),
         .warp_inst_buf_flat(fp_inst_buf_flat),
         .fetch_req(fetch_req),
         .fetch_fire(fetch_fire),
@@ -1411,7 +1426,7 @@ module streaming_multiprocessor_v2 #(
     genvar pd_i;
     generate
         for (pd_i = 0; pd_i < NUM_WARPS; pd_i = pd_i + 1) begin : gen_predecode
-            wire [31:0] inst = warp_inst_buf[pd_i];
+            wire [31:0] inst = warp_inst_buf_fast[pd_i];  // RALPH-10c: bypass
             // Simple extraction (assuming R-type/I-type consistency)
             // Real implementation needs fuller opcode check
             assign pd_rd[pd_i] = inst[25:21];
@@ -1536,8 +1551,8 @@ module streaming_multiprocessor_v2 #(
         .warp_ready(warp_ready),
         .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
         .warp_at_barrier(warp_stalled_sync),
-        .warp_inst(warp_inst_buf),
-        .warp_inst_valid(warp_inst_buf_valid),
+        .warp_inst(warp_inst_buf_fast),     // RALPH-10c: bypass
+        .warp_inst_valid(warp_inst_valid_fast),  // RALPH-10c: bypass
         .warp_inst_consume(warp_inst_consume),
         .warp_rd(pd_rd),
         .warp_rs1(pd_rs1),
@@ -1613,8 +1628,8 @@ module streaming_multiprocessor_v2 #(
         .warp_ready(warp_ready),
         .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
         .warp_at_barrier(warp_stalled_sync),
-        .warp_inst(warp_inst_buf),
-        .warp_inst_valid(warp_inst_buf_valid),
+        .warp_inst(warp_inst_buf_fast),     // RALPH-10c: bypass
+        .warp_inst_valid(warp_inst_valid_fast),  // RALPH-10c: bypass
         .warp_inst_consume(warp_inst_consume),
         .warp_rd(pd_rd),
         .warp_rs1(pd_rs1),
