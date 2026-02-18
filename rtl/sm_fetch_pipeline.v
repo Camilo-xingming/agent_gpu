@@ -102,19 +102,25 @@ module sm_fetch_pipeline #(
         end
     endgenerate
 
-    // Fast valid: registered | NIB_this_cycle.
-    // Only NIB hits bypass; ICache fills use the normal registered path to
-    // avoid double-issue when fill and consume overlap on the same cycle.
+    // Fast valid: registered | NIB_this_cycle | fill_into_empty_buffer.
+    // RALPH-10c-v2: Full fill bypass when buffer was empty (registered).
+    // Suppressed by fill_bypass_consumed_r (1-cycle pulse) to prevent re-issue
+    // of an instruction that was already consumed via bypass on the prior cycle.
     generate
         for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_fast_valid
-            assign warp_inst_valid_fast[upi] = warp_inst_buf_valid[upi] | nib_will_serve[upi];
+            wire fill_into_empty = warp_fill[upi] & ~warp_inst_buf_valid[upi];
+            assign warp_inst_valid_fast[upi] = warp_inst_buf_valid[upi]
+                                             | nib_will_serve[upi]
+                                             | fill_into_empty;
         end
     endgenerate
 
-    // Fast data mux: NIB > registered buffer (no fill bypass)
+    // Fast data mux: fill_into_empty > NIB > registered buffer
     generate
         for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_fast_data
+            wire fill_into_empty = warp_fill[upi] & ~warp_inst_buf_valid[upi];
             assign warp_inst_buf_fast_flat[32*upi +: 32] =
+                fill_into_empty      ? fill_data :
                 nib_will_serve[upi]  ? warp_next_inst[upi] :
                                        warp_inst_buf[upi];
         end
@@ -139,6 +145,7 @@ module sm_fetch_pipeline #(
     // ---- Fetch pending tracking ----
     reg [NUM_WARPS-1:0] warp_fetch_pending;
     assign warp_fetch_pending_out = warp_fetch_pending;
+
 
     wire [NUM_WARPS-1:0] warp_needs_fetch = warp_buf_will_be_empty & ~warp_fetch_pending & ~warp_next_inst_hit;
 
@@ -336,8 +343,16 @@ module sm_fetch_pipeline #(
             warp_inst_buf_valid <= warp_inst_buf_valid & ~branch_flush_mask;
 
             // Valid bit management (fill/consume, after flush)
+            // RALPH-10c-v2: When fill goes into an empty buffer AND the
+            // scheduler consumed it via bypass, set valid=0 (already served).
+            // When fill arrives but buffer was valid (old instruction present),
+            // DON'T bypass fill data (fast mux shows buffer data) — set valid=1
+            // normally so the fill instruction gets served next cycle.
             for (w_buf = 0; w_buf < NUM_WARPS; w_buf = w_buf + 1) begin
-                if (warp_fill[w_buf])
+                if (warp_fill[w_buf] && !warp_inst_buf_valid[w_buf] && warp_inst_consume_gated[w_buf])
+                    // Bypass-consumed: fill was served combinationally, don't buffer it
+                    warp_inst_buf_valid[w_buf] <= 1'b0;
+                else if (warp_fill[w_buf])
                     warp_inst_buf_valid[w_buf] <= 1'b1;
                 else if (warp_inst_consume_gated[w_buf] && !branch_flush_mask[w_buf])
                     warp_inst_buf_valid[w_buf] <= 1'b0;
