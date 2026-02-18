@@ -146,6 +146,11 @@ module blackwell_scheduler #(
     //------------------------------------------------------------------------
     // Scoreboard Visibility (eliminates hierarchical references)
     //------------------------------------------------------------------------
+    //------------------------------------------------------------------------
+    // Scheduler-centric IFetch stall (true when IFetch is the bottleneck)
+    //------------------------------------------------------------------------
+    output wire                     perf_sched_stall_ifetch,
+
     output wire [31:0]              scoreboard_out [0:NUM_WARPS-1]
 );
 
@@ -248,6 +253,12 @@ module blackwell_scheduler #(
 
     // Combined eligibility
     wire [NUM_WARPS-1:0] warp_eligible = warp_eligible_base | warp_tcgen05_eligible;
+
+    // Scheduler-centric IFetch stall: no warp eligible, but at least one warp
+    // WOULD be eligible if it had a valid instruction (IFetch is the bottleneck)
+    wire [NUM_WARPS-1:0] warp_ifetch_blocked = warp_valid & warp_ready & ~warp_inst_valid
+                                              & ~warp_has_hazard & ~warp_diverged & ~warp_at_barrier;
+    assign perf_sched_stall_ifetch = (warp_eligible == {NUM_WARPS{1'b0}}) && (|warp_ifetch_blocked);
 
     //------------------------------------------------------------------------
     // Per-Scheduler Warp Selection

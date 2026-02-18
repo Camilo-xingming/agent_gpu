@@ -74,19 +74,6 @@ module tb_sm_v2_perf_gemm16_ptx;
     reg  [31:0] m_axi_rdata;
     reg         m_axi_rlast;
 
-    // Performance output ports from DUT
-    wire        perf_issue_valid;
-    wire        perf_dual_issue;
-    wire        perf_stall_scoreboard;
-    wire        perf_stall_mem;
-    wire        perf_stall_ifetch;
-    wire        perf_fu_alu_active;
-    wire        perf_fu_fpu_active;
-    wire        perf_fu_ldst_active;
-    wire        perf_fu_tensor_active;
-    wire        perf_branch_taken;
-    wire        perf_branch_divergent;
-
     //------------------------------------------------------------------------
     // Instruction Memory
     //------------------------------------------------------------------------
@@ -94,6 +81,8 @@ module tb_sm_v2_perf_gemm16_ptx;
     reg        imem_req_q;
     reg [31:0] imem_addr_q;
     string     imem_file;
+    integer    imem_fd;
+    reg        imem_loaded;
 
     integer i;
     initial begin
@@ -101,9 +90,40 @@ module tb_sm_v2_perf_gemm16_ptx;
             imem[i] = {`OP_NOP, 26'b0};
         end
         if (!$value$plusargs("imem=%s", imem_file)) begin
-            imem_file = "../gemm16_fma.hex";
+            imem_file = "gemm16_fma.hex";
         end
-        $readmemh(imem_file, imem, 0, N_OPS);
+        imem_loaded = 1'b0;
+
+        // Try default cwd path first, then common build-relative fallback paths.
+        imem_fd = $fopen(imem_file, "r");
+        if (imem_fd != 0) begin
+            $fclose(imem_fd);
+            $readmemh(imem_file, imem, 0, N_OPS);
+            imem_loaded = 1'b1;
+        end else begin
+            imem_fd = $fopen("../gemm16_fma.hex", "r");
+            if (imem_fd != 0) begin
+                $fclose(imem_fd);
+                imem_file = "../gemm16_fma.hex";
+                $readmemh(imem_file, imem, 0, N_OPS);
+                imem_loaded = 1'b1;
+            end else begin
+                imem_fd = $fopen("../../gemm16_fma.hex", "r");
+                if (imem_fd != 0) begin
+                    $fclose(imem_fd);
+                    imem_file = "../../gemm16_fma.hex";
+                    $readmemh(imem_file, imem, 0, N_OPS);
+                    imem_loaded = 1'b1;
+                end
+            end
+        end
+
+        if (!imem_loaded) begin
+            $display("FATAL: unable to load instruction hex file (tried: %s, ../gemm16_fma.hex, ../../gemm16_fma.hex)", imem_file);
+            $finish;
+        end else begin
+            $display("INFO: loaded instruction hex: %s", imem_file);
+        end
     end
 
     always @(posedge clk or negedge rst_n) begin
@@ -161,19 +181,6 @@ module tb_sm_v2_perf_gemm16_ptx;
         .l1d_resp_rdata(l1d_resp_rdata),
         .l1d_resp_valid(l1d_resp_valid),
         .l1d_resp_hit  (l1d_resp_hit),
-        // Performance ports
-        .perf_issue_valid    (perf_issue_valid),
-        .perf_dual_issue     (perf_dual_issue),
-        .perf_stall_scoreboard(perf_stall_scoreboard),
-        .perf_stall_mem      (perf_stall_mem),
-        .perf_stall_ifetch   (perf_stall_ifetch),
-        .perf_fu_alu_active  (perf_fu_alu_active),
-        .perf_fu_fpu_active  (perf_fu_fpu_active),
-        .perf_fu_ldst_active (perf_fu_ldst_active),
-        .perf_fu_tensor_active(perf_fu_tensor_active),
-        .perf_branch_taken   (perf_branch_taken),
-        .perf_branch_divergent(perf_branch_divergent),
-        // AXI
         .m_axi_awid    (m_axi_awid),
         .m_axi_awaddr  (m_axi_awaddr),
         .m_axi_awlen   (m_axi_awlen),
@@ -236,16 +243,16 @@ module tb_sm_v2_perf_gemm16_ptx;
     integer wb_count;
     integer fetch_count;
     integer issue_count;
-    integer dual_issue_count;
-    integer stall_scoreboard;
-    integer stall_mem;
-    integer stall_ifetch;
+    integer stall_raw;
     integer stall_fu;
+    integer stall_mem;
+    integer stall_atomic;
+    integer stall_tensor;
     integer stall_wbq;
-    integer fu_fpu_active;
+    integer stall_ifetch;
     integer timeout_cycles;
     integer timeout_left;
-    integer last_progress_wb;
+    integer progress_interval;
     reg running;
     reg done;
     real ipc;
@@ -259,14 +266,13 @@ module tb_sm_v2_perf_gemm16_ptx;
             wb_count <= 0;
             fetch_count <= 0;
             issue_count <= 0;
-            dual_issue_count <= 0;
-            stall_scoreboard <= 0;
-            stall_mem <= 0;
-            stall_ifetch <= 0;
+            stall_raw <= 0;
             stall_fu <= 0;
+            stall_mem <= 0;
+            stall_atomic <= 0;
+            stall_tensor <= 0;
             stall_wbq <= 0;
-            fu_fpu_active <= 0;
-            last_progress_wb <= 0;
+            stall_ifetch <= 0;
         end else begin
             if (kernel_start) begin
                 running <= 1'b1;
@@ -275,50 +281,50 @@ module tb_sm_v2_perf_gemm16_ptx;
                 wb_count <= 0;
                 fetch_count <= 0;
                 issue_count <= 0;
-                dual_issue_count <= 0;
-                stall_scoreboard <= 0;
-                stall_mem <= 0;
-                stall_ifetch <= 0;
+                stall_raw <= 0;
                 stall_fu <= 0;
+                stall_mem <= 0;
+                stall_atomic <= 0;
+                stall_tensor <= 0;
                 stall_wbq <= 0;
-                fu_fpu_active <= 0;
-                last_progress_wb <= 0;
+                stall_ifetch <= 0;
             end else if (running) begin
                 cycle_count <= cycle_count + 1;
-                if (wb_fire)
+                if (wb_fire) begin
                     wb_count <= wb_count + 1;
-                if (imem_req)
+                end
+                if (imem_req) begin
                     fetch_count <= fetch_count + 1;
-                if (perf_issue_valid)
+                end
+                if (dut.issue_valid) begin
                     issue_count <= issue_count + 1;
-                if (perf_dual_issue)
-                    dual_issue_count <= dual_issue_count + 1;
-                if (perf_stall_scoreboard)
-                    stall_scoreboard <= stall_scoreboard + 1;
-                if (perf_stall_mem)
-                    stall_mem <= stall_mem + 1;
-                if (perf_stall_ifetch)
+                end
+                if (dut.perf_stall_ifetch) begin
                     stall_ifetch <= stall_ifetch + 1;
-                if (dut.lane0_stall_fu)
+                end
+                if (dut.lane0_stall_raw) begin
+                    stall_raw <= stall_raw + 1;
+                end
+                if (dut.lane0_stall_fu) begin
                     stall_fu <= stall_fu + 1;
-                if (dut.lane0_stall_wbq)
+                end
+                if (dut.lane0_stall_mem) begin
+                    stall_mem <= stall_mem + 1;
+                end
+                if (dut.lane0_stall_atomic) begin
+                    stall_atomic <= stall_atomic + 1;
+                end
+                if (dut.lane0_stall_tensor) begin
+                    stall_tensor <= stall_tensor + 1;
+                end
+                if (dut.lane0_stall_wbq) begin
                     stall_wbq <= stall_wbq + 1;
-                if (perf_fu_fpu_active)
-                    fu_fpu_active <= fu_fpu_active + 1;
+                end
                 if (wb_count + (wb_fire ? 1 : 0) >= N_OPS) begin
                     running <= 1'b0;
                     done <= 1'b1;
                 end
             end
-        end
-    end
-
-    // Progress reporting (every 1024 writebacks)
-    always @(posedge clk) begin
-        if (running && wb_fire && ((wb_count & 32'h3FF) == 32'h3FF)) begin
-            $display("  [progress] wb=%0d/%0d  cycle=%0d  ipc=%0.3f",
-                     wb_count + 1, N_OPS, cycle_count,
-                     (cycle_count > 0) ? (1.0 * (wb_count+1) / cycle_count) : 0.0);
         end
     end
 
@@ -329,7 +335,7 @@ module tb_sm_v2_perf_gemm16_ptx;
         $display("============================================================");
         $display("RalphGPU SM V2 PTX Performance Test");
         $display("Kernel: GEMM 16x16x16 (FMA stream from PTX)");
-        $display("Warps: %0d  Lanes: %0d  Ops: %0d", NUM_WARPS, NUM_LANES, N_OPS);
+        $display("Ops: %0d FMA", N_OPS);
         $display("============================================================");
 
         rst_n = 0;
@@ -349,35 +355,44 @@ module tb_sm_v2_perf_gemm16_ptx;
         @(posedge clk);
         kernel_start = 0;
 
-        timeout_cycles = (N_OPS * 4) + 2000;
+        timeout_cycles = (N_OPS * 8) + 2000;  // Default headroom for post-RALPH-10c timing
+        progress_interval = 2000;
+        if ($value$plusargs("timeout_cycles=%d", timeout_cycles)) begin
+            $display("INFO: override timeout_cycles=%0d", timeout_cycles);
+        end
+        if ($value$plusargs("progress_interval=%d", progress_interval)) begin
+            $display("INFO: override progress_interval=%0d", progress_interval);
+        end
+        if (progress_interval <= 0) begin
+            progress_interval = 2000;
+        end
         timeout_left = timeout_cycles;
         while (!done && (timeout_left > 0)) begin
             @(posedge clk);
             timeout_left = timeout_left - 1;
+            if ((cycle_count > 0) && ((cycle_count % progress_interval) == 0)) begin
+                $display("PROGRESS: cycle=%0d wb=%0d issue=%0d fetch=%0d stalls(raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d timeout_left=%0d",
+                         cycle_count, wb_count, issue_count, fetch_count,
+                         stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq,
+                         timeout_left);
+            end
         end
 
-        $display("------------------------------------------------------------");
-        $display("RESULTS");
-        $display("------------------------------------------------------------");
         ipc = (cycle_count > 0) ? (1.0 * wb_count / cycle_count) : 0.0;
-        $display("Cycles:      %0d", cycle_count);
-        $display("Writebacks:  %0d", wb_count);
-        $display("Fetches:     %0d", fetch_count);
-        $display("Issues:      %0d  (dual: %0d)", issue_count, dual_issue_count);
-        $display("FPU active:  %0d cycles (%0.1f%%)",
-                 fu_fpu_active,
-                 (cycle_count > 0) ? (100.0 * fu_fpu_active / cycle_count) : 0.0);
-        $display("Stalls:  scoreboard=%0d  mem=%0d  ifetch=%0d  fu=%0d  wbq=%0d",
-                 stall_scoreboard, stall_mem, stall_ifetch, stall_fu, stall_wbq);
-        $display("IPC:         %0.3f", ipc);
-        $display("------------------------------------------------------------");
+        $display("Cycles: %0d", cycle_count);
+        $display("Writebacks: %0d", wb_count);
+        $display("Fetches: %0d", fetch_count);
+        $display("Issues: %0d", issue_count);
+        $display("Stalls: raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d",
+                 stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq);
+        $display("IPC: %0.3f", ipc);
 
         if (!done) begin
-            $display("FAIL: timeout after %0d cycles (wb=%0d/%0d)", cycle_count, wb_count, N_OPS);
+            $display("FAIL: timeout before completing all FMAs");
         end else if (wb_count != N_OPS) begin
             $display("FAIL: expected %0d writebacks, got %0d", N_OPS, wb_count);
         end else begin
-            $display("PASS: completed GEMM FMA stream in %0d cycles (IPC=%0.3f)", cycle_count, ipc);
+            $display("PASS: completed GEMM FMA stream");
         end
 
         $finish;

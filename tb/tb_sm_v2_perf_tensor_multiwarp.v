@@ -241,6 +241,7 @@ module tb_sm_v2_perf_tensor_multiwarp;
     integer stall_atomic;
     integer stall_tensor;
     integer stall_wbq;
+    integer stall_ifetch;
     integer timeout_cycles;
     integer timeout_left;
     reg running;
@@ -262,6 +263,7 @@ module tb_sm_v2_perf_tensor_multiwarp;
             stall_atomic <= 0;
             stall_tensor <= 0;
             stall_wbq <= 0;
+            stall_ifetch <= 0;
         end else begin
             if (kernel_start) begin
                 running <= 1'b1;
@@ -276,6 +278,7 @@ module tb_sm_v2_perf_tensor_multiwarp;
                 stall_atomic <= 0;
                 stall_tensor <= 0;
                 stall_wbq <= 0;
+                stall_ifetch <= 0;
             end else if (running) begin
                 cycle_count <= cycle_count + 1;
                 if (wb_fire) begin
@@ -286,6 +289,9 @@ module tb_sm_v2_perf_tensor_multiwarp;
                 end
                 if (dut.issue_valid) begin
                     issue_count <= issue_count + 1;
+                end
+                if (dut.perf_stall_ifetch) begin
+                    stall_ifetch <= stall_ifetch + 1;
                 end
                 // Debug: targeted scheduler/retire instrumentation
                 if ((cycle_count % 5000 == 0)) begin
@@ -448,8 +454,9 @@ module tb_sm_v2_perf_tensor_multiwarp;
         $display("Writebacks: %0d", wb_count);
         $display("Fetches: %0d", fetch_count);
         $display("Issues: %0d", issue_count);
-        $display("Stalls: raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d",
-                 stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq);
+        $display("Stalls: raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d ifetch=%0d (%0d%%)",
+                 stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq,
+                 stall_ifetch, (cycle_count > 0) ? (stall_ifetch * 100 / cycle_count) : 0);
         $display("IPC: %0.3f", ipc);
 
         $display("Per-warp WB: w0=%0d w1=%0d w2=%0d w3=%0d",

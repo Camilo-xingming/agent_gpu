@@ -1016,7 +1016,7 @@ module streaming_multiprocessor_v2 #(
     assign perf_dual_issue         = issue1_valid;
     assign perf_stall_scoreboard   = |( warp_valid & ~warp_ready & ~warp_stalled_mem );
     assign perf_stall_mem          = |( warp_valid & warp_stalled_mem );
-    assign perf_stall_ifetch       = |( warp_valid & ~warp_inst_buf_valid & ~warp_stalled_mem );
+    assign perf_stall_ifetch       = sched_perf_stall_ifetch;
     assign perf_fu_alu_active      = alu_issue;
     assign perf_fu_fpu_active      = fpu32_issue || fp16_issue || fpu64_issue;
     assign perf_fu_ldst_active     = issue_valid && (issue_mem_read || issue_mem_write);
@@ -1472,6 +1472,7 @@ module streaming_multiprocessor_v2 #(
     // Note: Use `SCHED_LANES from gpu_defines.vh (2 default, 4 with GPU_PROFILE_HPC)
     localparam SCHED_LANES = `SCHED_LANES;  // Pipeline width (configurable)
     wire [SCHED_LANES-1:0] sched_issue_valid_mask;
+    wire sched_perf_stall_ifetch;
     wire [WARP_ID_W-1:0] sched_issue_warp_id [0:SCHED_LANES-1];
     wire [31:0] sched_issue_inst [0:SCHED_LANES-1];
     wire [2:0] sched_issue_pipe [0:SCHED_LANES-1];
@@ -1615,6 +1616,7 @@ module streaming_multiprocessor_v2 #(
         .stat_async_mma_issued(bw_stat_async_mma_issued),
         .stat_async_mma_completed(bw_stat_async_mma_completed),
         .stat_tcgen05_issued(bw_stat_tcgen05_issued),
+        .perf_sched_stall_ifetch(sched_perf_stall_ifetch),
         .scoreboard_out(sched_scoreboard)
     );
 `else
@@ -2953,7 +2955,7 @@ module streaming_multiprocessor_v2 #(
             end
         end
     end
-    wire [NUM_WARPS-1:0] tensor_push_locked = tensor_push_lockout_0 | tensor_push_lockout_1;
+    wire [NUM_WARPS-1:0] tensor_push_locked = tensor_push_lockout_0;  // 1-cycle lockout only
     wire tensor_push_lane0_raw = issue_valid && issue_tensor_op;
     wire tensor_push_lane1_raw = issue1_valid && issue1_tensor_op && !tensor_push_lane0;
     wire tensor_push_lane0 = tensor_push_lane0_raw && !tensor_push_locked[issue_warp_id];
