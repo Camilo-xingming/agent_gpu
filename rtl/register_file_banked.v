@@ -190,11 +190,10 @@ module register_file_banked #(
     // Each bank contains 1/NUM_BANKS of the lanes
     localparam LANES_PER_BANK = NUM_LANES / NUM_BANKS;
 
-    // Storage includes ECC bits when enabled
-    reg [PROTECTED_WIDTH-1:0] bank_regs [0:NUM_BANKS-1]
-                                        [0:NUM_WARPS-1]
-                                        [0:LANES_PER_BANK-1]
-                                        [0:NUM_REGS-1];
+    // Storage: simple 3D array [warp][lane][reg] for iverilog compatibility.
+    // Banking is a physical optimization; functionally equivalent to flat layout.
+    // iverilog cannot handle always @(*) or assign with 4D bank-indexed arrays.
+    reg [PROTECTED_WIDTH-1:0] sim_regs [0:NUM_WARPS-1][0:NUM_LANES-1][0:NUM_REGS-1];
 
     //------------------------------------------------------------------------
     // Bank Access Arbitration
@@ -252,127 +251,60 @@ module register_file_banked #(
     assign oc_conflict   = conflict_ab || conflict_ac || conflict_bc;
 
     //------------------------------------------------------------------------
-    // Read Logic (Combinational) with ECC Decoding
+    // Read Logic — generate + assign with 3D array (iverilog compatible)
     //------------------------------------------------------------------------
-    reg [DATA_WIDTH-1:0] rd_data_a_lane [0:NUM_LANES-1];
-    reg [DATA_WIDTH-1:0] rd_data_b_lane [0:NUM_LANES-1];
-    reg [DATA_WIDTH-1:0] rd_data_c_lane [0:NUM_LANES-1];
+    // iverilog cannot track multi-dim array changes in always @(*) sensitivity.
+    // Using generate + assign with simple 3D indexing (like register_file.v).
+    wire [NUM_LANES-1:0] rd_single_error_a, rd_single_error_b, rd_single_error_c;
+    wire [NUM_LANES-1:0] rd_double_error_a, rd_double_error_b, rd_double_error_c;
 
-    // ECC error tracking per read
-    reg [NUM_LANES-1:0] rd_single_error_a, rd_single_error_b, rd_single_error_c;
-    reg [NUM_LANES-1:0] rd_double_error_a, rd_double_error_b, rd_double_error_c;
+    generate
+        for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : gen_rd_logic
+            // Raw data from sim_regs (3D: warp, lane, reg)
+            wire [PROTECTED_WIDTH-1:0] raw_a = sim_regs[rd_warp_id][lane][rd_addr_a];
+            wire [PROTECTED_WIDTH-1:0] raw_b = sim_regs[rd_warp_id][lane][rd_addr_b];
+            wire [PROTECTED_WIDTH-1:0] raw_c = sim_regs[rd_warp_id][lane][rd_addr_c];
 
-    integer rd_lane;
-    reg [BANK_BITS-1:0] rd_bank;
-    integer rd_lane_in_bank;
-    reg [PROTECTED_WIDTH-1:0] raw_data;
-    reg [DATA_WIDTH+1:0] decoded_result;
+            // ECC decode
+            wire [DATA_WIDTH+1:0] dec_a = decode_ecc(raw_a[DATA_WIDTH-1:0], raw_a[PROTECTED_WIDTH-1:DATA_WIDTH]);
+            wire [DATA_WIDTH+1:0] dec_b = decode_ecc(raw_b[DATA_WIDTH-1:0], raw_b[PROTECTED_WIDTH-1:DATA_WIDTH]);
+            wire [DATA_WIDTH+1:0] dec_c = decode_ecc(raw_c[DATA_WIDTH-1:0], raw_c[PROTECTED_WIDTH-1:DATA_WIDTH]);
 
-    always @(*) begin
-        rd_single_error_a = 0;
-        rd_single_error_b = 0;
-        rd_single_error_c = 0;
-        rd_double_error_a = 0;
-        rd_double_error_b = 0;
-        rd_double_error_c = 0;
+            // Output data
+            assign rd_data_a[lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? dec_a[DATA_WIDTH-1:0] : raw_a[DATA_WIDTH-1:0];
+            assign rd_data_b[lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? dec_b[DATA_WIDTH-1:0] : raw_b[DATA_WIDTH-1:0];
+            assign rd_data_c[lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? dec_c[DATA_WIDTH-1:0] : raw_c[DATA_WIDTH-1:0];
 
-        for (rd_lane = 0; rd_lane < NUM_LANES; rd_lane = rd_lane + 1) begin
-            // Read port A
-            rd_bank = get_bank(rd_addr_a, rd_lane[LANE_W-1:0]);
-            rd_lane_in_bank = rd_lane / NUM_BANKS;
-            raw_data = bank_regs[rd_bank][rd_warp_id][rd_lane_in_bank][rd_addr_a];
-
-            if (ECC_ENABLE) begin
-                decoded_result = decode_ecc(raw_data[DATA_WIDTH-1:0], raw_data[PROTECTED_WIDTH-1:DATA_WIDTH]);
-                rd_data_a_lane[rd_lane] = decoded_result[DATA_WIDTH-1:0];
-                rd_single_error_a[rd_lane] = decoded_result[DATA_WIDTH];
-                rd_double_error_a[rd_lane] = decoded_result[DATA_WIDTH+1];
-            end else begin
-                rd_data_a_lane[rd_lane] = raw_data[DATA_WIDTH-1:0];
-            end
-
-            // Read port B
-            rd_bank = get_bank(rd_addr_b, rd_lane[LANE_W-1:0]);
-            rd_lane_in_bank = rd_lane / NUM_BANKS;
-            raw_data = bank_regs[rd_bank][rd_warp_id][rd_lane_in_bank][rd_addr_b];
-
-            if (ECC_ENABLE) begin
-                decoded_result = decode_ecc(raw_data[DATA_WIDTH-1:0], raw_data[PROTECTED_WIDTH-1:DATA_WIDTH]);
-                rd_data_b_lane[rd_lane] = decoded_result[DATA_WIDTH-1:0];
-                rd_single_error_b[rd_lane] = decoded_result[DATA_WIDTH];
-                rd_double_error_b[rd_lane] = decoded_result[DATA_WIDTH+1];
-            end else begin
-                rd_data_b_lane[rd_lane] = raw_data[DATA_WIDTH-1:0];
-            end
-
-            // Read port C
-            rd_bank = get_bank(rd_addr_c, rd_lane[LANE_W-1:0]);
-            rd_lane_in_bank = rd_lane / NUM_BANKS;
-            raw_data = bank_regs[rd_bank][rd_warp_id][rd_lane_in_bank][rd_addr_c];
-
-            if (ECC_ENABLE) begin
-                decoded_result = decode_ecc(raw_data[DATA_WIDTH-1:0], raw_data[PROTECTED_WIDTH-1:DATA_WIDTH]);
-                rd_data_c_lane[rd_lane] = decoded_result[DATA_WIDTH-1:0];
-                rd_single_error_c[rd_lane] = decoded_result[DATA_WIDTH];
-                rd_double_error_c[rd_lane] = decoded_result[DATA_WIDTH+1];
-            end else begin
-                rd_data_c_lane[rd_lane] = raw_data[DATA_WIDTH-1:0];
-            end
+            // ECC error flags
+            assign rd_single_error_a[lane] = ECC_ENABLE ? dec_a[DATA_WIDTH]   : 1'b0;
+            assign rd_single_error_b[lane] = ECC_ENABLE ? dec_b[DATA_WIDTH]   : 1'b0;
+            assign rd_single_error_c[lane] = ECC_ENABLE ? dec_c[DATA_WIDTH]   : 1'b0;
+            assign rd_double_error_a[lane] = ECC_ENABLE ? dec_a[DATA_WIDTH+1] : 1'b0;
+            assign rd_double_error_b[lane] = ECC_ENABLE ? dec_b[DATA_WIDTH+1] : 1'b0;
+            assign rd_double_error_c[lane] = ECC_ENABLE ? dec_c[DATA_WIDTH+1] : 1'b0;
         end
-    end
+    endgenerate
 
     // Aggregate ECC errors
     wire any_single_error = ECC_ENABLE ? (|rd_single_error_a | |rd_single_error_b | |rd_single_error_c) : 1'b0;
     wire any_double_error = ECC_ENABLE ? (|rd_double_error_a | |rd_double_error_b | |rd_double_error_c) : 1'b0;
 
-    // Pack output
-    generate
-        for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : gen_rd_output
-            assign rd_data_a[lane*DATA_WIDTH +: DATA_WIDTH] = rd_data_a_lane[lane];
-            assign rd_data_b[lane*DATA_WIDTH +: DATA_WIDTH] = rd_data_b_lane[lane];
-            assign rd_data_c[lane*DATA_WIDTH +: DATA_WIDTH] = rd_data_c_lane[lane];
-        end
-    endgenerate
-
     //------------------------------------------------------------------------
-    // Operand Collector Read with ECC
+    // Operand Collector Read — generate + assign (iverilog compatible)
     //------------------------------------------------------------------------
-    reg [DATA_WIDTH-1:0] oc_data_lane [0:NUM_READ_PORTS-1][0:NUM_LANES-1];
-    reg [NUM_LANES-1:0] oc_single_error [0:NUM_READ_PORTS-1];
-    reg [NUM_LANES-1:0] oc_double_error [0:NUM_READ_PORTS-1];
-
-    integer oc_port, oc_lane, oc_lane_idx;
-    reg [BANK_BITS-1:0] oc_bank_idx;
-    reg [PROTECTED_WIDTH-1:0] oc_raw_data;
-    reg [DATA_WIDTH+1:0] oc_decoded_result;
-
-    always @(*) begin
-        for (oc_port = 0; oc_port < NUM_READ_PORTS; oc_port = oc_port + 1) begin
-            oc_single_error[oc_port] = 0;
-            oc_double_error[oc_port] = 0;
-            for (oc_lane = 0; oc_lane < NUM_LANES; oc_lane = oc_lane + 1) begin
-                oc_bank_idx = get_bank(oc_addr[oc_port], oc_lane[LANE_W-1:0]);
-                oc_lane_idx = oc_lane / NUM_BANKS;
-                oc_raw_data = bank_regs[oc_bank_idx][oc_warp_id][oc_lane_idx][oc_addr[oc_port]];
-
-                if (ECC_ENABLE) begin
-                    oc_decoded_result = decode_ecc(oc_raw_data[DATA_WIDTH-1:0], oc_raw_data[PROTECTED_WIDTH-1:DATA_WIDTH]);
-                    oc_data_lane[oc_port][oc_lane] = oc_decoded_result[DATA_WIDTH-1:0];
-                    oc_single_error[oc_port][oc_lane] = oc_decoded_result[DATA_WIDTH];
-                    oc_double_error[oc_port][oc_lane] = oc_decoded_result[DATA_WIDTH+1];
-                end else begin
-                    oc_data_lane[oc_port][oc_lane] = oc_raw_data[DATA_WIDTH-1:0];
-                end
-            end
-        end
-    end
-
     generate
-        for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : gen_oc_output
-            genvar port;
-            for (port = 0; port < NUM_READ_PORTS; port = port + 1) begin : gen_oc_port
-                assign oc_data[port][lane*DATA_WIDTH +: DATA_WIDTH] = oc_data_lane[port][lane];
-            end
+        for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : gen_oc_logic
+            wire [PROTECTED_WIDTH-1:0] oc_raw_0 = sim_regs[oc_warp_id][lane][oc_addr[0]];
+            wire [DATA_WIDTH+1:0] oc_dec_0 = decode_ecc(oc_raw_0[DATA_WIDTH-1:0], oc_raw_0[PROTECTED_WIDTH-1:DATA_WIDTH]);
+            assign oc_data[0][lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_0[DATA_WIDTH-1:0] : oc_raw_0[DATA_WIDTH-1:0];
+
+            wire [PROTECTED_WIDTH-1:0] oc_raw_1 = sim_regs[oc_warp_id][lane][oc_addr[1]];
+            wire [DATA_WIDTH+1:0] oc_dec_1 = decode_ecc(oc_raw_1[DATA_WIDTH-1:0], oc_raw_1[PROTECTED_WIDTH-1:DATA_WIDTH]);
+            assign oc_data[1][lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_1[DATA_WIDTH-1:0] : oc_raw_1[DATA_WIDTH-1:0];
+
+            wire [PROTECTED_WIDTH-1:0] oc_raw_2 = sim_regs[oc_warp_id][lane][oc_addr[2]];
+            wire [DATA_WIDTH+1:0] oc_dec_2 = decode_ecc(oc_raw_2[DATA_WIDTH-1:0], oc_raw_2[PROTECTED_WIDTH-1:DATA_WIDTH]);
+            assign oc_data[2][lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_2[DATA_WIDTH-1:0] : oc_raw_2[DATA_WIDTH-1:0];
         end
     endgenerate
 
@@ -394,7 +326,7 @@ module register_file_banked #(
                 for (wr_w = 0; wr_w < NUM_WARPS; wr_w = wr_w + 1) begin
                     for (wr_l = 0; wr_l < LANES_PER_BANK; wr_l = wr_l + 1) begin
                         for (wr_r = 0; wr_r < NUM_REGS; wr_r = wr_r + 1) begin
-                            bank_regs[wr_b][wr_w][wr_l][wr_r] <= {PROTECTED_WIDTH{1'b0}};
+                            sim_regs[wr_w][wr_b*LANES_PER_BANK+wr_l][wr_r] <= {PROTECTED_WIDTH{1'b0}};
                         end
                     end
                 end
@@ -409,10 +341,10 @@ module register_file_banked #(
                     if (ECC_ENABLE) begin
                         // Compute and store data with ECC
                         wr_ecc = calc_ecc(wr_data_lane);
-                        bank_regs[wr_bank_idx][wr_warp_id][wr_lane_idx][wr_addr] <=
+                        sim_regs[wr_warp_id][wr_l][wr_addr] <=
                             {wr_ecc, wr_data_lane};
                     end else begin
-                        bank_regs[wr_bank_idx][wr_warp_id][wr_lane_idx][wr_addr] <=
+                        sim_regs[wr_warp_id][wr_l][wr_addr] <=
                             {{(PROTECTED_WIDTH-DATA_WIDTH){1'b0}}, wr_data_lane};
                     end
                 end

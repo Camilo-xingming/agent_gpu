@@ -77,7 +77,7 @@ module tlb_enhanced #(
     //------------------------------------------------------------------------
     // Local Parameters
     //------------------------------------------------------------------------
-    localparam SM_WIDTH = $clog2(NUM_SMS);
+    localparam SM_WIDTH = (NUM_SMS > 1) ? $clog2(NUM_SMS) : 1;
     localparam L1_IDX_WIDTH = $clog2(L1_ENTRIES / L1_WAYS);
     localparam L2_IDX_WIDTH = $clog2(L2_ENTRIES / L2_WAYS);
     localparam PAGE_OFFSET = 12;               // 4KB page offset
