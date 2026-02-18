@@ -603,14 +603,15 @@ module ralph_gpu_top #(
     //------------------------------------------------------------------------
     // AXI仲裁 (简化：选择第一个活跃SM)
     //------------------------------------------------------------------------
-    reg [$clog2(NUM_SM)-1:0] axi_arb_sel;
+    localparam AXI_ARB_W = (NUM_SM > 1) ? $clog2(NUM_SM) : 1;
+    reg [AXI_ARB_W-1:0] axi_arb_sel;
 
     integer i;
     always @(*) begin
         axi_arb_sel = 0;
         for (i = 0; i < NUM_SM; i = i + 1) begin
             if (sm_axi_awvalid[i] || sm_axi_arvalid[i]) begin
-                axi_arb_sel = i[$clog2(NUM_SM)-1:0];
+                axi_arb_sel = i[AXI_ARB_W-1:0];
             end
         end
     end
