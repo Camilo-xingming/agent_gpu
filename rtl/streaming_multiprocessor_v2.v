@@ -2955,7 +2955,7 @@ module streaming_multiprocessor_v2 #(
             end
         end
     end
-    wire [NUM_WARPS-1:0] tensor_push_locked = tensor_push_lockout_0;  // 1-cycle lockout only
+    wire [NUM_WARPS-1:0] tensor_push_locked = tensor_push_lockout_0 | tensor_push_lockout_1;
     wire tensor_push_lane0_raw = issue_valid && issue_tensor_op;
     wire tensor_push_lane1_raw = issue1_valid && issue1_tensor_op && !tensor_push_lane0;
     wire tensor_push_lane0 = tensor_push_lane0_raw && !tensor_push_locked[issue_warp_id];
