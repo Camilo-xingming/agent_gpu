@@ -1,0 +1,10 @@
+{
+  "label": "ralph-10a-tensor-baseline",
+  "source": "A/B reference before fetch extraction regression",
+  "metrics": {
+    "Writebacks": 3752,
+    "Fetches": 2055,
+    "FuStalls": 1
+  },
+  "notes": "Update this file with latest stable 10a baseline when new gold data is available."
+}
