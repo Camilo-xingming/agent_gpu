@@ -128,7 +128,7 @@ endif
 
 .PHONY: all sim wave clean assemble help test test_all
 .PHONY: test_alu test_mul test_decoder test_regfile test_smem test_warp test_sfu
-.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_tensor_core_fp4
+.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4
 .PHONY: test_vector_add test_multi_sm test_memsys test_phase2
 
 all: $(BUILD_DIR) sim
@@ -274,6 +274,7 @@ TB_SM_V2_PERF = $(TB_DIR)/tb_sm_v2_perf_gemm16.v
 TB_SM_V2_PERF_PTX = $(TB_DIR)/tb_sm_v2_perf_gemm16_ptx.v
 TB_SM_V2_PERF_TC = $(TB_DIR)/tb_sm_v2_perf_tensor.v
 TB_SM_V2_PERF_TC_MW = $(TB_DIR)/tb_sm_v2_perf_tensor_multiwarp.v
+TB_SM_V2_SCHED_RAW = $(TB_DIR)/tb_sm_v2_sched_raw_hazard.v
 
 # SM V2 RTL sources (define SM_V2 to exclude duplicate wrappers from fpu.v/sfu.v)
 SM_V2_SRCS = \
@@ -381,6 +382,16 @@ test_sm_v2_perf_tensor_multiwarp: $(BUILD_DIR)/tb_sm_v2_perf_tensor_multiwarp.vv
 
 $(BUILD_DIR)/tb_sm_v2_perf_tensor_multiwarp.vvp: $(SM_V2_SRCS) $(TB_SM_V2_PERF_TC_MW) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(SM_V2_DEFINES) -o $@ $(TB_SM_V2_PERF_TC_MW) $(filter %.v,$(SM_V2_SRCS))
+
+# Scheduler RAW hazard test (P2): verify scheduler blocks issue on RAW hazards
+test_sm_v2_sched_raw_hazard: $(BUILD_DIR)/tb_sm_v2_sched_raw_hazard.vvp
+	@echo "========================================"
+	@echo "Running SM V2 Scheduler RAW Hazard Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_sched_raw_hazard.vvp
+
+$(BUILD_DIR)/tb_sm_v2_sched_raw_hazard.vvp: $(SM_V2_SRCS) $(TB_SM_V2_SCHED_RAW) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(SM_V2_DEFINES) -o $@ $(TB_SM_V2_SCHED_RAW) $(filter %.v,$(SM_V2_SRCS))
 
 #----------------------------------------------------------------------------
 # Track 1-2 Performance Benchmarks (Atomics + Divergence)
