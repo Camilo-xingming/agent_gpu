@@ -21,6 +21,7 @@ module sm_fetch_pipeline #(
     input  wire [NUM_WARPS-1:0]     warp_valid,
     input  wire [NUM_WARPS-1:0]     warp_exit_pending,
     input  wire [NUM_WARPS-1:0]     warp_inst_consume,
+    input  wire [NUM_WARPS-1:0]     tensor_replay,
     input  wire [NUM_WARPS-1:0]     decode_stalled_per_warp,
 
     // Branch flush: SM sets bit when warp takes a branch (clear buffer + pending)
@@ -349,7 +350,10 @@ module sm_fetch_pipeline #(
             // DON'T bypass fill data (fast mux shows buffer data) — set valid=1
             // normally so the fill instruction gets served next cycle.
             for (w_buf = 0; w_buf < NUM_WARPS; w_buf = w_buf + 1) begin
-                if (warp_fill[w_buf] && !warp_inst_buf_valid[w_buf] && warp_inst_consume_gated[w_buf])
+                if (tensor_replay[w_buf])
+                    // Replay instruction when issue-stage tensor push was suppressed.
+                    warp_inst_buf_valid[w_buf] <= 1'b1;
+                else if (warp_fill[w_buf] && !warp_inst_buf_valid[w_buf] && warp_inst_consume_gated[w_buf])
                     // Bypass-consumed: fill was served combinationally, don't buffer it
                     warp_inst_buf_valid[w_buf] <= 1'b0;
                 else if (warp_fill[w_buf])

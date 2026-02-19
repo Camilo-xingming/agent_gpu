@@ -381,12 +381,18 @@ module tb_sm_v2_perf_tensor_multiwarp;
     integer tensor_push_lane0_suppress;
     integer tensor_push_lane1_suppress;
     integer tensor_push_conflict_count;
+    integer unreplayed_suppress_count;
+    integer assertions_failed;
+    integer w3_pc38_hits;
     integer tw_i;
     initial begin
         total_tensor_wb = 0;
         tensor_push_lane0_suppress = 0;
         tensor_push_lane1_suppress = 0;
         tensor_push_conflict_count = 0;
+        unreplayed_suppress_count = 0;
+        assertions_failed = 0;
+        w3_pc38_hits = 0;
         for (tw_i = 0; tw_i < NUM_WARPS; tw_i = tw_i + 1)
             tensor_wb_per_warp[tw_i] = 0;
     end
@@ -396,12 +402,31 @@ module tb_sm_v2_perf_tensor_multiwarp;
                 total_tensor_wb <= total_tensor_wb + 1;
                 tensor_wb_per_warp[dut.wb_warp_id] <= tensor_wb_per_warp[dut.wb_warp_id] + 1;
             end
-            if (dut.tensor_push_lane0_raw && !dut.tensor_push_lane0)
+            if (dut.tensor_push_lane0_raw && !dut.tensor_push_lane0) begin
                 tensor_push_lane0_suppress <= tensor_push_lane0_suppress + 1;
-            if (dut.tensor_push_lane1_raw && !dut.tensor_push_lane1)
+                if (dut.warp_inst_consume[dut.issue_warp_id])
+                    unreplayed_suppress_count <= unreplayed_suppress_count + 1;
+            end
+            if (dut.tensor_push_lane1_raw && !dut.tensor_push_lane1) begin
                 tensor_push_lane1_suppress <= tensor_push_lane1_suppress + 1;
+                if (dut.warp_inst_consume[dut.issue1_warp_id])
+                    unreplayed_suppress_count <= unreplayed_suppress_count + 1;
+            end
             if (dut.tensor_push_lane0 && dut.tensor_push_lane1)
                 tensor_push_conflict_count <= tensor_push_conflict_count + 1;
+
+            if (dut.warp_pc[3] == 32'h0000_0038 && dut.warp_inst_buf_valid[3]) begin
+                w3_pc38_hits <= w3_pc38_hits + 1;
+                if (w3_pc38_hits < 3)
+                    $display("[EVIDENCE] w3@0x38 cycle=%0d inst=0x%08x consume=%b replay=%b",
+                             cycle_count, dut.warp_inst_buf[3],
+                             dut.warp_inst_consume[3], dut.tensor_replay_mask[3]);
+            end
+
+            if ((dut.tensor_push_lane0_raw && !dut.tensor_push_lane0 && dut.warp_inst_consume[dut.issue_warp_id]) ||
+                (dut.tensor_push_lane1_raw && !dut.tensor_push_lane1 && dut.warp_inst_consume[dut.issue1_warp_id])) begin
+                assertions_failed <= assertions_failed + 1;
+            end
         end
     end
 
@@ -465,11 +490,16 @@ module tb_sm_v2_perf_tensor_multiwarp;
         $display("Tensor suppress: lane0=%0d lane1=%0d conflict=%0d",
                  tensor_push_lane0_suppress, tensor_push_lane1_suppress,
                  tensor_push_conflict_count);
+        $display("Replay checks: unreplayed=%0d assertions=%0d w3@0x38_hits=%0d",
+                 unreplayed_suppress_count, assertions_failed, w3_pc38_hits);
 
         if (!done) begin
             $display("FAIL: timeout before kernel_done");
         end else if (wb_count < TOTAL_OPS) begin
             $display("FAIL: expected %0d writebacks, got %0d", TOTAL_OPS, wb_count);
+        end else if (unreplayed_suppress_count != 0 || assertions_failed != 0) begin
+            $display("FAIL: replay chain mismatch (unreplayed=%0d assertions=%0d)",
+                     unreplayed_suppress_count, assertions_failed);
         end else begin
             $display("PASS: completed multi-warp WMMA stream");
             if (stall_tensor == 0) begin

@@ -613,26 +613,6 @@ $(BUILD_DIR)/tb_warp_inst_valid_d1.vvp: $(TB_DIR)/tb_warp_inst_valid_d1.v | $(BU
 #----------------------------------------------------------------------------
 .PHONY: test_mbarrier_system test_wgmma_system
 
-test_mbarrier_system: $(BUILD_DIR)/tb_mbarrier_system.vvp $(BUILD_DIR)/test_mbarrier.hex
-	@echo "========================================"
-	@echo "Running mbarrier System Test"
-	@echo "========================================"
-	$(VVP) $(BUILD_DIR)/tb_mbarrier_system.vvp | tee $(BUILD_DIR)/tb_mbarrier_system.log
-
-$(BUILD_DIR)/tb_mbarrier_system.vvp: $(RTL_SRCS) $(TB_DIR)/tb_mbarrier_system.v | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_mbarrier_system.v $(filter %.v,$(RTL_SRCS))
-
-$(BUILD_DIR)/test_mbarrier.hex: asm/test_mbarrier.ptx | $(BUILD_DIR)
-	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
-
-test_wgmma_system: $(BUILD_DIR)/tb_wgmma_system.vvp $(BUILD_DIR)/test_wgmma.hex
-	@echo "========================================"
-	@echo "Running WGMMA System Test"
-	@echo "========================================"
-	$(VVP) $(BUILD_DIR)/tb_wgmma_system.vvp | tee $(BUILD_DIR)/tb_wgmma_system.log
-
-$(BUILD_DIR)/tb_wgmma_system.vvp: $(RTL_SRCS) $(TB_DIR)/tb_wgmma_system.v | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_wgmma_system.v $(filter %.v,$(RTL_SRCS))
-
-$(BUILD_DIR)/test_wgmma.hex: asm/test_wgmma.ptx | $(BUILD_DIR)
-	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
+test_mbarrier_system: /tb_mbarrier_system.vvp /test_mbarrier.hex
+	@echo ========================================
+	@echo Running
