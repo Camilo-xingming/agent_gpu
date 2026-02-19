@@ -298,8 +298,8 @@ module blackwell_scheduler #(
     reg [NUM_SCHEDULERS-1:0] issue_is_async_mma_r;
 
     // Scheduler selection logic (enhanced for Blackwell tcgen05)
-    wire [NUM_WARPS-1:0] tensor_like_warp_mask = warp_is_tensor | warp_is_tcgen05;
-    wire [NUM_WARPS-1:0] tensor_like_lockout_mask = tensor_push_locked & tensor_like_warp_mask;
+    // Lockout only applies to legacy tensor-push path (PIPE_TENSOR).
+    wire [NUM_WARPS-1:0] tensor_push_lockout_mask = tensor_push_locked & warp_is_tensor;
     integer s, sw;
     always @(*) begin
         issue_valid_r = 0;
@@ -414,12 +414,14 @@ module blackwell_scheduler #(
             end
         end
 
-        // Tensor-like lockout guard: when a tensor/tcgen05 warp is selected but locked out,
+        // Tensor lockout guard: when a legacy tensor warp is selected but locked out,
         // suppress the consume so the instruction stays in the buffer and PC
         // doesn't advance. The instruction still flows through decode/issue
         // but the tensor push is harmlessly suppressed at the SM level.
         for (s = 0; s < NUM_SCHEDULERS; s = s + 1) begin
-            if (issue_valid_r[s] && tensor_like_lockout_mask[issue_warp_r[s]]) begin
+            if (issue_valid_r[s] &&
+                issue_pipe_r[s] == PIPE_TENSOR &&
+                tensor_push_lockout_mask[issue_warp_r[s]]) begin
                 issue_consume_r[issue_warp_r[s]] = 1'b0;
             end
         end
