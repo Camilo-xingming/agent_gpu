@@ -470,6 +470,9 @@ module tb_sm_v2_perf_tensor_multiwarp;
             $display("FAIL: timeout before kernel_done");
         end else if (wb_count < TOTAL_OPS) begin
             $display("FAIL: expected %0d writebacks, got %0d", TOTAL_OPS, wb_count);
+        end else if (tensor_push_lane0_suppress != 0) begin
+            $display("FAIL: lane0 tensor push was unexpectedly suppressed (%0d times)",
+                     tensor_push_lane0_suppress);
         end else begin
             $display("PASS: completed multi-warp WMMA stream");
             if (stall_tensor == 0) begin
