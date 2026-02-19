@@ -97,6 +97,7 @@ module memory_interface #(
     reg [5:0] current_lane;
     reg [5:0] lane_count;
     reg [5:0] processed_count;
+    reg       burst_read_mode;
 
     // 响应数据缓存
     reg [NUM_LANES*DATA_WIDTH-1:0] rdata_buf;
@@ -107,6 +108,19 @@ module memory_interface #(
     // 检测连续地址以进行突发传输
     //------------------------------------------------------------------------
     wire [ADDR_WIDTH-1:0] lane0_addr = addr_buf[0 +: ADDR_WIDTH];
+
+    // L1 miss best-case pattern: full warp + contiguous base+4*i
+    reg req_is_fullwarp_contig_read;
+    reg [ADDR_WIDTH-1:0] req_lane0_addr;
+    always @(*) begin
+        req_is_fullwarp_contig_read = !req_write && (req_mask == {NUM_LANES{1'b1}});
+        req_lane0_addr = req_addr[0 +: ADDR_WIDTH];
+        for (i = 0; i < NUM_LANES; i = i + 1) begin
+            if (req_addr[i*ADDR_WIDTH +: ADDR_WIDTH] != (req_lane0_addr + (i * 4))) begin
+                req_is_fullwarp_contig_read = 1'b0;
+            end
+        end
+    end
 
     //------------------------------------------------------------------------
     // 状态机逻辑
@@ -136,8 +150,10 @@ module memory_interface #(
 
             READ_DATA: begin
                 if (m_axi_rvalid && m_axi_rready) begin
-                    if ((processed_count + 1'b1) >= lane_count) begin
+                    if ((processed_count + 1'b1) >= lane_count || (burst_read_mode && m_axi_rlast)) begin
                         next_state = IDLE;
+                    end else if (burst_read_mode) begin
+                        next_state = READ_DATA;
                     end else begin
                         next_state = READ_ADDR;
                     end
@@ -213,6 +229,7 @@ module memory_interface #(
             current_lane  <= 0;
             lane_count    <= 0;
             processed_count <= 0;
+            burst_read_mode <= 1'b0;
             rdata_buf     <= 0;
             resp_valid_reg <= 0;
 
@@ -250,16 +267,19 @@ module memory_interface #(
                         wdata_buf    <= req_wdata;
                         mask_buf     <= req_mask;
                         is_write_buf <= req_write;
-                        current_lane <= find_next_lane(0, req_mask);
-                        lane_count   <= active_count_req;
+                        burst_read_mode <= req_is_fullwarp_contig_read;
+                        current_lane <= req_is_fullwarp_contig_read ? 6'd0 : find_next_lane(0, req_mask);
+                        lane_count   <= req_is_fullwarp_contig_read ? NUM_LANES[5:0] : active_count_req;
                         processed_count <= 0;
+                        rdata_buf <= {NUM_LANES*DATA_WIDTH{1'b0}};
                     end
                 end
 
                 READ_ADDR: begin
-                    m_axi_arid    <= current_lane[3:0];
-                    m_axi_araddr  <= addr_buf[current_lane*ADDR_WIDTH +: ADDR_WIDTH];
-                    m_axi_arlen   <= 8'd0;  // 单次传输
+                    m_axi_arid    <= burst_read_mode ? 4'd0 : current_lane[3:0];
+                    m_axi_araddr  <= burst_read_mode ? lane0_addr :
+                                      addr_buf[current_lane*ADDR_WIDTH +: ADDR_WIDTH];
+                    m_axi_arlen   <= burst_read_mode ? (lane_count - 1'b1) : 8'd0;
                     m_axi_arvalid <= 1'b1;
                 end
 
@@ -267,11 +287,15 @@ module memory_interface #(
                     m_axi_rready <= 1'b1;
                     // Must check both rvalid AND rready for proper AXI handshake
                     if (m_axi_rvalid && m_axi_rready) begin
-                        rdata_buf[current_lane*DATA_WIDTH +: DATA_WIDTH] <= m_axi_rdata;
-                        processed_count <= processed_count + 1'b1;
-                        if ((processed_count + 1'b1) >= lane_count) begin
-                            resp_valid_reg <= 1'b1;
+                        if (burst_read_mode) begin
+                            rdata_buf[processed_count*DATA_WIDTH +: DATA_WIDTH] <= m_axi_rdata;
                         end else begin
+                            rdata_buf[current_lane*DATA_WIDTH +: DATA_WIDTH] <= m_axi_rdata;
+                        end
+                        processed_count <= processed_count + 1'b1;
+                        if ((processed_count + 1'b1) >= lane_count || (burst_read_mode && m_axi_rlast)) begin
+                            resp_valid_reg <= 1'b1;
+                        end else if (!burst_read_mode) begin
                             current_lane <= find_next_lane(current_lane + 1, mask_buf);
                         end
                     end
@@ -320,9 +344,11 @@ module memory_interface #(
         else if (mem_if_debug_cnt < 30) begin
             if (state == READ_ADDR || state == READ_DATA) begin
                 `ifdef SIMULATION
-                $display("[%0t MEM_IF_RD] state=%0d arvalid=%b arready=%b rvalid=%b rready=%b addr=0x%08x rdata=0x%08x lane=%0d processed=%0d/%0d resp_valid=%b",
+                $display("[%0t MEM_IF_RD] state=%0d arvalid=%b arready=%b rvalid=%b rready=%b burst=%b addr=0x%08x rdata=0x%08x lane=%0d processed=%0d/%0d resp_valid=%b",
                          $time, state, m_axi_arvalid, m_axi_arready, m_axi_rvalid, m_axi_rready,
-                         addr_buf[current_lane*ADDR_WIDTH +: ADDR_WIDTH], m_axi_rdata, current_lane, processed_count, lane_count, resp_valid_reg);
+                         burst_read_mode,
+                         burst_read_mode ? lane0_addr : addr_buf[current_lane*ADDR_WIDTH +: ADDR_WIDTH],
+                         m_axi_rdata, current_lane, processed_count, lane_count, resp_valid_reg);
                 `endif
                 mem_if_debug_cnt <= mem_if_debug_cnt + 1;
             end
