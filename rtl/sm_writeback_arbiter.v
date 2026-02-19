@@ -100,7 +100,7 @@ module sm_writeback_arbiter #(
     input  wire [WARP_ID_W-1:0]             store_warp_pending,
     input  wire [NUM_LANES-1:0]             store_mask_pending,
     // Atomic (case 9)
-    input  wire                             atomic_valid_out,
+    input  wire                             atomic_valid_out_latched,
     input  wire [WARP_ID_W-1:0]             atomic_warp_pending,
     input  wire [4:0]                       atomic_rd_pending,
     input  wire [SIMD_WIDTH-1:0]            atomic_result,
@@ -176,7 +176,7 @@ module sm_writeback_arbiter #(
     assign fu_ready[6]  = !tensor_wbq_empty;
     assign fu_ready[7]  = gmem_resp_latched || smem_resp_latched || store_pending_valid;
     assign fu_ready[8]  = !shfl_wbq_empty;
-    assign fu_ready[9]  = atomic_valid_out;
+    assign fu_ready[9]  = atomic_valid_out_latched;
     assign fu_ready[10] = !special_wbq_empty;
     assign fu_ready[11] = mbarrier_result_latched;
     assign fu_ready[12] = tex_result_valid_latched;
