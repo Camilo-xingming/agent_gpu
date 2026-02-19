@@ -158,6 +158,27 @@ module ralph_gpu_top #(
     reg  [63:0] sm_imem_datas [0:NUM_SM-1];
 
     // AXI仲裁 (简化：轮询)
+    // sm_core_axi_*: AXI signals directly emitted by SM cores
+    // sm_axi_*     : AXI signals exported to top-level arbiter (may be overridden by L1 refill path)
+    wire [3:0]  sm_core_axi_awid    [0:NUM_SM-1];
+    wire [31:0] sm_core_axi_awaddr  [0:NUM_SM-1];
+    wire [7:0]  sm_core_axi_awlen   [0:NUM_SM-1];
+    wire [2:0]  sm_core_axi_awsize  [0:NUM_SM-1];
+    wire [1:0]  sm_core_axi_awburst [0:NUM_SM-1];
+    wire        sm_core_axi_awvalid [0:NUM_SM-1];
+    wire [31:0] sm_core_axi_wdata   [0:NUM_SM-1];
+    wire [3:0]  sm_core_axi_wstrb   [0:NUM_SM-1];
+    wire        sm_core_axi_wlast   [0:NUM_SM-1];
+    wire        sm_core_axi_wvalid  [0:NUM_SM-1];
+    wire        sm_core_axi_bready  [0:NUM_SM-1];
+    wire [3:0]  sm_core_axi_arid    [0:NUM_SM-1];
+    wire [31:0] sm_core_axi_araddr  [0:NUM_SM-1];
+    wire [7:0]  sm_core_axi_arlen   [0:NUM_SM-1];
+    wire [2:0]  sm_core_axi_arsize  [0:NUM_SM-1];
+    wire [1:0]  sm_core_axi_arburst [0:NUM_SM-1];
+    wire        sm_core_axi_arvalid [0:NUM_SM-1];
+    wire        sm_core_axi_rready  [0:NUM_SM-1];
+
     wire [3:0]  sm_axi_awid    [0:NUM_SM-1];
     wire [31:0] sm_axi_awaddr  [0:NUM_SM-1];
     wire [7:0]  sm_axi_awlen   [0:NUM_SM-1];
@@ -260,6 +281,7 @@ module ralph_gpu_top #(
                         end
                     end
                 end
+
             end else begin : l1d_full
                 // Full L1D cache instantiation
                 wire        l1d_mem_req;
@@ -269,8 +291,9 @@ module ralph_gpu_top #(
                 reg  [1023:0] l1d_mem_rdata;
                 reg         l1d_mem_valid;
                 wire        l1d_mem_ready;
+                reg         refill_pending;
 
-                assign l1d_mem_ready = 1'b1;  // Always ready for now
+                assign l1d_mem_ready = !refill_pending;
 
                 l1_data_cache #(
                     .CACHE_SIZE_KB   (16),
@@ -311,15 +334,24 @@ module ralph_gpu_top #(
                     .policy_discard_addr  (32'b0)
                 );
 
-                // Simple memory response for cache misses (1 cycle)
+                // L1D miss refill data now sourced from AXI read return channel.
                 always @(posedge clk or negedge rst_n) begin
                     if (!rst_n) begin
                         l1d_mem_valid <= 1'b0;
                         l1d_mem_rdata <= 1024'b0;
+                        refill_pending <= 1'b0;
                     end else begin
-                        l1d_mem_valid <= l1d_mem_req && !l1d_mem_write;
-                        // In real system, this would go through memory arbiter
-                        l1d_mem_rdata <= 1024'b0;  // Placeholder
+                        l1d_mem_valid <= 1'b0;
+
+                        if (!refill_pending && l1d_mem_req && !l1d_mem_write) begin
+                            refill_pending <= 1'b1;
+                        end
+
+                        if (refill_pending && m_axi_rvalid && sm_core_axi_rready[sm]) begin
+                            l1d_mem_valid <= 1'b1;
+                            l1d_mem_rdata <= {32{m_axi_rdata}};
+                            refill_pending <= 1'b0;
+                        end
                     end
                 end
             end
@@ -361,35 +393,35 @@ module ralph_gpu_top #(
                 .l1d_resp_hit  (sm_l1d_resp_hit),
 
                 // AXI接口
-                .m_axi_awid    (sm_axi_awid[sm]),
-                .m_axi_awaddr  (sm_axi_awaddr[sm]),
-                .m_axi_awlen   (sm_axi_awlen[sm]),
-                .m_axi_awsize  (sm_axi_awsize[sm]),
-                .m_axi_awburst (sm_axi_awburst[sm]),
-                .m_axi_awvalid (sm_axi_awvalid[sm]),
+                .m_axi_awid    (sm_core_axi_awid[sm]),
+                .m_axi_awaddr  (sm_core_axi_awaddr[sm]),
+                .m_axi_awlen   (sm_core_axi_awlen[sm]),
+                .m_axi_awsize  (sm_core_axi_awsize[sm]),
+                .m_axi_awburst (sm_core_axi_awburst[sm]),
+                .m_axi_awvalid (sm_core_axi_awvalid[sm]),
                 .m_axi_awready (m_axi_awready),
-                .m_axi_wdata   (sm_axi_wdata[sm]),
-                .m_axi_wstrb   (sm_axi_wstrb[sm]),
-                .m_axi_wlast   (sm_axi_wlast[sm]),
-                .m_axi_wvalid  (sm_axi_wvalid[sm]),
+                .m_axi_wdata   (sm_core_axi_wdata[sm]),
+                .m_axi_wstrb   (sm_core_axi_wstrb[sm]),
+                .m_axi_wlast   (sm_core_axi_wlast[sm]),
+                .m_axi_wvalid  (sm_core_axi_wvalid[sm]),
                 .m_axi_wready  (m_axi_wready),
                 .m_axi_bid     (m_axi_bid),
                 .m_axi_bresp   (m_axi_bresp),
                 .m_axi_bvalid  (m_axi_bvalid),
-                .m_axi_bready  (sm_axi_bready[sm]),
-                .m_axi_arid    (sm_axi_arid[sm]),
-                .m_axi_araddr  (sm_axi_araddr[sm]),
-                .m_axi_arlen   (sm_axi_arlen[sm]),
-                .m_axi_arsize  (sm_axi_arsize[sm]),
-                .m_axi_arburst (sm_axi_arburst[sm]),
-                .m_axi_arvalid (sm_axi_arvalid[sm]),
+                .m_axi_bready  (sm_core_axi_bready[sm]),
+                .m_axi_arid    (sm_core_axi_arid[sm]),
+                .m_axi_araddr  (sm_core_axi_araddr[sm]),
+                .m_axi_arlen   (sm_core_axi_arlen[sm]),
+                .m_axi_arsize  (sm_core_axi_arsize[sm]),
+                .m_axi_arburst (sm_core_axi_arburst[sm]),
+                .m_axi_arvalid (sm_core_axi_arvalid[sm]),
                 .m_axi_arready (m_axi_arready),
                 .m_axi_rid     (m_axi_rid),
                 .m_axi_rdata   (m_axi_rdata),
                 .m_axi_rresp   (m_axi_rresp),
                 .m_axi_rlast   (m_axi_rlast),
                 .m_axi_rvalid  (m_axi_rvalid),
-                .m_axi_rready  (sm_axi_rready[sm]),
+                .m_axi_rready  (sm_core_axi_rready[sm]),
 
                 // Performance counter outputs
                 .perf_issue_valid       (sm_perf_issue_valid[sm]),
@@ -404,6 +436,26 @@ module ralph_gpu_top #(
                 .perf_branch_taken      (sm_perf_branch_taken[sm]),
                 .perf_branch_divergent  (sm_perf_branch_divergent[sm])
             );
+
+            assign sm_axi_awid[sm]    = sm_core_axi_awid[sm];
+            assign sm_axi_awaddr[sm]  = sm_core_axi_awaddr[sm];
+            assign sm_axi_awlen[sm]   = sm_core_axi_awlen[sm];
+            assign sm_axi_awsize[sm]  = sm_core_axi_awsize[sm];
+            assign sm_axi_awburst[sm] = sm_core_axi_awburst[sm];
+            assign sm_axi_awvalid[sm] = sm_core_axi_awvalid[sm];
+            assign sm_axi_wdata[sm]   = sm_core_axi_wdata[sm];
+            assign sm_axi_wstrb[sm]   = sm_core_axi_wstrb[sm];
+            assign sm_axi_wlast[sm]   = sm_core_axi_wlast[sm];
+            assign sm_axi_wvalid[sm]  = sm_core_axi_wvalid[sm];
+            assign sm_axi_bready[sm]  = sm_core_axi_bready[sm];
+            assign sm_axi_arid[sm]    = sm_core_axi_arid[sm];
+            assign sm_axi_araddr[sm]  = sm_core_axi_araddr[sm];
+            assign sm_axi_arlen[sm]   = sm_core_axi_arlen[sm];
+            assign sm_axi_arsize[sm]  = sm_core_axi_arsize[sm];
+            assign sm_axi_arburst[sm] = sm_core_axi_arburst[sm];
+            assign sm_axi_arvalid[sm] = sm_core_axi_arvalid[sm];
+            assign sm_axi_rready[sm]  = sm_core_axi_rready[sm];
+
             // L1D response is now handled by l1d_bypass or l1d_full above
         end
     endgenerate

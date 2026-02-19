@@ -69,7 +69,9 @@ module tb_vector_add;
     //------------------------------------------------------------------------
     // DUT实例化
     //------------------------------------------------------------------------
-    ralph_gpu_top dut (
+    ralph_gpu_top #(
+        .L1D_BYPASS(0)
+    ) dut (
         .clk             (clk),
         .rst_n           (rst_n),
         .csr_wr_en       (csr_wr_en),
@@ -218,6 +220,9 @@ module tb_vector_add;
     integer i;
     integer passed = 0;
     integer failed = 0;
+    integer cycle_counter = 0;
+    integer kernel_start_cycle = 0;
+    integer kernel_end_cycle = 0;
 
     //------------------------------------------------------------------------
     // 测试程序
@@ -279,6 +284,7 @@ module tb_vector_add;
         // 启动Kernel
         //--------------------------------------------------------------------
         $display("\n--- Starting Kernel ---");
+        kernel_start_cycle = cycle_counter;
         csr_write(12'h004, 32'h0000_0001);   // GPU_CONTROL.start = 1
 
         //--------------------------------------------------------------------
@@ -290,6 +296,7 @@ module tb_vector_add;
         fork: wait_kernel
             begin
                 wait(irq_kernel_done);
+                kernel_end_cycle = cycle_counter;
                 $display("\n--- Kernel Completed ---");
                 disable wait_kernel;
             end
@@ -303,6 +310,12 @@ module tb_vector_add;
         // Wait for memory stores to drain (kernel completes before all stores finish)
         $display("Waiting for stores to complete...");
         #5000;
+        $display("Kernel cycles (start->done): %0d", kernel_end_cycle - kernel_start_cycle);
+        $display("SM0 L1D stats: hits=%0d misses=%0d last_hit_latency=%0d last_miss_latency=%0d",
+                 dut.sm_gen[0].u_sm.l1_stat_hits,
+                 dut.sm_gen[0].u_sm.l1_stat_misses,
+                 dut.sm_gen[0].u_sm.l1_last_hit_latency,
+                 dut.sm_gen[0].u_sm.l1_last_miss_latency);
 
         //--------------------------------------------------------------------
         // 验证结果
@@ -388,6 +401,7 @@ module tb_vector_add;
     // 调试监控
     //------------------------------------------------------------------------
     always @(posedge clk) begin
+        if (rst_n) cycle_counter <= cycle_counter + 1;
         // Print on response cycle (when imem_valid is high), not request cycle
         // Non-blocking assignments update after all blocks execute
         if (imem_valid) begin

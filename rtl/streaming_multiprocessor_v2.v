@@ -155,6 +155,7 @@ module streaming_multiprocessor_v2 #(
     localparam [SFU_WBQ_COUNT_W-1:0] SFU_WBQ_DEPTH_VAL = SFU_WBQ_DEPTH;
     localparam [SHFL_WBQ_COUNT_W-1:0] SHFL_WBQ_DEPTH_VAL = SHFL_WBQ_DEPTH;
     localparam [VIDEO_WBQ_COUNT_W-1:0] VIDEO_WBQ_DEPTH_VAL = VIDEO_WBQ_DEPTH;
+    localparam L1_LINE_SIZE_BYTES = 128;
 
     localparam WB_DATA_LSB = 0;
     localparam WB_DATA_MSB = SIMD_WIDTH - 1;
@@ -657,6 +658,43 @@ module streaming_multiprocessor_v2 #(
     wire                  gmem_req_ready;
     wire                  gmem_resp_valid;
     wire [SIMD_WIDTH-1:0] gmem_resp_rdata;
+    wire [NUM_LANES-1:0]  gmem_req_mask;
+
+    // L1 data cache integration (global load path)
+    wire                  l1_cache_req_valid;
+    wire [31:0]           l1_cache_req_addr [0:NUM_LANES-1];
+    wire [31:0]           l1_cache_req_wdata [0:NUM_LANES-1];
+    wire [31:0]           l1_cache_resp_rdata [0:NUM_LANES-1];
+    wire [SIMD_WIDTH-1:0] l1_cache_resp_rdata_packed;
+    wire                  l1_cache_resp_valid;
+    wire                  l1_cache_resp_hit;
+    wire                  l1_mem_req;
+    wire                  l1_mem_write;
+    wire [31:0]           l1_mem_addr;
+    wire [L1_LINE_SIZE_BYTES*8-1:0] l1_mem_wdata;
+    wire [L1_LINE_SIZE_BYTES*8-1:0] l1_mem_rdata;
+    wire                  l1_mem_valid;
+    wire                  l1_mem_ready;
+    wire [31:0]           l1_stat_hits;
+    wire [31:0]           l1_stat_misses;
+    reg                   l1_miss_pending;
+    reg [31:0]            l1_cycle_counter;
+    reg [31:0]            l1_req_issue_cycle;
+    reg                   l1_req_inflight;
+    reg [31:0]            l1_last_hit_latency;
+    reg [31:0]            l1_last_miss_latency;
+    wire                  l1_miss_req_valid;
+    wire [NUM_LANES*32-1:0] l1_miss_req_addr_vec;
+    wire [SIMD_WIDTH-1:0] l1_miss_req_wdata_vec;
+    wire [31:0]           l1_miss_line_base_addr;
+    wire                  gmem_load_resp_valid;
+    wire [SIMD_WIDTH-1:0] gmem_load_resp_rdata;
+    wire                  gmem_store_req_valid;
+    wire                  gmem_normal_req_valid;
+    wire                  gmem_normal_req_write;
+    wire [NUM_LANES*32-1:0] gmem_normal_req_addr;
+    wire [SIMD_WIDTH-1:0] gmem_normal_req_wdata;
+    wire [NUM_LANES-1:0]  gmem_normal_req_mask;
 
     // Control Flow Signals
 
@@ -757,7 +795,7 @@ module streaming_multiprocessor_v2 #(
                            (dec_mem_write && !dec_mem_read && store_pending_valid) ||
                            (dec_mem_shared && (smem_pending_valid || smem_resp_latched)) ||
                            (!dec_mem_shared && (dec_mem_read || dec_mem_write) &&
-                            (!gmem_req_ready || (dec_mem_read && mem_pending_valid)))
+                            (!gmem_req_ready || mem_pending_valid))
     );
     wire lane0_stall_atomic = dec0_valid && dec_atomic_op && atomic_q_full;
     wire lane0_stall_tensor = dec0_valid && dec_tensor_op && tensor_issue_full_next;
@@ -1025,6 +1063,86 @@ module streaming_multiprocessor_v2 #(
     assign perf_fu_tensor_active   = tensor_issue_push_fire;
     assign perf_branch_taken       = branch_taken_combined;
     assign perf_branch_divergent   = divergent_branch;
+
+    // External L1D ports are tied off; SM integrates L1 internally.
+    assign l1d_req_valid = 1'b0;
+    assign l1d_req_write = 1'b0;
+    assign l1d_req_mask  = {NUM_LANES{1'b0}};
+    genvar l1_port_tieoff_i;
+    generate
+        for (l1_port_tieoff_i = 0; l1_port_tieoff_i < NUM_LANES; l1_port_tieoff_i = l1_port_tieoff_i + 1) begin : gen_l1_port_tieoff
+            assign l1d_req_addr[l1_port_tieoff_i] = 32'b0;
+            assign l1d_req_wdata[l1_port_tieoff_i] = 32'b0;
+        end
+    endgenerate
+
+    assign l1_cache_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op && issue_mem_read;
+    assign l1_miss_req_valid = l1_mem_req && !l1_mem_write;
+    assign l1_mem_ready = l1_miss_req_valid && gmem_req_ready;
+    assign l1_mem_rdata = gmem_resp_rdata;
+    assign l1_mem_valid = gmem_resp_valid && l1_miss_pending;
+    assign l1_miss_line_base_addr = {l1_mem_addr[31:7], 7'b0};
+    assign gmem_load_resp_valid = l1_cache_resp_valid;
+    assign gmem_load_resp_rdata = l1_cache_resp_rdata_packed;
+
+    generate
+        genvar l1_lane_i;
+        for (l1_lane_i = 0; l1_lane_i < NUM_LANES; l1_lane_i = l1_lane_i + 1) begin : gen_l1_lane_map
+            assign l1_cache_req_addr[l1_lane_i] = rf_rd_data_a[l1_lane_i*32 +: 32];
+            assign l1_cache_req_wdata[l1_lane_i] = rf_rd_data_b[l1_lane_i*32 +: 32];
+            assign l1_cache_resp_rdata_packed[l1_lane_i*32 +: 32] = l1_cache_resp_rdata[l1_lane_i];
+            assign l1_miss_req_addr_vec[l1_lane_i*32 +: 32] = l1_miss_line_base_addr + (l1_lane_i * 4);
+            assign l1_miss_req_wdata_vec[l1_lane_i*32 +: 32] = l1_mem_wdata[l1_lane_i*32 +: 32];
+        end
+    endgenerate
+
+    // Store path bypasses cache; global loads are serviced via L1.
+    assign gmem_store_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op &&
+                                  issue_mem_write && !issue_mem_read;
+    assign gmem_normal_req_valid = gmem_store_req_valid || l1_miss_req_valid;
+    assign gmem_normal_req_write = gmem_store_req_valid ? 1'b1 : l1_mem_write;
+    assign gmem_normal_req_addr  = gmem_store_req_valid ? rf_rd_data_a : l1_miss_req_addr_vec;
+    assign gmem_normal_req_wdata = gmem_store_req_valid ? rf_rd_data_b : l1_miss_req_wdata_vec;
+    assign gmem_normal_req_mask  = gmem_store_req_valid ? issue_mask : {NUM_LANES{1'b1}};
+
+    l1_data_cache #(
+        .CACHE_SIZE_KB   (16),
+        .LINE_SIZE_BYTES (L1_LINE_SIZE_BYTES),
+        .NUM_WAYS        (4),
+        .HIT_LATENCY     (2),
+        .THREADS         (NUM_LANES),
+        .DATA_WIDTH      (32)
+    ) u_l1_data_cache (
+        .clk                (clk),
+        .rst_n              (rst_n),
+        .req_valid          (l1_cache_req_valid),
+        .req_write          (1'b0),
+        .req_addr           (l1_cache_req_addr),
+        .req_wdata          (l1_cache_req_wdata),
+        .req_mask           (issue_mask),
+        .resp_rdata         (l1_cache_resp_rdata),
+        .resp_valid         (l1_cache_resp_valid),
+        .resp_hit           (l1_cache_resp_hit),
+        .mem_req            (l1_mem_req),
+        .mem_write          (l1_mem_write),
+        .mem_addr           (l1_mem_addr),
+        .mem_wdata          (l1_mem_wdata),
+        .mem_rdata          (l1_mem_rdata),
+        .mem_valid          (l1_mem_valid),
+        .mem_ready          (l1_mem_ready),
+        .stat_hits          (l1_stat_hits),
+        .stat_misses        (l1_stat_misses),
+        .policy_create_valid(1'b0),
+        .policy_id          (3'b0),
+        .policy_priority    (8'b0),
+        .policy_token_out   (),
+        .policy_token_valid (),
+        .policy_apply_valid (1'b0),
+        .policy_apply_addr  (32'b0),
+        .policy_apply_id    (3'b0),
+        .policy_discard_valid(1'b0),
+        .policy_discard_addr(32'b0)
+    );
 
 
     //========================================================================
@@ -1488,7 +1606,7 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     reg [2:0] mem_pipe_inflight;  // Count of memory ops in scheduler->mem pipeline
     wire sched_issues_memory = sched_issue_valid_mask[0] && pd_is_memory[sched_issue_warp_id[0]];
-    wire mem_response_complete = gmem_resp_valid || smem_resp_valid;
+    wire mem_response_complete = gmem_load_resp_valid || gmem_resp_valid || smem_resp_valid;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -3016,13 +3134,47 @@ module streaming_multiprocessor_v2 #(
             `ifdef SIMULATION
             mem_pend_dbg_cnt <= 0;
             `endif
-        end else if (gmem_req_valid && gmem_req_ready && issue_mem_read && !mem_pending_valid) begin
+        end else if (l1_cache_req_valid && !mem_pending_valid) begin
             mem_pending_valid <= 1'b1;
             mem_warp_pending <= issue_warp_id;
             mem_rd_pending <= issue_rd;
             mem_mask_pending <= issue_mask;
-        end else if (gmem_resp_valid) begin
+        end else if (gmem_load_resp_valid && mem_pending_valid) begin
             mem_pending_valid <= 1'b0;
+        end
+    end
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            l1_miss_pending <= 1'b0;
+        end else if (l1_miss_req_valid && gmem_req_ready) begin
+            l1_miss_pending <= 1'b1;
+        end else if (gmem_resp_valid && l1_miss_pending) begin
+            l1_miss_pending <= 1'b0;
+        end
+    end
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            l1_cycle_counter <= 32'b0;
+            l1_req_issue_cycle <= 32'b0;
+            l1_req_inflight <= 1'b0;
+            l1_last_hit_latency <= 32'b0;
+            l1_last_miss_latency <= 32'b0;
+        end else begin
+            l1_cycle_counter <= l1_cycle_counter + 32'd1;
+            if (l1_cache_req_valid && !l1_req_inflight) begin
+                l1_req_inflight <= 1'b1;
+                l1_req_issue_cycle <= l1_cycle_counter;
+            end
+            if (gmem_load_resp_valid && l1_req_inflight) begin
+                l1_req_inflight <= 1'b0;
+                if (l1_cache_resp_hit) begin
+                    l1_last_hit_latency <= l1_cycle_counter - l1_req_issue_cycle;
+                end else begin
+                    l1_last_miss_latency <= l1_cycle_counter - l1_req_issue_cycle;
+                end
+            end
         end
     end
 
@@ -4081,19 +4233,16 @@ module streaming_multiprocessor_v2 #(
     // Global Memory Arbiter (Normal > Atomic > ACE > Texture)
     //------------------------------------------------------------------------
     wire ace_mem_pending;
-    wire gmem_normal_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op &&
-                                 (issue_mem_read || issue_mem_write);
-    wire [NUM_LANES-1:0] gmem_req_mask;
 
     sm_gmem_arbiter u_gmem_arbiter (
         .clk                (clk),
         .rst_n              (rst_n),
         // Normal pipeline LD/ST
         .normal_req_valid   (gmem_normal_req_valid),
-        .normal_req_write   (issue_mem_write),
-        .normal_req_addr    (rf_rd_data_a),
-        .normal_req_wdata   (rf_rd_data_b),
-        .normal_req_mask    (issue_mask),
+        .normal_req_write   (gmem_normal_req_write),
+        .normal_req_addr    (gmem_normal_req_addr),
+        .normal_req_wdata   (gmem_normal_req_wdata),
+        .normal_req_mask    (gmem_normal_req_mask),
         // Atomic unit
         .atomic_req         (atomic_mem_req),
         .atomic_write       (atomic_mem_write),
@@ -4374,11 +4523,11 @@ module streaming_multiprocessor_v2 #(
             `endif
         end else begin
             // Latch global memory response
-            if (gmem_resp_valid && mem_pending_valid && !gmem_resp_latched) begin
+            if (gmem_load_resp_valid && mem_pending_valid && !gmem_resp_latched) begin
                 gmem_resp_latched <= 1'b1;
                 gmem_resp_warp <= mem_warp_pending;
                 gmem_resp_rd <= mem_rd_pending;
-                gmem_resp_data <= gmem_resp_rdata;
+                gmem_resp_data <= gmem_load_resp_rdata;
                 gmem_resp_mask <= mem_mask_pending;
             end else if (gmem_resp_latched && wb_found && wb_sel == 5'd7 && !smem_resp_latched) begin
                 gmem_resp_latched <= 1'b0;  // Clear latch when writeback consumes it
@@ -4956,7 +5105,7 @@ module streaming_multiprocessor_v2 #(
             if (smem_resp_valid && smem_pending_valid) begin
                 warp_stalled_mem[smem_warp_pending] <= 1'b0;
             end
-            if (gmem_resp_valid && mem_pending_valid) begin
+            if (gmem_load_resp_valid && mem_pending_valid) begin
                 warp_stalled_mem[mem_warp_pending] <= 1'b0;
             end
 

@@ -15,6 +15,7 @@
 
     // Load A[i] (base address 0x0000)
     ld.global.s32 r2, [r1]      // r2 = A[i]
+    ld.global.s32 r7, [r1]      // warm-cache reload to validate L1 hit path
 
     // Load B[i] (base address 0x1000)
     mov.u32 r3, 0x1000          // r3 = base B
@@ -22,7 +23,7 @@
     ld.global.s32 r4, [r3]      // r4 = B[i]
 
     // Compute C[i] = A[i] + B[i]
-    add.s32 r5, r2, r4          // r5 = r2 + r4
+    add.s32 r5, r7, r4          // r5 = r7 + r4
 
     // Store result to C[i] (base address 0x2000)
     mov.u32 r6, 0x2000          // r6 = base C
