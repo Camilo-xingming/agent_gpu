@@ -155,6 +155,10 @@ module tb_vector_add;
     // 0x2000 - 0x207F: 向量C (32个元素) - 输出
 
     reg [31:0] pending_write_addr;
+    reg [31:0] pending_read_addr;
+    reg [7:0]  pending_read_beats;
+    reg [3:0]  pending_read_id;
+    reg        read_active;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -166,6 +170,11 @@ module tb_vector_add;
             m_axi_rvalid  <= 0;
             m_axi_rresp   <= 0;
             m_axi_rlast   <= 0;
+            m_axi_rid     <= 0;
+            pending_read_addr  <= 0;
+            pending_read_beats <= 0;
+            pending_read_id    <= 0;
+            read_active        <= 0;
         end else begin
             // 保存写地址
             if (m_axi_awvalid && m_axi_awready) begin
@@ -184,16 +193,35 @@ module tb_vector_add;
                 m_axi_bvalid <= 0;
             end
 
-            // 读响应
-            if (m_axi_arvalid && m_axi_arready) begin
-                m_axi_rvalid <= 1;
+            // 读响应（支持 burst）
+            if (!read_active && m_axi_arvalid && m_axi_arready) begin
+                read_active        <= 1'b1;
+                m_axi_arready      <= 1'b0;
+                pending_read_addr  <= m_axi_araddr;
+                pending_read_beats <= m_axi_arlen + 1'b1;
+                pending_read_id    <= m_axi_arid;
+
+                m_axi_rvalid <= 1'b1;
                 m_axi_rid    <= m_axi_arid;
                 m_axi_rdata  <= data_memory[m_axi_araddr[14:2]];
-                m_axi_rlast  <= 1;
-                $display("[MEM] Read: addr=0x%08X, data=0x%08X",
-                         m_axi_araddr, data_memory[m_axi_araddr[14:2]]);
-            end else if (m_axi_rvalid && m_axi_rready) begin
-                m_axi_rvalid <= 0;
+                m_axi_rlast  <= (m_axi_arlen == 0);
+                $display("[MEM] Read start: addr=0x%08X len=%0d data=0x%08X",
+                         m_axi_araddr, m_axi_arlen, data_memory[m_axi_araddr[14:2]]);
+            end else if (read_active && m_axi_rvalid && m_axi_rready) begin
+                if (pending_read_beats <= 8'd1) begin
+                    m_axi_rvalid <= 1'b0;
+                    m_axi_rlast  <= 1'b0;
+                    read_active  <= 1'b0;
+                    m_axi_arready <= 1'b1;
+                end else begin
+                    pending_read_addr  <= pending_read_addr + 32'd4;
+                    pending_read_beats <= pending_read_beats - 1'b1;
+
+                    m_axi_rvalid <= 1'b1;
+                    m_axi_rid    <= pending_read_id;
+                    m_axi_rdata  <= data_memory[(pending_read_addr + 32'd4) >> 2];
+                    m_axi_rlast  <= (pending_read_beats == 8'd2);
+                end
             end
         end
     end
