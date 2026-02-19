@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  lint:
+    name: Lint (Verilator)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: RalphGPU
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog verilator
+
+      - name: Run lint
+        run: make lint VERILATOR=verilator
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: lint
+    defaults:
+      run:
+        working-directory: RalphGPU
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog verilator
+
+      - name: Run unit tests
+        run: make test
+
+  build_check:
+    name: Build Check
+    runs-on: ubuntu-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: RalphGPU
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog verilator
+
+      - name: Compile top-level testbench
+        run: make build/tb_ralph_gpu.vvp
