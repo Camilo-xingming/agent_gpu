@@ -102,6 +102,8 @@ module ralph_gpu_top #(
 
     localparam NUM_LANES = `THREADS_PER_WARP;
     localparam SM_ID_W = (NUM_SM > 1) ? $clog2(NUM_SM) : 1;
+    localparam TLB_VADDR_WIDTH = 48;
+    localparam TLB_PADDR_WIDTH = 40;
 
     //========================================================================
     // CSR 寄存器定义
@@ -197,6 +199,55 @@ module ralph_gpu_top #(
     wire [1:0]  sm_axi_arburst [0:NUM_SM-1];
     wire        sm_axi_arvalid [0:NUM_SM-1];
     wire        sm_axi_rready  [0:NUM_SM-1];
+    wire        sm_axi_awready [0:NUM_SM-1];
+    wire        sm_axi_arready [0:NUM_SM-1];
+    wire        sm_core_axi_awready [0:NUM_SM-1];
+    wire        sm_core_axi_arready [0:NUM_SM-1];
+
+    //------------------------------------------------------------------------
+    // TLB address translation for SM global memory AXI requests
+    //------------------------------------------------------------------------
+    reg [NUM_SM-1:0] sm_aw_tlb_pending;
+    reg [NUM_SM-1:0] sm_aw_tlb_addr_valid;
+    reg [31:0] sm_aw_tlb_addr [0:NUM_SM-1];
+    reg [31:0] sm_aw_tlb_vaddr [0:NUM_SM-1];
+    reg [NUM_SM-1:0] sm_ar_tlb_pending;
+    reg [NUM_SM-1:0] sm_ar_tlb_addr_valid;
+    reg [31:0] sm_ar_tlb_addr [0:NUM_SM-1];
+    reg [31:0] sm_ar_tlb_vaddr [0:NUM_SM-1];
+
+    reg [NUM_SM-1:0] aw_tlb_req_valid_r;
+    reg [NUM_SM*TLB_VADDR_WIDTH-1:0] aw_tlb_req_vaddr_r;
+    reg [TLB_VADDR_WIDTH-1:0] aw_tlb_req_vaddr_hold [0:NUM_SM-1];
+    wire [NUM_SM-1:0] aw_tlb_req_ready;
+    wire [NUM_SM-1:0] aw_tlb_resp_valid;
+    wire [NUM_SM*TLB_PADDR_WIDTH-1:0] aw_tlb_resp_paddr;
+    wire [NUM_SM-1:0] aw_tlb_resp_fault;
+    wire [3:0] aw_tlb_resp_fault_code [0:NUM_SM-1];
+
+    reg [NUM_SM-1:0] ar_tlb_req_valid_r;
+    reg [NUM_SM*TLB_VADDR_WIDTH-1:0] ar_tlb_req_vaddr_r;
+    reg [TLB_VADDR_WIDTH-1:0] ar_tlb_req_vaddr_hold [0:NUM_SM-1];
+    wire [NUM_SM-1:0] ar_tlb_req_ready;
+    wire [NUM_SM-1:0] ar_tlb_resp_valid;
+    wire [NUM_SM*TLB_PADDR_WIDTH-1:0] ar_tlb_resp_paddr;
+    wire [NUM_SM-1:0] ar_tlb_resp_fault;
+    wire [3:0] ar_tlb_resp_fault_code [0:NUM_SM-1];
+
+    wire aw_ptw_req_valid;
+    wire [TLB_PADDR_WIDTH-1:0] aw_ptw_req_addr;
+    wire aw_ptw_req_ready;
+    reg aw_ptw_resp_valid;
+    reg [63:0] aw_ptw_resp_data;
+
+    wire ar_ptw_req_valid;
+    wire [TLB_PADDR_WIDTH-1:0] ar_ptw_req_addr;
+    wire ar_ptw_req_ready;
+    reg ar_ptw_resp_valid;
+    reg [63:0] ar_ptw_resp_data;
+
+    localparam [TLB_PADDR_WIDTH-1:0] TLB_PAGE_TABLE_BASE = 40'h0000100000;
+    localparam [TLB_PADDR_WIDTH-1:0] TLB_L3_TABLE_BASE   = 40'h0000101000;
 
     //------------------------------------------------------------------------
     // L1D Cache/Bypass Memory Interface
@@ -399,7 +450,7 @@ module ralph_gpu_top #(
                 .m_axi_awsize  (sm_core_axi_awsize[sm]),
                 .m_axi_awburst (sm_core_axi_awburst[sm]),
                 .m_axi_awvalid (sm_core_axi_awvalid[sm]),
-                .m_axi_awready (m_axi_awready),
+                .m_axi_awready (sm_core_axi_awready[sm]),
                 .m_axi_wdata   (sm_core_axi_wdata[sm]),
                 .m_axi_wstrb   (sm_core_axi_wstrb[sm]),
                 .m_axi_wlast   (sm_core_axi_wlast[sm]),
@@ -415,7 +466,7 @@ module ralph_gpu_top #(
                 .m_axi_arsize  (sm_core_axi_arsize[sm]),
                 .m_axi_arburst (sm_core_axi_arburst[sm]),
                 .m_axi_arvalid (sm_core_axi_arvalid[sm]),
-                .m_axi_arready (m_axi_arready),
+                .m_axi_arready (sm_core_axi_arready[sm]),
                 .m_axi_rid     (m_axi_rid),
                 .m_axi_rdata   (m_axi_rdata),
                 .m_axi_rresp   (m_axi_rresp),
@@ -455,10 +506,207 @@ module ralph_gpu_top #(
             assign sm_axi_arburst[sm] = sm_core_axi_arburst[sm];
             assign sm_axi_arvalid[sm] = sm_core_axi_arvalid[sm];
             assign sm_axi_rready[sm]  = sm_core_axi_rready[sm];
+            assign sm_core_axi_awready[sm] = sm_axi_awready[sm];
+            assign sm_core_axi_arready[sm] = sm_axi_arready[sm];
 
             // L1D response is now handled by l1d_bypass or l1d_full above
         end
     endgenerate
+
+    function [63:0] make_identity_pte;
+        input [TLB_PADDR_WIDTH-1:0] base_addr;
+        input leaf;
+        begin
+            make_identity_pte = 64'b0;
+            make_identity_pte[0] = 1'b1;  // present
+            make_identity_pte[1] = 1'b1;  // writable
+            make_identity_pte[7] = leaf;  // large-page indicator
+            make_identity_pte[12 + (TLB_PADDR_WIDTH - 12) - 1:12] = base_addr[TLB_PADDR_WIDTH-1:12];
+        end
+    endfunction
+
+    integer tlb_sm_i;
+    always @(*) begin
+        aw_tlb_req_valid_r = {NUM_SM{1'b0}};
+        ar_tlb_req_valid_r = {NUM_SM{1'b0}};
+        aw_tlb_req_vaddr_r = {(NUM_SM*TLB_VADDR_WIDTH){1'b0}};
+        ar_tlb_req_vaddr_r = {(NUM_SM*TLB_VADDR_WIDTH){1'b0}};
+        for (tlb_sm_i = 0; tlb_sm_i < NUM_SM; tlb_sm_i = tlb_sm_i + 1) begin
+            aw_tlb_req_valid_r[tlb_sm_i] =
+                sm_core_axi_awvalid[tlb_sm_i] & ~sm_aw_tlb_addr_valid[tlb_sm_i] & ~sm_aw_tlb_pending[tlb_sm_i];
+            ar_tlb_req_valid_r[tlb_sm_i] =
+                sm_core_axi_arvalid[tlb_sm_i] & ~sm_ar_tlb_addr_valid[tlb_sm_i] & ~sm_ar_tlb_pending[tlb_sm_i];
+            aw_tlb_req_vaddr_r[tlb_sm_i*TLB_VADDR_WIDTH +: TLB_VADDR_WIDTH] =
+                aw_tlb_req_valid_r[tlb_sm_i] ?
+                {{(TLB_VADDR_WIDTH-32){1'b0}}, sm_core_axi_awaddr[tlb_sm_i]} :
+                aw_tlb_req_vaddr_hold[tlb_sm_i];
+            ar_tlb_req_vaddr_r[tlb_sm_i*TLB_VADDR_WIDTH +: TLB_VADDR_WIDTH] =
+                ar_tlb_req_valid_r[tlb_sm_i] ?
+                {{(TLB_VADDR_WIDTH-32){1'b0}}, sm_core_axi_araddr[tlb_sm_i]} :
+                ar_tlb_req_vaddr_hold[tlb_sm_i];
+        end
+    end
+
+    assign aw_ptw_req_ready = 1'b1;
+    assign ar_ptw_req_ready = 1'b1;
+
+    always @(*) begin
+        reg [TLB_PADDR_WIDTH-1:0] aw_ptw_leaf_base;
+        reg [8:0] aw_ptw_l3_idx;
+        aw_ptw_resp_valid = aw_ptw_req_valid;
+        aw_ptw_resp_data = 64'b0;
+        if (aw_ptw_req_addr == TLB_PAGE_TABLE_BASE) begin
+            aw_ptw_resp_data = make_identity_pte(TLB_L3_TABLE_BASE, 1'b0);
+        end else if (aw_ptw_req_addr[TLB_PADDR_WIDTH-1:12] == TLB_L3_TABLE_BASE[TLB_PADDR_WIDTH-1:12]) begin
+            aw_ptw_l3_idx = aw_ptw_req_addr[11:3];
+            if (aw_ptw_l3_idx < 9'd4) begin
+                aw_ptw_leaf_base = {{(TLB_PADDR_WIDTH-32){1'b0}}, aw_ptw_l3_idx[1:0], 30'b0};
+                aw_ptw_resp_data = make_identity_pte(aw_ptw_leaf_base, 1'b1);
+            end
+        end
+    end
+
+    always @(*) begin
+        reg [TLB_PADDR_WIDTH-1:0] ar_ptw_leaf_base;
+        reg [8:0] ar_ptw_l3_idx;
+        ar_ptw_resp_valid = ar_ptw_req_valid;
+        ar_ptw_resp_data = 64'b0;
+        if (ar_ptw_req_addr == TLB_PAGE_TABLE_BASE) begin
+            ar_ptw_resp_data = make_identity_pte(TLB_L3_TABLE_BASE, 1'b0);
+        end else if (ar_ptw_req_addr[TLB_PADDR_WIDTH-1:12] == TLB_L3_TABLE_BASE[TLB_PADDR_WIDTH-1:12]) begin
+            ar_ptw_l3_idx = ar_ptw_req_addr[11:3];
+            if (ar_ptw_l3_idx < 9'd4) begin
+                ar_ptw_leaf_base = {{(TLB_PADDR_WIDTH-32){1'b0}}, ar_ptw_l3_idx[1:0], 30'b0};
+                ar_ptw_resp_data = make_identity_pte(ar_ptw_leaf_base, 1'b1);
+            end
+        end
+    end
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            sm_aw_tlb_pending <= {NUM_SM{1'b0}};
+            sm_aw_tlb_addr_valid <= {NUM_SM{1'b0}};
+            sm_ar_tlb_pending <= {NUM_SM{1'b0}};
+            sm_ar_tlb_addr_valid <= {NUM_SM{1'b0}};
+            for (tlb_sm_i = 0; tlb_sm_i < NUM_SM; tlb_sm_i = tlb_sm_i + 1) begin
+                sm_aw_tlb_addr[tlb_sm_i] <= 32'b0;
+                sm_ar_tlb_addr[tlb_sm_i] <= 32'b0;
+                sm_aw_tlb_vaddr[tlb_sm_i] <= 32'b0;
+                sm_ar_tlb_vaddr[tlb_sm_i] <= 32'b0;
+                aw_tlb_req_vaddr_hold[tlb_sm_i] <= {TLB_VADDR_WIDTH{1'b0}};
+                ar_tlb_req_vaddr_hold[tlb_sm_i] <= {TLB_VADDR_WIDTH{1'b0}};
+            end
+        end else begin
+            for (tlb_sm_i = 0; tlb_sm_i < NUM_SM; tlb_sm_i = tlb_sm_i + 1) begin
+                if (aw_tlb_req_valid_r[tlb_sm_i] && aw_tlb_req_ready[tlb_sm_i]) begin
+                    sm_aw_tlb_pending[tlb_sm_i] <= 1'b1;
+                    aw_tlb_req_vaddr_hold[tlb_sm_i] <=
+                        {{(TLB_VADDR_WIDTH-32){1'b0}}, sm_core_axi_awaddr[tlb_sm_i]};
+                end
+                if (ar_tlb_req_valid_r[tlb_sm_i] && ar_tlb_req_ready[tlb_sm_i]) begin
+                    sm_ar_tlb_pending[tlb_sm_i] <= 1'b1;
+                    ar_tlb_req_vaddr_hold[tlb_sm_i] <=
+                        {{(TLB_VADDR_WIDTH-32){1'b0}}, sm_core_axi_araddr[tlb_sm_i]};
+                end
+
+                if (aw_tlb_resp_valid[tlb_sm_i]) begin
+                    sm_aw_tlb_pending[tlb_sm_i] <= 1'b0;
+                    sm_aw_tlb_addr_valid[tlb_sm_i] <= 1'b1;
+                    sm_aw_tlb_vaddr[tlb_sm_i] <= aw_tlb_req_vaddr_hold[tlb_sm_i][31:0];
+                    sm_aw_tlb_addr[tlb_sm_i] <= aw_tlb_resp_fault[tlb_sm_i] ?
+                                               aw_tlb_req_vaddr_hold[tlb_sm_i][31:0] :
+                                               aw_tlb_resp_paddr[tlb_sm_i*TLB_PADDR_WIDTH +: 32];
+                end
+                if (ar_tlb_resp_valid[tlb_sm_i]) begin
+                    sm_ar_tlb_pending[tlb_sm_i] <= 1'b0;
+                    sm_ar_tlb_addr_valid[tlb_sm_i] <= 1'b1;
+                    sm_ar_tlb_vaddr[tlb_sm_i] <= ar_tlb_req_vaddr_hold[tlb_sm_i][31:0];
+                    sm_ar_tlb_addr[tlb_sm_i] <= ar_tlb_resp_fault[tlb_sm_i] ?
+                                               ar_tlb_req_vaddr_hold[tlb_sm_i][31:0] :
+                                               ar_tlb_resp_paddr[tlb_sm_i*TLB_PADDR_WIDTH +: 32];
+                end
+
+                if (sm_axi_awvalid[tlb_sm_i] && sm_axi_awready[tlb_sm_i]) begin
+                    sm_aw_tlb_addr_valid[tlb_sm_i] <= 1'b0;
+                end
+                if (sm_axi_arvalid[tlb_sm_i] && sm_axi_arready[tlb_sm_i]) begin
+                    sm_ar_tlb_addr_valid[tlb_sm_i] <= 1'b0;
+                end
+            end
+        end
+    end
+
+    tlb_enhanced #(
+        .NUM_SMS     (NUM_SM),
+        .VADDR_WIDTH (TLB_VADDR_WIDTH),
+        .PADDR_WIDTH (TLB_PADDR_WIDTH)
+    ) u_tlb_aw (
+        .clk                (clk),
+        .rst_n              (rst_n),
+        .req_valid          (aw_tlb_req_valid_r),
+        .req_vaddr          (aw_tlb_req_vaddr_r),
+        .req_write          ({NUM_SM{1'b1}}),
+        .req_asid           ({(16*NUM_SM){1'b0}}),
+        .req_ready          (aw_tlb_req_ready),
+        .resp_valid         (aw_tlb_resp_valid),
+        .resp_paddr         (aw_tlb_resp_paddr),
+        .resp_fault         (aw_tlb_resp_fault),
+        .resp_fault_code    (aw_tlb_resp_fault_code),
+        .ptw_req_valid      (aw_ptw_req_valid),
+        .ptw_req_addr       (aw_ptw_req_addr),
+        .ptw_req_ready      (aw_ptw_req_ready),
+        .ptw_resp_valid     (aw_ptw_resp_valid),
+        .ptw_resp_data      (aw_ptw_resp_data),
+        .page_table_base    (TLB_PAGE_TABLE_BASE),
+        .current_asid       (16'b0),
+        .invalidate_all     (1'b0),
+        .invalidate_asid    (1'b0),
+        .invalidate_asid_val(16'b0),
+        .invalidate_page    (1'b0),
+        .invalidate_vaddr   ({TLB_VADDR_WIDTH{1'b0}}),
+        .stat_l1_hits       (),
+        .stat_l1_misses     (),
+        .stat_l2_hits       (),
+        .stat_l2_misses     (),
+        .stat_page_walks    (),
+        .stat_page_faults   ()
+    );
+
+    tlb_enhanced #(
+        .NUM_SMS     (NUM_SM),
+        .VADDR_WIDTH (TLB_VADDR_WIDTH),
+        .PADDR_WIDTH (TLB_PADDR_WIDTH)
+    ) u_tlb_ar (
+        .clk                (clk),
+        .rst_n              (rst_n),
+        .req_valid          (ar_tlb_req_valid_r),
+        .req_vaddr          (ar_tlb_req_vaddr_r),
+        .req_write          ({NUM_SM{1'b0}}),
+        .req_asid           ({(16*NUM_SM){1'b0}}),
+        .req_ready          (ar_tlb_req_ready),
+        .resp_valid         (ar_tlb_resp_valid),
+        .resp_paddr         (ar_tlb_resp_paddr),
+        .resp_fault         (ar_tlb_resp_fault),
+        .resp_fault_code    (ar_tlb_resp_fault_code),
+        .ptw_req_valid      (ar_ptw_req_valid),
+        .ptw_req_addr       (ar_ptw_req_addr),
+        .ptw_req_ready      (ar_ptw_req_ready),
+        .ptw_resp_valid     (ar_ptw_resp_valid),
+        .ptw_resp_data      (ar_ptw_resp_data),
+        .page_table_base    (TLB_PAGE_TABLE_BASE),
+        .current_asid       (16'b0),
+        .invalidate_all     (1'b0),
+        .invalidate_asid    (1'b0),
+        .invalidate_asid_val(16'b0),
+        .invalidate_page    (1'b0),
+        .invalidate_vaddr   ({TLB_VADDR_WIDTH{1'b0}}),
+        .stat_l1_hits       (),
+        .stat_l1_misses     (),
+        .stat_l2_hits       (),
+        .stat_l2_misses     (),
+        .stat_page_walks    (),
+        .stat_page_faults   ()
+    );
 
     //------------------------------------------------------------------------
     // L2 Cache Integration (Optional)
@@ -667,6 +915,13 @@ module ralph_gpu_top #(
             end
         end
     end
+
+    generate
+        for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_ready_gen
+            assign sm_axi_awready[sm] = (axi_arb_sel == sm[AXI_ARB_W-1:0]) ? m_axi_awready : 1'b0;
+            assign sm_axi_arready[sm] = (axi_arb_sel == sm[AXI_ARB_W-1:0]) ? m_axi_arready : 1'b0;
+        end
+    endgenerate
 
     assign m_axi_awid    = sm_axi_awid[axi_arb_sel];
     assign m_axi_awaddr  = sm_axi_awaddr[axi_arb_sel];
