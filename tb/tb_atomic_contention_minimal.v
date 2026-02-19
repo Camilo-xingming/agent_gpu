@@ -135,7 +135,8 @@ module tb_atomic_contention_minimal;
         for (imem_i = 0; imem_i < 4096; imem_i = imem_i + 1) begin
             imem[imem_i] = 32'h00000000;
         end
-        $readmemh("../asm/atomic_divergent_test.hex", imem);
+        $readmemh("../asm/bench_atomic_minimal.hex", imem);
+        $display("[TB] Loaded ../asm/bench_atomic_minimal.hex");
         $display("[TB] Loaded imem[0]=0x%08x imem[1]=0x%08x imem[2]=0x%08x", imem[0], imem[1], imem[2]);
     end
 
