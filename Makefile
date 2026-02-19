@@ -427,7 +427,7 @@ bench_atomic_minimal: $(BUILD_DIR)/tb_atomic_contention_minimal.vvp asm/bench_at
 $(BUILD_DIR)/tb_atomic_contention_minimal.vvp: $(RTL_SRCS) $(TB_ATOMIC_MINIMAL) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_ATOMIC_MINIMAL) $(filter %.v,$(RTL_SRCS))
 
-asm/bench_atomic_minimal.hex: asm/ptx_comprehensive_tests/test_23_mem_consistency_atomicity.ptx
+asm/bench_atomic_minimal.hex: asm/bench_atomic_minimal.ptx
 	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
 
 # Application-level PTX compilation

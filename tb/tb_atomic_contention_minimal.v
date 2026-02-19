@@ -1,8 +1,8 @@
 //============================================================================
 // Minimal Atomic Contention Testbench
-// - Launches 4 warps (128 threads)
+// - Launches 1 warp (32 threads)
 // - All threads atomically increment same address
-// - Uses existing PTX: test_23_mem_consistency_atomicity
+// - Uses dedicated PTX: asm/bench_atomic_minimal.ptx
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -21,11 +21,11 @@ module tb_atomic_contention_minimal;
     end
 
     localparam TIMEOUT_CYCLES = 300000;
+    localparam BLOCK_DIM_X    = 32;
 
     localparam GMEM_BASE = 32'h0000_1000;
-    localparam RESULT_ADDR = 32'h0000_2000;
     localparam COUNTER_ADDR = 32'h0000_1000;
-    localparam PASS_MARKER = 32'h0000CAFE;
+    localparam EXPECTED_COUNTER = BLOCK_DIM_X;
 
     // Clock/reset
     reg clk;
@@ -278,7 +278,6 @@ module tb_atomic_contention_minimal;
 
     integer cycles;
     reg timeout;
-    reg [31:0] result;
     reg [31:0] counter;
 
     initial begin
@@ -287,12 +286,12 @@ module tb_atomic_contention_minimal;
         #50;
         $display("Time: %0t - Reset complete", $time);
 
-        // Launch: grid 1x1x1, block 128x1x1 (4 warps)
+        // Launch: grid 1x1x1, block 32x1x1 (1 warp)
         @(posedge clk);
         write_csr(12'h00C, 32'd1);    // GRID_DIM_X
         write_csr(12'h010, 32'd1);    // GRID_DIM_Y
         write_csr(12'h014, 32'd1);    // GRID_DIM_Z
-        write_csr(12'h018, 32'd32);  // BLOCK_DIM_X
+        write_csr(12'h018, BLOCK_DIM_X);  // BLOCK_DIM_X
         write_csr(12'h01C, 32'd1);    // BLOCK_DIM_Y
         write_csr(12'h020, 32'd1);    // BLOCK_DIM_Z
         write_csr(12'h008, 32'd0);    // KERNEL_PC
@@ -309,13 +308,13 @@ module tb_atomic_contention_minimal;
             timeout = 1'b1;
         end
 
-        result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         counter = global_mem[(COUNTER_ADDR - GMEM_BASE) >> 2];
 
-        if (!timeout && result == PASS_MARKER) begin
-            $display("PASS: Atomic contention result=0x%08x counter=%0d cycles=%0d", result, counter, cycles);
+        if (!timeout && counter == EXPECTED_COUNTER) begin
+            $display("PASS: Atomic contention counter=%0d cycles=%0d", counter, cycles);
         end else begin
-            $display("FAIL: timeout=%b result=0x%08x counter=%0d cycles=%0d", timeout, result, counter, cycles);
+            $display("FAIL: timeout=%b counter=%0d expected=%0d cycles=%0d",
+                     timeout, counter, EXPECTED_COUNTER, cycles);
         end
 
         #100;

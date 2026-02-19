@@ -1,0 +1,7 @@
+.entry bench_atomic_minimal:
+    // All active lanes atomically increment the same global counter once.
+    mov.u32 r10, 0x1000
+    mov.u32 r1, 1
+    atom.add.s32 r2, [r10], r1
+    exit
+.end
