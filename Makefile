@@ -538,6 +538,7 @@ lint:
 	$(VERILATOR) --lint-only --top ralph_gpu_top -Wall \
 		-Wno-DECLFILENAME -Wno-PINCONNECTEMPTY \
 		-Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+		-Wno-UNOPTFLAT \
 		$(INCLUDES) $(filter %.v,$(RTL_SRCS))
 
 #----------------------------------------------------------------------------
