@@ -126,8 +126,8 @@ module tb_mbarrier_system;
         for (integer i = 0; i < 256; i = i + 1) begin
             imem[i] = 32'hFC000000;
         end
-        $readmemh("build/test_mbarrier.hex", imem);
-        $display("Loaded build/test_mbarrier.hex");
+        $readmemh("test_mbarrier.hex", imem);
+        $display("Loaded test_mbarrier.hex");
     end
 
     always @(posedge clk) begin

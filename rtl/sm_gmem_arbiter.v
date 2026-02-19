@@ -72,12 +72,9 @@ module sm_gmem_arbiter #(
 );
 
     //------------------------------------------------------------------------
-    // Priority arbitration: Atomic > Normal > ACE > Texture
-    // Atomic requests must make forward progress; if normal traffic is
-    // continuously present, strict normal-first priority can starve atomics
-    // and stall atomic_unit waiting for completion.
+    // Priority arbitration: Normal > Atomic > ACE > Texture
     //------------------------------------------------------------------------
-    wire use_atomic = atomic_req &&
+    wire use_atomic = atomic_req && !normal_req_valid &&
                       !atomic_pending_r && !atomic_shared_pending;
 
     wire use_ace = ace_req_valid && !normal_req_valid && !use_atomic && !ace_pending_r;
