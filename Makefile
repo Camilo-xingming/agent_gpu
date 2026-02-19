@@ -418,7 +418,7 @@ tb/bench_divergence.hex: tb/bench_divergence.ptx
 	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
 
 # Minimal atomic contention test (faster)
-bench_atomic_minimal: $(BUILD_DIR)/tb_atomic_contention_minimal.vvp
+bench_atomic_minimal: $(BUILD_DIR)/tb_atomic_contention_minimal.vvp asm/bench_atomic_minimal.hex
 	@echo "========================================"
 	@echo "Running Minimal Atomic Contention Test"
 	@echo "========================================"
@@ -426,6 +426,9 @@ bench_atomic_minimal: $(BUILD_DIR)/tb_atomic_contention_minimal.vvp
 
 $(BUILD_DIR)/tb_atomic_contention_minimal.vvp: $(RTL_SRCS) $(TB_ATOMIC_MINIMAL) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_ATOMIC_MINIMAL) $(filter %.v,$(RTL_SRCS))
+
+asm/bench_atomic_minimal.hex: asm/bench_atomic_minimal.ptx
+	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
 
 # Application-level PTX compilation
 asm/bench_vecadd_atomic.hex: asm/bench_vecadd_atomic.ptx

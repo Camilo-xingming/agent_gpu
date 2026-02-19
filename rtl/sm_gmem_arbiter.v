@@ -35,6 +35,8 @@ module sm_gmem_arbiter #(
     input  wire [31:0]              smem_atomic_resp_rdata,
 
     output wire                     atomic_ready,       // atomic_mem_ready
+    output wire                     atomic_resp_read_valid,
+    output wire                     atomic_resp_write_valid,
     output wire [SIMD_WIDTH-1:0]    atomic_rdata,       // atomic_mem_rdata
     output wire                     atomic_pending,     // atomic_mem_pending
 
@@ -134,28 +136,43 @@ module sm_gmem_arbiter #(
     //------------------------------------------------------------------------
     reg              atomic_pending_r;
     reg              atomic_ready_gmem;
+    reg              atomic_resp_read_valid_gmem;
+    reg              atomic_resp_write_valid_gmem;
+    reg              atomic_pending_is_write;
     reg [SIMD_WIDTH-1:0] atomic_rdata_gmem;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             atomic_pending_r  <= 1'b0;
             atomic_ready_gmem <= 1'b0;
+            atomic_resp_read_valid_gmem  <= 1'b0;
+            atomic_resp_write_valid_gmem <= 1'b0;
+            atomic_pending_is_write <= 1'b0;
             atomic_rdata_gmem <= {SIMD_WIDTH{1'b0}};
         end else begin
             atomic_ready_gmem <= 1'b0;
+            atomic_resp_read_valid_gmem  <= 1'b0;
+            atomic_resp_write_valid_gmem <= 1'b0;
             if (atomic_shared_pending) begin
                 atomic_pending_r <= 1'b0;
             end else if (use_atomic && gmem_req_ready) begin
                 atomic_pending_r <= 1'b1;
+                atomic_pending_is_write <= atomic_write;
             end else if (atomic_pending_r && gmem_resp_valid) begin
                 atomic_pending_r  <= 1'b0;
                 atomic_ready_gmem <= 1'b1;
+                atomic_resp_read_valid_gmem  <= !atomic_pending_is_write;
+                atomic_resp_write_valid_gmem <= atomic_pending_is_write;
                 atomic_rdata_gmem <= gmem_resp_rdata;
             end
         end
     end
 
     assign atomic_ready   = atomic_shared_pending ? smem_atomic_resp_valid : atomic_ready_gmem;
+    assign atomic_resp_read_valid =
+        atomic_shared_pending ? (smem_atomic_resp_valid && !atomic_write) : atomic_resp_read_valid_gmem;
+    assign atomic_resp_write_valid =
+        atomic_shared_pending ? (smem_atomic_resp_valid && atomic_write) : atomic_resp_write_valid_gmem;
     assign atomic_rdata   = atomic_shared_pending ? {NUM_LANES{smem_atomic_resp_rdata}} : atomic_rdata_gmem;
     assign atomic_pending = atomic_pending_r;
 
