@@ -31,7 +31,8 @@ module atomic_unit #(
     output reg  [5:0]  mem_lane,
 
     // 内存接口 (响应)
-    input  wire        mem_ready,
+    input  wire        resp_read_valid,
+    input  wire        resp_write_valid,
     input  wire [NUM_LANES*32-1:0] mem_rdata,
 
     // 结果
@@ -176,8 +177,9 @@ module atomic_unit #(
             // DEBUG TRACE
             `ifdef SIMULATION
             if (state != IDLE || req_valid) begin
-                 $display("[ATOMIC] Time=%0t State=%d Busy=%b ValidOut=%b ReqValid=%b Func=%d Mask=%x CurrLane=%d MemReady=%b", 
-                          $time, state, busy, result_valid, req_valid, func, lane_mask, current_lane, mem_ready);
+                 $display("[ATOMIC] Time=%0t State=%d Busy=%b ValidOut=%b ReqValid=%b Func=%d Mask=%x CurrLane=%d RValid=%b WValid=%b",
+                          $time, state, busy, result_valid, req_valid, func, lane_mask, current_lane,
+                          resp_read_valid, resp_write_valid);
             end
             `endif
 
@@ -214,7 +216,7 @@ module atomic_unit #(
                 end
 
                 READ_WAIT: begin
-                    if (mem_ready) begin
+                    if (resp_read_valid) begin
                         old_value <= mem_rdata_lane;
                         mem_req   <= 1'b0;
                         state     <= COMPUTE;
@@ -258,7 +260,7 @@ module atomic_unit #(
                 end
 
                 WRITE_WAIT: begin
-                    if (mem_ready) begin
+                    if (resp_write_valid) begin
                         `ifdef SIMULATION
                         $display("[%0t ATOMIC] Lane %0d WRITE done: addr=0x%08x old=0x%08x new=0x%08x",
                                  $time, current_lane, addr_lane, old_value, new_value);

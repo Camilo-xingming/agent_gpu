@@ -571,6 +571,8 @@ module streaming_multiprocessor_v2 #(
     wire [31:0]           atomic_mem_wdata;
     wire [5:0]            atomic_mem_lane;
     wire                  atomic_mem_ready;
+    wire                  atomic_resp_read_valid;
+    wire                  atomic_resp_write_valid;
     wire [SIMD_WIDTH-1:0] atomic_mem_rdata;
     wire                  atomic_mem_pending;  // Track pending atomic memory request
     reg                   atomic_mem_shared_pending;
@@ -3542,8 +3544,9 @@ module streaming_multiprocessor_v2 #(
         .mem_addr   (atomic_mem_addr),
         .mem_wdata  (atomic_mem_wdata),
         .mem_lane   (atomic_mem_lane),
-        .mem_ready  (atomic_mem_ready),
-        .mem_rdata  (atomic_mem_rdata),
+        .resp_read_valid (atomic_resp_read_valid),
+        .resp_write_valid(atomic_resp_write_valid),
+        .mem_rdata       (atomic_mem_rdata),
         .result     (atomic_result),
         .result_mask(atomic_result_mask),
         .result_valid(atomic_valid_out),
@@ -4099,6 +4102,8 @@ module streaming_multiprocessor_v2 #(
         .smem_atomic_resp_valid(smem_atomic_resp_valid),
         .smem_atomic_resp_rdata(smem_atomic_resp_rdata),
         .atomic_ready       (atomic_mem_ready),
+        .atomic_resp_read_valid (atomic_resp_read_valid),
+        .atomic_resp_write_valid(atomic_resp_write_valid),
         .atomic_rdata       (atomic_mem_rdata),
         .atomic_pending     (atomic_mem_pending),
         // ACE (async copy)
