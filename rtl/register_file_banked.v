@@ -296,15 +296,15 @@ module register_file_banked #(
         for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : gen_oc_logic
             wire [PROTECTED_WIDTH-1:0] oc_raw_0 = sim_regs[oc_warp_id][lane][oc_addr[4:0]];
             wire [DATA_WIDTH+1:0] oc_dec_0 = decode_ecc(oc_raw_0[DATA_WIDTH-1:0], oc_raw_0[PROTECTED_WIDTH-1:DATA_WIDTH]);
-            assign oc_data[0][lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_0[DATA_WIDTH-1:0] : oc_raw_0[DATA_WIDTH-1:0];
+            assign oc_data[0*(NUM_LANES*DATA_WIDTH) + lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_0[DATA_WIDTH-1:0] : oc_raw_0[DATA_WIDTH-1:0];
 
             wire [PROTECTED_WIDTH-1:0] oc_raw_1 = sim_regs[oc_warp_id][lane][oc_addr[9:5]];
             wire [DATA_WIDTH+1:0] oc_dec_1 = decode_ecc(oc_raw_1[DATA_WIDTH-1:0], oc_raw_1[PROTECTED_WIDTH-1:DATA_WIDTH]);
-            assign oc_data[1][lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_1[DATA_WIDTH-1:0] : oc_raw_1[DATA_WIDTH-1:0];
+            assign oc_data[1*(NUM_LANES*DATA_WIDTH) + lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_1[DATA_WIDTH-1:0] : oc_raw_1[DATA_WIDTH-1:0];
 
             wire [PROTECTED_WIDTH-1:0] oc_raw_2 = sim_regs[oc_warp_id][lane][oc_addr[14:10]];
             wire [DATA_WIDTH+1:0] oc_dec_2 = decode_ecc(oc_raw_2[DATA_WIDTH-1:0], oc_raw_2[PROTECTED_WIDTH-1:DATA_WIDTH]);
-            assign oc_data[2][lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_2[DATA_WIDTH-1:0] : oc_raw_2[DATA_WIDTH-1:0];
+            assign oc_data[2*(NUM_LANES*DATA_WIDTH) + lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_2[DATA_WIDTH-1:0] : oc_raw_2[DATA_WIDTH-1:0];
         end
     endgenerate
 

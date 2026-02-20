@@ -223,7 +223,7 @@ module ralph_gpu_top #(
     wire [NUM_SM-1:0] aw_tlb_resp_valid;
     wire [NUM_SM*TLB_PADDR_WIDTH-1:0] aw_tlb_resp_paddr;
     wire [NUM_SM-1:0] aw_tlb_resp_fault;
-    wire [3:0] aw_tlb_resp_fault_code [0:NUM_SM-1];
+    wire [NUM_SM*4-1:0] aw_tlb_resp_fault_code;
 
     reg [NUM_SM-1:0] ar_tlb_req_valid_r;
     reg [NUM_SM*TLB_VADDR_WIDTH-1:0] ar_tlb_req_vaddr_r;
@@ -232,7 +232,7 @@ module ralph_gpu_top #(
     wire [NUM_SM-1:0] ar_tlb_resp_valid;
     wire [NUM_SM*TLB_PADDR_WIDTH-1:0] ar_tlb_resp_paddr;
     wire [NUM_SM-1:0] ar_tlb_resp_fault;
-    wire [3:0] ar_tlb_resp_fault_code [0:NUM_SM-1];
+    wire [NUM_SM*4-1:0] ar_tlb_resp_fault_code;
 
     wire aw_ptw_req_valid;
     wire [TLB_PADDR_WIDTH-1:0] aw_ptw_req_addr;
