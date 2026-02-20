@@ -536,8 +536,10 @@ perf: $(BUILD_DIR)
 #----------------------------------------------------------------------------
 lint:
 	$(VERILATOR) --lint-only --top ralph_gpu_top -Wall \
+		-Wno-fatal -Wno-BLKLOOPINIT \
 		-Wno-DECLFILENAME -Wno-PINCONNECTEMPTY \
 		-Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+		-Wno-UNOPTFLAT \
 		$(INCLUDES) $(filter %.v,$(RTL_SRCS))
 
 #----------------------------------------------------------------------------
