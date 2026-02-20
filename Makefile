@@ -203,6 +203,15 @@ test_warp: $(BUILD_DIR)/tb_warp_scheduler.vvp
 $(BUILD_DIR)/tb_warp_scheduler.vvp: $(RTL_DIR)/warp_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_WARP) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_WARP) $(RTL_DIR)/warp_scheduler.v
 
+test_warp_ops: $(BUILD_DIR)/tb_warp_ops.vvp
+	@echo "========================================"
+	@echo "Running Warp Ops Functional Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_warp_ops.vvp
+
+$(BUILD_DIR)/tb_warp_ops.vvp: $(RTL_DIR)/warp_shuffle.v $(RTL_DIR)/gpu_defines.vh $(TB_DIR)/tb_warp_ops.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_warp_ops.v $(RTL_DIR)/warp_shuffle.v
+
 test_sfu: $(BUILD_DIR)/tb_sfu.vvp
 	@echo "========================================"
 	@echo "Running SFU Unit Test"
@@ -475,7 +484,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_decoder test_regfile test_smem test_warp
+test: test_alu test_mul test_decoder test_regfile test_smem test_warp test_warp_ops
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
