@@ -44,10 +44,63 @@ class Opcode(IntEnum):
     MEMBAR = 0b100100
     # Video/DP
     VIDEO = 0b100101
+    # Async memory
+    CPASYNC = 0b101011
+    # WGMMA (tensor)
+    WGMMA_LOAD = 0b101101
+    WGMMA_STORE = 0b101110
+    WGMMA_MMA = 0b101111
     # Move immediate
     MOV_IMM = 0b110000
     ALU_IMM = 0b110001
     NOP = 0b111111
+
+# SHFL功能码 - matches gpu_defines.vh
+class ShflFunc(IntEnum):
+    IDX = 0b000000    # shfl.sync.idx
+    UP = 0b000001     # shfl.sync.up
+    DOWN = 0b000010   # shfl.sync.down
+    BFLY = 0b000011   # shfl.sync.bfly
+
+# VOTE功能码
+class VoteFunc(IntEnum):
+    ALL = 0b000000    # vote.sync.all
+    ANY = 0b000001    # vote.sync.any
+    UNI = 0b000010    # vote.sync.uni
+    BALLOT = 0b000011 # vote.sync.ballot
+
+# REDUX功能码 (reuses ATOM func codes from RTL)
+class ReduxFunc(IntEnum):
+    ADD = 0b000000
+    MIN_S = 0b000001
+    MIN_U = 0b000010
+    MAX_S = 0b000011
+    MAX_U = 0b000100
+    AND = 0b000111
+    OR = 0b001000
+    XOR = 0b001001
+
+# cp.async功能码
+class CpAsyncFunc(IntEnum):
+    CA = 0b000000         # cp.async.ca.shared.global
+    CG = 0b000001         # cp.async.cg.shared.global
+    COMMIT = 0b000010     # cp.async.commit_group
+    WAIT = 0b000011       # cp.async.wait_group
+    WAIT_ALL = 0b000100   # cp.async.wait_all
+    BULK = 0b001000       # cp.async.bulk
+    BULK_TENSOR = 0b001001  # cp.async.bulk.tensor (TMA)
+
+# WGMMA功能码
+class WgmmaFunc(IntEnum):
+    M64N8K16 = 0b000000
+    M64N16K16 = 0b000001
+    M64N32K16 = 0b000010
+    M64N64K16 = 0b000011
+    M64N128K16 = 0b000100
+    M64N256K16 = 0b000101
+    FENCE = 0b010000
+    COMMIT_GROUP = 0b010001
+    WAIT_GROUP = 0b010010
 
 # ALU功能码
 class AluFunc(IntEnum):
@@ -620,6 +673,103 @@ class RalphGPUSimulator:
             return sm_id
         return 0
 
+    def execute_shfl(self, warp: 'WarpState', func: int, lane_id: int,
+                      src_val: int, b_val: int, c_val: int = 0x1f) -> tuple:
+        """Execute warp shuffle. Returns (result, predicate).
+        b_val = source lane or delta, c_val = clamp/mask (default 0x1f = full warp).
+        """
+        width = (c_val & 0x1f) + 1  # segment width
+        if width < 1:
+            width = 32
+        seg_base = (lane_id // width) * width
+        seg_max = seg_base + width - 1
+
+        if func == ShflFunc.IDX:
+            src_lane = seg_base + (b_val & 0x1f)
+            valid = src_lane <= seg_max
+        elif func == ShflFunc.UP:
+            src_lane = lane_id - b_val
+            valid = src_lane >= seg_base
+        elif func == ShflFunc.DOWN:
+            src_lane = lane_id + b_val
+            valid = src_lane <= seg_max
+        elif func == ShflFunc.BFLY:
+            src_lane = lane_id ^ b_val
+            valid = src_lane <= seg_max and src_lane >= seg_base
+        else:
+            src_lane = lane_id
+            valid = False
+
+        if valid and 0 <= src_lane < 32:
+            result = warp.threads[src_lane].registers[(src_val >> 0) & 0x1f] if isinstance(src_val, int) and src_val < 32 else src_val
+            # Actually src_val is the register VALUE from the source lane
+            # We need to read from the source lane's register
+            # The caller passes ra as register index; we read src_lane's register[ra]
+            return (result, True)
+        else:
+            return (src_val, False)
+
+    def execute_vote(self, warp: 'WarpState', func: int, pred_idx: int) -> tuple:
+        """Execute warp vote. Returns (result_ballot, pred_result)."""
+        ballot = 0
+        for i, t in enumerate(warp.threads):
+            if t.active and t.predicates[pred_idx & 0x7]:
+                ballot |= (1 << i)
+
+        active_mask = 0
+        for i, t in enumerate(warp.threads):
+            if t.active:
+                active_mask |= (1 << i)
+
+        if func == VoteFunc.ALL:
+            pred = (ballot & active_mask) == active_mask
+        elif func == VoteFunc.ANY:
+            pred = (ballot & active_mask) != 0
+        elif func == VoteFunc.UNI:
+            # All active threads have same predicate value
+            pred = (ballot & active_mask) == active_mask or (ballot & active_mask) == 0
+        elif func == VoteFunc.BALLOT:
+            pred = True  # ballot result goes to rd
+        else:
+            pred = False
+
+        return (ballot, pred)
+
+    def execute_redux(self, warp: 'WarpState', func: int, ra: int) -> int:
+        """Execute warp reduction across all active threads. Returns scalar result."""
+        values = []
+        for t in warp.threads:
+            if t.active:
+                values.append(t.registers[ra] & 0xFFFFFFFF)
+
+        if not values:
+            return 0
+
+        result = values[0]
+        for v in values[1:]:
+            if func == ReduxFunc.ADD:
+                result = (result + v) & 0xFFFFFFFF
+            elif func == ReduxFunc.MIN_S:
+                r_s = result if result < 0x80000000 else result - 0x100000000
+                v_s = v if v < 0x80000000 else v - 0x100000000
+                result = result if r_s <= v_s else v
+            elif func == ReduxFunc.MIN_U:
+                result = min(result, v)
+            elif func == ReduxFunc.MAX_S:
+                r_s = result if result < 0x80000000 else result - 0x100000000
+                v_s = v if v < 0x80000000 else v - 0x100000000
+                result = result if r_s >= v_s else v
+            elif func == ReduxFunc.MAX_U:
+                result = max(result, v)
+            elif func == ReduxFunc.AND:
+                result = result & v
+            elif func == ReduxFunc.OR:
+                result = result | v
+            elif func == ReduxFunc.XOR:
+                result = result ^ v
+
+        return result & 0xFFFFFFFF
+
     def execute_warp(self, warp: WarpState, sm_id: int) -> bool:
         """执行一个Warp的一条指令，返回是否继续"""
         if warp.pc >= len(self.instruction_memory):
@@ -850,25 +1000,58 @@ class RalphGPUSimulator:
                     thread.predicates[rd & 0x7] = (a >= b)
 
             elif opcode == Opcode.BRANCH:
-                if thread.tid != 0:
-                    continue
-                imm16 = inst & 0xFFFF
-                if imm16 & 0x8000:
-                    imm16 -= 0x10000
-                target_pc = warp.pc + imm16
+                # Per-thread branch evaluation for divergence support
+                # Each thread evaluates the condition independently
+                # Warp follows majority; minority threads deactivated (simplified SIMT stack)
+                if thread.tid == 0:
+                    imm16 = inst & 0xFFFF
+                    if imm16 & 0x8000:
+                        imm16 -= 0x10000
+                    target_pc = warp.pc + imm16
 
-                if rd & 0x10:
-                    predicate_idx = rc & 0x7
-                    take_branch = thread.predicates[predicate_idx]
-                else:
-                    branch_type = (rd >> 3) & 0x3
-                    take_branch = branch_type in (0b00, 0b11)
-                    if branch_type == 0b01:
-                        take_branch = (thread.registers[ra] == 0)
-                    elif branch_type == 0b10:
-                        take_branch = (thread.registers[ra] != 0)
-                if take_branch:
-                    warp.pc = target_pc - 1  # -1 because warp.pc is incremented after the loop
+                    # Evaluate branch for ALL active threads
+                    taken_mask = 0
+                    active_count = 0
+                    for t in warp.threads:
+                        if not t.active:
+                            continue
+                        active_count += 1
+                        if rd & 0x10:
+                            predicate_idx = rc & 0x7
+                            t_take = t.predicates[predicate_idx]
+                        else:
+                            branch_type = (rd >> 3) & 0x3
+                            t_take = branch_type in (0b00, 0b11)
+                            if branch_type == 0b01:
+                                t_take = (t.registers[ra] == 0)
+                            elif branch_type == 0b10:
+                                t_take = (t.registers[ra] != 0)
+                        if t_take:
+                            taken_mask |= (1 << t.tid)
+
+                    taken_count = bin(taken_mask).count('1')
+
+                    if taken_count == active_count:
+                        # Uniform branch: all take it
+                        warp.pc = target_pc - 1
+                    elif taken_count == 0:
+                        # Uniform branch: none take it (fall through)
+                        pass
+                    else:
+                        # Divergent: majority wins path, minority deactivated
+                        # (Simplified reconvergence — full SIMT stack is future work)
+                        if taken_count > active_count // 2:
+                            # Majority takes branch
+                            warp.pc = target_pc - 1
+                            for t in warp.threads:
+                                if t.active and not ((taken_mask >> t.tid) & 1):
+                                    t.active = False
+                        else:
+                            # Majority falls through
+                            for t in warp.threads:
+                                if t.active and ((taken_mask >> t.tid) & 1):
+                                    t.active = False
+                    break  # Already processed all threads
 
             elif opcode == Opcode.BAR_SYNC:
                 # Block-level barrier synchronization
@@ -902,6 +1085,99 @@ class RalphGPUSimulator:
                         self.current_cta.flush_writes(scope)
                     # In FRM, memory operations are instantaneous
                     # This enforces a sequencing point for correctness
+
+            elif opcode == Opcode.SHFL:
+                # Warp shuffle - requires cross-lane communication
+                # Snapshot all source values first to avoid read-after-write races
+                if thread.tid == 0:
+                    src_reg = ra
+                    # Phase 1: snapshot source register from all lanes
+                    snapshot = [warp.threads[i].registers[src_reg] for i in range(32)]
+                    # Phase 2: compute and write results
+                    for t in warp.threads:
+                        if not t.active:
+                            continue
+                        lane_id = t.tid % 32
+                        b = t.registers[rb]
+                        c = t.registers[rc] if rc != 0 else 0x1f
+                        width = (c & 0x1f) + 1
+                        seg_base = (lane_id // width) * width
+                        seg_max = seg_base + width - 1
+
+                        if func == ShflFunc.IDX:
+                            src_lane = seg_base + (b & 0x1f)
+                            valid = src_lane <= seg_max
+                        elif func == ShflFunc.UP:
+                            src_lane = lane_id - b
+                            valid = src_lane >= seg_base
+                        elif func == ShflFunc.DOWN:
+                            src_lane = lane_id + b
+                            valid = src_lane <= seg_max
+                        elif func == ShflFunc.BFLY:
+                            src_lane = lane_id ^ b
+                            valid = src_lane <= seg_max and src_lane >= seg_base
+                        else:
+                            src_lane = lane_id
+                            valid = False
+
+                        if valid and 0 <= src_lane < 32:
+                            t.registers[rd] = snapshot[src_lane]
+                        else:
+                            t.registers[rd] = snapshot[lane_id]
+                    break  # Already processed all threads
+
+            elif opcode == Opcode.VOTE:
+                # Warp vote - collective predicate evaluation
+                if thread.tid == 0:
+                    pred_idx = ra & 0x7
+                    ballot, pred_result = self.execute_vote(warp, func, pred_idx)
+                    for t in warp.threads:
+                        if t.active:
+                            t.registers[rd] = ballot
+                            t.predicates[rc & 0x7] = pred_result
+                    break  # Already processed all threads
+
+            elif opcode == Opcode.REDUX:
+                # Warp reduction - reduce across all active threads
+                if thread.tid == 0:
+                    result = self.execute_redux(warp, func, ra)
+                    for t in warp.threads:
+                        if t.active:
+                            t.registers[rd] = result
+                    break  # Already processed all threads
+
+            elif opcode == Opcode.CPASYNC:
+                # cp.async - async shared←global copy (FRM: instant)
+                if func in (CpAsyncFunc.CA, CpAsyncFunc.CG, CpAsyncFunc.BULK):
+                    # Copy from global to shared: dst=shared[ra], src=global[rb], size=rc
+                    dst_addr = thread.registers[ra]
+                    src_addr = thread.registers[rb]
+                    size = thread.registers[rc] if rc else 16  # default 16B
+                    for byte_off in range(0, size, 4):
+                        val = self.global_memory.get(src_addr + byte_off, 0)
+                        self.shared_memory[sm_id][dst_addr + byte_off] = val
+                elif func == CpAsyncFunc.BULK_TENSOR:
+                    # TMA bulk tensor copy (simplified: same as bulk)
+                    dst_addr = thread.registers[ra]
+                    src_addr = thread.registers[rb]
+                    size = thread.registers[rc] if rc else 16
+                    for byte_off in range(0, size, 4):
+                        val = self.global_memory.get(src_addr + byte_off, 0)
+                        self.shared_memory[sm_id][dst_addr + byte_off] = val
+                # COMMIT/WAIT/WAIT_ALL are no-ops in instant FRM
+
+            elif opcode == Opcode.WGMMA_MMA:
+                # WGMMA mma_async - stub (no-op in FRM)
+                # Real implementation would do matrix multiply-accumulate
+                pass
+
+            elif opcode == Opcode.WGMMA_LOAD:
+                # WGMMA load - stub (no-op in FRM)
+                pass
+
+            elif opcode == Opcode.WGMMA_STORE:
+                # WGMMA store - stub (no-op in FRM)
+                pass
 
         warp.pc += 1
         self.cycle_count += 1
@@ -1239,6 +1515,192 @@ def test_fp32_arith():
     return errors == 0
 
 
+def test_shfl():
+    """Test warp shuffle operations"""
+    print("\n" + "=" * 60)
+    print("Test: Warp Shuffle (SHFL)")
+    print("=" * 60)
+
+    sim = RalphGPUSimulator(num_sm=1)
+
+    # Program: each thread gets tid in r0, then shuffle idx from lane 0
+    instructions = [
+        # r0 = tid
+        (Opcode.MOV_SPECIAL << 26) | (0 << 21) | (SpecialReg.TID_X << 16),
+        # r1 = shfl.idx(r0, lane=0) → all threads get thread 0's r0 = 0
+        # Encoding: SHFL rd=1, ra=0(src_reg), rb=2(src_lane_reg), func=IDX
+        # First set r2 = 0 (source lane)
+        (Opcode.MOV_IMM << 26) | (2 << 21) | 0,
+        # shfl.idx r1, r0, r2 → r1 = thread[0].r0 = 0
+        (Opcode.SHFL << 26) | (1 << 21) | (0 << 16) | (2 << 11) | ShflFunc.IDX,
+        # r3 = shfl.bfly(r0, 1) → XOR with 1, so lane 0↔1, 2↔3, etc
+        (Opcode.MOV_IMM << 26) | (4 << 21) | 1,
+        # r5 = 0x1f (clamp = full warp width 32)
+        (Opcode.MOV_IMM << 26) | (5 << 21) | 0x1f,
+        (Opcode.SHFL << 26) | (3 << 21) | (0 << 16) | (4 << 11) | (5 << 6) | ShflFunc.BFLY,
+        (Opcode.EXIT << 26),
+    ]
+
+    sim.instruction_memory = instructions
+    warp = WarpState(warp_id=0)
+    sim.block_dim = (32, 1, 1)
+
+    while sim.execute_warp(warp, sm_id=0):
+        pass
+
+    errors = 0
+    # Verify shfl.idx: all threads should have r1 = 0 (thread 0's tid)
+    for i in range(32):
+        if warp.threads[i].registers[1] != 0:
+            print(f"  FAIL: thread {i} r1={warp.threads[i].registers[1]}, expected 0")
+            errors += 1
+
+    # Verify shfl.bfly with delta=1: thread i gets thread i^1's r0
+    for i in range(32):
+        expected = i ^ 1
+        if warp.threads[i].registers[3] != expected:
+            print(f"  FAIL: thread {i} r3={warp.threads[i].registers[3]}, expected {expected}")
+            errors += 1
+
+    if errors == 0:
+        print("TEST PASSED!")
+    else:
+        print(f"TEST FAILED: {errors} errors")
+    return errors == 0
+
+
+def test_vote():
+    """Test warp vote operations"""
+    print("\n" + "=" * 60)
+    print("Test: Warp Vote")
+    print("=" * 60)
+
+    sim = RalphGPUSimulator(num_sm=1)
+
+    # Program: set predicate p0 = (tid < 16), then vote.ballot
+    instructions = [
+        # r0 = tid
+        (Opcode.MOV_SPECIAL << 26) | (0 << 21) | (SpecialReg.TID_X << 16),
+        # r1 = 16
+        (Opcode.MOV_IMM << 26) | (1 << 21) | 16,
+        # setp.lt p0, r0, r1 → p0 = (tid < 16)
+        (Opcode.SETP << 26) | (0 << 21) | (0 << 16) | (1 << 11) | 2,  # func=2=lt
+        # vote.ballot r2, p0, p1 → r2 = ballot, p1 = result
+        # Encoding: VOTE rd=2, ra=0(pred_idx), rc=1(result_pred), func=BALLOT
+        (Opcode.VOTE << 26) | (2 << 21) | (0 << 16) | (1 << 6) | VoteFunc.BALLOT,
+        (Opcode.EXIT << 26),
+    ]
+
+    sim.instruction_memory = instructions
+    warp = WarpState(warp_id=0)
+    sim.block_dim = (32, 1, 1)
+
+    while sim.execute_warp(warp, sm_id=0):
+        pass
+
+    errors = 0
+    # ballot should be 0x0000FFFF (lower 16 lanes have tid < 16)
+    expected_ballot = 0x0000FFFF
+    for i in range(32):
+        if warp.threads[i].registers[2] != expected_ballot:
+            print(f"  FAIL: thread {i} r2=0x{warp.threads[i].registers[2]:08x}, expected 0x{expected_ballot:08x}")
+            errors += 1
+            break  # Only report first error
+
+    if errors == 0:
+        print("TEST PASSED!")
+    else:
+        print(f"TEST FAILED: {errors} errors")
+    return errors == 0
+
+
+def test_redux():
+    """Test warp reduction operations"""
+    print("\n" + "=" * 60)
+    print("Test: Warp Reduction (REDUX)")
+    print("=" * 60)
+
+    sim = RalphGPUSimulator(num_sm=1)
+
+    # Program: r0 = tid, redux.add r1 = sum of all tids = 0+1+...+31 = 496
+    instructions = [
+        # r0 = tid
+        (Opcode.MOV_SPECIAL << 26) | (0 << 21) | (SpecialReg.TID_X << 16),
+        # redux.add r1, r0 → r1 = sum of all r0 across warp
+        (Opcode.REDUX << 26) | (1 << 21) | (0 << 16) | ReduxFunc.ADD,
+        (Opcode.EXIT << 26),
+    ]
+
+    sim.instruction_memory = instructions
+    warp = WarpState(warp_id=0)
+    sim.block_dim = (32, 1, 1)
+
+    while sim.execute_warp(warp, sm_id=0):
+        pass
+
+    errors = 0
+    expected_sum = sum(range(32))  # 496
+    for i in range(32):
+        if warp.threads[i].registers[1] != expected_sum:
+            print(f"  FAIL: thread {i} r1={warp.threads[i].registers[1]}, expected {expected_sum}")
+            errors += 1
+            break
+
+    if errors == 0:
+        print("TEST PASSED!")
+    else:
+        print(f"TEST FAILED: {errors} errors")
+    return errors == 0
+
+
+def test_cpasync():
+    """Test cp.async shared←global copy"""
+    print("\n" + "=" * 60)
+    print("Test: cp.async (shared←global)")
+    print("=" * 60)
+
+    sim = RalphGPUSimulator(num_sm=1)
+
+    # Pre-fill global memory
+    for i in range(4):
+        sim.global_memory[0x1000 + i * 4] = 0xDEAD0000 + i
+
+    # Program: cp.async shared[0] ← global[r1], 16 bytes
+    instructions = [
+        # r0 = 0 (shared dst)
+        (Opcode.MOV_IMM << 26) | (0 << 21) | 0,
+        # r1 = 0x1000 (global src) — need two-step load
+        (Opcode.MOV_IMM << 26) | (1 << 21) | 0x0010,  # r1 = 0x10
+        (Opcode.ALU_IMM << 26) | (1 << 21) | (1 << 16) | (AluFunc.SHL << 10) | 8,  # r1 <<= 8 → 0x1000
+        # r2 = 16 (size)
+        (Opcode.MOV_IMM << 26) | (2 << 21) | 16,
+        # cp.async.ca r0, r1, r2
+        (Opcode.CPASYNC << 26) | (0 << 21) | (0 << 16) | (1 << 11) | (2 << 6) | CpAsyncFunc.CA,
+        (Opcode.EXIT << 26),
+    ]
+
+    sim.instruction_memory = instructions
+    warp = WarpState(warp_id=0)
+    sim.block_dim = (32, 1, 1)
+
+    while sim.execute_warp(warp, sm_id=0):
+        pass
+
+    errors = 0
+    for i in range(4):
+        val = sim.shared_memory[0].get(i * 4, 0)
+        expected = 0xDEAD0000 + i
+        if val != expected:
+            print(f"  FAIL: shared[{i*4}] = 0x{val:08x}, expected 0x{expected:08x}")
+            errors += 1
+
+    if errors == 0:
+        print("TEST PASSED!")
+    else:
+        print(f"TEST FAILED: {errors} errors")
+    return errors == 0
+
+
 if __name__ == '__main__':
     print("\n" + "=" * 60)
     print("RalphGPU Functional Simulator")
@@ -1250,6 +1712,10 @@ if __name__ == '__main__':
     all_passed &= test_simple_alu()
     all_passed &= test_vector_add()
     all_passed &= test_fp32_arith()
+    all_passed &= test_shfl()
+    all_passed &= test_vote()
+    all_passed &= test_redux()
+    all_passed &= test_cpasync()
 
     print("\n" + "=" * 60)
     if all_passed:
