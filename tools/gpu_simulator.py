@@ -1701,6 +1701,206 @@ def test_cpasync():
     return errors == 0
 
 
+
+def test_fp16_arith():
+    """Test FP16 arithmetic operations"""
+    print("\n" + "=" * 60)
+    print("Test: FP16 Arithmetic Operations")
+    print("=" * 60)
+
+    sim = RalphGPUSimulator(num_sm=1)
+
+    # FP16 values in lower 16 bits of registers
+    # 1.5 in FP16 = 0x3E00, 2.0 in FP16 = 0x4000
+    import struct
+    def f32_to_fp16_bits(f):
+        return struct.unpack('H', struct.pack('e', f))[0]
+    def fp16_bits_to_f32(bits):
+        return float(struct.unpack('e', struct.pack('H', bits & 0xFFFF))[0])
+
+    val_1_5 = f32_to_fp16_bits(1.5)
+    val_2_0 = f32_to_fp16_bits(2.0)
+
+    instructions = [
+        # r1 = 1.5 (FP16)
+        (Opcode.MOV_IMM << 26) | (1 << 21) | val_1_5,
+        # r2 = 2.0 (FP16)
+        (Opcode.MOV_IMM << 26) | (2 << 21) | val_2_0,
+        # r3 = fp16_add(r1, r2) = 3.5
+        (Opcode.FP16_ARITH << 26) | (3 << 21) | (1 << 16) | (2 << 11) | Fp16Func.ADD,
+        # r4 = fp16_mul(r1, r2) = 3.0
+        (Opcode.FP16_ARITH << 26) | (4 << 21) | (1 << 16) | (2 << 11) | Fp16Func.MUL,
+        # r5 = fp16_sub(r2, r1) = 0.5
+        (Opcode.FP16_ARITH << 26) | (5 << 21) | (2 << 16) | (1 << 11) | Fp16Func.SUB,
+        (Opcode.EXIT << 26),
+    ]
+
+    sim.instruction_memory = instructions
+    warp = WarpState(warp_id=0)
+    sim.block_dim = (32, 1, 1)
+
+    while sim.execute_warp(warp, sm_id=0):
+        pass
+
+    thread = warp.threads[0]
+    r3 = fp16_bits_to_f32(thread.registers[3])
+    r4 = fp16_bits_to_f32(thread.registers[4])
+    r5 = fp16_bits_to_f32(thread.registers[5])
+
+    errors = 0
+    print(f"  r3 = fp16_add(1.5, 2.0) = {r3} (expected 3.5)")
+    print(f"  r4 = fp16_mul(1.5, 2.0) = {r4} (expected 3.0)")
+    print(f"  r5 = fp16_sub(2.0, 1.5) = {r5} (expected 0.5)")
+
+    if abs(r3 - 3.5) > 0.01:
+        errors += 1
+    if abs(r4 - 3.0) > 0.01:
+        errors += 1
+    if abs(r5 - 0.5) > 0.01:
+        errors += 1
+
+    if errors == 0:
+        print("TEST PASSED!")
+    else:
+        print(f"TEST FAILED: {errors} errors")
+    return errors == 0
+
+
+def test_fp64_arith():
+    """Test FP64 arithmetic operations (register pairs)"""
+    print("\n" + "=" * 60)
+    print("Test: FP64 Arithmetic Operations")
+    print("=" * 60)
+
+    sim = RalphGPUSimulator(num_sm=1)
+
+    # FP64 uses register pairs: even=lo, even+1=hi
+    # Load 3.0 (FP64) into r2:r3 and 2.0 into r4:r5
+    import struct
+    def f64_to_pair(f):
+        bits = struct.unpack('Q', struct.pack('d', f))[0]
+        return (bits & 0xFFFFFFFF, (bits >> 32) & 0xFFFFFFFF)
+
+    def pair_to_f64(lo, hi):
+        bits = ((hi & 0xFFFFFFFF) << 32) | (lo & 0xFFFFFFFF)
+        return struct.unpack('d', struct.pack('Q', bits))[0]
+
+    lo3, hi3 = f64_to_pair(3.0)
+    lo2, hi2 = f64_to_pair(2.0)
+
+    instructions = [
+        # Load 3.0 into r2:r3
+        (Opcode.MOV_IMM << 26) | (2 << 21) | (lo3 & 0xFFFF),
+        (Opcode.MOV_IMM << 26) | (31 << 21) | ((lo3 >> 16) & 0xFFFF),
+        (Opcode.ALU_IMM << 26) | (31 << 21) | (31 << 16) | (AluFunc.SHL << 10) | 16,
+        (Opcode.ALU << 26) | (2 << 21) | (2 << 16) | (31 << 11) | AluFunc.OR,
+        (Opcode.MOV_IMM << 26) | (3 << 21) | (hi3 & 0xFFFF),
+        (Opcode.MOV_IMM << 26) | (31 << 21) | ((hi3 >> 16) & 0xFFFF),
+        (Opcode.ALU_IMM << 26) | (31 << 21) | (31 << 16) | (AluFunc.SHL << 10) | 16,
+        (Opcode.ALU << 26) | (3 << 21) | (3 << 16) | (31 << 11) | AluFunc.OR,
+        # Load 2.0 into r4:r5
+        (Opcode.MOV_IMM << 26) | (4 << 21) | (lo2 & 0xFFFF),
+        (Opcode.MOV_IMM << 26) | (31 << 21) | ((lo2 >> 16) & 0xFFFF),
+        (Opcode.ALU_IMM << 26) | (31 << 21) | (31 << 16) | (AluFunc.SHL << 10) | 16,
+        (Opcode.ALU << 26) | (4 << 21) | (4 << 16) | (31 << 11) | AluFunc.OR,
+        (Opcode.MOV_IMM << 26) | (5 << 21) | (hi2 & 0xFFFF),
+        (Opcode.MOV_IMM << 26) | (31 << 21) | ((hi2 >> 16) & 0xFFFF),
+        (Opcode.ALU_IMM << 26) | (31 << 21) | (31 << 16) | (AluFunc.SHL << 10) | 16,
+        (Opcode.ALU << 26) | (5 << 21) | (5 << 16) | (31 << 11) | AluFunc.OR,
+        # FP64 add: r6:r7 = r2:r3 + r4:r5 = 5.0
+        (Opcode.FP64_ARITH << 26) | (6 << 21) | (2 << 16) | (4 << 11) | Fp64Func.ADD,
+        # FP64 mul: r8:r9 = r2:r3 * r4:r5 = 6.0
+        (Opcode.FP64_ARITH << 26) | (8 << 21) | (2 << 16) | (4 << 11) | Fp64Func.MUL,
+        (Opcode.EXIT << 26),
+    ]
+
+    sim.instruction_memory = instructions
+    warp = WarpState(warp_id=0)
+    sim.block_dim = (32, 1, 1)
+
+    while sim.execute_warp(warp, sm_id=0):
+        pass
+
+    thread = warp.threads[0]
+    r_add = pair_to_f64(thread.registers[6], thread.registers[7])
+    r_mul = pair_to_f64(thread.registers[8], thread.registers[9])
+
+    errors = 0
+    print(f"  fp64_add(3.0, 2.0) = {r_add} (expected 5.0)")
+    print(f"  fp64_mul(3.0, 2.0) = {r_mul} (expected 6.0)")
+
+    if abs(r_add - 5.0) > 1e-10:
+        errors += 1
+    if abs(r_mul - 6.0) > 1e-10:
+        errors += 1
+
+    if errors == 0:
+        print("TEST PASSED!")
+    else:
+        print(f"TEST FAILED: {errors} errors")
+    return errors == 0
+
+
+def test_cvt():
+    """Test CVT type conversion operations"""
+    print("\n" + "=" * 60)
+    print("Test: CVT Type Conversions")
+    print("=" * 60)
+
+    sim = RalphGPUSimulator(num_sm=1)
+
+    import struct
+    def f2i(f):
+        return struct.unpack('I', struct.pack('f', f))[0]
+    def i2f(i):
+        return struct.unpack('f', struct.pack('I', i & 0xFFFFFFFF))[0]
+
+    val_42f = f2i(42.0)
+    hi_42 = (val_42f >> 16) & 0xFFFF
+    lo_42 = val_42f & 0xFFFF
+
+    instructions = [
+        # Load 42.0f into r1
+        (Opcode.MOV_IMM << 26) | (1 << 21) | hi_42,
+        (Opcode.ALU_IMM << 26) | (1 << 21) | (1 << 16) | (AluFunc.SHL << 10) | 16,
+        (Opcode.MOV_IMM << 26) | (31 << 21) | lo_42,
+        (Opcode.ALU << 26) | (1 << 21) | (1 << 16) | (31 << 11) | AluFunc.OR,
+        # CVT r2 = cvt.s32.f32(r1) → 42
+        (Opcode.CVT << 26) | (2 << 21) | (1 << 16) | CvtFunc.S32_F32,
+        # Load 7 into r3
+        (Opcode.MOV_IMM << 26) | (3 << 21) | 7,
+        # CVT r4 = cvt.f32.s32(r3) → 7.0f
+        (Opcode.CVT << 26) | (4 << 21) | (3 << 16) | CvtFunc.F32_S32,
+        (Opcode.EXIT << 26),
+    ]
+
+    sim.instruction_memory = instructions
+    warp = WarpState(warp_id=0)
+    sim.block_dim = (32, 1, 1)
+
+    while sim.execute_warp(warp, sm_id=0):
+        pass
+
+    thread = warp.threads[0]
+    r2 = thread.registers[2]
+    r4_f = i2f(thread.registers[4])
+
+    errors = 0
+    print(f"  cvt.s32.f32(42.0) = {r2} (expected 42)")
+    print(f"  cvt.f32.s32(7) = {r4_f} (expected 7.0)")
+
+    if r2 != 42:
+        errors += 1
+    if abs(r4_f - 7.0) > 0.001:
+        errors += 1
+
+    if errors == 0:
+        print("TEST PASSED!")
+    else:
+        print(f"TEST FAILED: {errors} errors")
+    return errors == 0
+
+
 if __name__ == '__main__':
     print("\n" + "=" * 60)
     print("RalphGPU Functional Simulator")
@@ -1716,6 +1916,9 @@ if __name__ == '__main__':
     all_passed &= test_vote()
     all_passed &= test_redux()
     all_passed &= test_cpasync()
+    all_passed &= test_fp16_arith()
+    all_passed &= test_fp64_arith()
+    all_passed &= test_cvt()
 
     print("\n" + "=" * 60)
     if all_passed:
