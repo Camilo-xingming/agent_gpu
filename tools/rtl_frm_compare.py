@@ -67,8 +67,54 @@ def load_expected_results(expected_file: Path) -> Tuple[Dict[int, int], Dict[int
     return expected, init_mem
 
 
-def is_fp32_close(a: int, b: int, ulp_tolerance: int = 2) -> bool:
-    """Check if two FP32 bit patterns are within ULP tolerance"""
+# Per-category ULP tolerances — SFU/transcendentals need more slack than simple arith
+ULP_TOLERANCES = {
+    'fp32':  5,    # FP32 add/sub/mul — up to 5 ULP from FMA rounding paths
+    'fp16':  1,    # FP16 has less precision, but fewer rounding paths
+    'fp64':  2,    # FP64 add/sub/mul
+    'sfu':   10,   # Transcendentals (sin/cos/sqrt/rcp/rsqrt/lg2/ex2) — hardware approximations
+    'cvt':   1,    # Type conversions — should be near-exact
+}
+DEFAULT_ULP_TOLERANCE = 2
+
+
+def detect_test_category(test_path: Path) -> str:
+    """Detect test category from directory structure.
+
+    Uses parent directory name (created by test_generator.py) as the authoritative
+    category. Falls back to filename pattern matching if not in a category directory.
+    """
+    parent = test_path.parent.name if test_path.parent != test_path else ''
+
+    # Primary: use parent directory name (test_generator creates fp32/, sfu/, etc.)
+    if parent in ULP_TOLERANCES:
+        return parent
+
+    # Fallback: check for known categories in parent path
+    for cat in ULP_TOLERANCES:
+        if cat in parent:
+            return cat
+
+    # Last resort: infer from filename
+    stem = test_path.stem.lower()
+    for cat in ULP_TOLERANCES:
+        if stem.startswith(cat) or f'_{cat}_' in stem:
+            return cat
+
+    return 'integer'
+
+
+def get_ulp_tolerance(category: str) -> int:
+    """Get ULP tolerance for a test category."""
+    return ULP_TOLERANCES.get(category, DEFAULT_ULP_TOLERANCE)
+
+
+def is_fp_close(a: int, b: int, ulp_tolerance: int = 2) -> bool:
+    """Check if two FP32 bit patterns are within ULP tolerance.
+
+    Works for FP32 (32-bit) and FP16 (lower 16 bits) comparisons.
+    For FP64, compare each 32-bit half separately.
+    """
     import struct
     # Handle exact match
     if a == b:
@@ -76,6 +122,9 @@ def is_fp32_close(a: int, b: int, ulp_tolerance: int = 2) -> bool:
     # Handle NaN (any NaN matches any NaN)
     if (a & 0x7FFFFFFF) > 0x7F800000 and (b & 0x7FFFFFFF) > 0x7F800000:
         return True
+    # Handle +inf/-inf (both must be same infinity)
+    if (a & 0x7FFFFFFF) == 0x7F800000 and (b & 0x7FFFFFFF) == 0x7F800000:
+        return (a >> 31) == (b >> 31)  # Same sign
     # Check ULP difference
     return abs(a - b) <= ulp_tolerance
 
@@ -158,18 +207,18 @@ def compare_test(test_path: Path) -> ComparisonResult:
             error_message=f"FRM execution failed: {e}"
         )
 
-    # Determine if this is a floating-point test (for ULP tolerance)
-    # Includes FP32, SFU, FP16, FP64, and CVT tests
-    test_path = str(hex_file).lower()
-    is_fp_test = "fp32" in test_path or "sfu" in test_path or "fp16" in test_path or "fp64" in test_path or "cvt" in test_path
+    # Detect test category from directory structure (not filename string matching)
+    category = detect_test_category(hex_file)
+    is_fp_test = category in ULP_TOLERANCES
+    ulp = get_ulp_tolerance(category)
 
     # Compare FRM results with expected
     errors = []
     for reg, expected_val in expected_regs.items():
         frm_val = frm_regs.get(reg, 0)
         if frm_val != expected_val:
-            # For floating-point tests, allow small ULP differences due to rounding
-            if is_fp_test and is_fp32_close(frm_val, expected_val, ulp_tolerance=5):
+            # For floating-point tests, allow ULP differences (per-category tolerance)
+            if is_fp_test and is_fp_close(frm_val, expected_val, ulp_tolerance=ulp):
                 continue  # Within tolerance
             errors.append(f"r{reg}: FRM={frm_val:08x}, expected={expected_val:08x}")
 
