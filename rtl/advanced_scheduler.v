@@ -27,17 +27,17 @@ module advanced_warp_scheduler #(
     //------------------------------------------------------------------------
     // Instruction Buffer Interface (per warp)
     //------------------------------------------------------------------------
-    input  wire [INST_WIDTH-1:0]    warp_inst [0:NUM_WARPS-1],
+    input wire [NUM_WARPS*(INST_WIDTH)-1:0] warp_inst,
     input  wire [NUM_WARPS-1:0]     warp_inst_valid,
     output wire [NUM_WARPS-1:0]     warp_inst_consume,
 
     //------------------------------------------------------------------------
     // Decoded Instruction Info (for scheduling decisions)
     //------------------------------------------------------------------------
-    input  wire [4:0]               warp_rd [0:NUM_WARPS-1],
-    input  wire [4:0]               warp_rs1 [0:NUM_WARPS-1],
-    input  wire [4:0]               warp_rs2 [0:NUM_WARPS-1],
-    input  wire [4:0]               warp_rs3 [0:NUM_WARPS-1],
+    input wire [NUM_WARPS*5-1:0] warp_rd,
+    input wire [NUM_WARPS*5-1:0] warp_rs1,
+    input wire [NUM_WARPS*5-1:0] warp_rs2,
+    input wire [NUM_WARPS*5-1:0] warp_rs3,
     input  wire [NUM_WARPS-1:0]     warp_is_compute,    // ALU/FPU/SFU
     input  wire [NUM_WARPS-1:0]     warp_is_tensor,     // Tensor Core
     input  wire [NUM_WARPS-1:0]     warp_is_memory,     // Load/Store
@@ -57,9 +57,9 @@ module advanced_warp_scheduler #(
     // Issue Outputs
     //------------------------------------------------------------------------
     output wire [NUM_ISSUE-1:0]     issue_valid,
-    output wire [$clog2(NUM_WARPS)-1:0] issue_warp_id [0:NUM_ISSUE-1],
-    output wire [INST_WIDTH-1:0]    issue_inst [0:NUM_ISSUE-1],
-    output wire [2:0]               issue_pipe [0:NUM_ISSUE-1],   // 0=compute0, 1=compute1, 2=tensor, 3=memory, 4=branch
+    output wire [NUM_ISSUE*($clog2(NUM_WARPS))-1:0] issue_warp_id,
+    output wire [NUM_ISSUE*(INST_WIDTH)-1:0] issue_inst,
+    output wire [NUM_ISSUE*3-1:0] issue_pipe,   // 0=compute0, 1=compute1, 2=tensor, 3=memory, 4=branch
 
     //------------------------------------------------------------------------
     // Scoreboard Interface (dependency tracking)
@@ -79,7 +79,7 @@ module advanced_warp_scheduler #(
     //------------------------------------------------------------------------
     // Scoreboard Visibility (eliminates hierarchical references)
     //------------------------------------------------------------------------
-    output wire [31:0]              scoreboard_out [0:NUM_WARPS-1]
+    output wire [NUM_WARPS*32-1:0] scoreboard_out
 );
 
     localparam WARP_W = $clog2(NUM_WARPS);
@@ -103,7 +103,7 @@ module advanced_warp_scheduler #(
     genvar sb_gi;
     generate
         for (sb_gi = 0; sb_gi < NUM_WARPS; sb_gi = sb_gi + 1) begin : gen_sb_out
-            assign scoreboard_out[sb_gi] = scoreboard[sb_gi];
+            assign scoreboard_out[sb_gi*32 +: 32] = scoreboard[sb_gi];
         end
     endgenerate
 
@@ -153,11 +153,11 @@ module advanced_warp_scheduler #(
     generate
         for (w = 0; w < NUM_WARPS; w = w + 1) begin : gen_hazard
             // RAW hazard: any source register has pending write
-            wire raw_hazard = scoreboard[w][warp_rs1[w]] ||
-                             scoreboard[w][warp_rs2[w]] ||
-                             scoreboard[w][warp_rs3[w]];
+            wire raw_hazard = scoreboard[w][warp_rs1[w*5 +: 5]] ||
+                             scoreboard[w][warp_rs2[w*5 +: 5]] ||
+                             scoreboard[w][warp_rs3[w*5 +: 5]];
             // WAW hazard: destination register has pending write
-            wire waw_hazard = warp_writes_reg[w] && scoreboard[w][warp_rd[w]];
+            wire waw_hazard = warp_writes_reg[w] && scoreboard[w][warp_rd[w*5 +: 5]];
             assign warp_has_hazard[w] = raw_hazard || waw_hazard;
         end
     endgenerate
@@ -179,15 +179,15 @@ module advanced_warp_scheduler #(
                 `endif
                 `ifdef SIMULATION
                 $display("  rs1=R%0d rs2=R%0d rs3=R%0d rd=R%0d writes_reg=%b",
-                         warp_rs1[0], warp_rs2[0], warp_rs3[0], warp_rd[0], warp_writes_reg[0]);
+                         warp_rs1[4:0], warp_rs2[4:0], warp_rs3[4:0], warp_rd[4:0], warp_writes_reg[0]);
                 `endif
                 `ifdef SIMULATION
                 $display("  scoreboard[0]=%032b", scoreboard[0]);
                 `endif
                 `ifdef SIMULATION
                 $display("  RAW: sb[rs1]=%b sb[rs2]=%b sb[rs3]=%b  WAW: sb[rd]=%b",
-                         scoreboard[0][warp_rs1[0]], scoreboard[0][warp_rs2[0]],
-                         scoreboard[0][warp_rs3[0]], scoreboard[0][warp_rd[0]]);
+                         scoreboard[0][warp_rs1[4:0]], scoreboard[0][warp_rs2[4:0]],
+                         scoreboard[0][warp_rs3[4:0]], scoreboard[0][warp_rd[4:0]]);
                 `endif
             end
         end else begin
@@ -305,17 +305,17 @@ module advanced_warp_scheduler #(
         if (found_branch && branch_unit_ready) begin
             issue_valid_r[0] = 1'b1;
             issue_warp_r[0] = selected_branch;
-            issue_inst_r[0] = warp_inst[selected_branch];
+            issue_inst_r[0] = warp_inst[selected_branch*INST_WIDTH +: INST_WIDTH];
             issue_pipe_r[0] = PIPE_BRANCH;
             issue_writes_reg_r[0] = warp_writes_reg[selected_branch];
         end else if (found_memory && memory_pipe_ready) begin
             issue_valid_r[0] = 1'b1;
             issue_warp_r[0] = selected_memory;
-            issue_inst_r[0] = warp_inst[selected_memory];
+            issue_inst_r[0] = warp_inst[selected_memory*INST_WIDTH +: INST_WIDTH];
             issue_pipe_r[0] = PIPE_MEMORY;
             issue_writes_reg_r[0] = warp_writes_reg[selected_memory];
             // DEBUG: trace memory issue
-            // $display("[SCHED] Issuing memory op warp=%0d inst=%08x", selected_memory, warp_inst[selected_memory]);
+            // $display("[SCHED] Issuing memory op warp=%0d inst=%08x", selected_memory, warp_inst[selected_memory*INST_WIDTH +: INST_WIDTH]);
         end else if (found_tensor && tensor_pipe_ready) begin
             issue_valid_r[0] = 1'b1;
             issue_warp_r[0] = selected_tensor;
@@ -323,13 +323,13 @@ module advanced_warp_scheduler #(
             $display("[%0t SCHED] tensor select: warp=%0d ptr=%0d eligible=%04b",
                      $time, selected_tensor, tensor_rr_ptr, tensor_eligible);
             `endif
-            issue_inst_r[0] = warp_inst[selected_tensor];
+            issue_inst_r[0] = warp_inst[selected_tensor*INST_WIDTH +: INST_WIDTH];
             issue_pipe_r[0] = PIPE_TENSOR;
             issue_writes_reg_r[0] = warp_writes_reg[selected_tensor];
         end else if (found_compute0 && compute_pipe0_ready) begin
             issue_valid_r[0] = 1'b1;
             issue_warp_r[0] = selected_compute0;
-            issue_inst_r[0] = warp_inst[selected_compute0];
+            issue_inst_r[0] = warp_inst[selected_compute0*INST_WIDTH +: INST_WIDTH];
             issue_pipe_r[0] = PIPE_COMPUTE0;
             issue_writes_reg_r[0] = warp_writes_reg[selected_compute0];
         end
@@ -339,34 +339,34 @@ module advanced_warp_scheduler #(
             // Try to issue to a different pipe
             if (issue_pipe_r[0] != PIPE_COMPUTE0 && found_compute0 && compute_pipe0_ready &&
                 !check_issue_conflict(issue_warp_r[0], selected_compute0, warp_rd[issue_warp_r[0]],
-                                     warp_rs1[selected_compute0], warp_rs2[selected_compute0], warp_rs3[selected_compute0])) begin
+                                     warp_rs1[selected_compute0*5 +: 5], warp_rs2[selected_compute0*5 +: 5], warp_rs3[selected_compute0*5 +: 5])) begin
                 issue_valid_r[1] = 1'b1;
                 issue_warp_r[1] = selected_compute0;
-                issue_inst_r[1] = warp_inst[selected_compute0];
+                issue_inst_r[1] = warp_inst[selected_compute0*INST_WIDTH +: INST_WIDTH];
                 issue_pipe_r[1] = PIPE_COMPUTE0;
                 issue_writes_reg_r[1] = warp_writes_reg[selected_compute0];
             end else if (issue_pipe_r[0] != PIPE_COMPUTE1 && found_compute1 && compute_pipe1_ready &&
                         !check_issue_conflict(issue_warp_r[0], selected_compute1, warp_rd[issue_warp_r[0]],
-                                             warp_rs1[selected_compute1], warp_rs2[selected_compute1], warp_rs3[selected_compute1])) begin
+                                             warp_rs1[selected_compute1*5 +: 5], warp_rs2[selected_compute1*5 +: 5], warp_rs3[selected_compute1*5 +: 5])) begin
                 issue_valid_r[1] = 1'b1;
                 issue_warp_r[1] = selected_compute1;
-                issue_inst_r[1] = warp_inst[selected_compute1];
+                issue_inst_r[1] = warp_inst[selected_compute1*INST_WIDTH +: INST_WIDTH];
                 issue_pipe_r[1] = PIPE_COMPUTE1;
                 issue_writes_reg_r[1] = warp_writes_reg[selected_compute1];
             end else if (issue_pipe_r[0] != PIPE_TENSOR && found_tensor && tensor_pipe_ready &&
                         !check_issue_conflict(issue_warp_r[0], selected_tensor, warp_rd[issue_warp_r[0]],
-                                             warp_rs1[selected_tensor], warp_rs2[selected_tensor], warp_rs3[selected_tensor])) begin
+                                             warp_rs1[selected_tensor*5 +: 5], warp_rs2[selected_tensor*5 +: 5], warp_rs3[selected_tensor*5 +: 5])) begin
                 issue_valid_r[1] = 1'b1;
                 issue_warp_r[1] = selected_tensor;
-                issue_inst_r[1] = warp_inst[selected_tensor];
+                issue_inst_r[1] = warp_inst[selected_tensor*INST_WIDTH +: INST_WIDTH];
                 issue_pipe_r[1] = PIPE_TENSOR;
                 issue_writes_reg_r[1] = warp_writes_reg[selected_tensor];
             end else if (issue_pipe_r[0] != PIPE_MEMORY && found_memory && memory_pipe_ready &&
                         !check_issue_conflict(issue_warp_r[0], selected_memory, warp_rd[issue_warp_r[0]],
-                                             warp_rs1[selected_memory], warp_rs2[selected_memory], warp_rs3[selected_memory])) begin
+                                             warp_rs1[selected_memory*5 +: 5], warp_rs2[selected_memory*5 +: 5], warp_rs3[selected_memory*5 +: 5])) begin
                 issue_valid_r[1] = 1'b1;
                 issue_warp_r[1] = selected_memory;
-                issue_inst_r[1] = warp_inst[selected_memory];
+                issue_inst_r[1] = warp_inst[selected_memory*INST_WIDTH +: INST_WIDTH];
                 issue_pipe_r[1] = PIPE_MEMORY;
                 issue_writes_reg_r[1] = warp_writes_reg[selected_memory];
             end
@@ -484,9 +484,9 @@ module advanced_warp_scheduler #(
     generate
         genvar i;
         for (i = 0; i < NUM_ISSUE; i = i + 1) begin : gen_issue_out
-            assign issue_warp_id[i] = issue_warp_r[i];
-            assign issue_inst[i] = issue_inst_r[i];
-            assign issue_pipe[i] = issue_pipe_r[i];
+            assign issue_warp_id[i*($clog2(NUM_WARPS)) +: ($clog2(NUM_WARPS))] = issue_warp_r[i];
+            assign issue_inst[i*INST_WIDTH +: INST_WIDTH] = issue_inst_r[i];
+            assign issue_pipe[i*3 +: 3] = issue_pipe_r[i];
         end
     endgenerate
 
@@ -510,7 +510,7 @@ module gto_scheduler #(
     input  wire [NUM_WARPS-1:0]     warp_inst_valid,
 
     // Age tracking (cycles since last issued)
-    output wire [31:0]              warp_age [0:NUM_WARPS-1],
+    output wire [NUM_WARPS*32-1:0] warp_age,
 
     // Selected warp
     output wire [$clog2(NUM_WARPS)-1:0] selected_warp,
@@ -587,7 +587,7 @@ module gto_scheduler #(
     generate
         genvar g;
         for (g = 0; g < NUM_WARPS; g = g + 1) begin : gen_age
-            assign warp_age[g] = age_counter[g];
+            assign warp_age[g*32 +: 32] = age_counter[g];
         end
     endgenerate
 

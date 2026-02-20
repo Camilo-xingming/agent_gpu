@@ -21,8 +21,8 @@ module memory_coalescing_unit #(
     //------------------------------------------------------------------------
     input  wire                 req_valid,
     input  wire                 req_write,
-    input  wire [ADDR_WIDTH-1:0] req_addr [0:THREADS-1],
-    input  wire [DATA_WIDTH-1:0] req_wdata [0:THREADS-1],
+    input wire [THREADS*(ADDR_WIDTH)-1:0] req_addr,
+    input wire [THREADS*(DATA_WIDTH)-1:0] req_wdata,
     input  wire [THREADS-1:0]   req_mask,
 
     //------------------------------------------------------------------------
@@ -39,7 +39,7 @@ module memory_coalescing_unit #(
     //------------------------------------------------------------------------
     // 返回给Warp的响应
     //------------------------------------------------------------------------
-    output reg  [DATA_WIDTH-1:0] resp_rdata [0:THREADS-1],
+    output reg [THREADS*(DATA_WIDTH)-1:0] resp_rdata,
     output reg                  resp_valid,
     output reg                  ready,
 
@@ -160,7 +160,7 @@ module memory_coalescing_unit #(
             for (i = 0; i < THREADS; i = i + 1) begin
                 saved_addr[i] <= 0;
                 saved_wdata[i] <= 0;
-                resp_rdata[i] <= 0;
+                resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= 0;
             end
             for (i = 0; i < MAX_COALESCED; i = i + 1) begin
                 line_data[i] <= 0;
@@ -178,8 +178,8 @@ module memory_coalescing_unit #(
                         saved_write <= req_write;
                         saved_mask <= req_mask;
                         for (i = 0; i < THREADS; i = i + 1) begin
-                            saved_addr[i] <= req_addr[i];
-                            saved_wdata[i] <= req_wdata[i];
+                            saved_addr[i] <= req_addr[i*ADDR_WIDTH +: ADDR_WIDTH];
+                            saved_wdata[i] <= req_wdata[i*DATA_WIDTH +: DATA_WIDTH];
                         end
                         state <= ST_ANALYZE;
                         ready <= 0;
@@ -233,9 +233,9 @@ module memory_coalescing_unit #(
                     // 分发数据到各个线程
                     for (i = 0; i < THREADS; i = i + 1) begin
                         if (saved_mask[i]) begin
-                            resp_rdata[i] <= line_data[thread_to_line[i]][saved_addr[i][OFFSET_BITS-1:0]*8 +: DATA_WIDTH];
+                            resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= line_data[thread_to_line[i]][saved_addr[i][OFFSET_BITS-1:0]*8 +: DATA_WIDTH];
                         end else begin
-                            resp_rdata[i] <= 0;
+                            resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= 0;
                         end
                     end
 
@@ -273,8 +273,8 @@ module warp_memory_unit #(
     // Warp请求
     input  wire                 req_valid,
     input  wire                 req_write,
-    input  wire [31:0]          req_addr [0:THREADS-1],
-    input  wire [31:0]          req_wdata [0:THREADS-1],
+    input wire [THREADS*32-1:0] req_addr,
+    input wire [THREADS*32-1:0] req_wdata,
     input  wire [THREADS-1:0]   req_mask,
 
     // L1 Cache接口
@@ -287,7 +287,7 @@ module warp_memory_unit #(
     input  wire                 l1_resp_valid,
 
     // Warp响应
-    output reg  [31:0]          resp_rdata [0:THREADS-1],
+    output reg [THREADS*32-1:0] resp_rdata,
     output reg                  resp_valid,
     output reg                  ready
 );
@@ -296,7 +296,7 @@ module warp_memory_unit #(
     wire perfect_coalesce;
     wire [31:0] base_addr;
 
-    assign base_addr = req_addr[0] & ~32'h7F;  // 128B对齐
+    assign base_addr = req_addr[ADDR_WIDTH-1:0] & ~32'h7F;  // 128B对齐
 
     // 检查所有活跃线程是否在同一cache line
     reg all_same_line;
@@ -306,7 +306,7 @@ module warp_memory_unit #(
         all_same_line = 1;
         for (i = 0; i < THREADS; i = i + 1) begin
             if (req_mask[i]) begin
-                if ((req_addr[i] & ~32'h7F) != base_addr) begin
+                if ((req_addr[i*ADDR_WIDTH +: ADDR_WIDTH] & ~32'h7F) != base_addr) begin
                     all_same_line = 0;
                 end
             end
@@ -332,7 +332,7 @@ module warp_memory_unit #(
             resp_valid <= 0;
             ready <= 1;
             for (i = 0; i < THREADS; i = i + 1) begin
-                resp_rdata[i] <= 0;
+                resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= 0;
                 saved_addr[i] <= 0;
             end
             saved_mask <= 0;
@@ -345,7 +345,7 @@ module warp_memory_unit #(
                     ready <= 1;
                     if (req_valid) begin
                         for (i = 0; i < THREADS; i = i + 1) begin
-                            saved_addr[i] <= req_addr[i];
+                            saved_addr[i] <= req_addr[i*ADDR_WIDTH +: ADDR_WIDTH];
                         end
                         saved_mask <= req_mask;
                         state <= ST_REQ;
@@ -364,7 +364,7 @@ module warp_memory_unit #(
                         // 分发数据
                         for (i = 0; i < THREADS; i = i + 1) begin
                             if (saved_mask[i]) begin
-                                resp_rdata[i] <= l1_resp_rdata[(saved_addr[i][6:2]) * 32 +: 32];
+                                resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= l1_resp_rdata[(saved_addr[i][6:2]) * 32 +: 32];
                             end
                         end
                         resp_valid <= 1;

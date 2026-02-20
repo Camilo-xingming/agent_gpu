@@ -77,7 +77,7 @@ module performance_counters #(
     //------------------------------------------------------------------------
     // Occupancy Metrics
     //------------------------------------------------------------------------
-    output wire [7:0]               sm_occupancy [0:NUM_SM-1],  // % of max warps
+    output wire [NUM_SM*8-1:0] sm_occupancy,  // % of max warps
     output wire [31:0]              achieved_ipc,               // Instructions/cycle * 100
     output wire [31:0]              memory_throughput,          // GB/s * 100
 
@@ -268,7 +268,7 @@ module performance_counters #(
                     end
                 end
             end
-            assign sm_occupancy[sm] = (active_warps * 100) / NUM_WARPS;
+            assign sm_occupancy[sm*8 +: 8] = (active_warps * 100) / NUM_WARPS;
         end
     endgenerate
 

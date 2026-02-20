@@ -67,11 +67,11 @@ module streaming_multiprocessor_v2 #(
     /* verilator lint_off UNDRIVEN */
     output wire                     l1d_req_valid,
     output wire                     l1d_req_write,
-    output wire [31:0]              l1d_req_addr [0:NUM_LANES-1],
-    output wire [31:0]              l1d_req_wdata [0:NUM_LANES-1],
+    output wire [NUM_LANES*32-1:0] l1d_req_addr,
+    output wire [NUM_LANES*32-1:0] l1d_req_wdata,
     output wire [NUM_LANES-1:0]     l1d_req_mask,
     /* verilator lint_on UNDRIVEN */
-    input  wire [31:0]              l1d_resp_rdata [0:NUM_LANES-1],
+    input wire [NUM_LANES*32-1:0] l1d_resp_rdata,
     input  wire                     l1d_resp_valid,
     input  wire                     l1d_resp_hit,
 
@@ -666,6 +666,10 @@ module streaming_multiprocessor_v2 #(
     wire [31:0]           l1_cache_req_wdata [0:NUM_LANES-1];
     wire [31:0]           l1_cache_resp_rdata [0:NUM_LANES-1];
     wire [SIMD_WIDTH-1:0] l1_cache_resp_rdata_packed;
+    // Packed versions for l1_data_cache module ports
+    wire [NUM_LANES*32-1:0] l1_cache_req_addr_flat;
+    wire [NUM_LANES*32-1:0] l1_cache_req_wdata_flat;
+    wire [NUM_LANES*32-1:0] l1_cache_resp_rdata_flat;
     wire                  l1_cache_resp_valid;
     wire                  l1_cache_resp_hit;
     wire                  l1_mem_req;
@@ -1071,8 +1075,8 @@ module streaming_multiprocessor_v2 #(
     genvar l1_port_tieoff_i;
     generate
         for (l1_port_tieoff_i = 0; l1_port_tieoff_i < NUM_LANES; l1_port_tieoff_i = l1_port_tieoff_i + 1) begin : gen_l1_port_tieoff
-            assign l1d_req_addr[l1_port_tieoff_i] = 32'b0;
-            assign l1d_req_wdata[l1_port_tieoff_i] = 32'b0;
+            assign l1d_req_addr[l1_port_tieoff_i*32 +: 32] = 32'b0;
+            assign l1d_req_wdata[l1_port_tieoff_i*32 +: 32] = 32'b0;
         end
     endgenerate
 
@@ -1093,6 +1097,10 @@ module streaming_multiprocessor_v2 #(
             assign l1_cache_resp_rdata_packed[l1_lane_i*32 +: 32] = l1_cache_resp_rdata[l1_lane_i];
             assign l1_miss_req_addr_vec[l1_lane_i*32 +: 32] = l1_miss_line_base_addr + (l1_lane_i * 4);
             assign l1_miss_req_wdata_vec[l1_lane_i*32 +: 32] = l1_mem_wdata[l1_lane_i*32 +: 32];
+            // Pack/unpack for L1 cache flat ports
+            assign l1_cache_req_addr_flat[l1_lane_i*32 +: 32] = l1_cache_req_addr[l1_lane_i];
+            assign l1_cache_req_wdata_flat[l1_lane_i*32 +: 32] = l1_cache_req_wdata[l1_lane_i];
+            assign l1_cache_resp_rdata[l1_lane_i] = l1_cache_resp_rdata_flat[l1_lane_i*32 +: 32];
         end
     endgenerate
 
@@ -1117,10 +1125,10 @@ module streaming_multiprocessor_v2 #(
         .rst_n              (rst_n),
         .req_valid          (l1_cache_req_valid),
         .req_write          (1'b0),
-        .req_addr           (l1_cache_req_addr),
-        .req_wdata          (l1_cache_req_wdata),
+        .req_addr           (l1_cache_req_addr_flat),
+        .req_wdata          (l1_cache_req_wdata_flat),
         .req_mask           (issue_mask),
-        .resp_rdata         (l1_cache_resp_rdata),
+        .resp_rdata         (l1_cache_resp_rdata_flat),
         .resp_valid         (l1_cache_resp_valid),
         .resp_hit           (l1_cache_resp_hit),
         .mem_req            (l1_mem_req),
@@ -1663,6 +1671,34 @@ module streaming_multiprocessor_v2 #(
     wire [31:0] bw_stat_async_mma_completed;
     wire [31:0] bw_stat_tcgen05_issued;
 
+    // Pack/unpack wires for scheduler flat ports
+    wire [NUM_WARPS*5-1:0] pd_rd_flat;
+    wire [NUM_WARPS*5-1:0] pd_rs1_flat;
+    wire [NUM_WARPS*5-1:0] pd_rs2_flat;
+    wire [NUM_WARPS*5-1:0] pd_rs3_flat;
+    wire [SCHED_LANES*WARP_ID_W-1:0] sched_issue_warp_id_flat;
+    wire [SCHED_LANES*32-1:0] sched_issue_inst_flat;
+    wire [SCHED_LANES*3-1:0] sched_issue_pipe_flat;
+    wire [SCHED_LANES*4-1:0] bw_issue_async_mma_id_flat;
+    wire [NUM_WARPS*32-1:0] sched_scoreboard_flat;
+
+    genvar si;
+    generate
+        for (si = 0; si < NUM_WARPS; si = si + 1) begin : gen_sched_pack
+            assign pd_rd_flat[si*5 +: 5] = pd_rd[si];
+            assign pd_rs1_flat[si*5 +: 5] = pd_rs1[si];
+            assign pd_rs2_flat[si*5 +: 5] = pd_rs2[si];
+            assign pd_rs3_flat[si*5 +: 5] = pd_rs3[si];
+            assign sched_scoreboard[si] = sched_scoreboard_flat[si*32 +: 32];
+        end
+        for (si = 0; si < SCHED_LANES; si = si + 1) begin : gen_sched_unpack
+            assign sched_issue_warp_id[si] = sched_issue_warp_id_flat[si*WARP_ID_W +: WARP_ID_W];
+            assign sched_issue_inst[si] = sched_issue_inst_flat[si*32 +: 32];
+            assign sched_issue_pipe[si] = sched_issue_pipe_flat[si*3 +: 3];
+            assign bw_issue_async_mma_id[si] = bw_issue_async_mma_id_flat[si*4 +: 4];
+        end
+    endgenerate
+
     blackwell_scheduler #(
         .NUM_WARPS(NUM_WARPS),
         .NUM_SCHEDULERS(SCHED_LANES)  // Match pipeline width
@@ -1673,13 +1709,13 @@ module streaming_multiprocessor_v2 #(
         .warp_ready(warp_ready),
         .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
         .warp_at_barrier(warp_stalled_sync),
-        .warp_inst(warp_inst_buf_fast),     // RALPH-10c: bypass
+        .warp_inst(fp_inst_buf_fast_flat),     // RALPH-10c: bypass (packed)
         .warp_inst_valid(warp_inst_valid_fast),  // RALPH-10c: bypass
         .warp_inst_consume(warp_inst_consume),
-        .warp_rd(pd_rd),
-        .warp_rs1(pd_rs1),
-        .warp_rs2(pd_rs2),
-        .warp_rs3(pd_rs3),
+        .warp_rd(pd_rd_flat),
+        .warp_rs1(pd_rs1_flat),
+        .warp_rs2(pd_rs2_flat),
+        .warp_rs3(pd_rs3_flat),
         .warp_is_compute(pd_is_compute),
         .warp_is_tensor(pd_is_tensor),
         .tensor_push_locked(tensor_push_locked),
@@ -1726,11 +1762,11 @@ module streaming_multiprocessor_v2 #(
         .wgmma_sb_clr_warp(wgmma_pending_warp),
         .wgmma_sb_clr_rd(wgmma_pending_rd),
         .issue_valid(sched_issue_valid_mask),
-        .issue_warp_id(sched_issue_warp_id),
-        .issue_inst(sched_issue_inst),
-        .issue_pipe(sched_issue_pipe),
+        .issue_warp_id(sched_issue_warp_id_flat),
+        .issue_inst(sched_issue_inst_flat),
+        .issue_pipe(sched_issue_pipe_flat),
         .issue_is_async_mma(bw_issue_is_async_mma),
-        .issue_async_mma_id(bw_issue_async_mma_id),
+        .issue_async_mma_id(bw_issue_async_mma_id_flat),
         .wb_valid(wb_valid),
         .wb_warp_id(wb_warp_id),
         .wb_rd(wb_rd),
@@ -1742,7 +1778,7 @@ module streaming_multiprocessor_v2 #(
         .stat_async_mma_completed(bw_stat_async_mma_completed),
         .stat_tcgen05_issued(bw_stat_tcgen05_issued),
         .perf_sched_stall_ifetch(sched_perf_stall_ifetch),
-        .scoreboard_out(sched_scoreboard)
+        .scoreboard_out(sched_scoreboard_flat)
     );
 `else
     advanced_warp_scheduler #(
@@ -1755,13 +1791,13 @@ module streaming_multiprocessor_v2 #(
         .warp_ready(warp_ready),
         .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
         .warp_at_barrier(warp_stalled_sync),
-        .warp_inst(warp_inst_buf_fast),     // RALPH-10c: bypass
+        .warp_inst(fp_inst_buf_fast_flat),     // RALPH-10c: bypass (packed)
         .warp_inst_valid(warp_inst_valid_fast),  // RALPH-10c: bypass
         .warp_inst_consume(warp_inst_consume),
-        .warp_rd(pd_rd),
-        .warp_rs1(pd_rs1),
-        .warp_rs2(pd_rs2),
-        .warp_rs3(pd_rs3),
+        .warp_rd(pd_rd_flat),
+        .warp_rs1(pd_rs1_flat),
+        .warp_rs2(pd_rs2_flat),
+        .warp_rs3(pd_rs3_flat),
         .warp_is_compute(pd_is_compute),
         .warp_is_tensor(pd_is_tensor),
         .warp_is_memory(pd_is_memory),
@@ -1780,9 +1816,9 @@ module streaming_multiprocessor_v2 #(
         .memory_pipe_ready(pipe_memory_ready),
         .branch_unit_ready(pipe_branch_ready),
         .issue_valid(sched_issue_valid_mask),
-        .issue_warp_id(sched_issue_warp_id),
-        .issue_inst(sched_issue_inst),
-        .issue_pipe(sched_issue_pipe),
+        .issue_warp_id(sched_issue_warp_id_flat),
+        .issue_inst(sched_issue_inst_flat),
+        .issue_pipe(sched_issue_pipe_flat),
         .wb_valid(wb_valid),
         .wb_warp_id(wb_warp_id),
         .wb_rd(wb_rd),
@@ -1790,7 +1826,7 @@ module streaming_multiprocessor_v2 #(
         .stat_single_issue(),
         .stat_dual_issue(),
         .stat_stalls(),
-        .scoreboard_out(sched_scoreboard)
+        .scoreboard_out(sched_scoreboard_flat)
     );
 `endif
 
@@ -2577,10 +2613,7 @@ module streaming_multiprocessor_v2 #(
     wire [31:0] rf1_stat_bank_conflicts, rf1_stat_total_accesses;
 
     // Operand collector interface (unused - tie off with wires for iverilog compatibility)
-    wire [4:0] oc_addr_tie [0:2];
-    assign oc_addr_tie[0] = 5'b0;
-    assign oc_addr_tie[1] = 5'b0;
-    assign oc_addr_tie[2] = 5'b0;
+    wire [3*5-1:0] oc_addr_tie = {3*5{1'b0}};
 
     register_file_banked #(
         .NUM_WARPS(NUM_WARPS),

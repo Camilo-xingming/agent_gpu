@@ -15,14 +15,14 @@ module fma_int32 #(
 
     // 输入操作数 (32线程，但由NUM_UNITS个单元处理)
     input  wire                 valid_in,
-    input  wire [31:0]          a [0:NUM_UNITS-1],  // 乘数A
-    input  wire [31:0]          b [0:NUM_UNITS-1],  // 乘数B
-    input  wire [31:0]          c [0:NUM_UNITS-1],  // 加数C
+    input wire [NUM_UNITS*32-1:0] a,  // 乘数A
+    input wire [NUM_UNITS*32-1:0] b,  // 乘数B
+    input wire [NUM_UNITS*32-1:0] c,  // 加数C
     input  wire                 is_signed,          // 有符号/无符号
 
     // 输出结果
     output reg                  valid_out,
-    output reg  [31:0]          result [0:NUM_UNITS-1]
+    output reg [NUM_UNITS*32-1:0] result
 );
 
     //------------------------------------------------------------------------
@@ -68,9 +68,9 @@ module fma_int32 #(
             s1_valid  <= valid_in;
             s1_signed <= is_signed;
             for (i = 0; i < NUM_UNITS; i = i + 1) begin
-                s1_a[i] <= a[i];
-                s1_b[i] <= b[i];
-                s1_c[i] <= c[i];
+                s1_a[i] <= a[i*32 +: 32];
+                s1_b[i] <= b[i*32 +: 32];
+                s1_c[i] <= c[i*32 +: 32];
             end
         end
     end
@@ -151,7 +151,7 @@ module fma_int32 #(
     always @(*) begin
         valid_out = s4_valid;
         for (i = 0; i < NUM_UNITS; i = i + 1) begin
-            result[i] = s4_result[i];
+            result[i*32 +: 32] = s4_result[i];
         end
     end
 
@@ -170,14 +170,14 @@ module fma_array #(
 
     // Warp级接口
     input  wire                 valid_in,
-    input  wire [31:0]          a [0:THREADS-1],
-    input  wire [31:0]          b [0:THREADS-1],
-    input  wire [31:0]          c [0:THREADS-1],
+    input wire [THREADS*32-1:0] a,
+    input wire [THREADS*32-1:0] b,
+    input wire [THREADS*32-1:0] c,
     input  wire [THREADS-1:0]   mask,             // 活跃线程掩码
     input  wire                 is_signed,
 
     output wire                 valid_out,
-    output wire [31:0]          result [0:THREADS-1],
+    output wire [THREADS*32-1:0] result,
     output wire                 ready              // 准备接收新请求
 );
 
@@ -189,11 +189,11 @@ module fma_array #(
 
     // FMA单元输入/输出
     reg         fma_valid;
-    reg [31:0]  fma_a [0:FMA_UNITS-1];
-    reg [31:0]  fma_b [0:FMA_UNITS-1];
-    reg [31:0]  fma_c [0:FMA_UNITS-1];
+    reg [FMA_UNITS*32-1:0] fma_a;
+    reg [FMA_UNITS*32-1:0] fma_b;
+    reg [FMA_UNITS*32-1:0] fma_c;
     wire        fma_out_valid;
-    wire [31:0] fma_result [0:FMA_UNITS-1];
+    wire [FMA_UNITS*32-1:0] fma_result;
 
     // 结果缓存
     reg [31:0]  result_cache [0:THREADS-1];
@@ -237,9 +237,9 @@ module fma_array #(
                 result_cache[i] <= 0;
             end
             for (i = 0; i < FMA_UNITS; i = i + 1) begin
-                fma_a[i] <= 0;
-                fma_b[i] <= 0;
-                fma_c[i] <= 0;
+                fma_a[i*32 +: 32] <= 0;
+                fma_b[i*32 +: 32] <= 0;
+                fma_c[i*32 +: 32] <= 0;
             end
         end else begin
             fma_valid <= 0;
@@ -257,9 +257,9 @@ module fma_array #(
                     // 发送一批到FMA
                     fma_valid <= 1;
                     for (i = 0; i < FMA_UNITS; i = i + 1) begin
-                        fma_a[i] <= a[batch_counter * FMA_UNITS + i];
-                        fma_b[i] <= b[batch_counter * FMA_UNITS + i];
-                        fma_c[i] <= c[batch_counter * FMA_UNITS + i];
+                        fma_a[i*32 +: 32] <= a[batch_counter * FMA_UNITS + i*32 +: 32];
+                        fma_b[i*32 +: 32] <= b[batch_counter * FMA_UNITS + i*32 +: 32];
+                        fma_c[i*32 +: 32] <= c[batch_counter * FMA_UNITS + i*32 +: 32];
                     end
                     state <= ST_WAIT;
                     wait_counter <= 0;
@@ -270,7 +270,7 @@ module fma_array #(
                     if (fma_out_valid) begin
                         // 保存结果
                         for (i = 0; i < FMA_UNITS; i = i + 1) begin
-                            result_cache[batch_counter * FMA_UNITS + i] <= fma_result[i];
+                            result_cache[batch_counter * FMA_UNITS + i] <= fma_result[i*32 +: 32];
                         end
 
                         if (batch_counter == BATCHES - 1) begin
@@ -297,7 +297,7 @@ module fma_array #(
     generate
         genvar g;
         for (g = 0; g < THREADS; g = g + 1) begin : gen_result
-            assign result[g] = result_cache[g];
+            assign result[g*32 +: 32] = result_cache[g];
         end
     endgenerate
 

@@ -19,16 +19,16 @@ module dual_issue_scheduler #(
     //------------------------------------------------------------------------
     // 指令输入 (来自每个warp的指令缓冲)
     //------------------------------------------------------------------------
-    input  wire [INST_WIDTH-1:0] warp_inst [0:NUM_WARPS-1],
+    input wire [NUM_WARPS*(INST_WIDTH)-1:0] warp_inst,
     input  wire [NUM_WARPS-1:0]  warp_valid,
     input  wire [NUM_WARPS-1:0]  warp_ready,  // warp可以执行
 
     //------------------------------------------------------------------------
     // 依赖检查输入
     //------------------------------------------------------------------------
-    input  wire [4:0]           warp_rd [0:NUM_WARPS-1],     // 目标寄存器
-    input  wire [4:0]           warp_rs1 [0:NUM_WARPS-1],    // 源寄存器1
-    input  wire [4:0]           warp_rs2 [0:NUM_WARPS-1],    // 源寄存器2
+    input wire [NUM_WARPS*5-1:0] warp_rd,     // 目标寄存器
+    input wire [NUM_WARPS*5-1:0] warp_rs1,    // 源寄存器1
+    input wire [NUM_WARPS*5-1:0] warp_rs2,    // 源寄存器2
     input  wire [NUM_WARPS-1:0] warp_writes_reg,             // 写寄存器
     input  wire [NUM_WARPS-1:0] warp_reads_mem,              // 读内存
     input  wire [NUM_WARPS-1:0] warp_writes_mem,             // 写内存
@@ -116,15 +116,15 @@ module dual_issue_scheduler #(
 
             // RAW检查
             if (warp_writes_reg[warp_a]) begin
-                if (warp_rd[warp_a] == warp_rs1[warp_b] ||
-                    warp_rd[warp_a] == warp_rs2[warp_b]) begin
+                if (warp_rd[warp_a*5 +: 5] == warp_rs1[warp_b*5 +: 5] ||
+                    warp_rd[warp_a*5 +: 5] == warp_rs2[warp_b*5 +: 5]) begin
                     check_dependency = 1;
                 end
             end
 
             // WAW检查
             if (warp_writes_reg[warp_a] && warp_writes_reg[warp_b]) begin
-                if (warp_rd[warp_a] == warp_rd[warp_b]) begin
+                if (warp_rd[warp_a*5 +: 5] == warp_rd[warp_b*5 +: 5]) begin
                     check_dependency = 1;
                 end
             end
@@ -172,7 +172,7 @@ module dual_issue_scheduler #(
         // 第一遍: 找第一个可调度的warp
         for (i = 0; i < NUM_WARPS; i = i + 1) begin
             if (warp_valid[i] && warp_ready[i] && !found_warp0) begin
-                unit0 = decode_unit(warp_inst[i]);
+                unit0 = decode_unit(warp_inst[i*INST_WIDTH +: INST_WIDTH]);
 
                 // 检查执行单元是否可用
                 case (unit0)
@@ -190,7 +190,7 @@ module dual_issue_scheduler #(
         if (found_warp0) begin
             for (j = 0; j < NUM_WARPS; j = j + 1) begin
                 if (warp_valid[j] && warp_ready[j] && !found_warp1 && j[WARP_ID_W-1:0] != selected_warp0) begin
-                    unit1 = decode_unit(warp_inst[j]);
+                    unit1 = decode_unit(warp_inst[j*INST_WIDTH +: INST_WIDTH]);
 
                     // 检查执行单元冲突
                     if (!check_unit_conflict(unit0, unit1)) begin
@@ -242,7 +242,7 @@ module dual_issue_scheduler #(
             if (found_warp0) begin
                 issue0_valid   <= 1;
                 issue0_warp_id <= selected_warp0;
-                issue0_inst    <= warp_inst[selected_warp0];
+                issue0_inst    <= warp_inst[selected_warp0*INST_WIDTH +: INST_WIDTH];
                 issue0_unit    <= unit0;
                 warp_consumed[selected_warp0] <= 1;
             end else begin
@@ -254,7 +254,7 @@ module dual_issue_scheduler #(
             if (found_warp1) begin
                 issue1_valid   <= 1;
                 issue1_warp_id <= selected_warp1;
-                issue1_inst    <= warp_inst[selected_warp1];
+                issue1_inst    <= warp_inst[selected_warp1*INST_WIDTH +: INST_WIDTH];
                 issue1_unit    <= unit1;
                 warp_consumed[selected_warp1] <= 1;
             end else begin
@@ -285,7 +285,7 @@ module ilp_analyzer #(
     input  wire                 rst_n,
 
     // 指令窗口输入
-    input  wire [INST_WIDTH-1:0] inst_window [0:WINDOW_SIZE-1],
+    input wire [WINDOW_SIZE*(INST_WIDTH)-1:0] inst_window,
     input  wire [WINDOW_SIZE-1:0] inst_valid,
 
     // ILP分析输出

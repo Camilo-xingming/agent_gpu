@@ -22,10 +22,10 @@ module l1_data_cache #(
     //------------------------------------------------------------------------
     input  wire                 req_valid,
     input  wire                 req_write,          // 0=read, 1=write
-    input  wire [31:0]          req_addr [0:THREADS-1],   // 32个地址
-    input  wire [31:0]          req_wdata [0:THREADS-1],  // 32个写数据
+    input wire [THREADS*32-1:0] req_addr,   // 32个地址
+    input wire [THREADS*32-1:0] req_wdata,  // 32个写数据
     input  wire [THREADS-1:0]   req_mask,           // 活跃线程掩码
-    output reg  [31:0]          resp_rdata [0:THREADS-1], // 32个读数据
+    output reg [THREADS*32-1:0] resp_rdata, // 32个读数据
     output reg                  resp_valid,
     output reg                  resp_hit,           // 全部命中
 
@@ -288,7 +288,7 @@ module l1_data_cache #(
             end
 
             for (i = 0; i < THREADS; i = i + 1) begin
-                resp_rdata[i] <= 0;
+                resp_rdata[i*32 +: 32] <= 0;
                 saved_addr[i] <= 0;
                 saved_wdata[i] <= 0;
             end
@@ -320,8 +320,8 @@ module l1_data_cache #(
                         saved_write <= req_write;
                         saved_mask  <= req_mask;
                         for (i = 0; i < THREADS; i = i + 1) begin
-                            saved_addr[i]  <= req_addr[i];
-                            saved_wdata[i] <= req_wdata[i];
+                            saved_addr[i]  <= req_addr[i*32 +: 32];
+                            saved_wdata[i] <= req_wdata[i*32 +: 32];
                         end
                         latency_counter <= HIT_LATENCY - 1;
                     end
@@ -354,7 +354,7 @@ module l1_data_cache #(
                             // 读操作
                             for (i = 0; i < THREADS; i = i + 1) begin
                                 if (saved_mask[i]) begin
-                                    resp_rdata[i] <= data_array[hit_way][primary_index][saved_addr[i][OFFSET_BITS-1:2]];
+                                    resp_rdata[i*32 +: 32] <= data_array[hit_way][primary_index][saved_addr[i][OFFSET_BITS-1:2]];
                                 end
                             end
                         end
@@ -412,7 +412,7 @@ module l1_data_cache #(
                             // 返回读数据
                             for (i = 0; i < THREADS; i = i + 1) begin
                                 if (saved_mask[i]) begin
-                                    resp_rdata[i] <= mem_rdata[saved_addr[i][OFFSET_BITS-1:2]*32 +: 32];
+                                    resp_rdata[i*32 +: 32] <= mem_rdata[saved_addr[i][OFFSET_BITS-1:2]*32 +: 32];
                                 end
                             end
                         end
