@@ -212,6 +212,15 @@ test_warp_ops: $(BUILD_DIR)/tb_warp_ops.vvp
 $(BUILD_DIR)/tb_warp_ops.vvp: $(RTL_DIR)/warp_shuffle.v $(RTL_DIR)/gpu_defines.vh $(TB_DIR)/tb_warp_ops.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_warp_ops.v $(RTL_DIR)/warp_shuffle.v
 
+
+test_video_unit: $(BUILD_DIR)/tb_video_unit.vvp
+	@echo "========================================"
+	@echo "Running Video Unit SIMD Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_video_unit.vvp
+
+$(BUILD_DIR)/tb_video_unit.vvp: $(RTL_DIR)/video_unit.v $(RTL_DIR)/gpu_defines.vh $(TB_DIR)/tb_video_unit.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_video_unit.v $(RTL_DIR)/video_unit.v
 test_sfu: $(BUILD_DIR)/tb_sfu.vvp
 	@echo "========================================"
 	@echo "Running SFU Unit Test"
@@ -484,7 +493,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_decoder test_regfile test_smem test_warp test_warp_ops
+test: test_alu test_mul test_decoder test_regfile test_smem test_warp test_warp_ops test_video_unit
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
