@@ -54,7 +54,7 @@ module stack_debug_unit #(
     // Configuration Interface
     //------------------------------------------------------------------------
     input  wire [7:0]                   max_reg_limit,  // System-wide max register limit
-    output reg  [7:0]                   warp_max_regs [0:NUM_WARPS-1]  // Per-warp register limits
+    output reg [NUM_WARPS*8-1:0] warp_max_regs  // Per-warp register limits
 );
 
     //------------------------------------------------------------------------
@@ -116,7 +116,7 @@ module stack_debug_unit #(
                 stack_base[i] <= i * STACK_SIZE_PER_WARP;
                 stack_limit[i] <= (i + 1) * STACK_SIZE_PER_WARP;
                 sleep_counter[i] <= 32'b0;
-                warp_max_regs[i] <= max_reg_limit;  // Default to system limit
+                warp_max_regs[i*8 +: 8] <= max_reg_limit;  // Default to system limit
             end
         end else begin
             // Clear single-cycle signals
@@ -283,9 +283,9 @@ module stack_debug_unit #(
                                     // setmaxnreg: set maximum register count for warp
                                     // Clamp to system limit
                                     if (saved_src_a[7:0] <= max_reg_limit) begin
-                                        warp_max_regs[saved_warp] <= saved_src_a[7:0];
+                                        warp_max_regs[saved_warp*8 +: 8] <= saved_src_a[7:0];
                                     end else begin
-                                        warp_max_regs[saved_warp] <= max_reg_limit;
+                                        warp_max_regs[saved_warp*8 +: 8] <= max_reg_limit;
                                     end
                                     done <= 1'b1;
                                     state <= ST_IDLE;

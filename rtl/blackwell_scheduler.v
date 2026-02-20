@@ -36,17 +36,17 @@ module blackwell_scheduler #(
     //------------------------------------------------------------------------
     // Instruction Buffer Interface (same as advanced_warp_scheduler)
     //------------------------------------------------------------------------
-    input  wire [INST_WIDTH-1:0]    warp_inst [0:NUM_WARPS-1],
+    input wire [NUM_WARPS*(INST_WIDTH)-1:0] warp_inst,
     input  wire [NUM_WARPS-1:0]     warp_inst_valid,
     output wire [NUM_WARPS-1:0]     warp_inst_consume,
 
     //------------------------------------------------------------------------
     // Decoded Instruction Info (same as advanced_warp_scheduler)
     //------------------------------------------------------------------------
-    input  wire [4:0]               warp_rd [0:NUM_WARPS-1],
-    input  wire [4:0]               warp_rs1 [0:NUM_WARPS-1],
-    input  wire [4:0]               warp_rs2 [0:NUM_WARPS-1],
-    input  wire [4:0]               warp_rs3 [0:NUM_WARPS-1],
+    input wire [NUM_WARPS*5-1:0] warp_rd,
+    input wire [NUM_WARPS*5-1:0] warp_rs1,
+    input wire [NUM_WARPS*5-1:0] warp_rs2,
+    input wire [NUM_WARPS*5-1:0] warp_rs3,
     input  wire [NUM_WARPS-1:0]     warp_is_compute,
     input  wire [NUM_WARPS-1:0]     warp_is_tensor,
     input  wire [NUM_WARPS-1:0]     tensor_push_locked,  // 2-cycle lockout from SM
@@ -99,15 +99,15 @@ module blackwell_scheduler #(
     // Issue Outputs (NUM_SCHEDULERS outputs, compatible with NUM_ISSUE=2)
     //------------------------------------------------------------------------
     output wire [NUM_SCHEDULERS-1:0]              issue_valid,
-    output wire [$clog2(NUM_WARPS)-1:0]           issue_warp_id [0:NUM_SCHEDULERS-1],
-    output wire [INST_WIDTH-1:0]                  issue_inst [0:NUM_SCHEDULERS-1],
-    output wire [2:0]                             issue_pipe [0:NUM_SCHEDULERS-1],
+    output wire [NUM_SCHEDULERS*($clog2(NUM_WARPS))-1:0] issue_warp_id,
+    output wire [NUM_SCHEDULERS*(INST_WIDTH)-1:0] issue_inst,
+    output wire [NUM_SCHEDULERS*3-1:0] issue_pipe,
 
     //------------------------------------------------------------------------
     // Blackwell-specific Issue Outputs
     //------------------------------------------------------------------------
     output reg  [NUM_SCHEDULERS-1:0]              issue_is_async_mma, // Issued op is async MMA
-    output reg  [3:0]                             issue_async_mma_id [0:NUM_SCHEDULERS-1], // Async MMA op ID
+    output reg [NUM_SCHEDULERS*4-1:0] issue_async_mma_id, // Async MMA op ID
 
     //------------------------------------------------------------------------
     // Writeback Interface (for scoreboard clearing)
@@ -152,7 +152,7 @@ module blackwell_scheduler #(
     //------------------------------------------------------------------------
     output wire                     perf_sched_stall_ifetch,
 
-    output wire [31:0]              scoreboard_out [0:NUM_WARPS-1]
+    output wire [NUM_WARPS*32-1:0] scoreboard_out
 );
 
     localparam WARP_W = $clog2(NUM_WARPS);
@@ -178,7 +178,7 @@ module blackwell_scheduler #(
     genvar sb_gi;
     generate
         for (sb_gi = 0; sb_gi < NUM_WARPS; sb_gi = sb_gi + 1) begin : gen_sb_out
-            assign scoreboard_out[sb_gi] = scoreboard[sb_gi];
+            assign scoreboard_out[sb_gi*32 +: 32] = scoreboard[sb_gi];
         end
     endgenerate
 
@@ -214,10 +214,10 @@ module blackwell_scheduler #(
     generate
         for (w = 0; w < NUM_WARPS; w = w + 1) begin : gen_hazard
             // Standard RAW/WAW hazards for register operands
-            wire raw_hazard = scoreboard[w][warp_rs1[w]] ||
-                             scoreboard[w][warp_rs2[w]] ||
-                             scoreboard[w][warp_rs3[w]];
-            wire waw_hazard = warp_writes_reg[w] && scoreboard[w][warp_rd[w]];
+            wire raw_hazard = scoreboard[w][warp_rs1[w*5 +: 5]] ||
+                             scoreboard[w][warp_rs2[w*5 +: 5]] ||
+                             scoreboard[w][warp_rs3[w*5 +: 5]];
+            wire waw_hazard = warp_writes_reg[w] && scoreboard[w][warp_rd[w*5 +: 5]];
 
             // Async MMA hazards:
             // - tcgen05.commit/wait must wait for all pending async MMA to complete
@@ -332,7 +332,7 @@ module blackwell_scheduler #(
                         if (warp_is_branch[warp_idx] && branch_unit_ready) begin
                             issue_valid_r[s] = 1'b1;
                             issue_warp_r[s] = warp_idx[WARP_W-1:0];
-                            issue_inst_r[s] = warp_inst[warp_idx];
+                            issue_inst_r[s] = warp_inst[warp_idx*INST_WIDTH +: INST_WIDTH];
                             issue_pipe_r[s] = PIPE_BRANCH;
                             issue_consume_r[warp_idx] = 1'b1;
 
@@ -342,7 +342,7 @@ module blackwell_scheduler #(
                             if (warp_is_tcgen05_mma[warp_idx] && tensor_pipe_ready) begin
                                 issue_valid_r[s] = 1'b1;
                                 issue_warp_r[s] = warp_idx[WARP_W-1:0];
-                                issue_inst_r[s] = warp_inst[warp_idx];
+                                issue_inst_r[s] = warp_inst[warp_idx*INST_WIDTH +: INST_WIDTH];
                                 issue_pipe_r[s] = PIPE_TCGEN05;
                                 issue_consume_r[warp_idx] = 1'b1;
                                 issue_is_async_mma_r[s] = 1'b1;
@@ -353,7 +353,7 @@ module blackwell_scheduler #(
                                          tmem_pipe_ready) begin
                                 issue_valid_r[s] = 1'b1;
                                 issue_warp_r[s] = warp_idx[WARP_W-1:0];
-                                issue_inst_r[s] = warp_inst[warp_idx];
+                                issue_inst_r[s] = warp_inst[warp_idx*INST_WIDTH +: INST_WIDTH];
                                 issue_pipe_r[s] = PIPE_TMEM;
                                 issue_consume_r[warp_idx] = 1'b1;
 
@@ -364,7 +364,7 @@ module blackwell_scheduler #(
                                          tmem_pipe_ready) begin
                                 issue_valid_r[s] = 1'b1;
                                 issue_warp_r[s] = warp_idx[WARP_W-1:0];
-                                issue_inst_r[s] = warp_inst[warp_idx];
+                                issue_inst_r[s] = warp_inst[warp_idx*INST_WIDTH +: INST_WIDTH];
                                 issue_pipe_r[s] = PIPE_TMEM;
                                 issue_consume_r[warp_idx] = 1'b1;
                             end
@@ -372,7 +372,7 @@ module blackwell_scheduler #(
                         end else if (warp_is_memory[warp_idx] && memory_pipe_ready) begin
                             issue_valid_r[s] = 1'b1;
                             issue_warp_r[s] = warp_idx[WARP_W-1:0];
-                            issue_inst_r[s] = warp_inst[warp_idx];
+                            issue_inst_r[s] = warp_inst[warp_idx*INST_WIDTH +: INST_WIDTH];
                             issue_pipe_r[s] = PIPE_MEMORY;
                             issue_consume_r[warp_idx] = 1'b1;
 
@@ -380,14 +380,14 @@ module blackwell_scheduler #(
                         end else if (warp_is_tensor[warp_idx] && tensor_pipe_ready) begin
                             issue_valid_r[s] = 1'b1;
                             issue_warp_r[s] = warp_idx[WARP_W-1:0];
-                            issue_inst_r[s] = warp_inst[warp_idx];
+                            issue_inst_r[s] = warp_inst[warp_idx*INST_WIDTH +: INST_WIDTH];
                             issue_pipe_r[s] = PIPE_TENSOR;
                             issue_consume_r[warp_idx] = 1'b1;
 
                         end else if (warp_is_compute[warp_idx] && compute_pipe_ready[s]) begin
                             issue_valid_r[s] = 1'b1;
                             issue_warp_r[s] = warp_idx[WARP_W-1:0];
-                            issue_inst_r[s] = warp_inst[warp_idx];
+                            issue_inst_r[s] = warp_inst[warp_idx*INST_WIDTH +: INST_WIDTH];
                             // Map scheduler to compute pipe
                             issue_pipe_r[s] = (s % 2 == 0) ? PIPE_COMPUTE0 : PIPE_COMPUTE1;
                             issue_consume_r[warp_idx] = 1'b1;
@@ -428,7 +428,7 @@ end
     always @(*) begin
         issue_is_async_mma = issue_is_async_mma_r;
         for (s = 0; s < NUM_SCHEDULERS; s = s + 1) begin
-            issue_async_mma_id[s] = issue_async_mma_id_r[s];
+            issue_async_mma_id[s*4 +: 4] = issue_async_mma_id_r[s];
         end
     end
 
@@ -640,9 +640,9 @@ end
     generate
         genvar i;
         for (i = 0; i < NUM_SCHEDULERS; i = i + 1) begin : gen_issue_out
-            assign issue_warp_id[i] = issue_warp_r[i];
-            assign issue_inst[i] = issue_inst_r[i];
-            assign issue_pipe[i] = issue_pipe_r[i];
+            assign issue_warp_id[i*($clog2(NUM_WARPS)) +: ($clog2(NUM_WARPS))] = issue_warp_r[i];
+            assign issue_inst[i*INST_WIDTH +: INST_WIDTH] = issue_inst_r[i];
+            assign issue_pipe[i*3 +: 3] = issue_pipe_r[i];
         end
     endgenerate
 

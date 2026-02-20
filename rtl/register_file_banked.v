@@ -56,8 +56,8 @@ module register_file_banked #(
     //------------------------------------------------------------------------
     input  wire                     oc_valid,
     input  wire [$clog2(NUM_WARPS)-1:0] oc_warp_id,
-    input  wire [4:0]               oc_addr [0:NUM_READ_PORTS-1],
-    output wire [NUM_LANES*DATA_WIDTH-1:0] oc_data [0:NUM_READ_PORTS-1],
+    input wire [NUM_READ_PORTS*5-1:0] oc_addr,
+    output wire [NUM_READ_PORTS*(NUM_LANES*DATA_WIDTH)-1:0] oc_data,
     output wire [NUM_READ_PORTS-1:0] oc_ready,
     output wire                     oc_conflict,
 
@@ -294,15 +294,15 @@ module register_file_banked #(
     //------------------------------------------------------------------------
     generate
         for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : gen_oc_logic
-            wire [PROTECTED_WIDTH-1:0] oc_raw_0 = sim_regs[oc_warp_id][lane][oc_addr[0]];
+            wire [PROTECTED_WIDTH-1:0] oc_raw_0 = sim_regs[oc_warp_id][lane][oc_addr[4:0]];
             wire [DATA_WIDTH+1:0] oc_dec_0 = decode_ecc(oc_raw_0[DATA_WIDTH-1:0], oc_raw_0[PROTECTED_WIDTH-1:DATA_WIDTH]);
             assign oc_data[0][lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_0[DATA_WIDTH-1:0] : oc_raw_0[DATA_WIDTH-1:0];
 
-            wire [PROTECTED_WIDTH-1:0] oc_raw_1 = sim_regs[oc_warp_id][lane][oc_addr[1]];
+            wire [PROTECTED_WIDTH-1:0] oc_raw_1 = sim_regs[oc_warp_id][lane][oc_addr[9:5]];
             wire [DATA_WIDTH+1:0] oc_dec_1 = decode_ecc(oc_raw_1[DATA_WIDTH-1:0], oc_raw_1[PROTECTED_WIDTH-1:DATA_WIDTH]);
             assign oc_data[1][lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_1[DATA_WIDTH-1:0] : oc_raw_1[DATA_WIDTH-1:0];
 
-            wire [PROTECTED_WIDTH-1:0] oc_raw_2 = sim_regs[oc_warp_id][lane][oc_addr[2]];
+            wire [PROTECTED_WIDTH-1:0] oc_raw_2 = sim_regs[oc_warp_id][lane][oc_addr[14:10]];
             wire [DATA_WIDTH+1:0] oc_dec_2 = decode_ecc(oc_raw_2[DATA_WIDTH-1:0], oc_raw_2[PROTECTED_WIDTH-1:DATA_WIDTH]);
             assign oc_data[2][lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_2[DATA_WIDTH-1:0] : oc_raw_2[DATA_WIDTH-1:0];
         end
@@ -483,7 +483,7 @@ module operand_collector #(
     //------------------------------------------------------------------------
     input  wire                     req_valid,
     input  wire [$clog2(NUM_WARPS)-1:0] req_warp_id,
-    input  wire [4:0]               req_addr [0:NUM_OPERANDS-1],
+    input wire [NUM_OPERANDS*5-1:0] req_addr,
     input  wire [NUM_OPERANDS-1:0]  req_need,           // Which operands needed
     output wire                     req_ready,
 
@@ -492,8 +492,8 @@ module operand_collector #(
     //------------------------------------------------------------------------
     output wire                     rf_valid,
     output wire [$clog2(NUM_WARPS)-1:0] rf_warp_id,
-    output wire [4:0]               rf_addr [0:NUM_OPERANDS-1],
-    input  wire [NUM_LANES*DATA_WIDTH-1:0] rf_data [0:NUM_OPERANDS-1],
+    output wire [NUM_OPERANDS*5-1:0] rf_addr,
+    input wire [NUM_OPERANDS*(NUM_LANES*DATA_WIDTH)-1:0] rf_data,
     input  wire [NUM_OPERANDS-1:0]  rf_ready,
     input  wire                     rf_conflict,
 
@@ -502,7 +502,7 @@ module operand_collector #(
     //------------------------------------------------------------------------
     output wire                     out_valid,
     output wire [$clog2(NUM_WARPS)-1:0] out_warp_id,
-    output wire [NUM_LANES*DATA_WIDTH-1:0] out_data [0:NUM_OPERANDS-1],
+    output wire [NUM_OPERANDS*(NUM_LANES*DATA_WIDTH)-1:0] out_data,
     input  wire                     out_ready
 );
 
@@ -564,7 +564,7 @@ module operand_collector #(
                 entry_need[alloc_ptr] <= req_need;
                 entry_collected[alloc_ptr] <= 0;
                 for (coll_o = 0; coll_o < NUM_OPERANDS; coll_o = coll_o + 1) begin
-                    entry_addr[alloc_ptr][coll_o] <= req_addr[coll_o];
+                    entry_addr[alloc_ptr][coll_o] <= req_addr[coll_o*5 +: 5];
                 end
                 alloc_ptr <= alloc_ptr + 1'b1;
             end
@@ -573,7 +573,7 @@ module operand_collector #(
             if (entry_valid[issue_ptr] && !entry_complete[issue_ptr] && (&(rf_ready | ~entry_need[issue_ptr]))) begin
                 for (coll_o = 0; coll_o < NUM_OPERANDS; coll_o = coll_o + 1) begin
                     if (entry_need[issue_ptr][coll_o] && rf_ready[coll_o]) begin
-                        entry_data[issue_ptr][coll_o] <= rf_data[coll_o];
+                        entry_data[issue_ptr][coll_o] <= rf_data[coll_o*(NUM_LANES*DATA_WIDTH) +: (NUM_LANES*DATA_WIDTH)];
                         entry_collected[issue_ptr][coll_o] <= 1'b1;
                     end
                 end
@@ -604,8 +604,8 @@ module operand_collector #(
     generate
         genvar o;
         for (o = 0; o < NUM_OPERANDS; o = o + 1) begin : gen_rf_addr
-            assign rf_addr[o] = entry_addr[issue_ptr][o];
-            assign out_data[o] = entry_data[complete_ptr][o];
+            assign rf_addr[o*5 +: 5] = entry_addr[issue_ptr][o];
+            assign out_data[o*(NUM_LANES*DATA_WIDTH) +: (NUM_LANES*DATA_WIDTH)] = entry_data[complete_ptr][o];
         end
     endgenerate
 

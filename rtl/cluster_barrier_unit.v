@@ -26,15 +26,15 @@ module cluster_barrier_unit #(
     // Each SM signals when threads arrive at a barrier
     //------------------------------------------------------------------------
     input  wire [NUM_SM-1:0]            sm_arrive_valid,     // SM signals arrival
-    input  wire [BARRIER_ID_W-1:0]      sm_arrive_barrier_id [0:NUM_SM-1],  // Barrier ID
-    input  wire [THREAD_COUNT_W-1:0]    sm_arrive_count [0:NUM_SM-1],       // Thread count arriving
+    input wire [NUM_SM*(BARRIER_ID_W)-1:0] sm_arrive_barrier_id,  // Barrier ID
+    input wire [NUM_SM*(THREAD_COUNT_W)-1:0] sm_arrive_count,       // Thread count arriving
 
     //------------------------------------------------------------------------
     // Per-SM Wait Interface
     // Each SM queries if barrier is complete
     //------------------------------------------------------------------------
     input  wire [NUM_SM-1:0]            sm_wait_valid,       // SM wants to wait
-    input  wire [BARRIER_ID_W-1:0]      sm_wait_barrier_id [0:NUM_SM-1],  // Barrier to wait on
+    input wire [NUM_SM*(BARRIER_ID_W)-1:0] sm_wait_barrier_id,  // Barrier to wait on
     output wire [NUM_SM-1:0]            sm_wait_complete,    // Barrier is complete
 
     //------------------------------------------------------------------------
@@ -42,8 +42,8 @@ module cluster_barrier_unit #(
     // Initialize barrier with expected thread count
     //------------------------------------------------------------------------
     input  wire [NUM_SM-1:0]            sm_init_valid,       // SM initializes barrier
-    input  wire [BARRIER_ID_W-1:0]      sm_init_barrier_id [0:NUM_SM-1],  // Barrier to init
-    input  wire [THREAD_COUNT_W-1:0]    sm_init_count [0:NUM_SM-1],       // Expected thread count
+    input wire [NUM_SM*(BARRIER_ID_W)-1:0] sm_init_barrier_id,  // Barrier to init
+    input wire [NUM_SM*(THREAD_COUNT_W)-1:0] sm_init_count,       // Expected thread count
 
     //------------------------------------------------------------------------
     // Status
@@ -73,7 +73,7 @@ module cluster_barrier_unit #(
     generate
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : gen_wait_complete
             assign sm_wait_complete[sm] = sm_wait_valid[sm] ?
-                barrier_done[sm_wait_barrier_id[sm]] : 1'b0;
+                barrier_done[sm_wait_barrier_id[sm*BARRIER_ID_W +: BARRIER_ID_W]] : 1'b0;
         end
     endgenerate
 
@@ -104,8 +104,8 @@ module cluster_barrier_unit #(
             for (s = 0; s < NUM_SM; s = s + 1) begin
                 if (sm_init_valid[s] && !init_found) begin
                     init_found = 1'b1;
-                    init_bid = sm_init_barrier_id[s];
-                    init_cnt = sm_init_count[s];
+                    init_bid = sm_init_barrier_id[s*BARRIER_ID_W +: BARRIER_ID_W];
+                    init_cnt = sm_init_count[s*THREAD_COUNT_W +: THREAD_COUNT_W];
                 end
             end
 
@@ -124,8 +124,8 @@ module cluster_barrier_unit #(
             for (i = 0; i < NUM_BARRIERS; i = i + 1) begin
                 total_arrive = 0;
                 for (s = 0; s < NUM_SM; s = s + 1) begin
-                    if (sm_arrive_valid[s] && sm_arrive_barrier_id[s] == i[BARRIER_ID_W-1:0]) begin
-                        total_arrive = total_arrive + sm_arrive_count[s];
+                    if (sm_arrive_valid[s] && sm_arrive_barrier_id[s*BARRIER_ID_W +: BARRIER_ID_W] == i[BARRIER_ID_W-1:0]) begin
+                        total_arrive = total_arrive + sm_arrive_count[s*THREAD_COUNT_W +: THREAD_COUNT_W];
                     end
                 end
 

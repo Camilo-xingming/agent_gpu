@@ -273,10 +273,10 @@ module ralph_gpu_top #(
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_gen
             wire        sm_l1d_req_valid;
             wire        sm_l1d_req_write;
-            wire [31:0] sm_l1d_req_addr [0:NUM_LANES-1];
-            wire [31:0] sm_l1d_req_wdata [0:NUM_LANES-1];
+            wire [NUM_LANES*32-1:0] sm_l1d_req_addr;
+            wire [NUM_LANES*32-1:0] sm_l1d_req_wdata;
             wire [NUM_LANES-1:0] sm_l1d_req_mask;
-            reg  [31:0] sm_l1d_resp_rdata [0:NUM_LANES-1];
+            reg [NUM_LANES*32-1:0] sm_l1d_resp_rdata;
             reg         sm_l1d_resp_valid;
             reg         sm_l1d_resp_hit;
 
@@ -285,8 +285,8 @@ module ralph_gpu_top #(
                 // Pipeline registers for bypass mode
                 reg         req_valid_d;
                 reg         req_write_d;
-                reg [31:0]  req_addr_d [0:NUM_LANES-1];
-                reg [31:0]  req_wdata_d [0:NUM_LANES-1];
+                reg [NUM_LANES*32-1:0] req_addr_d;
+                reg [NUM_LANES*32-1:0] req_wdata_d;
                 reg [NUM_LANES-1:0] req_mask_d;
 
                 always @(posedge clk or negedge rst_n) begin
@@ -297,9 +297,9 @@ module ralph_gpu_top #(
                         sm_l1d_resp_valid <= 1'b0;
                         sm_l1d_resp_hit <= 1'b0;
                         for (integer k = 0; k < NUM_LANES; k = k + 1) begin
-                            req_addr_d[k] <= 32'b0;
-                            req_wdata_d[k] <= 32'b0;
-                            sm_l1d_resp_rdata[k] <= 32'b0;
+                            req_addr_d[k*32 +: 32] <= 32'b0;
+                            req_wdata_d[k*32 +: 32] <= 32'b0;
+                            sm_l1d_resp_rdata[k*32 +: 32] <= 32'b0;
                         end
                     end else begin
                         // Pipeline stage 1: Capture request
@@ -307,8 +307,8 @@ module ralph_gpu_top #(
                         req_write_d <= sm_l1d_req_write;
                         req_mask_d <= sm_l1d_req_mask;
                         for (integer k = 0; k < NUM_LANES; k = k + 1) begin
-                            req_addr_d[k] <= sm_l1d_req_addr[k];
-                            req_wdata_d[k] <= sm_l1d_req_wdata[k];
+                            req_addr_d[k*32 +: 32] <= sm_l1d_req_addr[k*32 +: 32];
+                            req_wdata_d[k*32 +: 32] <= sm_l1d_req_wdata[k*32 +: 32];
                         end
 
                         // Pipeline stage 2: Return response
@@ -320,13 +320,13 @@ module ralph_gpu_top #(
                                 if (req_mask_d[k]) begin
                                     if (req_write_d) begin
                                         // Write operation
-                                        l1d_bypass_mem[req_addr_d[k][15:2]] <= req_wdata_d[k];
+                                        l1d_bypass_mem[req_addr_d[k][15:2]] <= req_wdata_d[k*32 +: 32];
                                     end else begin
                                         // Read operation
-                                        sm_l1d_resp_rdata[k] <= l1d_bypass_mem[req_addr_d[k][15:2]];
+                                        sm_l1d_resp_rdata[k*32 +: 32] <= l1d_bypass_mem[req_addr_d[k][15:2]];
                                     end
                                 end else begin
-                                    sm_l1d_resp_rdata[k] <= 32'b0;
+                                    sm_l1d_resp_rdata[k*32 +: 32] <= 32'b0;
                                 end
                             end
                         end

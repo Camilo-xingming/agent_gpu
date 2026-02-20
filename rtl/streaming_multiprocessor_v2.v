@@ -67,11 +67,11 @@ module streaming_multiprocessor_v2 #(
     /* verilator lint_off UNDRIVEN */
     output wire                     l1d_req_valid,
     output wire                     l1d_req_write,
-    output wire [31:0]              l1d_req_addr [0:NUM_LANES-1],
-    output wire [31:0]              l1d_req_wdata [0:NUM_LANES-1],
+    output wire [NUM_LANES*32-1:0] l1d_req_addr,
+    output wire [NUM_LANES*32-1:0] l1d_req_wdata,
     output wire [NUM_LANES-1:0]     l1d_req_mask,
     /* verilator lint_on UNDRIVEN */
-    input  wire [31:0]              l1d_resp_rdata [0:NUM_LANES-1],
+    input wire [NUM_LANES*32-1:0] l1d_resp_rdata,
     input  wire                     l1d_resp_valid,
     input  wire                     l1d_resp_hit,
 
@@ -1071,8 +1071,8 @@ module streaming_multiprocessor_v2 #(
     genvar l1_port_tieoff_i;
     generate
         for (l1_port_tieoff_i = 0; l1_port_tieoff_i < NUM_LANES; l1_port_tieoff_i = l1_port_tieoff_i + 1) begin : gen_l1_port_tieoff
-            assign l1d_req_addr[l1_port_tieoff_i] = 32'b0;
-            assign l1d_req_wdata[l1_port_tieoff_i] = 32'b0;
+            assign l1d_req_addr[l1_port_tieoff_i*32 +: 32] = 32'b0;
+            assign l1d_req_wdata[l1_port_tieoff_i*32 +: 32] = 32'b0;
         end
     endgenerate
 

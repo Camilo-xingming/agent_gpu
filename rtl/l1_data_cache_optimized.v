@@ -34,10 +34,10 @@ module l1_data_cache_optimized #(
     //------------------------------------------------------------------------
     input  wire                 req_valid,
     input  wire                 req_write,
-    input  wire [31:0]          req_addr [0:THREADS-1],
-    input  wire [31:0]          req_wdata [0:THREADS-1],
+    input wire [THREADS*32-1:0] req_addr,
+    input wire [THREADS*32-1:0] req_wdata,
     input  wire [THREADS-1:0]   req_mask,
-    output reg  [31:0]          resp_rdata [0:THREADS-1],
+    output reg [THREADS*32-1:0] resp_rdata,
     output reg                  resp_valid,
     output reg                  resp_hit,
 
@@ -404,7 +404,7 @@ module l1_data_cache_optimized #(
             end
 
             for (i = 0; i < THREADS; i = i + 1) begin
-                resp_rdata[i] <= 0;
+                resp_rdata[i*32 +: 32] <= 0;
                 saved_addr[i] <= 0;
                 saved_wdata[i] <= 0;
             end
@@ -462,8 +462,8 @@ module l1_data_cache_optimized #(
                         saved_write <= req_write;
                         saved_mask  <= req_mask;
                         for (i = 0; i < THREADS; i = i + 1) begin
-                            saved_addr[i]  <= req_addr[i];
-                            saved_wdata[i] <= req_wdata[i];
+                            saved_addr[i]  <= req_addr[i*32 +: 32];
+                            saved_wdata[i] <= req_wdata[i*32 +: 32];
                         end
                         latency_counter <= HIT_LATENCY - 1;
 
@@ -474,10 +474,10 @@ module l1_data_cache_optimized #(
                                     stride_confidence <= stride_confidence + 1;
                                 end
                             end else begin
-                                last_stride <= req_addr[0] - last_addr;
+                                last_stride <= req_addr[31:0] - last_addr;
                                 stride_confidence <= 0;
                             end
-                            last_addr <= req_addr[0];
+                            last_addr <= req_addr[31:0];
                         end
                     end
                 end
@@ -540,7 +540,7 @@ module l1_data_cache_optimized #(
                             // Read operation
                             for (i = 0; i < THREADS; i = i + 1) begin
                                 if (saved_mask[i]) begin
-                                    resp_rdata[i] <= data_array[hit_way][primary_index][saved_addr[i][OFFSET_BITS-1:2]];
+                                    resp_rdata[i*32 +: 32] <= data_array[hit_way][primary_index][saved_addr[i][OFFSET_BITS-1:2]];
                                 end
                             end
                         end
@@ -604,7 +604,7 @@ module l1_data_cache_optimized #(
                         end else begin
                             for (i = 0; i < THREADS; i = i + 1) begin
                                 if (saved_mask[i]) begin
-                                    resp_rdata[i] <= mem_rdata[saved_addr[i][OFFSET_BITS-1:2]*32 +: 32];
+                                    resp_rdata[i*32 +: 32] <= mem_rdata[saved_addr[i][OFFSET_BITS-1:2]*32 +: 32];
                                 end
                             end
                         end
@@ -671,8 +671,8 @@ module memory_coalescing_optimized #(
     // Thread requests
     input  wire                 req_valid,
     input  wire                 req_write,
-    input  wire [31:0]          req_addr [0:THREADS-1],
-    input  wire [31:0]          req_wdata [0:THREADS-1],
+    input wire [THREADS*32-1:0] req_addr,
+    input wire [THREADS*32-1:0] req_wdata,
     input  wire [THREADS-1:0]   req_mask,
 
     // Coalesced output (to cache/memory)
@@ -690,7 +690,7 @@ module memory_coalescing_optimized #(
 );
 
     // Coalescing logic: Group threads accessing same 128-byte region
-    wire [31:0] base_addr = req_addr[0] & 32'hFFFFFF80;  // 128-byte aligned
+    wire [31:0] base_addr = req_addr[31:0] & 32'hFFFFFF80;  // 128-byte aligned
 
     // Check which threads can be coalesced
     reg [THREADS-1:0] coalescable;
@@ -700,7 +700,7 @@ module memory_coalescing_optimized #(
         for (integer i = 0; i < THREADS; i = i + 1) begin
             if (req_mask[i]) begin
                 // Check if address is within same 128-byte region
-                if ((req_addr[i] & 32'hFFFFFF80) == base_addr) begin
+                if ((req_addr[i*32 +: 32] & 32'hFFFFFF80) == base_addr) begin
                     coalescable[i] = 1;
                 end
             end
@@ -736,7 +736,7 @@ module memory_coalescing_optimized #(
                         // Calculate position in 128-bit word (within 128B line)
                         // Simplified: assume first 4 threads map to 128-bit word
                         if (i < 4) begin
-                            coal_wdata[i*32 +: 32] <= req_wdata[i];
+                            coal_wdata[i*32 +: 32] <= req_wdata[i*32 +: 32];
                             coal_byte_en[i*4 +: 4] <= 4'hF;
                         end
                     end

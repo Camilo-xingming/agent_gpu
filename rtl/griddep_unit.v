@@ -58,7 +58,7 @@ module griddep_unit #(
     //------------------------------------------------------------------------
     input  wire [MAX_GRIDS-1:0]         dep_satisfied,  // Which dependencies are satisfied
     input  wire [MAX_GRIDS-1:0]         grid_active,    // Which grids are active
-    input  wire [TOKEN_WIDTH-1:0]       current_tokens [0:MAX_GRIDS-1]  // Current grid tokens
+    input wire [MAX_GRIDS*(TOKEN_WIDTH)-1:0] current_tokens  // Current grid tokens
 );
 
     //------------------------------------------------------------------------
@@ -107,7 +107,7 @@ module griddep_unit #(
     always @(*) begin
         check_grid_idx = INVALID_GRID;  // Invalid
         for (integer i = 0; i < MAX_GRIDS; i = i + 1) begin
-            if (current_tokens[i] == token_to_check && grid_active[i]) begin
+            if (current_tokens[i*TOKEN_WIDTH +: TOKEN_WIDTH] == token_to_check && grid_active[i]) begin
                 check_grid_idx = i[GRID_IDX_W-1:0];
             end
         end

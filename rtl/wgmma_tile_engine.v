@@ -466,12 +466,12 @@ module tensor_pipeline_scheduler #(
     // Tensor Core Interface
     //------------------------------------------------------------------------
     output wire [NUM_TC_UNITS-1:0]  tc_valid,
-    output wire [511:0]             tc_frag_a [0:NUM_TC_UNITS-1],
-    output wire [511:0]             tc_frag_b [0:NUM_TC_UNITS-1],
-    output wire [1023:0]            tc_accum [0:NUM_TC_UNITS-1],
+    output wire [NUM_TC_UNITS*512-1:0] tc_frag_a,
+    output wire [NUM_TC_UNITS*512-1:0] tc_frag_b,
+    output wire [NUM_TC_UNITS*1024-1:0] tc_accum,
     input  wire [NUM_TC_UNITS-1:0]  tc_ready,
     input  wire [NUM_TC_UNITS-1:0]  tc_done,
-    input  wire [1023:0]            tc_result [0:NUM_TC_UNITS-1],
+    input wire [NUM_TC_UNITS*1024-1:0] tc_result,
 
     //------------------------------------------------------------------------
     // Result Interface
@@ -675,7 +675,7 @@ module tensor_pipeline_scheduler #(
     end
 
     assign result_valid = found_result;
-    assign result_data  = tc_result[result_tc];
+    assign result_data  = tc_result[result_tc*1024 +: 1024];
     assign result_rd    = tc_pending_rd[result_tc];
     assign result_warp  = tc_pending_warp[result_tc];
 
@@ -688,9 +688,9 @@ module tensor_pipeline_scheduler #(
         genvar tc;
         for (tc = 0; tc < NUM_TC_UNITS; tc = tc + 1) begin : gen_tc_out
             assign tc_valid[tc] = tc_valid_r[tc];
-            assign tc_frag_a[tc] = tc_frag_a_r[tc];
-            assign tc_frag_b[tc] = tc_frag_b_r[tc];
-            assign tc_accum[tc] = tc_accum_r[tc];
+            assign tc_frag_a[tc*512 +: 512] = tc_frag_a_r[tc];
+            assign tc_frag_b[tc*512 +: 512] = tc_frag_b_r[tc];
+            assign tc_accum[tc*1024 +: 1024] = tc_accum_r[tc];
         end
     endgenerate
 

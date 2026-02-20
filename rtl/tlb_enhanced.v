@@ -37,7 +37,7 @@ module tlb_enhanced #(
     output wire [NUM_SMS-1:0]           resp_valid,
     output wire [PADDR_WIDTH*NUM_SMS-1:0] resp_paddr,
     output wire [NUM_SMS-1:0]           resp_fault,
-    output wire [3:0]                   resp_fault_code [0:NUM_SMS-1],
+    output wire [NUM_SMS*4-1:0] resp_fault_code,
 
     //------------------------------------------------------------------------
     // Page Table Walk Interface (to Memory)
@@ -582,7 +582,7 @@ module tlb_enhanced #(
     generate
         for (out_s = 0; out_s < NUM_SMS; out_s = out_s + 1) begin : gen_out
             assign resp_paddr[out_s*PADDR_WIDTH +: PADDR_WIDTH] = resp_paddr_r[out_s];
-            assign resp_fault_code[out_s] = resp_fault_code_r[out_s];
+            assign resp_fault_code[out_s*4 +: 4] = resp_fault_code_r[out_s];
         end
     endgenerate
 

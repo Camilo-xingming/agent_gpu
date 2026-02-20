@@ -29,21 +29,21 @@ module forwarding_unit #(
     //------------------------------------------------------------------------
     input  wire [REG_ADDR_WIDTH-1:0]    ex_rd,          // EX阶段目标寄存器
     input  wire                         ex_reg_write,   // EX阶段写寄存器
-    input  wire [DATA_WIDTH-1:0]        ex_result [0:THREADS-1],  // EX阶段结果
+    input wire [THREADS*(DATA_WIDTH)-1:0] ex_result,  // EX阶段结果
 
     //------------------------------------------------------------------------
     // MEM阶段信息
     //------------------------------------------------------------------------
     input  wire [REG_ADDR_WIDTH-1:0]    mem_rd,         // MEM阶段目标寄存器
     input  wire                         mem_reg_write,  // MEM阶段写寄存器
-    input  wire [DATA_WIDTH-1:0]        mem_result [0:THREADS-1], // MEM阶段结果
+    input wire [THREADS*(DATA_WIDTH)-1:0] mem_result, // MEM阶段结果
 
     //------------------------------------------------------------------------
     // WB阶段信息 (用于MEM load完成后)
     //------------------------------------------------------------------------
     input  wire [REG_ADDR_WIDTH-1:0]    wb_rd,          // WB阶段目标寄存器
     input  wire                         wb_reg_write,   // WB阶段写寄存器
-    input  wire [DATA_WIDTH-1:0]        wb_result [0:THREADS-1],  // WB阶段结果
+    input wire [THREADS*(DATA_WIDTH)-1:0] wb_result,  // WB阶段结果
 
     //------------------------------------------------------------------------
     // 转发控制输出
@@ -55,9 +55,9 @@ module forwarding_unit #(
     //------------------------------------------------------------------------
     // 转发数据输出
     //------------------------------------------------------------------------
-    output reg  [DATA_WIDTH-1:0]        forwarded_a [0:THREADS-1],
-    output reg  [DATA_WIDTH-1:0]        forwarded_b [0:THREADS-1],
-    output reg  [DATA_WIDTH-1:0]        forwarded_c [0:THREADS-1],
+    output reg [THREADS*(DATA_WIDTH)-1:0] forwarded_a,
+    output reg [THREADS*(DATA_WIDTH)-1:0] forwarded_b,
+    output reg [THREADS*(DATA_WIDTH)-1:0] forwarded_c,
 
     //------------------------------------------------------------------------
     // Hazard检测
@@ -131,30 +131,30 @@ module forwarding_unit #(
         // 操作数A
         for (i = 0; i < THREADS; i = i + 1) begin
             case (forward_a)
-                2'b01:   forwarded_a[i] = ex_result[i];
-                2'b10:   forwarded_a[i] = mem_result[i];
-                2'b11:   forwarded_a[i] = wb_result[i];
-                default: forwarded_a[i] = 0;  // 无转发，使用寄存器文件
+                2'b01:   forwarded_a[i*DATA_WIDTH +: DATA_WIDTH] = ex_result[i*DATA_WIDTH +: DATA_WIDTH];
+                2'b10:   forwarded_a[i*DATA_WIDTH +: DATA_WIDTH] = mem_result[i*DATA_WIDTH +: DATA_WIDTH];
+                2'b11:   forwarded_a[i*DATA_WIDTH +: DATA_WIDTH] = wb_result[i*DATA_WIDTH +: DATA_WIDTH];
+                default: forwarded_a[i*DATA_WIDTH +: DATA_WIDTH] = 0;  // 无转发，使用寄存器文件
             endcase
         end
 
         // 操作数B
         for (i = 0; i < THREADS; i = i + 1) begin
             case (forward_b)
-                2'b01:   forwarded_b[i] = ex_result[i];
-                2'b10:   forwarded_b[i] = mem_result[i];
-                2'b11:   forwarded_b[i] = wb_result[i];
-                default: forwarded_b[i] = 0;
+                2'b01:   forwarded_b[i*DATA_WIDTH +: DATA_WIDTH] = ex_result[i*DATA_WIDTH +: DATA_WIDTH];
+                2'b10:   forwarded_b[i*DATA_WIDTH +: DATA_WIDTH] = mem_result[i*DATA_WIDTH +: DATA_WIDTH];
+                2'b11:   forwarded_b[i*DATA_WIDTH +: DATA_WIDTH] = wb_result[i*DATA_WIDTH +: DATA_WIDTH];
+                default: forwarded_b[i*DATA_WIDTH +: DATA_WIDTH] = 0;
             endcase
         end
 
         // 操作数C
         for (i = 0; i < THREADS; i = i + 1) begin
             case (forward_c)
-                2'b01:   forwarded_c[i] = ex_result[i];
-                2'b10:   forwarded_c[i] = mem_result[i];
-                2'b11:   forwarded_c[i] = wb_result[i];
-                default: forwarded_c[i] = 0;
+                2'b01:   forwarded_c[i*DATA_WIDTH +: DATA_WIDTH] = ex_result[i*DATA_WIDTH +: DATA_WIDTH];
+                2'b10:   forwarded_c[i*DATA_WIDTH +: DATA_WIDTH] = mem_result[i*DATA_WIDTH +: DATA_WIDTH];
+                2'b11:   forwarded_c[i*DATA_WIDTH +: DATA_WIDTH] = wb_result[i*DATA_WIDTH +: DATA_WIDTH];
+                default: forwarded_c[i*DATA_WIDTH +: DATA_WIDTH] = 0;
             endcase
         end
     end
