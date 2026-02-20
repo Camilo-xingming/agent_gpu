@@ -320,10 +320,10 @@ module ralph_gpu_top #(
                                 if (req_mask_d[k]) begin
                                     if (req_write_d) begin
                                         // Write operation
-                                        l1d_bypass_mem[req_addr_d[k][15:2]] <= req_wdata_d[k*32 +: 32];
+                                        l1d_bypass_mem[req_addr_d[k*32+2 +: 14]] <= req_wdata_d[k*32 +: 32];
                                     end else begin
                                         // Read operation
-                                        sm_l1d_resp_rdata[k*32 +: 32] <= l1d_bypass_mem[req_addr_d[k][15:2]];
+                                        sm_l1d_resp_rdata[k*32 +: 32] <= l1d_bypass_mem[req_addr_d[k*32+2 +: 14]];
                                     end
                                 end else begin
                                     sm_l1d_resp_rdata[k*32 +: 32] <= 32'b0;
