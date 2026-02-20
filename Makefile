@@ -230,6 +230,14 @@ test_tensor_core_e2e: $(BUILD_DIR)/tb_tensor_core_e2e.vvp
 
 $(BUILD_DIR)/tb_tensor_core_e2e.vvp: $(RTL_DIR)/tensor_core.v $(RTL_DIR)/gpu_defines.vh $(TB_DIR)/tb_tensor_core_e2e.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_tensor_core_e2e.v $(RTL_DIR)/tensor_core.v
+test_texture_unit: $(BUILD_DIR)/tb_texture_unit.vvp
+	@echo "========================================"
+	@echo "Running Texture Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_texture_unit.vvp
+
+$(BUILD_DIR)/tb_texture_unit.vvp: $(RTL_DIR)/texture_unit.v $(RTL_DIR)/gpu_defines.vh $(TB_DIR)/tb_texture_unit.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_texture_unit.v $(RTL_DIR)/texture_unit.v
 test_sfu: $(BUILD_DIR)/tb_sfu.vvp
 	@echo "========================================"
 	@echo "Running SFU Unit Test"
@@ -502,7 +510,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_decoder test_regfile test_smem test_warp test_warp_ops test_video_unit test_tensor_core_e2e
+test: test_alu test_mul test_decoder test_regfile test_smem test_warp test_warp_ops test_video_unit test_tensor_core_e2e test_texture_unit
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
