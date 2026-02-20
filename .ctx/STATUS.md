@@ -10,7 +10,7 @@
 ### Codex Issues
 | # | Issue | Status |
 |---|-------|--------|
-| 1 | tb_b300_features.v only tests decoder, not functional | ❌ PENDING |
+| 1 | tb_b300_features.v only tests decoder, not functional | ✅ FIXED (tb_warp_ops.v 42/42 functional tests, PR #120) |
 | 2 | FRM missing branch/exit support | ✅ FIXED (EXIT + BRANCH added) |
 | 3 | FRM missing shared/param/atomic/membar | ✅ FIXED (param/const/atom/ld.shared/st.shared/membar added) |
 | 4 | FRM missing cp.async/st.async/mbarrier | ✅ FIXED (cp.async CA/CG/BULK + TMA stub, PR #115) |
@@ -29,9 +29,9 @@
 |---|-------|--------|
 | 1 | FP4/FP8 Tensor Core e2e verification | ❌ PENDING |
 | 2 | Texture/Surface unit verification | ❌ PENDING |
-| 3 | Video SIMD verification (beyond dp4a) | ❌ PENDING |
-| 4 | rtl_frm_compare.py brittle test detection | ❌ PENDING |
-| 5 | rtl_frm_compare.py hardcoded ULP tolerance | ❌ PENDING |
+| 3 | Video SIMD verification (beyond dp4a) | ✅ FIXED (tb_video_unit.v 36/36 SIMD+DP tests, PR #121) |
+| 4 | rtl_frm_compare.py brittle test detection | ✅ FIXED (detect_test_category(), PR #118) |
+| 5 | rtl_frm_compare.py hardcoded ULP tolerance | ✅ FIXED (per-category ULP map, PR #118) |
 
 ## Completed This Session
 1. ✅ PTX Assembler 32-bit immediates fixed
@@ -64,11 +64,14 @@
 28. ✅ FRM: Per-thread branch divergence (majority-wins simplified SIMT) — PR #115
 29. ✅ FRM: FP16/FP64/CVT self-tests (test_fp16_arith, test_fp64_arith, test_cvt) — PR #116
 30. ✅ **Tier 3 FRM Complete**: All Codex issues resolved (204/204 RTL-FRM + 10/10 self-tests)
+31. ✅ tb_warp_ops.v: Functional tests for warp_shuffle/vote/reduction (42/42 pass) — PR #120
+32. ✅ tb_video_unit.v: Video SIMD/DP4A/DP2A functional tests (36/36 pass) — PR #121
+33. ✅ rtl_frm_compare.py: detect_test_category() + per-category ULP tolerance — PR #118
 
 ### Test Coverage
 - PTX Assembler: 51/51 pass (100%)
 - Generated Tests: 173/173 pass (ALU 65 + FP32 10 + Memory 20 + Branch 8 + DIV 32 + Special 4 + Atom 5 + Sync 3 + Param 2 + Membar 3 + SFU 21)
-- RTL Unit Tests: ALU 26/26, FPU 26/26, B300 145/145
+- RTL Unit Tests: ALU 26/26, FPU 26/26, B300 145/145, Warp Ops 42/42, Video 36/36
 - **Tier 1: 100% VERIFIED** (all items have RTL + Gen + FRM)
 - **Tier 2: 100% VERIFIED** (LD/ST.GLOBAL/SHARED, LD.PARAM/CONST, ATOM, MEMBAR) - cp.async DECODE ONLY
 - **Tier 3: FP32 SFU VERIFIED** (21 tests)
@@ -85,12 +88,11 @@
 **MUST ASK Codex+Gemini** - FP16/FP64/CVT or Warp Collectives?
 
 ## Pending Issues Summary
-- ❌ PENDING: 4 issues (Codex #1, Gemini #1-3)
-- ⚠️ PARTIAL: 2 issues (Gemini #4-5)
-- ✅ FIXED: 15 issues
+- ❌ PENDING: 2 issues (Gemini #1-2)
+- ✅ FIXED: 19 issues
 
 ## Next Action
-Gemini issues (#1-5) or Codex #1 (tb_b300 functional tests)
+Gemini #1 (FP4/FP8 Tensor Core e2e) or Gemini #2 (Texture/Surface verification)
 
 ## Last Updated
 2026-02-19
