@@ -602,10 +602,95 @@ module tb_texture_unit;
         issue_and_wait(`OP_TEX, `TEX_2D, 32'd1, 32'd1, 0, 50);
         check_result_r(32'h0000000C, "TEX 2D 2x2 (1,1) R=0x0C");
 
+
         //====================================================================
-        // 14. Unknown opcode — DUT must not hang; next valid op succeeds
+        // 14. TEX 3D non-clamp wrap modes
         //====================================================================
-        $display("\n=== Section 14: Unknown Opcode Recovery ===");
+        $display("\n=== Section 14: TEX 3D Wrap Modes ===");
+        tex_base_addr = 32'h0004_0000;
+        tex_width = 16'd16; tex_height = 16'd16; tex_depth = 16'd16;
+
+        // REPEAT on all axes: s=18%16=2, t=33%16=1, r=48%16=0
+        tex_wrap_s = 4'h0; tex_wrap_t = 4'h0; tex_wrap_r = 4'h0;
+        // addr = base + 0*(16*16*4) + 1*(16*4) + 2*4 = 0x40048
+        issue_and_wait(`OP_TEX, `TEX_3D, 32'd18, 32'd33, 32'd48, 50);
+        check_result_r(32'h00000048, "TEX 3D repeat all axes");
+
+        // MIRROR: s=20->11, t=0, r=0; addr = base+0+0+11*4 = 0x4002C
+        tex_wrap_s = 4'h2; tex_wrap_t = 4'h2; tex_wrap_r = 4'h2;
+        issue_and_wait(`OP_TEX, `TEX_3D, 32'd20, 32'd0, 32'd0, 50);
+        check_result_r(32'h0000002C, "TEX 3D mirror s=20->11");
+
+        //====================================================================
+        // 15. SULD + SUST round-trip
+        //====================================================================
+        $display("\n=== Section 15: Surface Round-Trip ===");
+        tex_base_addr = 32'h000A_0000;
+        tex_width = 16'd32;
+
+        // Store pattern at (3,2)
+        store_data = 128'hCAFE_BABE_DEAD_BEEF_1111_2222_3333_4444;
+        store_captured = 0;
+        issue_and_wait(`OP_SUST, 6'b0, 32'd3, 32'd2, 0, 50);
+        check_completed("Round-trip SUST completes");
+
+        test_num = test_num + 1;
+        if (store_captured && last_store_wdata === 128'hCAFE_BABE_DEAD_BEEF_1111_2222_3333_4444) begin
+            $display("PASS test %0d: SUST round-trip data ok", test_num);
+            pass_count = pass_count + 1;
+        end else begin
+            $display("FAIL test %0d: SUST round-trip data bad", test_num);
+            fail_count = fail_count + 1;
+        end
+
+        // Load from same location
+        issue_and_wait(`OP_SULD, 6'b0, 32'd3, 32'd2, 0, 50);
+        check_completed("Round-trip SULD completes");
+
+        //====================================================================
+        // 16. Rapid TXQ sequence
+        //====================================================================
+        $display("\n=== Section 16: Rapid TXQ Sequence ===");
+        tex_width = 16'd800; tex_height = 16'd600;
+        tex_depth = 16'd32; num_mip_levels = 4'd10;
+
+        issue_and_wait(`OP_TXQ, `TXQ_WIDTH, 0, 0, 0, 50);
+        check_result({96'b0, 32'd800}, "Rapid TXQ width=800");
+
+        issue_and_wait(`OP_TXQ, `TXQ_HEIGHT, 0, 0, 0, 50);
+        check_result({96'b0, 32'd600}, "Rapid TXQ height=600");
+
+        issue_and_wait(`OP_TXQ, `TXQ_DEPTH, 0, 0, 0, 50);
+        check_result({96'b0, 32'd32}, "Rapid TXQ depth=32");
+
+        issue_and_wait(`OP_TXQ, `TXQ_LEVELS, 0, 0, 0, 50);
+        check_result({124'b0, 4'd10}, "Rapid TXQ levels=10");
+
+        //====================================================================
+        // 17. Boundary coordinates
+        //====================================================================
+        $display("\n=== Section 17: Boundary Coordinates ===");
+        tex_base_addr = 32'h000B_0000;
+        tex_width = 16'd128; tex_height = 16'd1;
+        tex_wrap_s = 4'h1; // CLAMP
+
+        // Exact last valid coord
+        issue_and_wait(`OP_TEX, `TEX_1D, 32'd127, 0, 0, 50);
+        check_result_r(32'h0000007F, "clamp s=127 exact boundary");
+
+        // One past last (clamps to 127)
+        issue_and_wait(`OP_TEX, `TEX_1D, 32'd128, 0, 0, 50);
+        check_result_r(32'h0000007F, "clamp s=128 clamps to 127");
+
+        // Repeat: size wraps to 0
+        tex_wrap_s = 4'h0;
+        issue_and_wait(`OP_TEX, `TEX_1D, 32'd128, 0, 0, 50);
+        check_result_r(32'h00000000, "repeat s=128 wraps to 0");
+
+        //====================================================================
+        // 18. Unknown opcode — DUT must not hang; next valid op succeeds
+        //====================================================================
+        $display("\n=== Section 18: Unknown Opcode Recovery ===");
         // Send unknown opcode (RTL goes IDLE→busy=1→default→IDLE, busy stays)
         @(posedge clk);
         opcode <= 6'b111111; // undefined
@@ -636,7 +721,7 @@ module tb_texture_unit;
 
     // Timeout
     initial begin
-        #200000;
+        #300000;
         $display("TIMEOUT");
         $finish;
     end
