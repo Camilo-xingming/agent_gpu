@@ -289,6 +289,15 @@ module ralph_gpu_top #(
     wire perf_l2_miss = (l2_stat_misses_perf != l2_stat_misses_prev);
     wire perf_dram_access = perf_l2_miss || (m_axi_rvalid && m_axi_rready) || (m_axi_bvalid && m_axi_bready);
 
+    // L2 <-> HBM bridge (128-byte cache-line transactions)
+    wire        l2_mem_req_valid;
+    wire        l2_mem_req_write;
+    wire [31:0] l2_mem_req_addr;
+    wire [128*8-1:0] l2_mem_req_wdata;
+    wire        l2_mem_req_ready;
+    wire        l2_mem_resp_valid;
+    wire [128*8-1:0] l2_mem_resp_rdata;
+
     generate
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_gen
             wire        sm_l1d_req_valid;
@@ -755,15 +764,6 @@ module ralph_gpu_top #(
             wire [NUM_SM-1:0]        l2_resp_valid;
             wire [NUM_SM*128*8-1:0]  l2_resp_rdata;
 
-            // Memory controller interface
-            wire        l2_mem_req_valid;
-            wire        l2_mem_req_write;
-            wire [31:0] l2_mem_req_addr;
-            wire [128*8-1:0] l2_mem_req_wdata;
-            wire        l2_mem_req_ready;
-            wire        l2_mem_resp_valid;
-            wire [128*8-1:0] l2_mem_resp_rdata;
-
             // L2 cache statistics
             wire [31:0] l2_stat_hits;
             wire [31:0] l2_stat_misses;
@@ -805,26 +805,6 @@ module ralph_gpu_top #(
                 .stat_writebacks(l2_stat_writebacks)
             );
 
-            // Simple memory response for L2 misses (connects to AXI in full system)
-            reg l2_mem_resp_pending;
-            reg [128*8-1:0] l2_mem_resp_data_r;
-
-            assign l2_mem_req_ready = 1'b1;
-
-            always @(posedge clk or negedge rst_n) begin
-                if (!rst_n) begin
-                    l2_mem_resp_pending <= 1'b0;
-                    l2_mem_resp_data_r <= {(128*8){1'b0}};
-                end else begin
-                    l2_mem_resp_pending <= l2_mem_req_valid && !l2_mem_req_write;
-                    // In full system, this would go through memory controller
-                    l2_mem_resp_data_r <= {(128*8){1'b0}};  // Placeholder for real memory data
-                end
-            end
-
-            assign l2_mem_resp_valid = l2_mem_resp_pending;
-            assign l2_mem_resp_rdata = l2_mem_resp_data_r;
-
             // Connect L1D cache misses to L2 requests
             // Note: Full integration requires modifying the L1D bypass/full logic
             // to route through L2 instead of direct memory access
@@ -836,6 +816,10 @@ module ralph_gpu_top #(
         end else begin : l2_cache_bypass_gen
             assign l2_stat_hits_perf = 32'b0;
             assign l2_stat_misses_perf = 32'b0;
+            assign l2_mem_req_valid = 1'b0;
+            assign l2_mem_req_write = 1'b0;
+            assign l2_mem_req_addr  = 32'b0;
+            assign l2_mem_req_wdata = {(128*8){1'b0}};
         end
     endgenerate
 
@@ -1324,18 +1308,23 @@ module ralph_gpu_top #(
     // HBM Memory Controller
     // FR-FCFS scheduling with real DRAM timing
     //------------------------------------------------------------------------
-    // HBM request ports — stub-driven until L2 is wired to HBM controller
+    // HBM request ports
     wire hbm_req_valid;
     wire hbm_req_write;
     wire [31:0] hbm_req_addr;
     wire [1023:0] hbm_req_wdata;
-    assign hbm_req_valid = 1'b0;
-    assign hbm_req_write = 1'b0;
-    assign hbm_req_addr  = 32'b0;
-    assign hbm_req_wdata = 1024'b0;
     wire hbm_req_ready;
     wire hbm_resp_valid;
     wire [1023:0] hbm_resp_rdata;
+
+    assign hbm_req_valid = L2_ENABLE ? l2_mem_req_valid : 1'b0;
+    assign hbm_req_write = L2_ENABLE ? l2_mem_req_write : 1'b0;
+    assign hbm_req_addr  = L2_ENABLE ? l2_mem_req_addr  : 32'b0;
+    assign hbm_req_wdata = L2_ENABLE ? l2_mem_req_wdata : 1024'b0;
+
+    assign l2_mem_req_ready  = L2_ENABLE ? hbm_req_ready : 1'b0;
+    assign l2_mem_resp_valid = L2_ENABLE ? hbm_resp_valid : 1'b0;
+    assign l2_mem_resp_rdata = L2_ENABLE ? hbm_resp_rdata : {(128*8){1'b0}};
 
     memory_controller_hbm #(
         .NUM_CHANNELS   (8),
