@@ -48,7 +48,13 @@ module shared_memory #(
     input  wire [ADDR_WIDTH-1:0]    wgmma_rd_addr_b,    // Base address for matrix B tile
     output reg  [511:0]             wgmma_rd_data_a,    // 512-bit data for matrix A (16 x 32-bit)
     output reg  [511:0]             wgmma_rd_data_b,    // 512-bit data for matrix B (16 x 32-bit)
-    output reg                      wgmma_rd_valid      // Read data valid (1 cycle latency)
+    output reg                      wgmma_rd_valid,     // Read data valid (1 cycle latency)
+
+    // ACE read port (128-bit for st.async.global reading from SMEM)
+    input  wire                     ace_rd_en,
+    input  wire [ADDR_WIDTH-1:0]    ace_rd_addr,
+    output reg  [127:0]             ace_rd_data,
+    output reg                      ace_rd_valid
 );
 
     //------------------------------------------------------------------------
@@ -268,6 +274,32 @@ module shared_memory #(
                 // Read 16 words for matrix B
                 for (wgmma_i = 0; wgmma_i < 16; wgmma_i = wgmma_i + 1) begin
                     wgmma_rd_data_b[wgmma_i*32 +: 32] <= bank_mem[wgmma_bank_b[wgmma_i]][wgmma_baddr_b[wgmma_i]];
+                end
+            end
+        end
+    end
+
+    // ACE read operation (128-bit = 4 words, 1-cycle latency)
+    wire [BANK_SEL_W-1:0] ace_bank [0:3];
+    wire [BANK_ADDR_W-1:0] ace_baddr [0:3];
+    genvar ace_gi;
+    generate
+        for (ace_gi = 0; ace_gi < 4; ace_gi = ace_gi + 1) begin : gen_ace_addr
+            assign ace_bank[ace_gi]  = (ace_rd_addr + ace_gi * 4) >> 2;  // word addr bank select
+            assign ace_baddr[ace_gi] = (ace_rd_addr + ace_gi * 4) >> (2 + BANK_SEL_W);
+        end
+    endgenerate
+
+    integer ace_i;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            ace_rd_data <= 128'b0;
+            ace_rd_valid <= 1'b0;
+        end else begin
+            ace_rd_valid <= ace_rd_en;
+            if (ace_rd_en) begin
+                for (ace_i = 0; ace_i < 4; ace_i = ace_i + 1) begin
+                    ace_rd_data[ace_i*32 +: 32] <= bank_mem[ace_bank[ace_i]][ace_baddr[ace_i]];
                 end
             end
         end

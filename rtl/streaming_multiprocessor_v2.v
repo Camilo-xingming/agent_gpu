@@ -117,7 +117,17 @@ module streaming_multiprocessor_v2 #(
     output wire                     perf_fu_ldst_active,
     output wire                     perf_fu_tensor_active,
     output wire                     perf_branch_taken,
-    output wire                     perf_branch_divergent
+    output wire                     perf_branch_divergent,
+
+    // Phase 5 perf counter additions
+    output wire                     perf_stall_sync,
+    output wire                     perf_fu_sfu_active,
+    output wire                     perf_branch_reconverge,
+    output wire [NUM_WARPS-1:0]     perf_warp_issued,
+    output wire [NUM_WARPS-1:0]     perf_warp_stalled,
+    output wire [NUM_WARPS-1:0]     perf_warp_diverged,
+    output wire                     perf_tensor_mma_issued,
+    output wire                     perf_tensor_mma_completed
 );
 
     //========================================================================
@@ -272,6 +282,7 @@ module streaming_multiprocessor_v2 #(
     reg  [31:0]          warp_fetch_pc [0:NUM_WARPS-1];
     /* verilator lint_on MULTIDRIVEN */
     reg  [NUM_LANES-1:0] warp_mask [0:NUM_WARPS-1];  // Active thread mask
+    reg  [NUM_WARPS-1:0] warp_bp_pred_taken;  // Latched branch prediction per warp
     reg  [3:0]           cp_async_pending [0:NUM_WARPS-1];  // Outstanding cp.async copies
     reg  [3:0]           cp_async_wait_threshold [0:NUM_WARPS-1];
     reg  [NUM_WARPS-1:0] cp_async_wait_all;
@@ -1068,6 +1079,25 @@ module streaming_multiprocessor_v2 #(
     assign perf_branch_taken       = branch_taken_combined;
     assign perf_branch_divergent   = divergent_branch;
 
+    // Phase 5 perf counter additions
+    assign perf_stall_sync         = |( warp_valid & warp_stalled_sync );
+    assign perf_fu_sfu_active      = sfu_issue;
+    assign perf_branch_reconverge  = sm_at_reconverge && issue_valid;
+    assign perf_tensor_mma_issued  = tensor_issue_push_fire;
+    assign perf_tensor_mma_completed = tensor_wbq_pop;
+
+    // Per-warp tracking: which warps issued / are stalled / diverged this cycle
+    genvar pw_i;
+    generate
+        for (pw_i = 0; pw_i < NUM_WARPS; pw_i = pw_i + 1) begin : gen_perf_warp
+            assign perf_warp_issued[pw_i]   = (issue_valid && issue_warp_id == pw_i[WARP_ID_W-1:0]) ||
+                                               (issue1_valid && issue1_warp_id == pw_i[WARP_ID_W-1:0]);
+            assign perf_warp_stalled[pw_i]  = warp_valid[pw_i] & ~warp_ready[pw_i];
+            assign perf_warp_diverged[pw_i] = (divergent_branch && issue_warp_id == pw_i[WARP_ID_W-1:0]) ||
+                                               (divergent_branch1 && issue1_warp_id == pw_i[WARP_ID_W-1:0]);
+        end
+    endgenerate
+
     // External L1D ports are tied off; SM integrates L1 internally.
     assign l1d_req_valid = 1'b0;
     assign l1d_req_write = 1'b0;
@@ -1365,6 +1395,8 @@ module streaming_multiprocessor_v2 #(
             // Statistics
             if (fetch_fire) begin
                 sched_single_issue_count <= sched_single_issue_count + 1;
+                // Latch branch prediction for this warp at fetch time
+                warp_bp_pred_taken[selected_warp] <= bp_pred_taken && bp_pred_valid;
             end else if (warp_selected && !fetch_fire) begin
                 sched_stall_count <= sched_stall_count + 1;
             end
@@ -3842,8 +3874,8 @@ module streaming_multiprocessor_v2 #(
     // Shared memory read interface for st.async.global (if reading from SMEM)
     wire        ace_smem_rd_en;
     wire [13:0] ace_smem_rd_addr;
-    wire [127:0] ace_smem_rd_data = 128'b0;  // TODO: Connect to shared memory read
-    wire        ace_smem_rd_valid = ace_smem_rd_en;  // Instant read for now
+    wire [127:0] ace_smem_rd_data;   // Connected to shared memory ACE read port
+    wire        ace_smem_rd_valid;  // 1-cycle latency from shared memory
 
     // Simple global memory write done signal (instant completion for simulation)
     assign ace_gmem_wr_done = ace_gmem_wr_valid;
@@ -4259,7 +4291,12 @@ module streaming_multiprocessor_v2 #(
         .wgmma_rd_addr_b(wgmma_smem_addr_b),
         .wgmma_rd_data_a(wgmma_smem_data_a),
         .wgmma_rd_data_b(wgmma_smem_data_b),
-        .wgmma_rd_valid (wgmma_smem_rd_valid)
+        .wgmma_rd_valid (wgmma_smem_rd_valid),
+        // ACE read port (st.async.global reads from SMEM)
+        .ace_rd_en      (ace_smem_rd_en),
+        .ace_rd_addr    (ace_smem_rd_addr),
+        .ace_rd_data    (ace_smem_rd_data),
+        .ace_rd_valid   (ace_smem_rd_valid)
     );
 
     //------------------------------------------------------------------------
@@ -4859,6 +4896,7 @@ module streaming_multiprocessor_v2 #(
                 warp_stalled_sync[w] <= 1'b0;
                 warp_stalled_branch[w] <= 1'b0;
                 warp_exit_pending[w] <= 1'b0;
+                warp_bp_pred_taken[w] <= 1'b0;
                 warp_pc[w] <= 32'b0;
                 warp_fetch_pc[w] <= 32'b0;
                 warp_mask[w] <= {NUM_LANES{1'b1}};
@@ -5117,7 +5155,7 @@ module streaming_multiprocessor_v2 #(
                 bp_update_target <= branch_target_combined;
                 bp_update_is_call <= (issue_func == 6'h01);  // JAL-like
                 bp_update_is_return <= (issue_func == 6'h02); // RET-like
-                bp_update_mispredicted <= 1'b0;  // TODO: Compare with prediction
+                bp_update_mispredicted <= (branch_taken_combined != warp_bp_pred_taken[issue_warp_id]);
             end else if (issue1_valid && issue1_branch_op) begin
                 bp_update_valid <= 1'b1;
                 bp_update_warp_id <= issue1_warp_id;
@@ -5126,7 +5164,7 @@ module streaming_multiprocessor_v2 #(
                 bp_update_target <= branch1_target_combined;
                 bp_update_is_call <= (issue1_func == 6'h01);
                 bp_update_is_return <= (issue1_func == 6'h02);
-                bp_update_mispredicted <= 1'b0;
+                bp_update_mispredicted <= (branch1_taken_combined != warp_bp_pred_taken[issue1_warp_id]);
             end else begin
                 bp_update_valid <= 1'b0;
             end
