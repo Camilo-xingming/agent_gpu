@@ -139,6 +139,7 @@ module memory_coalescing_unit #(
 
     // 响应缓存
     reg [CACHE_LINE_SIZE*8-1:0] line_data [0:MAX_COALESCED-1];
+    reg [CACHE_LINE_SIZE*8-1:0] selected_line; // iverilog: temp for 2D access
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -233,7 +234,8 @@ module memory_coalescing_unit #(
                     // 分发数据到各个线程
                     for (i = 0; i < THREADS; i = i + 1) begin
                         if (saved_mask[i]) begin
-                            resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= line_data[thread_to_line[i]][saved_addr[i][OFFSET_BITS-1:0]*8 +: DATA_WIDTH];
+                            selected_line = line_data[thread_to_line[i]];
+                            resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= selected_line[saved_addr[i][OFFSET_BITS-1:0]*8 +: DATA_WIDTH];
                         end else begin
                             resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= 0;
                         end
@@ -265,7 +267,8 @@ endmodule
 //============================================================================
 module warp_memory_unit #(
     parameter THREADS = 32,
-    parameter DATA_WIDTH = 32
+    parameter DATA_WIDTH = 32,
+    parameter ADDR_WIDTH = 32
 )(
     input  wire                 clk,
     input  wire                 rst_n,
