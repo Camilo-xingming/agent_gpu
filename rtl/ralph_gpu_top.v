@@ -277,6 +277,17 @@ module ralph_gpu_top #(
     wire [NUM_SM*4-1:0] sm_perf_warp_diverged;
     wire [NUM_SM-1:0] sm_perf_tensor_mma_issued;
     wire [NUM_SM-1:0] sm_perf_tensor_mma_completed;
+    wire [NUM_SM-1:0] sm_perf_l1_hit;
+    wire [NUM_SM-1:0] sm_perf_l1_miss;
+
+    wire [31:0] l2_stat_hits_perf;
+    wire [31:0] l2_stat_misses_perf;
+    reg  [31:0] l2_stat_hits_prev;
+    reg  [31:0] l2_stat_misses_prev;
+
+    wire perf_l2_hit = (l2_stat_hits_perf != l2_stat_hits_prev);
+    wire perf_l2_miss = (l2_stat_misses_perf != l2_stat_misses_prev);
+    wire perf_dram_access = perf_l2_miss || (m_axi_rvalid && m_axi_rready) || (m_axi_bvalid && m_axi_bready);
 
     generate
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_gen
@@ -288,6 +299,9 @@ module ralph_gpu_top #(
             reg [NUM_LANES*32-1:0] sm_l1d_resp_rdata;
             reg         sm_l1d_resp_valid;
             reg         sm_l1d_resp_hit;
+
+            assign sm_perf_l1_hit[sm] = sm_l1d_resp_valid & sm_l1d_resp_hit;
+            assign sm_perf_l1_miss[sm] = sm_l1d_resp_valid & ~sm_l1d_resp_hit;
 
             // L1D Bypass Mode: Direct memory access with 1-cycle latency
             if (L1D_BYPASS) begin : l1d_bypass
@@ -755,6 +769,9 @@ module ralph_gpu_top #(
             wire [31:0] l2_stat_misses;
             wire [31:0] l2_stat_writebacks;
 
+            assign l2_stat_hits_perf = l2_stat_hits;
+            assign l2_stat_misses_perf = l2_stat_misses;
+
             // Instantiate L2 cache
             l2_cache #(
                 .SIZE_KB     (`L2_SIZE_KB),
@@ -816,6 +833,9 @@ module ralph_gpu_top #(
             assign l2_req_addr = {(NUM_SM*32){1'b0}};
             assign l2_req_wdata = {(NUM_SM*128*8){1'b0}};
             assign l2_req_wmask = {(NUM_SM*128){1'b0}};
+        end else begin : l2_cache_bypass_gen
+            assign l2_stat_hits_perf = 32'b0;
+            assign l2_stat_misses_perf = 32'b0;
         end
     endgenerate
 
@@ -1071,6 +1091,15 @@ module ralph_gpu_top #(
         end
     end
 
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            l2_stat_hits_prev <= 32'b0;
+            l2_stat_misses_prev <= 32'b0;
+        end else begin
+            l2_stat_hits_prev <= l2_stat_hits_perf;
+            l2_stat_misses_prev <= l2_stat_misses_perf;
+        end
+    end
     // CSR读取
     always @(*) begin
         case (csr_addr)
@@ -1130,11 +1159,11 @@ module ralph_gpu_top #(
         .fu_tensor_active   (sm_perf_fu_tensor_active),
         .fu_ldst_active     (sm_perf_fu_ldst_active),
 
-        .l1_hit             ({NUM_SM{1'b0}}),  // L1D_BYPASS=1: no hits until cache enabled
-        .l1_miss            ({NUM_SM{1'b0}}),
-        .l2_hit             (1'b0),
-        .l2_miss            (1'b0),
-        .dram_access        (1'b0),
+        .l1_hit             (sm_perf_l1_hit),
+        .l1_miss            (sm_perf_l1_miss),
+        .l2_hit             (perf_l2_hit),
+        .l2_miss            (perf_l2_miss),
+        .dram_access        (perf_dram_access),
 
         .warp_issued        (sm_perf_warp_issued),
         .warp_stalled       (sm_perf_warp_stalled),
