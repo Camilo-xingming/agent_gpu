@@ -106,6 +106,7 @@ TB_VADD = $(TB_DIR)/tb_vector_add.v
 TB_MULTI = $(TB_DIR)/tb_multi_sm.v
 TB_MEMSYS = $(TB_DIR)/tb_memory_subsystem.v
 TB_TENSOR_FP4 = $(TB_DIR)/tb_tensor_core_fp4.v
+TB_TENSOR_FP4_FP8 = $(TB_DIR)/tb_tensor_fp4_fp8.v
 
 # Memory subsystem RTL files (Phase 2)
 MEMSYS_SRCS = \
@@ -258,6 +259,15 @@ test_tensor_core_fp4: $(BUILD_DIR)/tb_tensor_core_fp4.vvp
 
 $(BUILD_DIR)/tb_tensor_core_fp4.vvp: $(RTL_DIR)/tensor_core.v $(RTL_DIR)/gpu_defines.vh $(TB_TENSOR_FP4) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_TENSOR_FP4) $(RTL_DIR)/tensor_core.v
+
+test_tensor_fp4_fp8: $(BUILD_DIR)/tb_tensor_fp4_fp8.vvp
+	@echo "========================================"
+	@echo "Running Tensor Core FP4/FP8 e2e Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_tensor_fp4_fp8.vvp
+
+$(BUILD_DIR)/tb_tensor_fp4_fp8.vvp: $(RTL_DIR)/tensor_core.v $(RTL_DIR)/gpu_defines.vh $(TB_TENSOR_FP4_FP8) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_TENSOR_FP4_FP8) $(RTL_DIR)/tensor_core.v
 
 #----------------------------------------------------------------------------
 # 集成测试
