@@ -205,7 +205,7 @@ module tb_tensor_fp4_fp8;
         check_fp32_tol(32'h41400000, 32'd16, "FP4 E2M1: dot8=-8+C=20 -> 12.0");
 
         issue_and_wait(`TC_DATA_FP4_E2M1, 32'h11111111, 32'h11111111, 32'h00000000, 50);
-        check_fp32_tol(32'h32000000, 32'd16, "FP4 E2M1: denorm 0x1*0x1 x8");
+        check_fp32_tol(32'h40000000, 32'd16, "FP4 E2M1: denorm (0.5) 0x1*0x1 x8 = 2.0");
 
         issue_and_wait(`TC_DATA_FP4_E2M1, 32'h23452345, 32'h54325432, 32'h00000000, 50);
         check_fp32_tol(32'h41c00000, 32'd16, "FP4 E2M1: mixed pattern");
