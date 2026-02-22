@@ -636,7 +636,8 @@ module tensor_core #(
                     if (man == 1'b0) begin
                         fp4_to_fp16 = {sign, 15'b0};
                     end else begin
-                        fp4_to_fp16 = {sign, 5'b00000, {man, 9'b0}};
+                        // Denormal: value = 0.5, FP16 = 2^(-1) → exp=14, man=0
+                        fp4_to_fp16 = {sign, 5'd14, 10'b0};
                     end
                 end else if (exp2 == 2'b11) begin
                     fp4_to_fp16 = {sign, 5'h1F, man ? 10'h200 : 10'h000};
@@ -699,12 +700,28 @@ module tensor_core #(
                     if (man3 == 3'b000) begin
                         fp8_to_fp16 = {sign, 15'b0};
                     end else begin
-                        fp8_to_fp16 = {sign, 5'b00000, {man3, 7'b0}};
+                        // Denormal: value = 0.man3 × 2^(1-7) = 0.man3 × 2^(-6)
+                        // Normalize: find leading 1, convert to FP16 normal
+                        if (man3[2]) begin
+                            // 0.1xx → 1.xx × 2^(-7), FP16 exp = 15-7 = 8
+                            exp16 = 5'd8;
+                            man16 = {man3[1:0], 8'b0};
+                        end else if (man3[1]) begin
+                            // 0.01x → 1.x × 2^(-8), FP16 exp = 15-8 = 7
+                            exp16 = 5'd7;
+                            man16 = {man3[0], 9'b0};
+                        end else begin
+                            // 0.001 → 1.0 × 2^(-9), FP16 exp = 15-9 = 6
+                            exp16 = 5'd6;
+                            man16 = 10'b0;
+                        end
+                        fp8_to_fp16 = {sign, exp16, man16};
                     end
                 end else if (exp4 == 4'b1111) begin
                     fp8_to_fp16 = {sign, 5'h1F, (man3 != 0) ? 10'h200 : 10'h000};
                 end else begin
-                    exp16 = (exp4 - 4'd7) + 5'd15;
+                    // Normal: extend to 5-bit before subtraction to prevent underflow
+                    exp16 = {1'b0, exp4} + 5'd8;  // (exp4 - 7) + 15 = exp4 + 8
                     man16 = {man3, 7'b0};
                     fp8_to_fp16 = {sign, exp16, man16};
                 end
