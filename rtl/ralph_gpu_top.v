@@ -268,6 +268,15 @@ module ralph_gpu_top #(
     wire [NUM_SM-1:0] sm_perf_fu_tensor_active;
     wire [NUM_SM-1:0] sm_perf_branch_taken;
     wire [NUM_SM-1:0] sm_perf_branch_divergent;
+    // Phase 5 perf additions
+    wire [NUM_SM-1:0] sm_perf_stall_sync;
+    wire [NUM_SM-1:0] sm_perf_fu_sfu_active;
+    wire [NUM_SM-1:0] sm_perf_branch_reconverge;
+    wire [NUM_SM*4-1:0] sm_perf_warp_issued;
+    wire [NUM_SM*4-1:0] sm_perf_warp_stalled;
+    wire [NUM_SM*4-1:0] sm_perf_warp_diverged;
+    wire [NUM_SM-1:0] sm_perf_tensor_mma_issued;
+    wire [NUM_SM-1:0] sm_perf_tensor_mma_completed;
 
     generate
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_gen
@@ -485,7 +494,16 @@ module ralph_gpu_top #(
                 .perf_fu_ldst_active    (sm_perf_fu_ldst_active[sm]),
                 .perf_fu_tensor_active  (sm_perf_fu_tensor_active[sm]),
                 .perf_branch_taken      (sm_perf_branch_taken[sm]),
-                .perf_branch_divergent  (sm_perf_branch_divergent[sm])
+                .perf_branch_divergent  (sm_perf_branch_divergent[sm]),
+                // Phase 5 perf additions
+                .perf_stall_sync        (sm_perf_stall_sync[sm]),
+                .perf_fu_sfu_active     (sm_perf_fu_sfu_active[sm]),
+                .perf_branch_reconverge (sm_perf_branch_reconverge[sm]),
+                .perf_warp_issued       (sm_perf_warp_issued[sm*4 +: 4]),
+                .perf_warp_stalled      (sm_perf_warp_stalled[sm*4 +: 4]),
+                .perf_warp_diverged     (sm_perf_warp_diverged[sm*4 +: 4]),
+                .perf_tensor_mma_issued (sm_perf_tensor_mma_issued[sm]),
+                .perf_tensor_mma_completed(sm_perf_tensor_mma_completed[sm])
             );
 
             assign sm_axi_awid[sm]    = sm_core_axi_awid[sm];
@@ -1103,31 +1121,31 @@ module ralph_gpu_top #(
         .sm_stall_scoreboard(sm_perf_stall_scoreboard),
         .sm_stall_ifetch    (sm_perf_stall_ifetch),
         .sm_stall_mem       (sm_perf_stall_mem),
-        .sm_stall_sync      ({NUM_SM{1'b0}}),  // TODO: wire when sync tracking added
-        .sm_stall_other     ({NUM_SM{1'b0}}),  // TODO: wire when needed
+        .sm_stall_sync      (sm_perf_stall_sync),
+        .sm_stall_other     ({NUM_SM{1'b0}}),  // Reserved for future use
 
         .fu_alu_active      (sm_perf_fu_alu_active),
         .fu_fpu_active      (sm_perf_fu_fpu_active),
-        .fu_sfu_active      ({NUM_SM{1'b0}}),  // TODO: wire SFU
+        .fu_sfu_active      (sm_perf_fu_sfu_active),
         .fu_tensor_active   (sm_perf_fu_tensor_active),
         .fu_ldst_active     (sm_perf_fu_ldst_active),
 
-        .l1_hit             ({NUM_SM{1'b0}}),  // TODO: wire from L1 cache
+        .l1_hit             ({NUM_SM{1'b0}}),  // L1D_BYPASS=1: no hits until cache enabled
         .l1_miss            ({NUM_SM{1'b0}}),
         .l2_hit             (1'b0),
         .l2_miss            (1'b0),
         .dram_access        (1'b0),
 
-        .warp_issued        ({NUM_SM*4{1'b0}}),  // TODO: per-warp tracking
-        .warp_stalled       ({NUM_SM*4{1'b0}}),
-        .warp_diverged      ({NUM_SM*4{1'b0}}),
+        .warp_issued        (sm_perf_warp_issued),
+        .warp_stalled       (sm_perf_warp_stalled),
+        .warp_diverged      (sm_perf_warp_diverged),
 
         .branch_taken       (sm_perf_branch_taken),
         .branch_divergent   (sm_perf_branch_divergent),
-        .branch_reconverge  ({NUM_SM{1'b0}}),
+        .branch_reconverge  (sm_perf_branch_reconverge),
 
-        .tensor_mma_issued  (1'b0),  // TODO: wire from tensor core
-        .tensor_mma_completed(1'b0),
+        .tensor_mma_issued  (|sm_perf_tensor_mma_issued),
+        .tensor_mma_completed(|sm_perf_tensor_mma_completed),
         .tensor_flops       (16'b0),
 
         .sm_occupancy       (),
