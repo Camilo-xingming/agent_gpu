@@ -105,6 +105,7 @@ TB_WARP = $(TB_DIR)/tb_warp_scheduler.v
 TB_VADD = $(TB_DIR)/tb_vector_add.v
 TB_MULTI = $(TB_DIR)/tb_multi_sm.v
 TB_MEMSYS = $(TB_DIR)/tb_memory_subsystem.v
+TB_L1_DATA_CACHE = $(TB_DIR)/tb_l1_data_cache.v
 TB_TENSOR_FP4 = $(TB_DIR)/tb_tensor_core_fp4.v
 TB_TENSOR_FP4_FP8 = $(TB_DIR)/tb_tensor_fp4_fp8.v
 
@@ -130,7 +131,7 @@ endif
 .PHONY: all sim wave clean assemble help test test_all
 .PHONY: test_alu test_mul test_decoder test_regfile test_smem test_warp test_sfu
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4
-.PHONY: test_vector_add test_multi_sm test_memsys test_phase2
+.PHONY: test_vector_add test_multi_sm test_memsys test_l1_data_cache test_phase2
 
 all: $(BUILD_DIR) sim
 
@@ -301,6 +302,15 @@ test_memsys: $(BUILD_DIR)/tb_memory_subsystem.vvp
 
 $(BUILD_DIR)/tb_memory_subsystem.vvp: $(MEMSYS_SRCS) $(TB_MEMSYS) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_MEMSYS) $(filter %.v,$(MEMSYS_SRCS))
+
+test_l1_data_cache: $(BUILD_DIR)/tb_l1_data_cache.vvp
+	@echo "========================================"
+	@echo "Running L1 Data Cache Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_l1_data_cache.vvp
+
+$(BUILD_DIR)/tb_l1_data_cache.vvp: $(TB_L1_DATA_CACHE) $(RTL_DIR)/l1_data_cache.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_L1_DATA_CACHE) $(RTL_DIR)/l1_data_cache.v
 
 test_phase2: test_memsys
 	@echo "========================================"
@@ -618,6 +628,7 @@ help:
 	@echo ""
 	@echo "Test Targets:"
 	@echo "  test          - Run all unit tests"
+	@echo "  test_l1_data_cache - Test L1 data cache hit/miss/LRU/bank conflict"
 	@echo "  test_all      - Run all tests (unit + integration)"
 	@echo ""
 	@echo "Unit Tests:"
@@ -668,3 +679,4 @@ test_warp_valid_d1: $(BUILD_DIR)/tb_warp_inst_valid_d1.vvp
 
 $(BUILD_DIR)/tb_warp_inst_valid_d1.vvp: $(TB_DIR)/tb_warp_inst_valid_d1.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_warp_inst_valid_d1.v
+
