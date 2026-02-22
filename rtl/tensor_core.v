@@ -911,7 +911,7 @@ module tensor_core #(
                                 (sel_type == `TC_DATA_FP8_E4M3) ? `TC_FP8_E4M3 :
                                 TC_FP8_FORMAT;
 
-    // Default integer MAC path (placeholder for FP16/BF16/FP8/FP6)
+    // Per-dtype MAC datapaths: INT/INT8/INT4/FP16/BF16/FP8/FP6/FP4
     wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_int;
     wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_int8;
     wire [NUM_LANES*DATA_WIDTH-1:0] mma_result_int4;
@@ -1107,7 +1107,7 @@ module tensor_core #(
     //------------------------------------------------------------------------
     // FP6 E3M2 dot5 computation (5th-gen Tensor Core - Blackwell)
     // 32 bits = 5 x 6-bit FP6 values + 2 padding bits
-    // Converts FP6 to FP16, multiplies, accumulates in FP32
+    // Converts FP6 to FP32, multiplies, accumulates in FP32
     //------------------------------------------------------------------------
     genvar k;
     generate
@@ -1118,30 +1118,29 @@ module tensor_core #(
 
             // Extract 5 x 6-bit FP6 values from 32-bit word (30 bits used, 2 bits padding)
             // Layout: [31:30]=padding, [29:24]=fp6_4, [23:18]=fp6_3, [17:12]=fp6_2, [11:6]=fp6_1, [5:0]=fp6_0
-            wire [15:0] a_fp6_0 = fp6_to_fp16(a32[5:0], fp6_format_sel);
-            wire [15:0] a_fp6_1 = fp6_to_fp16(a32[11:6], fp6_format_sel);
-            wire [15:0] a_fp6_2 = fp6_to_fp16(a32[17:12], fp6_format_sel);
-            wire [15:0] a_fp6_3 = fp6_to_fp16(a32[23:18], fp6_format_sel);
-            wire [15:0] a_fp6_4 = fp6_to_fp16(a32[29:24], fp6_format_sel);
+            wire [31:0] a_fp6_0 = fp6_to_fp32(a32[5:0]);
+            wire [31:0] a_fp6_1 = fp6_to_fp32(a32[11:6]);
+            wire [31:0] a_fp6_2 = fp6_to_fp32(a32[17:12]);
+            wire [31:0] a_fp6_3 = fp6_to_fp32(a32[23:18]);
+            wire [31:0] a_fp6_4 = fp6_to_fp32(a32[29:24]);
 
-            wire [15:0] b_fp6_0 = fp6_to_fp16(b32[5:0], fp6_format_sel);
-            wire [15:0] b_fp6_1 = fp6_to_fp16(b32[11:6], fp6_format_sel);
-            wire [15:0] b_fp6_2 = fp6_to_fp16(b32[17:12], fp6_format_sel);
-            wire [15:0] b_fp6_3 = fp6_to_fp16(b32[23:18], fp6_format_sel);
-            wire [15:0] b_fp6_4 = fp6_to_fp16(b32[29:24], fp6_format_sel);
+            wire [31:0] b_fp6_0 = fp6_to_fp32(b32[5:0]);
+            wire [31:0] b_fp6_1 = fp6_to_fp32(b32[11:6]);
+            wire [31:0] b_fp6_2 = fp6_to_fp32(b32[17:12]);
+            wire [31:0] b_fp6_3 = fp6_to_fp32(b32[23:18]);
+            wire [31:0] b_fp6_4 = fp6_to_fp32(b32[29:24]);
 
-            // FP16 multiplications (output FP32)
             wire [31:0] fp6_prod0;
             wire [31:0] fp6_prod1;
             wire [31:0] fp6_prod2;
             wire [31:0] fp6_prod3;
             wire [31:0] fp6_prod4;
 
-            fp16_mul u_fp6_mul0 (.a(a_fp6_0), .b(b_fp6_0), .result(fp6_prod0));
-            fp16_mul u_fp6_mul1 (.a(a_fp6_1), .b(b_fp6_1), .result(fp6_prod1));
-            fp16_mul u_fp6_mul2 (.a(a_fp6_2), .b(b_fp6_2), .result(fp6_prod2));
-            fp16_mul u_fp6_mul3 (.a(a_fp6_3), .b(b_fp6_3), .result(fp6_prod3));
-            fp16_mul u_fp6_mul4 (.a(a_fp6_4), .b(b_fp6_4), .result(fp6_prod4));
+            fp32_mul_simple u_fp6_mul0 (.a(a_fp6_0), .b(b_fp6_0), .result(fp6_prod0));
+            fp32_mul_simple u_fp6_mul1 (.a(a_fp6_1), .b(b_fp6_1), .result(fp6_prod1));
+            fp32_mul_simple u_fp6_mul2 (.a(a_fp6_2), .b(b_fp6_2), .result(fp6_prod2));
+            fp32_mul_simple u_fp6_mul3 (.a(a_fp6_3), .b(b_fp6_3), .result(fp6_prod3));
+            fp32_mul_simple u_fp6_mul4 (.a(a_fp6_4), .b(b_fp6_4), .result(fp6_prod4));
 
             // FP32 addition tree
             wire [31:0] fp6_sum01;
