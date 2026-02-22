@@ -125,6 +125,10 @@ module fp16_mul (
     wire a_nan  = (exp_a == 31) && (man_a != 0);
     wire b_nan  = (exp_b == 31) && (man_b != 0);
 
+    // Effective exponent: denormals use exp=1 (not 0) in the value formula
+    wire [4:0] eff_exp_a = (exp_a == 5'd0) ? 5'd1 : exp_a;
+    wire [4:0] eff_exp_b = (exp_b == 5'd0) ? 5'd1 : exp_b;
+
     // 有效尾数
     wire [10:0] sig_a = (exp_a == 0) ? {1'b0, man_a} : {1'b1, man_a};
     wire [10:0] sig_b = (exp_b == 0) ? {1'b0, man_b} : {1'b1, man_b};
@@ -132,13 +136,24 @@ module fp16_mul (
     // 乘法
     wire [21:0] product = sig_a * sig_b;
 
-    // 指数 (bias 15 -> bias 127)
-    wire signed [7:0] exp_sum = ({3'b0, exp_a} - 8'd15) + ({3'b0, exp_b} - 8'd15) + 8'sd127;
+    // 指数 (bias 15 -> bias 127), using effective exponent for denormal correctness
+    wire signed [7:0] exp_sum = ({3'b0, eff_exp_a} - 8'd15) + ({3'b0, eff_exp_b} - 8'd15) + 8'sd127;
 
-    // 规范化
-    wire norm_shift = product[21];
-    wire [21:0] norm_product = norm_shift ? product : (product << 1);
-    wire signed [7:0] norm_exp = norm_shift ? exp_sum + 1 : exp_sum;
+    // Leading-bit position detection (priority encoder for multi-bit normalization)
+    wire [4:0] lead_pos =
+        product[21] ? 5'd21 : product[20] ? 5'd20 : product[19] ? 5'd19 :
+        product[18] ? 5'd18 : product[17] ? 5'd17 : product[16] ? 5'd16 :
+        product[15] ? 5'd15 : product[14] ? 5'd14 : product[13] ? 5'd13 :
+        product[12] ? 5'd12 : product[11] ? 5'd11 : product[10] ? 5'd10 :
+        product[9]  ? 5'd9  : product[8]  ? 5'd8  : product[7]  ? 5'd7  :
+        product[6]  ? 5'd6  : product[5]  ? 5'd5  : product[4]  ? 5'd4  :
+        product[3]  ? 5'd3  : product[2]  ? 5'd2  : product[1]  ? 5'd1  :
+        product[0]  ? 5'd0  : 5'd31;
+
+    // Shift product to bring leading bit to position 21
+    wire [4:0] shift_amt = 5'd21 - lead_pos;
+    wire [21:0] norm_product = product << shift_amt;
+    wire signed [7:0] norm_exp = exp_sum + ($signed({3'b0, lead_pos}) - 8'sd20);
 
     // 截断到FP32尾数
     wire [22:0] result_man = {norm_product[20:0], 2'b0};
@@ -821,6 +836,7 @@ module tensor_core #(
     reg [3:0]                      slot_type [0:TC_NUM_CORES-1];  // Extended to 4-bit for FP6
     reg [TC_COUNT_W-1:0]           slot_count [0:TC_NUM_CORES-1];
     reg                            slot_valid [0:TC_NUM_CORES-1];
+    reg                            result_ready_ss;  // negedge-sampled to avoid posedge race
 
     reg                            slot_free;
     reg  [TC_CORE_W-1:0]           slot_free_idx;
@@ -1155,6 +1171,12 @@ module tensor_core #(
                                       mma_result_int;
 
     integer s;
+    // Capture result_ready at negedge to avoid posedge race with testbench
+    always @(negedge clk or negedge rst_n) begin
+        if (!rst_n) result_ready_ss <= 1'b0;
+        else        result_ready_ss <= result_ready;
+    end
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             result_valid <= 1'b0;
@@ -1169,7 +1191,7 @@ module tensor_core #(
             end
         end else begin
             // Clear result_valid only when consumer accepts (valid/ready handshake)
-            if (result_valid && result_ready) begin
+            if (result_valid && result_ready_ss) begin
                 result_valid <= 1'b0;
             end
 
@@ -1180,7 +1202,7 @@ module tensor_core #(
                     end else if (slot_count[s] == 1) begin
                         // Only retire slot when result port is free or being consumed
                         if (done_sel_valid && (done_sel_idx == s[TC_CORE_W-1:0]) &&
-                            (!result_valid || result_ready)) begin
+                            (!result_valid || result_ready_ss)) begin
                             slot_valid[s] <= 1'b0;
                             slot_count[s] <= {TC_COUNT_W{1'b0}};
                         end
@@ -1198,7 +1220,7 @@ module tensor_core #(
             end
 
             // Only produce new result when output port is free or being consumed
-            if (done_sel_valid && (!result_valid || result_ready)) begin
+            if (done_sel_valid && (!result_valid || result_ready_ss)) begin
                 result_valid <= 1'b1;
                 result_data <= mma_result_sel;
             end
