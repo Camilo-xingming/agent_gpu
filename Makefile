@@ -7,9 +7,9 @@ export PATH := /opt/homebrew/bin:$(PATH)
 #============================================================================
 
 # 工具
-IVERILOG = iverilog
-VVP = vvp
-GTKWAVE = gtkwave
+IVERILOG ?= /opt/homebrew/bin/iverilog
+VVP ?= /opt/homebrew/bin/vvp
+GTKWAVE ?= /opt/homebrew/bin/gtkwave
 PYTHON = python3
 VERILATOR ?= /opt/homebrew/bin/verilator
 YOSYS ?= /opt/homebrew/bin/yosys
@@ -724,3 +724,26 @@ $(BUILD_DIR)/tb_forwarding_unit.vvp: $(RTL_DIR)/forwarding_unit.v $(TB_FORWARDIN
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_FORWARDING_UNIT) $(RTL_DIR)/forwarding_unit.v
 
 test_tier2_units: test_tlb test_branch_predictor test_memory_coalescing test_forwarding_unit
+
+.PHONY: test_tlb_enhanced test_icache
+
+TB_TLB_ENHANCED = $(TB_DIR)/tb_tlb_enhanced.v
+TB_ICACHE = $(TB_DIR)/tb_icache.v
+
+test_tlb_enhanced: $(BUILD_DIR)/tb_tlb_enhanced.vvp
+	@echo "========================================"
+	@echo "Running Enhanced TLB Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_tlb_enhanced.vvp
+
+$(BUILD_DIR)/tb_tlb_enhanced.vvp: $(RTL_DIR)/tlb_enhanced.v $(RTL_DIR)/gpu_defines.vh $(TB_TLB_ENHANCED) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -s tb_tlb_enhanced -o $@ $(TB_TLB_ENHANCED) $(RTL_DIR)/tlb_enhanced.v
+
+test_icache: $(BUILD_DIR)/tb_icache.vvp
+	@echo "========================================"
+	@echo "Running ICache Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_icache.vvp
+
+$(BUILD_DIR)/tb_icache.vvp: $(RTL_DIR)/icache.v $(RTL_DIR)/gpu_defines.vh $(RTL_DIR)/memory_config.vh $(TB_ICACHE) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -s tb_icache -o $@ $(TB_ICACHE) $(RTL_DIR)/icache.v
