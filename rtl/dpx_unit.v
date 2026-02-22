@@ -225,10 +225,12 @@ module sparse_mma_unit #(
 
     //------------------------------------------------------------------------
     // Sparse Matrix A input (compressed 2:4 format)
-    // For 2:4 sparsity: 50% compression, plus 2-bit indices per 4 elements
+    // For each 4-value group:
+    // - sparse_a_data stores 2 values (2 * DATA_WIDTH bits)
+    // - sparse_a_indices stores two 2-bit positions (4 bits total)
     //------------------------------------------------------------------------
-    input  wire [TILE_M*TILE_K*DATA_WIDTH/2-1:0]    sparse_a_data,    // Compressed data (50%)
-    input  wire [TILE_M*TILE_K-1:0]                  sparse_a_indices, // 2-bit indices (which 2 of 4 are non-zero)
+    input  wire [TILE_M*TILE_K*DATA_WIDTH/2-1:0]    sparse_a_data,
+    input  wire [TILE_M*TILE_K-1:0]                  sparse_a_indices,
 
     //------------------------------------------------------------------------
     // Dense Matrix B input
@@ -248,6 +250,13 @@ module sparse_mma_unit #(
     output reg                          busy
 );
 
+    localparam integer NUM_A_ELEMS   = TILE_M * TILE_K;
+    localparam integer NUM_C_ELEMS   = TILE_M * TILE_N;
+    localparam integer NUM_GROUPS    = NUM_A_ELEMS / 4;
+    localparam integer SPARSE_DATA_W = NUM_A_ELEMS * DATA_WIDTH / 2;
+    localparam integer DENSE_A_W     = NUM_A_ELEMS * DATA_WIDTH;
+    localparam integer ACCUM_W       = NUM_C_ELEMS * 32;
+
     //------------------------------------------------------------------------
     // State Machine
     //------------------------------------------------------------------------
@@ -260,20 +269,38 @@ module sparse_mma_unit #(
     reg [5:0] saved_func;
 
     // Decompressed dense matrix A
-    reg [TILE_M*TILE_K*DATA_WIDTH-1:0] dense_a;
+    reg [DENSE_A_W-1:0] dense_a;
 
-    // Computation progress
-    reg [4:0] compute_row;
-    reg [4:0] compute_col;
+    // Temporary buffers used inside sequential states
+    reg [DENSE_A_W-1:0] dense_a_next;
+    reg [ACCUM_W-1:0] mma_result_next;
 
-    //------------------------------------------------------------------------
-    // 2:4 Sparse Decompression
-    // Each 4-element group has 2 non-zero values
-    // Index encoding: 2 bits per group indicating positions
-    //------------------------------------------------------------------------
-    integer decomp_group, decomp_idx;
-    reg [1:0] idx0, idx1;
-    reg [DATA_WIDTH-1:0] val0, val1;
+    // Loop / temp variables
+    integer grp_i;
+    integer elem_i;
+    integer row_i;
+    integer col_i;
+    integer k_i;
+
+    reg [1:0] idx0;
+    reg [1:0] idx1;
+    reg signed [DATA_WIDTH-1:0] val0;
+    reg signed [DATA_WIDTH-1:0] val1;
+
+    reg signed [DATA_WIDTH-1:0] dense_elem;
+    reg [DATA_WIDTH:0] dense_abs;
+    reg [DATA_WIDTH:0] top0_abs;
+    reg [DATA_WIDTH:0] top1_abs;
+    reg signed [DATA_WIDTH-1:0] top0_val;
+    reg signed [DATA_WIDTH-1:0] top1_val;
+    reg [1:0] top0_idx;
+    reg [1:0] top1_idx;
+    reg have_top0;
+    reg have_top1;
+
+    reg signed [DATA_WIDTH-1:0] a_elem;
+    reg signed [DATA_WIDTH-1:0] b_elem;
+    reg signed [63:0] mac_sum;
 
     /* verilator lint_off BLKSEQ */
     always @(posedge clk or negedge rst_n) begin
@@ -281,10 +308,8 @@ module sparse_mma_unit #(
             state <= ST_IDLE;
             done <= 1'b0;
             busy <= 1'b0;
-            accum_out <= 0;
-            dense_a <= 0;
-            compute_row <= 0;
-            compute_col <= 0;
+            accum_out <= {ACCUM_W{1'b0}};
+            dense_a <= {DENSE_A_W{1'b0}};
             saved_func <= 6'b0;
         end else begin
             done <= 1'b0;
@@ -298,17 +323,59 @@ module sparse_mma_unit #(
 
                         case (func)
                             `SPARSE_COMPRESS: begin
-                                // Compress dense to sparse (output through accum_out)
-                                // For now, pass through (compression logic TBD)
-                                accum_out <= accum_in;
+                                // Input dense matrix A is provided in accum_in[0 +: DENSE_A_W]
+                                // Output packing in accum_out:
+                                //   [0 +: SPARSE_DATA_W]              = compressed values
+                                //   [SPARSE_DATA_W +: NUM_A_ELEMS]    = 4-bit index per group
+                                accum_out <= {ACCUM_W{1'b0}};
+
+                                for (grp_i = 0; grp_i < NUM_GROUPS; grp_i = grp_i + 1) begin
+                                    top0_abs = {DATA_WIDTH+1{1'b0}};
+                                    top1_abs = {DATA_WIDTH+1{1'b0}};
+                                    top0_val = {DATA_WIDTH{1'b0}};
+                                    top1_val = {DATA_WIDTH{1'b0}};
+                                    top0_idx = 2'b00;
+                                    top1_idx = 2'b10;
+                                    have_top0 = 1'b0;
+                                    have_top1 = 1'b0;
+
+                                    for (elem_i = 0; elem_i < 4; elem_i = elem_i + 1) begin
+                                        dense_elem = $signed(accum_in[((grp_i * 4 + elem_i) * DATA_WIDTH) +: DATA_WIDTH]);
+                                        dense_abs = dense_elem[DATA_WIDTH-1] ? ({1'b0, ~dense_elem} + 1'b1) : {1'b0, dense_elem};
+
+                                        if (dense_elem != {DATA_WIDTH{1'b0}}) begin
+                                            if (!have_top0 || (dense_abs > top0_abs)) begin
+                                                top1_abs = top0_abs;
+                                                top1_val = top0_val;
+                                                top1_idx = top0_idx;
+                                                have_top1 = have_top0;
+
+                                                top0_abs = dense_abs;
+                                                top0_val = dense_elem;
+                                                top0_idx = elem_i[1:0];
+                                                have_top0 = 1'b1;
+                                            end else if (!have_top1 || (dense_abs > top1_abs)) begin
+                                                top1_abs = dense_abs;
+                                                top1_val = dense_elem;
+                                                top1_idx = elem_i[1:0];
+                                                have_top1 = 1'b1;
+                                            end
+                                        end
+                                    end
+
+                                    accum_out[(grp_i * 2 * DATA_WIDTH) +: DATA_WIDTH] <= top0_val;
+                                    accum_out[(grp_i * 2 * DATA_WIDTH) + DATA_WIDTH +: DATA_WIDTH] <= top1_val;
+                                    accum_out[SPARSE_DATA_W + (grp_i * 4) +: 2] <= top0_idx;
+                                    accum_out[SPARSE_DATA_W + (grp_i * 4) + 2 +: 2] <= top1_idx;
+                                end
+
                                 done <= 1'b1;
                                 `ifdef SIMULATION
-                                $display("[SPARSE] Compress operation");
+                                $display("[SPARSE] Compress operation complete");
                                 `endif
                             end
 
                             `SPARSE_DECOMPRESS: begin
-                                // Decompress sparse to dense
                                 state <= ST_DECOMP;
                                 `ifdef SIMULATION
                                 $display("[SPARSE] Decompress operation");
@@ -316,55 +383,63 @@ module sparse_mma_unit #(
                             end
 
                             default: begin
-                                // Sparse MMA operations
+                                // Sparse MMA operations (FP16/BF16/TF32/INT8/FP8)
                                 state <= ST_DECOMP;
-                                accum_out <= accum_in;  // Start with accumulator
                                 `ifdef SIMULATION
                                 $display("[SPARSE] MMA operation func=%0d", func);
                                 `endif
                             end
                         endcase
-    /* verilator lint_on BLKSEQ */
                     end
                 end
 
                 ST_DECOMP: begin
-                    // Decompress sparse matrix A to dense format
-                    // Simplified: for simulation, just copy sparse data
-                    // Real implementation would expand 2:4 pattern
-                    for (decomp_group = 0; decomp_group < TILE_M * TILE_K / 4; decomp_group = decomp_group + 1) begin
-                        // Get 2-bit index for this group (simplified - use lower bits)
-                        /* verilator lint_off BLKSEQ */
-                        idx0 = sparse_a_indices[decomp_group * 2 +: 2];
+                    dense_a_next = {DENSE_A_W{1'b0}};
 
-                        // Extract compressed values
-                        val0 = sparse_a_data[decomp_group * DATA_WIDTH * 2 +: DATA_WIDTH];
-                        val1 = sparse_a_data[decomp_group * DATA_WIDTH * 2 + DATA_WIDTH +: DATA_WIDTH];
-                        /* verilator lint_on BLKSEQ */
+                    for (grp_i = 0; grp_i < NUM_GROUPS; grp_i = grp_i + 1) begin
+                        idx0 = sparse_a_indices[grp_i * 4 +: 2];
+                        idx1 = sparse_a_indices[grp_i * 4 + 2 +: 2];
+                        val0 = $signed(sparse_a_data[grp_i * 2 * DATA_WIDTH +: DATA_WIDTH]);
+                        val1 = $signed(sparse_a_data[grp_i * 2 * DATA_WIDTH + DATA_WIDTH +: DATA_WIDTH]);
 
-                        // Place in dense array at proper positions (simplified)
-                        // Full implementation would use idx0/idx1 to place values
-                        dense_a[decomp_group * 4 * DATA_WIDTH +: DATA_WIDTH] <= val0;
-                        dense_a[decomp_group * 4 * DATA_WIDTH + DATA_WIDTH +: DATA_WIDTH] <= 0;
-                        dense_a[decomp_group * 4 * DATA_WIDTH + 2*DATA_WIDTH +: DATA_WIDTH] <= val1;
-                        dense_a[decomp_group * 4 * DATA_WIDTH + 3*DATA_WIDTH +: DATA_WIDTH] <= 0;
+                        dense_a_next[((grp_i * 4 + idx0) * DATA_WIDTH) +: DATA_WIDTH] = val0;
+                        if (idx1 != idx0) begin
+                            dense_a_next[((grp_i * 4 + idx1) * DATA_WIDTH) +: DATA_WIDTH] = val1;
+                        end
                     end
 
+                    dense_a <= dense_a_next;
+
                     if (saved_func == `SPARSE_DECOMPRESS) begin
-                        // Just decompression - output dense_a via accum_out
+                        accum_out <= {ACCUM_W{1'b0}};
+                        for (elem_i = 0; elem_i < NUM_A_ELEMS; elem_i = elem_i + 1) begin
+                            accum_out[(elem_i * DATA_WIDTH) +: DATA_WIDTH] <= dense_a_next[(elem_i * DATA_WIDTH) +: DATA_WIDTH];
+                        end
                         state <= ST_DONE;
                     end else begin
                         state <= ST_COMPUTE;
-                        compute_row <= 0;
-                        compute_col <= 0;
                     end
                 end
 
                 ST_COMPUTE: begin
-                    // Simplified MMA: accumulate row x column products
-                    // Real implementation would do proper matrix multiply
-                    // For now, complete in one cycle (simplified)
-                    accum_out <= accum_in;  // Placeholder - actual MMA TBD
+                    // Sparse MMA: C = accum_in + A(decompressed) * B
+                    mma_result_next = accum_in;
+
+                    for (row_i = 0; row_i < TILE_M; row_i = row_i + 1) begin
+                        for (col_i = 0; col_i < TILE_N; col_i = col_i + 1) begin
+                            mac_sum = $signed(accum_in[((row_i * TILE_N + col_i) * 32) +: 32]);
+
+                            for (k_i = 0; k_i < TILE_K; k_i = k_i + 1) begin
+                                a_elem = $signed(dense_a[((row_i * TILE_K + k_i) * DATA_WIDTH) +: DATA_WIDTH]);
+                                b_elem = $signed(dense_b[((k_i * TILE_N + col_i) * DATA_WIDTH) +: DATA_WIDTH]);
+                                mac_sum = mac_sum + (a_elem * b_elem);
+                            end
+
+                            mma_result_next[((row_i * TILE_N + col_i) * 32) +: 32] = mac_sum[31:0];
+                        end
+                    end
+
+                    accum_out <= mma_result_next;
                     state <= ST_DONE;
                     `ifdef SIMULATION
                     $display("[SPARSE] MMA compute complete");
@@ -381,5 +456,6 @@ module sparse_mma_unit #(
             endcase
         end
     end
+    /* verilator lint_on BLKSEQ */
 
 endmodule
