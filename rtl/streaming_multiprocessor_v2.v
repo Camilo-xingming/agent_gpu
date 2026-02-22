@@ -2732,6 +2732,12 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // SIMD ALU (Integer Operations)
     //------------------------------------------------------------------------
+    //------------------------------------------------------------------------
+    // Predicate Register File (7 pred regs per warp, NUM_LANES bits each)
+    // pred_addr from inst_rc[2:0] selects which predicate register
+    //------------------------------------------------------------------------
+    reg [NUM_LANES-1:0] pred_regs [0:NUM_WARPS-1][0:6];  // p0-p6 per warp
+    reg [NUM_LANES-1:0] carry_flags [0:NUM_WARPS-1];      // CC.CF per warp
     wire alu_use_slot0 = alu_issue0;
     wire alu_use_slot1 = alu_issue1;
     wire [WARP_ID_W-1:0] alu_issue_warp = alu_use_slot0 ? issue_warp_id : issue1_warp_id;
@@ -2741,6 +2747,14 @@ module streaming_multiprocessor_v2 #(
     wire [5:0] alu_issue_opcode = alu_use_slot0 ? issue_opcode : issue1_opcode;
     wire [15:0] alu_issue_imm16 = alu_use_slot0 ? issue_imm16 : issue1_imm16;
     wire alu_issue_use_imm = alu_use_slot0 ? issue_use_imm : issue1_use_imm;
+
+    // Predicate read: select pred reg for the issuing warp
+    wire [2:0] alu_pred_addr = alu_use_slot0 ? issue_rc[2:0] : issue1_rc[2:0];
+    wire [NUM_LANES-1:0] alu_pred_rd = (alu_pred_addr < 3'd7) ?
+                                        pred_regs[alu_issue_warp][alu_pred_addr] :
+                                        {NUM_LANES{1'b0}};
+    // Carry read: select carry flags for the issuing warp
+    wire [NUM_LANES-1:0] alu_carry_rd = carry_flags[alu_issue_warp];
     wire [SIMD_WIDTH-1:0] alu_op_a = alu_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
     wire [SIMD_WIDTH-1:0] alu_op_b = alu_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
 
@@ -2761,8 +2775,8 @@ module streaming_multiprocessor_v2 #(
         .operand_b  (alu_is_branch ? {SIMD_WIDTH{1'b0}} :
                      (alu_issue_use_imm ? {NUM_LANES{{16'b0, alu_issue_imm16}}} : alu_op_b)),
         .operand_c  (alu_op_c),
-        .pred_in    ({NUM_LANES{1'b0}}), // TODO: Connect predicate register file
-        .carry_in   ({NUM_LANES{1'b0}}), // TODO: Connect carry flag
+        .pred_in    (alu_pred_rd),        // Connected: predicate register file
+        .carry_in   (alu_carry_rd),       // Connected: carry flags per warp
         .lane_mask  (alu_issue_mask),
         .result     (alu_result),
         .result_hi  (alu_result_hi),
@@ -2773,6 +2787,10 @@ module streaming_multiprocessor_v2 #(
     );
 
     // ALU pipeline tracking (1 stage delay to avoid issue-stage race)
+    reg [5:0] alu_opcode_pipe;
+    reg [5:0] alu_func_pipe;
+    reg [2:0] alu_pred_addr_pipe;
+    reg [NUM_LANES-1:0] alu_cout_pipe;
     reg [5:0] alu_debug_cnt;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -2781,6 +2799,10 @@ module streaming_multiprocessor_v2 #(
             alu_rd_pipe <= 0;
             alu_mask_pipe <= 0;
             alu_result_pipe <= 0;
+            alu_opcode_pipe <= 0;
+            alu_func_pipe <= 0;
+            alu_pred_addr_pipe <= 0;
+            alu_cout_pipe <= 0;
             alu_debug_cnt <= 0;
         end else begin
             alu_valid_pipe <= alu_issue;
@@ -2789,6 +2811,10 @@ module streaming_multiprocessor_v2 #(
                 alu_rd_pipe <= alu_issue_rd;
                 alu_mask_pipe <= alu_issue_mask;
                 alu_result_pipe <= alu_result;
+                alu_opcode_pipe <= alu_issue_opcode;
+                alu_func_pipe <= alu_issue_func;
+                alu_pred_addr_pipe <= alu_pred_addr;
+                alu_cout_pipe <= alu_cout;
                 // DEBUG: trace ALU ops (increased limit for loop debugging)
                 if (alu_debug_cnt < 50) begin
                     alu_debug_cnt <= alu_debug_cnt + 1;
@@ -2797,6 +2823,34 @@ module streaming_multiprocessor_v2 #(
         end
     end
 
+
+    // Predicate register + carry flag writeback from ALU pipeline
+    integer pw, pi;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            for (pw = 0; pw < NUM_WARPS; pw = pw + 1) begin
+                for (pi = 0; pi < 7; pi = pi + 1)
+                    pred_regs[pw][pi] <= {NUM_LANES{1'b0}};
+                carry_flags[pw] <= {NUM_LANES{1'b0}};
+            end
+        end else if (alu_valid_pipe) begin
+            // SETP writeback: extract bit 0 of each lane's result as predicate
+            if (alu_opcode_pipe == `OP_SETP && alu_pred_addr_pipe < 3'd7) begin
+                for (pi = 0; pi < NUM_LANES; pi = pi + 1) begin
+                    if (alu_mask_pipe[pi])
+                        pred_regs[alu_warp_pipe][alu_pred_addr_pipe][pi] <= alu_result_pipe[pi*32];
+                end
+            end
+            // Carry flag writeback: only CC-producing ops update carry flags
+            if (alu_func_pipe == `FUNC_ADD_CC || alu_func_pipe == `FUNC_ADDC ||
+                alu_func_pipe == `FUNC_SUB_CC || alu_func_pipe == `FUNC_SUBC) begin
+                for (pi = 0; pi < NUM_LANES; pi = pi + 1) begin
+                    if (alu_mask_pipe[pi])
+                        carry_flags[alu_warp_pipe][pi] <= alu_cout_pipe[pi];
+                end
+            end
+        end
+    end
     assign alu_valid_out = alu_valid_pipe;
 
     //------------------------------------------------------------------------
@@ -4732,7 +4786,7 @@ module streaming_multiprocessor_v2 #(
                 multimem_wb_rd <= issue_multimem ? issue_rd : issue1_rd;
                 multimem_wb_mask <= issue_multimem ? issue_mask : issue1_mask;
                 // Result comes from local shared memory for now (placeholder)
-                multimem_result_r <= 32'h0;  // TODO: Wire to actual distributed smem result
+                multimem_result_r <= smem_resp_rdata[31:0];  // Lane 0 of local SMEM read (cluster interconnect deferred)
             end else if (multimem_result_valid_r && wb_found && wb_sel == 5'd16) begin
                 multimem_result_valid_r <= 1'b0;  // Clear latch when writeback consumes it
             end
