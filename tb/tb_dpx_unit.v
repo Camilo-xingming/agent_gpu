@@ -18,6 +18,10 @@ module tb_dpx_unit;
     parameter TILE_N = 8;
     parameter TILE_K = 16;
 
+    localparam SPARSE_DATA_W = TILE_M*TILE_K*16/2;
+    localparam SPARSE_INDEX_W = TILE_M*TILE_K;
+    localparam DENSE_A_W = TILE_M*TILE_K*16;
+
     //------------------------------------------------------------------------
     // Clock and Reset
     //------------------------------------------------------------------------
@@ -104,8 +108,6 @@ module tb_dpx_unit;
     integer test_num;
     integer pass_count;
     integer fail_count;
-    reg [DATA_WIDTH-1:0] expected_result;
-    reg [DATA_WIDTH-1:0] expected_result2;
 
     //------------------------------------------------------------------------
     // Test Tasks
@@ -167,6 +169,20 @@ module tb_dpx_unit;
             fail_count = fail_count + 1;
         end
         #10;
+    end
+    endtask
+
+    task run_sparse_op;
+        input [5:0] func_code;
+    begin
+        @(posedge clk);
+        sparse_valid_in <= 1'b1;
+        sparse_func <= func_code;
+        @(posedge clk);
+        sparse_valid_in <= 1'b0;
+
+        wait(sparse_done);
+        @(posedge clk);
     end
     endtask
 
@@ -270,20 +286,38 @@ module tb_dpx_unit;
         test_dpx_op(`DPX_EXP2, 32'd10, 32'd0, 32'd0, 32'd1024, 32'hx, "EXP2: 2^10 = 1024");
 
         //====================================================================
-        // Test 16-18: Sparse MMA Unit Tests
+        // Test 16: Sparse MMA Unit - Compress operation
         //====================================================================
         $display("\n[TEST %0d] Sparse MMA Unit: Compress operation", test_num + 1);
         test_num = test_num + 1;
-        @(posedge clk);
-        sparse_valid_in <= 1;
-        sparse_func <= `SPARSE_COMPRESS;
-        accum_in <= 128'hDEADBEEFCAFEBABE12345678ABCDEF00;
-        @(posedge clk);
-        sparse_valid_in <= 0;
-        wait(sparse_done);
-        @(posedge clk);
-        if (accum_out == 128'hDEADBEEFCAFEBABE12345678ABCDEF00) begin
-            $display("  [PASS] Compress passthrough works");
+
+        sparse_a_data = {SPARSE_DATA_W{1'b0}};
+        sparse_a_indices = {SPARSE_INDEX_W{1'b0}};
+        dense_b = 0;
+        accum_in = 0;
+
+        // Group0 = [3,0,-2,1] -> keep 3(idx0), -2(idx2)
+        // Group1 = [0,7,0,-5] -> keep 7(idx1), -5(idx3)
+        accum_in[0 +: 16] = 16'sd3;
+        accum_in[16 +: 16] = 16'sd0;
+        accum_in[32 +: 16] = -16'sd2;
+        accum_in[48 +: 16] = 16'sd1;
+        accum_in[64 +: 16] = 16'sd0;
+        accum_in[80 +: 16] = 16'sd7;
+        accum_in[96 +: 16] = 16'sd0;
+        accum_in[112 +: 16] = -16'sd5;
+
+        run_sparse_op(`SPARSE_COMPRESS);
+
+        if (accum_out[0 +: 16] == 16'sd3 &&
+            accum_out[16 +: 16] == -16'sd2 &&
+            accum_out[32 +: 16] == 16'sd7 &&
+            accum_out[48 +: 16] == -16'sd5 &&
+            accum_out[SPARSE_DATA_W + 0 +: 2] == 2'd0 &&
+            accum_out[SPARSE_DATA_W + 2 +: 2] == 2'd2 &&
+            accum_out[SPARSE_DATA_W + 4 +: 2] == 2'd1 &&
+            accum_out[SPARSE_DATA_W + 6 +: 2] == 2'd3) begin
+            $display("  [PASS] Compress output matches expected packed format");
             pass_count = pass_count + 1;
         end else begin
             $display("  [FAIL] Compress output mismatch");
@@ -291,36 +325,82 @@ module tb_dpx_unit;
         end
         #20;
 
+        //====================================================================
+        // Test 17: Sparse MMA Unit - Decompress operation
+        //====================================================================
         $display("\n[TEST %0d] Sparse MMA Unit: Decompress operation", test_num + 1);
         test_num = test_num + 1;
-        @(posedge clk);
-        sparse_valid_in <= 1;
-        sparse_func <= `SPARSE_DECOMPRESS;
-        sparse_a_data <= 256'h0001_0002_0003_0004;  // Sample sparse data
-        sparse_a_indices <= 64'hFF;  // Sample indices
-        @(posedge clk);
-        sparse_valid_in <= 0;
-        wait(sparse_done);
-        @(posedge clk);
-        $display("  [PASS] Decompress operation completed");
-        pass_count = pass_count + 1;
+
+        sparse_a_data = {SPARSE_DATA_W{1'b0}};
+        sparse_a_indices = {SPARSE_INDEX_W{1'b0}};
+        dense_b = 0;
+        accum_in = 0;
+
+        // Group0 -> idx1=1 val=10, idx2=3 val=-7 => [0,10,0,-7]
+        sparse_a_data[0 +: 16] = 16'sd10;
+        sparse_a_data[16 +: 16] = -16'sd7;
+        sparse_a_indices[0 +: 2] = 2'd1;
+        sparse_a_indices[2 +: 2] = 2'd3;
+
+        // Group1 -> idx0=0 val=4, idx1=2 val=2 => [4,0,2,0]
+        sparse_a_data[32 +: 16] = 16'sd4;
+        sparse_a_data[48 +: 16] = 16'sd2;
+        sparse_a_indices[4 +: 2] = 2'd0;
+        sparse_a_indices[6 +: 2] = 2'd2;
+
+        run_sparse_op(`SPARSE_DECOMPRESS);
+
+        if (accum_out[0 +: 16] == 16'sd0 &&
+            accum_out[16 +: 16] == 16'sd10 &&
+            accum_out[32 +: 16] == 16'sd0 &&
+            accum_out[48 +: 16] == -16'sd7 &&
+            accum_out[64 +: 16] == 16'sd4 &&
+            accum_out[80 +: 16] == 16'sd0 &&
+            accum_out[96 +: 16] == 16'sd2 &&
+            accum_out[112 +: 16] == 16'sd0) begin
+            $display("  [PASS] Decompress output matches expected dense values");
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] Decompress output mismatch");
+            fail_count = fail_count + 1;
+        end
         #20;
 
+        //====================================================================
+        // Test 18: Sparse MMA Unit - MMA operation
+        //====================================================================
         $display("\n[TEST %0d] Sparse MMA Unit: MMA operation", test_num + 1);
         test_num = test_num + 1;
-        @(posedge clk);
-        sparse_valid_in <= 1;
-        sparse_func <= `SPARSE_MMA_FP16;
-        sparse_a_data <= 256'h0010_0020_0030_0040;
-        sparse_a_indices <= 64'hAA;
-        dense_b <= 512'h0001_0002_0003_0004;
-        accum_in <= 0;
-        @(posedge clk);
-        sparse_valid_in <= 0;
-        wait(sparse_done);
-        @(posedge clk);
-        $display("  [PASS] Sparse MMA operation completed");
-        pass_count = pass_count + 1;
+
+        sparse_a_data = {SPARSE_DATA_W{1'b0}};
+        sparse_a_indices = {SPARSE_INDEX_W{1'b0}};
+        dense_b = 0;
+        accum_in = 0;
+
+        // Row0, k0=2, k1=3
+        sparse_a_data[0 +: 16] = 16'sd2;
+        sparse_a_data[16 +: 16] = 16'sd3;
+        sparse_a_indices[0 +: 2] = 2'd0;
+        sparse_a_indices[2 +: 2] = 2'd1;
+
+        // B[k0,col0]=4, B[k1,col0]=5
+        dense_b[(0*TILE_N + 0)*16 +: 16] = 16'sd4;
+        dense_b[(1*TILE_N + 0)*16 +: 16] = 16'sd5;
+
+        // Base accumulator C[0,0] = 7
+        accum_in[0 +: 32] = 32'sd7;
+
+        run_sparse_op(`SPARSE_MMA_FP16);
+
+        // Expected: 7 + (2*4 + 3*5) = 30
+        if (accum_out[0 +: 32] == 32'sd30 && accum_out[32 +: 32] == 32'sd0) begin
+            $display("  [PASS] Sparse MMA output matches expected result");
+            pass_count = pass_count + 1;
+        end else begin
+            $display("  [FAIL] Sparse MMA output mismatch: got C00=%0d C01=%0d",
+                     $signed(accum_out[0 +: 32]), $signed(accum_out[32 +: 32]));
+            fail_count = fail_count + 1;
+        end
 
         //====================================================================
         // Summary
