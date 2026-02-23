@@ -513,6 +513,9 @@ class RalphGPUSimulator:
         except:
             result = float('nan')
 
+        # Canonicalize NaN to positive quiet NaN (IEEE 754)
+        if math.isnan(result):
+            return 0x7E00
         return self.fp16_to_uint16(result)
 
     def uint64_to_fp64(self, lo: int, hi: int) -> float:
