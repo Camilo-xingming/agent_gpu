@@ -20,7 +20,7 @@ from typing import Dict, List, Tuple, Optional
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
-from gpu_simulator import RalphGPUSimulator, WarpState
+from gpu_simulator import RalphGPUSimulator, WarpState, CTAState
 
 PROJECT_ROOT = Path(__file__).parent.parent
 BUILD_DIR = PROJECT_ROOT / "build" / "generated_tests"
@@ -153,6 +153,8 @@ def run_frm(hex_file: Path, init_memory: Dict[int, int] = None) -> Dict[int, int
 
     # Create warp and execute
     warp = WarpState(warp_id=0)
+    sim.current_cta = CTAState(block_id=(0, 0, 0))
+    sim.current_cta.warps.append(warp)
     sim.block_dim = (32, 1, 1)
     sim.grid_dim = (1, 1, 1)
 
