@@ -43,5 +43,5 @@ jobs:
           python-version: '3.11'
       - name: Generate tests and run RTL-FRM compare
         run: |
-          python3 tools/test_generator.py --all
+          python3 tools/test_generator.py --gen all
           python3 tools/rtl_frm_compare.py --all
