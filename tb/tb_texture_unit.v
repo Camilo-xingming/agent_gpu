@@ -419,9 +419,35 @@ module tb_texture_unit;
         issue_and_wait(`OP_TEX, `TEX_2D, 32'd10, 32'd10, 0, 80);
         check_completed("TEX 2D bilinear path completes");
 
-        // Verify result is a valid RGBA pattern (same as point since simplified)
-        // addr = base + 10*256 + 10*4 = 0x50000 + 2560 + 40 = 0x50A28
-        check_result_r(32'h00000028, "TEX 2D bilinear result matches point R=0x28");
+        // With real bilinear, coord (10,10) with frac=10/255 gives R=0x27
+        // (8-bit fixed-point rounding from interpolating 4 neighbors)
+        check_result_r(32'h00000027, "TEX 2D bilinear (10,10) frac=10/255 R=0x27");
+
+        // --- Bilinear with frac=0 (should match point sampling) ---
+        // Use 256x256 texture so coords don't clamp for bilinear tests
+        tex_width = 16'd256; tex_height = 16'd256;
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd0, 32'd0, 0, 80);
+        check_completed("TEX 2D bilinear (0,0) frac=0 completes");
+        // addr(0,0) = 0x50000 -> R=0x00
+        check_result_r(32'h00000000, "TEX 2D bilinear (0,0) frac=0 R=0x00");
+
+        // --- Bilinear with frac_s=128 (~50% S blend, no T blend) ---
+        // coord_s=128 -> texels at s=128,129; frac_s=128/255
+        // addr(128,0) = base+128*4 = 0x50200 -> R=0x00
+        // addr(129,0) = base+129*4 = 0x50204 -> R=0x04
+        // addr(128,1) = base+1024+512 = 0x50600 -> R=0x00
+        // addr(129,1) = base+1024+516 = 0x50604 -> R=0x04
+        // lerp_x: (127*0+128*4)>>8=2, lerp_y: (255*2+0*2)>>8=1
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd128, 32'd0, 0, 80);
+        check_completed("TEX 2D bilinear frac_s=128 completes");
+        check_result_r(32'h00000001, "TEX 2D bilinear s=128 frac=0x80 R=0x01");
+
+        // --- Bilinear with both fracs = 128 ---
+        // lerp_x row0: 2, lerp_x row1: 2
+        // lerp_y: (127*2+128*2)>>8=1
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd128, 32'd128, 0, 80);
+        check_completed("TEX 2D bilinear frac_s=128,frac_t=128 completes");
+        check_result_r(32'h00000001, "TEX 2D bilinear s=128,t=128 R=0x01");
 
         tex_filter = 4'h0; // reset to point
 

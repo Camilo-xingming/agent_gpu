@@ -125,6 +125,12 @@ module texture_unit #(
     reg [31:0] texel_a [0:7];
     reg [2:0]  fetch_idx;
 
+    // Bilinear blend fractional weights
+    reg [7:0]  blend_frac_s, blend_frac_t;
+
+    // Memory request pending flag for multi-texel fetch
+    reg         req_pending;
+
     //------------------------------------------------------------------------
     // Coordinate wrapping
     //------------------------------------------------------------------------
@@ -217,6 +223,8 @@ module texture_unit #(
     /* verilator lint_off WIDTHTRUNC */
     wire [15:0] wrap_s_trunc = wrap_coord(coord_s_r, tex_w_r, wrap_s_r);
     wire [15:0] wrap_t_trunc = wrap_coord(coord_t_r, tex_h_r, wrap_t_r);
+    wire [15:0] wrap_s1_trunc = wrap_coord(coord_s_r + 1, tex_w_r, wrap_s_r);
+    wire [15:0] wrap_t1_trunc = wrap_coord(coord_t_r + 1, tex_h_r, wrap_t_r);
     /* verilator lint_on WIDTHTRUNC */
 
     //------------------------------------------------------------------------
@@ -231,6 +239,7 @@ module texture_unit #(
             mem_write <= 1'b0;
             result <= 128'b0;
             fetch_idx <= 3'b0;
+            req_pending <= 1'b0;
         end else begin
             valid_out <= 1'b0;
             mem_req <= 1'b0;
@@ -283,13 +292,29 @@ module texture_unit #(
                                 );
                                 num_texels <= 3'd1;
                             end else begin
-                                // Bilinear: 4 texels
-                                // TODO: Calculate 4 neighbor addresses
+                                // Bilinear: 4 neighbor texels
+                                // Integer coords for corners
+                                // s0,t0 = floor(coord), s1,t1 = floor(coord)+1
                                 texel_addr[0] <= calc_2d_addr(tex_base_addr,
                                     wrap_s_trunc,
                                     wrap_t_trunc,
                                     tex_w_r * 4, 4'd4);
-                                num_texels <= 3'd1;  // Simplified to point for now
+                                texel_addr[1] <= calc_2d_addr(tex_base_addr,
+                                    wrap_s1_trunc,
+                                    wrap_t_trunc,
+                                    tex_w_r * 4, 4'd4);
+                                texel_addr[2] <= calc_2d_addr(tex_base_addr,
+                                    wrap_s_trunc,
+                                    wrap_t1_trunc,
+                                    tex_w_r * 4, 4'd4);
+                                texel_addr[3] <= calc_2d_addr(tex_base_addr,
+                                    wrap_s1_trunc,
+                                    wrap_t1_trunc,
+                                    tex_w_r * 4, 4'd4);
+                                // Fractional weights from low bits of coord
+                                blend_frac_s <= coord_s_r[7:0];
+                                blend_frac_t <= coord_t_r[7:0];
+                                num_texels <= 3'd4;
                             end
                         end
 
@@ -313,16 +338,18 @@ module texture_unit #(
 
                 FETCH_TEX: begin
                     if (fetch_idx < num_texels) begin
-                        if (!mem_req && mem_ready) begin
+                        if (!req_pending && mem_ready) begin
                             mem_req <= 1'b1;
                             mem_addr <= texel_addr[fetch_idx];
-                        end else if (mem_valid) begin
+                            req_pending <= 1'b1;
+                        end else if (mem_valid && req_pending) begin
                             // Store fetched texel (RGBA8)
                             texel_r[fetch_idx] <= {24'b0, mem_rdata[7:0]};
                             texel_g[fetch_idx] <= {24'b0, mem_rdata[15:8]};
                             texel_b[fetch_idx] <= {24'b0, mem_rdata[23:16]};
                             texel_a[fetch_idx] <= {24'b0, mem_rdata[31:24]};
                             fetch_idx <= fetch_idx + 1;
+                            req_pending <= 1'b0;
                         end
                     end else begin
                         state <= FILTER;
@@ -330,12 +357,28 @@ module texture_unit #(
                 end
 
                 FILTER: begin
-                    // Apply filtering (simplified - point sampling)
                     if (filter_r == FILTER_POINT || num_texels == 1) begin
                         // Point sampling - return first texel
                         result <= {texel_a[0], texel_b[0], texel_g[0], texel_r[0]};
+                    end else if (num_texels == 3'd4) begin
+                        // Bilinear interpolation of 4 texels
+                        result[31:0]   <= {24'b0, bilinear_interp(
+                            texel_r[0][7:0], texel_r[1][7:0],
+                            texel_r[2][7:0], texel_r[3][7:0],
+                            blend_frac_s, blend_frac_t)};
+                        result[63:32]  <= {24'b0, bilinear_interp(
+                            texel_g[0][7:0], texel_g[1][7:0],
+                            texel_g[2][7:0], texel_g[3][7:0],
+                            blend_frac_s, blend_frac_t)};
+                        result[95:64]  <= {24'b0, bilinear_interp(
+                            texel_b[0][7:0], texel_b[1][7:0],
+                            texel_b[2][7:0], texel_b[3][7:0],
+                            blend_frac_s, blend_frac_t)};
+                        result[127:96] <= {24'b0, bilinear_interp(
+                            texel_a[0][7:0], texel_a[1][7:0],
+                            texel_a[2][7:0], texel_a[3][7:0],
+                            blend_frac_s, blend_frac_t)};
                     end else begin
-                        // Bilinear would blend texels here
                         result <= {texel_a[0], texel_b[0], texel_g[0], texel_r[0]};
                     end
                     state <= OUTPUT;
