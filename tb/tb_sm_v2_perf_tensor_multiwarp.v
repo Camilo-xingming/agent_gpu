@@ -54,10 +54,10 @@ module tb_sm_v2_perf_tensor_multiwarp;
 
     wire        l1d_req_valid;
     wire        l1d_req_write;
-    wire [31:0] l1d_req_addr [0:NUM_LANES-1];
-    wire [31:0] l1d_req_wdata [0:NUM_LANES-1];
+    wire [NUM_LANES*32-1:0] l1d_req_addr;
+    wire [NUM_LANES*32-1:0] l1d_req_wdata;
     wire [NUM_LANES-1:0] l1d_req_mask;
-    reg  [31:0] l1d_resp_rdata [0:NUM_LANES-1];
+    reg  [NUM_LANES*32-1:0] l1d_resp_rdata;
     reg         l1d_resp_valid;
     reg         l1d_resp_hit;
 
@@ -212,9 +212,7 @@ module tb_sm_v2_perf_tensor_multiwarp;
     initial begin
         l1d_resp_valid = 1'b0;
         l1d_resp_hit = 1'b0;
-        for (i = 0; i < NUM_LANES; i = i + 1) begin
-            l1d_resp_rdata[i] = 32'b0;
-        end
+        l1d_resp_rdata = 0;
         m_axi_awready = 1'b1;
         m_axi_wready  = 1'b1;
         m_axi_bvalid  = 1'b0;
