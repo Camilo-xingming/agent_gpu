@@ -3961,8 +3961,8 @@ module streaming_multiprocessor_v2 #(
     // Handles asynchronous global->shared memory copies
     //------------------------------------------------------------------------
     // Input signals for async_copy_engine
-    // For cp.async: src_addr (global) from ra, dst_addr (shared) from imm16
-    // Size encoded in func field
+    // For cp.async: src_addr (global) from rb register value, dst_addr (shared) from ra register value
+    // Size is encoded in rc field by assembler/parser (immediate-style encoding in 5-bit rc field)
     // Gate with ace_ready to implement backpressure - prevents dropped requests
 
     // TMA instruction detection (cp.async.bulk.tensor)
@@ -3983,15 +3983,15 @@ module streaming_multiprocessor_v2 #(
                            issue1_cpasync ? issue1_func :
                            issue_st_async ? st_async_func :
                            issue1_st_async ? issue1_func : 6'b0;
-    // Source address from register (lane 0 for simplicity - real impl would be per-lane)
-    wire [31:0] ace_src_addr = issue_cpasync ? rf_rd_data_a[31:0] :
-                               issue1_cpasync ? rf1_rd_data_a[31:0] : 32'b0;
-    // Destination address in shared memory from imm16
-    wire [13:0] ace_dst_addr = issue_cpasync ? issue_imm16[13:0] :
-                               issue1_cpasync ? issue1_imm16[13:0] : 14'b0;
-    // Size from rb register (bits [3:0] encode 4/8/16 bytes)
-    wire [3:0]  ace_size = issue_cpasync ? issue_rb[3:0] :
-                           issue1_cpasync ? issue1_rb[3:0] : 4'd4;
+    // Source address from RB register value (lane 0 for simplicity - real impl would be per-lane)
+    wire [31:0] ace_src_addr = issue_cpasync ? rf_rd_data_b[31:0] :
+                               issue1_cpasync ? rf1_rd_data_b[31:0] : 32'b0;
+    // Destination address in shared memory from RA register value
+    wire [13:0] ace_dst_addr = issue_cpasync ? rf_rd_data_a[13:0] :
+                               issue1_cpasync ? rf1_rd_data_a[13:0] : 14'b0;
+    // Copy size from RC field (assembler encodes immediate byte count in rc[4:0])
+    wire [3:0]  ace_size = issue_cpasync ? issue_rc[3:0] :
+                           issue1_cpasync ? issue1_rc[3:0] : 4'd4;
     // Wait count for wait_group
     wire [3:0]  ace_wait_count = issue_cpasync ? issue_imm16[3:0] :
                                  issue1_cpasync ? issue1_imm16[3:0] : 4'b0;
