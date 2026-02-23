@@ -40,6 +40,11 @@ class Opcode(IntEnum):
     SHFL = 0b011100
     VOTE = 0b011101
     REDUX = 0b011110
+    # Tensor core
+    WMMA_LOAD = 0b011111
+    WMMA_STORE = 0b100000
+    WMMA_MMA = 0b100001
+    MMA = 0b100010
     # Memory barrier
     MEMBAR = 0b100100
     # Video/DP
