@@ -1235,7 +1235,7 @@ class PTXAssembler:
         if mnemonic.startswith('cp.async.commit_group'):
             return self._parse_cpasync_control(CpAsyncFunc.COMMIT)
         if mnemonic.startswith('cp.async.wait_group'):
-            return self._parse_cpasync_control(CpAsyncFunc.WAIT)
+            return self._parse_cpasync_wait(operands)
         if mnemonic.startswith('cp.async.wait_all'):
             return self._parse_cpasync_control(CpAsyncFunc.WAIT_ALL)
         if mnemonic.startswith('cp.async.bulk'):
@@ -1990,6 +1990,13 @@ class PTXAssembler:
     def _parse_cpasync_control(self, func: int) -> Instruction:
         """Parse async copy control"""
         return Instruction(opcode=Opcode.CPASYNC, func=func)
+
+    def _parse_cpasync_wait(self, operands: List[str]) -> Instruction:
+        """Parse cp.async.wait_group N (N encoded in rc)"""
+        inst = Instruction(opcode=Opcode.CPASYNC, func=CpAsyncFunc.WAIT)
+        if operands:
+            inst.rc = parse_immediate(operands[0]) & 0x1F
+        return inst
 
     def _parse_prefetch(self, func: int, operands: List[str]) -> Instruction:
         """Parse prefetch"""

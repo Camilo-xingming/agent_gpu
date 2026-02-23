@@ -2655,7 +2655,7 @@ module streaming_multiprocessor_v2 #(
             // wait_group / wait_all handling - stall the requesting warp
             if (issue_cpasync_wait) begin
                 warp_stalled_async[issue_warp_id] <= 1'b1;
-                cp_async_wait_threshold[issue_warp_id] <= issue_imm16[3:0];
+                cp_async_wait_threshold[issue_warp_id] <= issue_rc[3:0];
                 cp_async_wait_all[issue_warp_id] <= 1'b0;
             end else if (issue_cpasync_wait_all) begin
                 warp_stalled_async[issue_warp_id] <= 1'b1;
@@ -2664,7 +2664,7 @@ module streaming_multiprocessor_v2 #(
             end
             if (issue1_cpasync_wait) begin
                 warp_stalled_async[issue1_warp_id] <= 1'b1;
-                cp_async_wait_threshold[issue1_warp_id] <= issue1_imm16[3:0];
+                cp_async_wait_threshold[issue1_warp_id] <= issue1_rc[3:0];
                 cp_async_wait_all[issue1_warp_id] <= 1'b0;
             end else if (issue1_cpasync_wait_all) begin
                 warp_stalled_async[issue1_warp_id] <= 1'b1;
@@ -3992,9 +3992,9 @@ module streaming_multiprocessor_v2 #(
     // Copy size from RC field (assembler encodes immediate byte count in rc[4:0])
     wire [3:0]  ace_size = issue_cpasync ? issue_rc[3:0] :
                            issue1_cpasync ? issue1_rc[3:0] : 4'd4;
-    // Wait count for wait_group
-    wire [3:0]  ace_wait_count = issue_cpasync ? issue_imm16[3:0] :
-                                 issue1_cpasync ? issue1_imm16[3:0] : 4'b0;
+    // Wait count for wait_group (assembler encodes N in rc field)
+    wire [3:0]  ace_wait_count = issue_cpasync ? issue_rc[3:0] :
+                                 issue1_cpasync ? issue1_rc[3:0] : 4'b0;
 
     // TMA Interface signals
     // For cp.async.bulk.tensor: tensor_desc from {rb, ra} (64-bit), coords from rc and imm16
