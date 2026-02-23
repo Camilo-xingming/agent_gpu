@@ -1,6 +1,6 @@
 //============================================================================
-// RalphGPU - SM V2 Tensor Core Performance Test (WMMA stream)
-// Streams WMMA MMA ops to measure sustained throughput.
+// RalphGPU - SM V2 WMMA GEMM 16x16x16 PTX Path Test
+// Verifies WMMA load/store + MMA execution plumbing using a PTX microbenchmark.
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -8,22 +8,18 @@
 `include "../rtl/gpu_defines.vh"
 `include "../rtl/memory_config.vh"
 
-module tb_sm_v2_perf_tensor;
+module tb_sm_v2_perf_gemm16_wmma_ptx;
 
-    //------------------------------------------------------------------------
-    // Parameters
-    //------------------------------------------------------------------------
     localparam NUM_WARPS  = `WARPS_PER_SM;
     localparam NUM_LANES  = `THREADS_PER_WARP;
     localparam DATA_WIDTH = `DATA_WIDTH;
     localparam CLK_PERIOD = 10;
     localparam IMEM_WORDS = 8192;
-    localparam N_OPS      = 2048;
-    localparam REG_STRIDE = 16;
 
-    //------------------------------------------------------------------------
-    // Clock and Reset
-    //------------------------------------------------------------------------
+    localparam EXPECTED_WMMA_LOADS  = 3;
+    localparam EXPECTED_WMMA_STORES = 1;
+    localparam EXPECTED_WMMA_MMAS   = 16;
+
     reg clk;
     reg rst_n;
 
@@ -32,9 +28,6 @@ module tb_sm_v2_perf_tensor;
         forever #(CLK_PERIOD/2) clk = ~clk;
     end
 
-    //------------------------------------------------------------------------
-    // DUT Signals
-    //------------------------------------------------------------------------
     reg         kernel_start;
     reg  [31:0] kernel_pc;
     reg  [31:0] block_id_x, block_id_y, block_id_z;
@@ -75,40 +68,52 @@ module tb_sm_v2_perf_tensor;
     reg  [31:0] m_axi_rdata;
     reg         m_axi_rlast;
 
-    //------------------------------------------------------------------------
-    // Instruction Memory
-    //------------------------------------------------------------------------
     reg [31:0] imem [0:IMEM_WORDS-1];
     reg        imem_req_q;
     reg [31:0] imem_addr_q;
-
-    function [31:0] encode_wmma_mma;
-        input [4:0] rd, ra, rb, rc;
-        input [2:0] dtype;
-        input [2:0] shape;
-        reg [5:0] func;
-        begin
-            func = {shape, dtype};
-            encode_wmma_mma = {`OP_WMMA_MMA, rd, ra, rb, rc, func};
-        end
-    endfunction
-
-    function [31:0] encode_exit;
-        begin
-            encode_exit = {`OP_EXIT, 26'b0};
-        end
-    endfunction
+    string     imem_file;
+    integer    imem_fd;
+    reg        imem_loaded;
 
     integer i;
     initial begin
         for (i = 0; i < IMEM_WORDS; i = i + 1) begin
             imem[i] = {`OP_NOP, 26'b0};
         end
-        for (i = 0; i < N_OPS; i = i + 1) begin
-            imem[i] = encode_wmma_mma((i % REG_STRIDE) + 1, 5'd0, 5'd0, 5'd0,
-                                     `TC_DATA_FP16, `WMMA_M16N16K16);
+        if (!$value$plusargs("imem=%s", imem_file)) begin
+            imem_file = "gemm16_wmma.hex";
         end
-        imem[N_OPS] = encode_exit();
+        imem_loaded = 1'b0;
+
+        imem_fd = $fopen(imem_file, "r");
+        if (imem_fd != 0) begin
+            $fclose(imem_fd);
+            $readmemh(imem_file, imem);
+            imem_loaded = 1'b1;
+        end else begin
+            imem_fd = $fopen("../gemm16_wmma.hex", "r");
+            if (imem_fd != 0) begin
+                $fclose(imem_fd);
+                imem_file = "../gemm16_wmma.hex";
+                $readmemh(imem_file, imem);
+                imem_loaded = 1'b1;
+            end else begin
+                imem_fd = $fopen("../../gemm16_wmma.hex", "r");
+                if (imem_fd != 0) begin
+                    $fclose(imem_fd);
+                    imem_file = "../../gemm16_wmma.hex";
+                    $readmemh(imem_file, imem);
+                    imem_loaded = 1'b1;
+                end
+            end
+        end
+
+        if (!imem_loaded) begin
+            $display("FATAL: unable to load instruction hex file (tried: %s, ../gemm16_wmma.hex, ../../gemm16_wmma.hex)", imem_file);
+            $finish;
+        end else begin
+            $display("INFO: loaded instruction hex: %s", imem_file);
+        end
     end
 
     always @(posedge clk or negedge rst_n) begin
@@ -129,16 +134,12 @@ module tb_sm_v2_perf_tensor;
         end
     end
 
-    //------------------------------------------------------------------------
-    // DUT Instantiation
-    //------------------------------------------------------------------------
     streaming_multiprocessor_v2 #(
         .SM_ID(0),
         .NUM_WARPS(NUM_WARPS),
         .NUM_LANES(NUM_LANES),
         .DATA_WIDTH(DATA_WIDTH),
-        .INIT_WARPS(4),  // Use 4 warps to hide latency
-        .ICACHE_BYPASS(1)  // Bypass icache for testing
+        .INIT_WARPS(1)
     ) dut (
         .clk           (clk),
         .rst_n         (rst_n),
@@ -200,13 +201,10 @@ module tb_sm_v2_perf_tensor;
 
     assign imem_ready = 1'b1;
 
-    //------------------------------------------------------------------------
-    // Memory Interfaces (Idle)
-    //------------------------------------------------------------------------
     initial begin
         l1d_resp_valid = 1'b0;
         l1d_resp_hit = 1'b0;
-        l1d_resp_rdata = 0;
+        l1d_resp_rdata = {NUM_LANES*32{1'b0}};
         m_axi_awready = 1'b1;
         m_axi_wready  = 1'b1;
         m_axi_bvalid  = 1'b0;
@@ -220,24 +218,22 @@ module tb_sm_v2_perf_tensor;
         m_axi_rlast   = 1'b1;
     end
 
-    //------------------------------------------------------------------------
-    // Performance Counters
-    //------------------------------------------------------------------------
     integer cycle_count;
-    integer wb_count;
     integer fetch_count;
-    integer issue_count;
-    integer stall_raw;
-    integer stall_fu;
-    integer stall_mem;
-    integer stall_atomic;
-    integer stall_tensor;
-    integer stall_wbq;
+    integer wb_count;
+    integer wmma_load_issues;
+    integer wmma_store_issues;
+    integer wmma_mma_issues;
+    integer smem_reads;
+    integer smem_writes;
+    integer tensor_issue_count;
+    integer tensor_wb_count;
     integer timeout_cycles;
     integer timeout_left;
+    integer progress_interval;
     reg running;
     reg done;
-    real ipc;
+
     wire wb_fire = dut.wb_valid && (dut.wb_rd != 0);
 
     always @(posedge clk or negedge rst_n) begin
@@ -245,81 +241,78 @@ module tb_sm_v2_perf_tensor;
             running <= 1'b0;
             done <= 1'b0;
             cycle_count <= 0;
-            wb_count <= 0;
             fetch_count <= 0;
-            issue_count <= 0;
-            stall_raw <= 0;
-            stall_fu <= 0;
-            stall_mem <= 0;
-            stall_atomic <= 0;
-            stall_tensor <= 0;
-            stall_wbq <= 0;
+            wb_count <= 0;
+            wmma_load_issues <= 0;
+            wmma_store_issues <= 0;
+            wmma_mma_issues <= 0;
+            smem_reads <= 0;
+            smem_writes <= 0;
+            tensor_issue_count <= 0;
+            tensor_wb_count <= 0;
         end else begin
             if (kernel_start) begin
                 running <= 1'b1;
                 done <= 1'b0;
                 cycle_count <= 0;
-                wb_count <= 0;
                 fetch_count <= 0;
-                issue_count <= 0;
-                stall_raw <= 0;
-                stall_fu <= 0;
-                stall_mem <= 0;
-                stall_atomic <= 0;
-                stall_tensor <= 0;
-                stall_wbq <= 0;
+                wb_count <= 0;
+                wmma_load_issues <= 0;
+                wmma_store_issues <= 0;
+                wmma_mma_issues <= 0;
+                smem_reads <= 0;
+                smem_writes <= 0;
+                tensor_issue_count <= 0;
+                tensor_wb_count <= 0;
             end else if (running) begin
                 cycle_count <= cycle_count + 1;
-                if (wb_fire) begin
-                    wb_count <= wb_count + 1;
+                if (kernel_done) begin
+                    running <= 1'b0;
+                    done <= 1'b1;
                 end
                 if (imem_req) begin
                     fetch_count <= fetch_count + 1;
                 end
-                if (dut.issue_valid) begin
-                    issue_count <= issue_count + 1;
+                if (wb_fire) begin
+                    wb_count <= wb_count + 1;
                 end
-                if (dut.lane0_stall_raw) begin
-                    stall_raw <= stall_raw + 1;
+                if (dut.issue_valid && dut.issue_opcode == `OP_WMMA_LOAD) begin
+                    wmma_load_issues <= wmma_load_issues + 1;
                 end
-                if (dut.lane0_stall_fu) begin
-                    stall_fu <= stall_fu + 1;
+                if (dut.issue_valid && dut.issue_opcode == `OP_WMMA_STORE) begin
+                    wmma_store_issues <= wmma_store_issues + 1;
                 end
-                if (dut.lane0_stall_mem) begin
-                    stall_mem <= stall_mem + 1;
+                if (dut.issue_valid && dut.issue_opcode == `OP_WMMA_MMA) begin
+                    wmma_mma_issues <= wmma_mma_issues + 1;
                 end
-                if (dut.lane0_stall_atomic) begin
-                    stall_atomic <= stall_atomic + 1;
+                if (dut.smem_req_valid) begin
+                    if (dut.smem_req_write) begin
+                        smem_writes <= smem_writes + 1;
+                    end else begin
+                        smem_reads <= smem_reads + 1;
+                    end
                 end
-                if (dut.lane0_stall_tensor) begin
-                    stall_tensor <= stall_tensor + 1;
+                if (dut.tensor_issue_push_fire) begin
+                    tensor_issue_count <= tensor_issue_count + 1;
                 end
-                if (dut.lane0_stall_wbq) begin
-                    stall_wbq <= stall_wbq + 1;
-                end
-                if (wb_count + (wb_fire ? 1 : 0) >= N_OPS) begin
-                    running <= 1'b0;
-                    done <= 1'b1;
+                if (dut.tensor_wbq_push_fire) begin
+                    tensor_wb_count <= tensor_wb_count + 1;
                 end
             end
         end
     end
 
-    //------------------------------------------------------------------------
-    // Test Sequence
-    //------------------------------------------------------------------------
     initial begin
         $display("============================================================");
-        $display("RalphGPU SM V2 Tensor Core Performance Test");
-        $display("Kernel: WMMA MMA stream (m16n16k16, FP16)");
-        $display("Ops: %0d MMA", N_OPS);
+        $display("RalphGPU SM V2 WMMA PTX Path Test");
+        $display("Kernel: GEMM 16x16x16 (WMMA load/store + MMA stream)");
         $display("============================================================");
 
         rst_n = 0;
         kernel_start = 0;
         kernel_pc = 0;
         block_id_x = 0; block_id_y = 0; block_id_z = 0;
-        block_dim_x = 16; block_dim_y = 16; block_dim_z = 1;
+        block_dim_x = 32; block_dim_y = 1; block_dim_z = 1;
         grid_dim_x = 1; grid_dim_y = 1; grid_dim_z = 1;
 
         repeat(10) @(posedge clk);
@@ -332,28 +325,54 @@ module tb_sm_v2_perf_tensor;
         @(posedge clk);
         kernel_start = 0;
 
-        timeout_cycles = (N_OPS * 8) + 2000;
+        timeout_cycles = 30000;
+        progress_interval = 2000;
+        if ($value$plusargs("timeout_cycles=%d", timeout_cycles)) begin
+            $display("INFO: override timeout_cycles=%0d", timeout_cycles);
+        end
+        if ($value$plusargs("progress_interval=%d", progress_interval)) begin
+            $display("INFO: override progress_interval=%0d", progress_interval);
+        end
+        if (progress_interval <= 0) begin
+            progress_interval = 2000;
+        end
+
         timeout_left = timeout_cycles;
         while (!done && (timeout_left > 0)) begin
             @(posedge clk);
             timeout_left = timeout_left - 1;
+            if ((cycle_count > 0) && ((cycle_count % progress_interval) == 0)) begin
+                $display("PROGRESS: cycle=%0d fetch=%0d wb=%0d wmma_load=%0d wmma_store=%0d wmma_mma=%0d smem_rd=%0d smem_wr=%0d tensor_issue=%0d tensor_wb=%0d timeout_left=%0d",
+                         cycle_count, fetch_count, wb_count,
+                         wmma_load_issues, wmma_store_issues, wmma_mma_issues,
+                         smem_reads, smem_writes, tensor_issue_count, tensor_wb_count,
+                         timeout_left);
+            end
         end
 
-        ipc = (cycle_count > 0) ? (1.0 * wb_count / cycle_count) : 0.0;
         $display("Cycles: %0d", cycle_count);
-        $display("Writebacks: %0d", wb_count);
         $display("Fetches: %0d", fetch_count);
-        $display("Issues: %0d", issue_count);
-        $display("Stalls: raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d",
-                 stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq);
-        $display("IPC: %0.3f", ipc);
+        $display("Writebacks: %0d", wb_count);
+        $display("WMMA issues: load=%0d store=%0d mma=%0d", wmma_load_issues, wmma_store_issues, wmma_mma_issues);
+        $display("SMEM traffic: read=%0d write=%0d", smem_reads, smem_writes);
+        $display("Tensor path: issue=%0d wb=%0d", tensor_issue_count, tensor_wb_count);
 
         if (!done) begin
-            $display("FAIL: timeout before completing all MMAs");
-        end else if (wb_count != N_OPS) begin
-            $display("FAIL: expected %0d writebacks, got %0d", N_OPS, wb_count);
+            $display("FAIL: timeout waiting for kernel_done");
+        end else if (wmma_load_issues < EXPECTED_WMMA_LOADS) begin
+            $display("FAIL: expected at least %0d WMMA loads, got %0d", EXPECTED_WMMA_LOADS, wmma_load_issues);
+        end else if (wmma_store_issues < EXPECTED_WMMA_STORES) begin
+            $display("FAIL: expected at least %0d WMMA stores, got %0d", EXPECTED_WMMA_STORES, wmma_store_issues);
+        end else if (wmma_mma_issues < EXPECTED_WMMA_MMAS) begin
+            $display("FAIL: expected at least %0d WMMA MMA ops, got %0d", EXPECTED_WMMA_MMAS, wmma_mma_issues);
+        end else if (smem_reads < EXPECTED_WMMA_LOADS) begin
+            $display("FAIL: expected SMEM reads from WMMA loads, got %0d", smem_reads);
+        end else if (smem_writes < EXPECTED_WMMA_STORES) begin
+            $display("FAIL: expected SMEM writes from WMMA store path, got %0d", smem_writes);
+        end else if (tensor_issue_count < EXPECTED_WMMA_MMAS || tensor_wb_count == 0) begin
+            $display("FAIL: tensor path inactive (issue=%0d wb=%0d)", tensor_issue_count, tensor_wb_count);
         end else begin
-            $display("PASS: completed WMMA stream");
+            $display("PASS: WMMA 16x16 PTX path exercised (load/store/mma)");
         end
 
         $finish;

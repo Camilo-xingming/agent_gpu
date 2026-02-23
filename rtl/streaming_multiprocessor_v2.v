@@ -1692,6 +1692,7 @@ module streaming_multiprocessor_v2 #(
                                          (op == `OP_WGMMA_MMA) || (op == `OP_WGMMA_LOAD) ||
                                          (op == `OP_WGMMA_STORE);
             assign pd_is_memory[pd_i]  = (op == `OP_LD_GLOBAL) || (op == `OP_ST_GLOBAL) ||
+                                         (op == `OP_WMMA_LOAD) || (op == `OP_WMMA_STORE) ||
                                          (op == `OP_LD_SHARED) || (op == `OP_ST_SHARED) ||
                                          (op == `OP_LD_LOCAL) || (op == `OP_LD_PARAM) ||
                                          (op == `OP_ATOM) || (op == `OP_RED) ||
