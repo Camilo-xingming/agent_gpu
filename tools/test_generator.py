@@ -1592,6 +1592,197 @@ class BarSyncTestGenerator:
         return self.gen_bar_sync_basic_tests()
 
 
+
+class MbarrierTestGenerator:
+    """Generate mbarrier (Hopper+ async barrier) test cases
+
+    Note on Single-Warp FRM:
+    In a single-warp FRM with block_dim=(32,1,1), 32 threads arrive in one
+    instruction execution. Tests verify that:
+    1. mbarrier.init sets barrier state correctly
+    2. mbarrier.arrive triggers phase flip when arrival count met
+    3. mbarrier.test_wait returns correct result based on phase
+    4. mbarrier.arrive_and_expect_tx + async completion workflow
+    5. mbarrier.inval invalidates barrier
+    6. mbarrier.arrive_drop decrements expected count
+
+    True async cp.async integration testing requires RTL simulation.
+    """
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def gen_mbarrier_init_arrive_tests(self) -> List[TestCase]:
+        """Test init + arrive + test_wait basic flow"""
+        tests = []
+
+        # Test 0: init barrier, arrive with 32 threads, test_wait should pass
+        # r1 = barrier addr (0x10 = barrier idx 1), r2 = expected count = 32
+        # After arrive: arrival(32) >= expected(32) => phase flips 0->1
+        # test_wait with phase=0 => phase(1) != 0 => returns 1
+        tests.append(TestCase(
+            name="mbarrier_init_arrive_000",
+            category="mbarrier",
+            ptx_code=[
+                "mov.u32 r1, 16",          # barrier addr 0x10 (idx=1)
+                "mov.u32 r2, 32",          # expected count = 32 threads
+                "mbarrier.init [r1], r2",  # init barrier 1 with count 32
+                "mbarrier.arrive [r1]",    # 32 threads arrive -> phase flip
+                "mov.u32 r3, 0",           # phase to wait for = 0
+                "mbarrier.test_wait r4, [r1], r3",  # r4 = 1 (phase flipped)
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={4: 1}
+        ))
+
+        # Test 1: init with count 64, arrive 32 -> not complete yet
+        tests.append(TestCase(
+            name="mbarrier_init_arrive_001",
+            category="mbarrier",
+            ptx_code=[
+                "mov.u32 r1, 32",          # barrier addr 0x20 (idx=2)
+                "mov.u32 r2, 64",          # expected count = 64
+                "mbarrier.init [r1], r2",  # init barrier 2 with count 64
+                "mbarrier.arrive [r1]",    # 32 threads arrive (need 64)
+                "mov.u32 r3, 0",           # phase to wait for = 0
+                "mbarrier.test_wait r4, [r1], r3",  # r4 = 0 (not complete)
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={4: 0}
+        ))
+
+        # Test 2: init with count 32, arrive twice (second is on new phase)
+        tests.append(TestCase(
+            name="mbarrier_init_arrive_002",
+            category="mbarrier",
+            ptx_code=[
+                "mov.u32 r1, 48",          # barrier addr 0x30 (idx=3)
+                "mov.u32 r2, 32",          # expected count = 32
+                "mbarrier.init [r1], r2",  # init
+                "mbarrier.arrive [r1]",    # 32 arrive -> phase 0->1, reset arrival
+                "mbarrier.arrive [r1]",    # 32 arrive again -> phase 1->0
+                "mov.u32 r3, 0",
+                "mbarrier.test_wait r4, [r1], r3",  # phase=0, wait_phase=0 -> 0 (not flipped)
+                "mov.u32 r5, 1",
+                "mbarrier.test_wait r6, [r1], r5",  # phase=0, wait_phase=1 -> 1 (flipped past 1)
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={4: 0, 6: 1}
+        ))
+
+        return tests
+
+    def gen_mbarrier_invalidate_tests(self) -> List[TestCase]:
+        """Test mbarrier.inval"""
+        tests = []
+
+        # Test: init, invalidate, test_wait should return 0
+        tests.append(TestCase(
+            name="mbarrier_inval_000",
+            category="mbarrier",
+            ptx_code=[
+                "mov.u32 r1, 16",          # barrier addr 0x10
+                "mov.u32 r2, 32",
+                "mbarrier.init [r1], r2",
+                "mbarrier.inval [r1]",     # invalidate
+                "mov.u32 r3, 0",
+                "mbarrier.test_wait r4, [r1], r3",  # invalid barrier -> 0
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={4: 0}
+        ))
+
+        return tests
+
+    def gen_mbarrier_arrive_drop_tests(self) -> List[TestCase]:
+        """Test mbarrier.arrive_drop"""
+        tests = []
+
+        # Test: init with count=33, arrive_drop (expected becomes 32, arrival=32)
+        # -> should complete since 32 >= 32
+        tests.append(TestCase(
+            name="mbarrier_arrive_drop_000",
+            category="mbarrier",
+            ptx_code=[
+                "mov.u32 r1, 16",          # barrier addr
+                "mov.u32 r2, 33",          # expected = 33
+                "mbarrier.init [r1], r2",
+                "mbarrier.arrive_drop [r1]",  # arrival += 32, expected = 32 -> complete!
+                "mov.u32 r3, 0",
+                "mbarrier.test_wait r4, [r1], r3",  # should be 1 (phase flipped)
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={4: 1}
+        ))
+
+        return tests
+
+    def gen_mbarrier_multi_barrier_tests(self) -> List[TestCase]:
+        """Test multiple independent barriers"""
+        tests = []
+
+        # Test: init two barriers, arrive at one, check both
+        tests.append(TestCase(
+            name="mbarrier_multi_000",
+            category="mbarrier",
+            ptx_code=[
+                "mov.u32 r1, 16",          # barrier 1 addr
+                "mov.u32 r2, 32",          # barrier 2 addr
+                "mov.u32 r3, 32",          # expected count
+                "mbarrier.init [r1], r3",  # init barrier 1
+                "mbarrier.init [r2], r3",  # init barrier 2
+                "mbarrier.arrive [r1]",    # arrive at barrier 1 only
+                "mov.u32 r5, 0",
+                "mbarrier.test_wait r6, [r1], r5",  # barrier 1: complete -> 1
+                "mbarrier.test_wait r7, [r2], r5",  # barrier 2: not arrived -> 0
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={6: 1, 7: 0}
+        ))
+
+        return tests
+
+    def gen_mbarrier_expect_tx_tests(self) -> List[TestCase]:
+        """Test mbarrier.expect_tx (add pending transaction bytes)"""
+        tests = []
+
+        # Test: init, expect_tx, arrive (32 >= 32 but pending_tx > 0 -> not complete)
+        tests.append(TestCase(
+            name="mbarrier_expect_tx_000",
+            category="mbarrier",
+            ptx_code=[
+                "mov.u32 r1, 16",
+                "mov.u32 r2, 32",          # expected count
+                "mov.u32 r8, 128",         # tx bytes
+                "mbarrier.init [r1], r2",
+                "mbarrier.arrive.expect_tx [r1], r8",  # arrive + 128 tx bytes pending
+                "mov.u32 r3, 0",
+                "mbarrier.test_wait r4, [r1], r3",  # pending_tx > 0 -> not complete -> 0
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={4: 0}
+        ))
+
+        return tests
+
+    def gen_all_mbarrier_tests(self) -> List[TestCase]:
+        """Generate all mbarrier tests"""
+        tests = []
+        tests.extend(self.gen_mbarrier_init_arrive_tests())
+        tests.extend(self.gen_mbarrier_invalidate_tests())
+        tests.extend(self.gen_mbarrier_arrive_drop_tests())
+        tests.extend(self.gen_mbarrier_multi_barrier_tests())
+        tests.extend(self.gen_mbarrier_expect_tx_tests())
+        return tests
+
+
 class BranchTestGenerator:
     """Generate branch/control flow test cases"""
 
@@ -1933,11 +2124,23 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(cvt_tests)} CVT tests")
 
+
+    # mbarrier (Hopper+ async barrier) tests
+    mbar_gen = MbarrierTestGenerator(seed=42)
+    mbar_tests = mbar_gen.gen_all_mbarrier_tests()
+    print(f"Generated {len(mbar_tests)} mbarrier tests")
+
+    success_count = 0
+    for test in mbar_tests:
+        if write_test_case(test, output_dir / "mbarrier"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(mbar_tests)} mbarrier tests")
+
     # Summary
     total_tests = (len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) +
                    len(div_tests) + len(special_tests) + len(atom_tests) + len(sync_tests) +
                    len(param_tests) + len(membar_tests) + len(sfu_tests) + len(fp16_tests) +
-                   len(fp64_tests) + len(cvt_tests))
+                   len(fp64_tests) + len(cvt_tests) + len(mbar_tests))
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -1962,7 +2165,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "fp16", "fp64", "cvt", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "fp16", "fp64", "cvt", "mbarrier", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -2046,6 +2249,11 @@ def main():
             tests = gen.gen_all_cvt_tests()
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "cvt"))
             print(f"Generated {success}/{len(tests)} CVT tests")
+        elif args.gen == "mbarrier":
+            gen = MbarrierTestGenerator(seed=args.seed)
+            tests = gen.gen_all_mbarrier_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "mbarrier"))
+            print(f"Generated {success}/{len(tests)} mbarrier tests")
     else:
         parser.print_help()
 
