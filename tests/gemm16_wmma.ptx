@@ -1,0 +1,45 @@
+.entry gemm16_wmma:
+    // Seed a few shared-memory words so WMMA loads have deterministic non-zero input.
+    mov.u32 r10, 0x0000
+    mov.u32 r11, 0x0100
+    mov.u32 r12, 0x0200
+    mov.u32 r13, 0x0300
+
+    mov.u32 r20, 0x0000
+    mov.u32 r21, 0x3C003C00
+    st.shared.u32 [r20], r21
+
+    mov.u32 r20, 0x0100
+    mov.u32 r21, 0x40003C00
+    st.shared.u32 [r20], r21
+
+    mov.u32 r20, 0x0200
+    mov.u32 r21, 0x00000000
+    st.shared.u32 [r20], r21
+
+    wmma.load.a.sync.m16n16k16.f16 r0, [r10]
+    wmma.load.b.sync.m16n16k16.f16 r1, [r11]
+    wmma.load.c.sync.m16n16k16.f32 r2, [r12]
+
+    // Stream WMMA MMA ops to exercise tensor issue/writeback flow.
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+    wmma.mma.sync.m16n16k16.f32.f16 r2, r0, r1, r2
+
+    wmma.store.d.sync.m16n16k16.f32 [r13], r2
+
+    exit
+.end

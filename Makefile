@@ -130,7 +130,7 @@ endif
 
 .PHONY: all sim wave clean assemble help test test_all
 .PHONY: test_alu test_mul test_decoder test_regfile test_smem test_warp test_sfu
-.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4
+.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4
 .PHONY: test_vector_add test_multi_sm test_memsys test_l1_data_cache test_phase2
 
 all: $(BUILD_DIR) sim
@@ -645,6 +645,7 @@ help:
 	@echo "  test_multi_sm   - Test multi-SM parallel execution"
 	@echo "  test_sm_v2_perf - SM V2 FP32 FMA performance microbenchmark"
 	@echo "  test_sm_v2_perf_gemm16_ptx - SM V2 PTX-driven GEMM 16x16x16 microbenchmark"
+	@echo "  test_sm_v2_perf_gemm16_wmma_ptx - SM V2 PTX WMMA GEMM 16x16x16 path test"
 	@echo "  test_sm_v2_perf_tensor - SM V2 Tensor Core WMMA microbenchmark"
 	@echo "  test_sm_v2_perf_tensor_multiwarp - SM V2 Tensor Core multi-warp test"
 	@echo ""
@@ -680,3 +681,16 @@ test_warp_valid_d1: $(BUILD_DIR)/tb_warp_inst_valid_d1.vvp
 $(BUILD_DIR)/tb_warp_inst_valid_d1.vvp: $(TB_DIR)/tb_warp_inst_valid_d1.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_warp_inst_valid_d1.v
 
+
+# Performance microbenchmark (PTX-driven WMMA GEMM stream)
+test_sm_v2_perf_gemm16_wmma_ptx: gemm16_wmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.vvp
+	@echo "========================================"
+	@echo "Running SM V2 PTX WMMA GEMM Path Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_perf_gemm16_wmma_ptx.vvp
+
+$(BUILD_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.vvp: $(SM_V2_SRCS) $(TB_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.v $(filter %.v,$(RTL_SRCS))
+
+gemm16_wmma.hex: tests/gemm16_wmma.ptx tools/ptx_assembler.py
+	$(PYTHON) tools/ptx_assembler.py tests/gemm16_wmma.ptx -o gemm16_wmma.hex

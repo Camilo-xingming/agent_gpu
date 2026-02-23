@@ -477,7 +477,7 @@ end
                     // (scoreboard set happens when SM's tensor push actually succeeds)
                     if (warp_writes_reg[issue_warp_r[sb_s]] &&
                         issue_pipe_r[sb_s] != PIPE_TENSOR) begin
-                        scoreboard[issue_warp_r[sb_s]][warp_rd[issue_warp_r[sb_s]]] <= 1'b1;
+                        scoreboard[issue_warp_r[sb_s]][warp_rd[issue_warp_r[sb_s]*5 +: 5]] <= 1'b1;
                     end
 
                     // Async MMA scoreboard update (Blackwell)
