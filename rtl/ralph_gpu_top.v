@@ -30,7 +30,7 @@ module ralph_gpu_top #(
     parameter AXI_DATA_WIDTH = 32,
     parameter AXI_ADDR_WIDTH = 32,
     parameter AXI_ID_WIDTH   = 4,
-    parameter L1D_BYPASS     = 1,                 // 1=bypass L1D (fast testing), 0=use full cache
+    parameter L1D_BYPASS     = 0,                 // 1=bypass L1D (fast testing), 0=use full cache
     parameter L2_ENABLE      = 0                  // 1=enable L2 cache, 0=bypass L2 (direct to memory)
 )(
     input  wire                         clk,
@@ -390,7 +390,7 @@ module ralph_gpu_top #(
                 wire        l1d_mem_ready;
                 reg         refill_pending;
 
-                assign l1d_mem_ready = !refill_pending;
+                // l1d_mem_ready assigned in bridge block below
 
                 l1_data_cache #(
                     .CACHE_SIZE_KB   (16),
@@ -431,23 +431,54 @@ module ralph_gpu_top #(
                     .policy_discard_addr  (32'b0)
                 );
 
-                // L1D miss refill data now sourced from AXI read return channel.
+                // L1D refill/writeback bridge
+                // Refill: accumulate AXI burst beats into cache line
+                // Writeback: issue AXI burst writes for dirty evictions
+                reg [4:0]  refill_beat_cnt;
+                reg        writeback_pending;
+                reg [4:0]  wb_beat_cnt;
+
+                assign l1d_mem_ready = !refill_pending && !writeback_pending;
+
                 always @(posedge clk or negedge rst_n) begin
                     if (!rst_n) begin
-                        l1d_mem_valid <= 1'b0;
-                        l1d_mem_rdata <= 1024'b0;
-                        refill_pending <= 1'b0;
+                        l1d_mem_valid    <= 1'b0;
+                        l1d_mem_rdata    <= 1024'b0;
+                        refill_pending   <= 1'b0;
+                        refill_beat_cnt  <= 5'b0;
+                        writeback_pending <= 1'b0;
+                        wb_beat_cnt      <= 5'b0;
                     end else begin
                         l1d_mem_valid <= 1'b0;
 
-                        if (!refill_pending && l1d_mem_req && !l1d_mem_write) begin
-                            refill_pending <= 1'b1;
+                        // Start refill on read miss
+                        if (!refill_pending && !writeback_pending &&
+                            l1d_mem_req && !l1d_mem_write) begin
+                            refill_pending  <= 1'b1;
+                            refill_beat_cnt <= 5'b0;
                         end
 
-                        if (refill_pending && m_axi_rvalid && sm_core_axi_rready[sm]) begin
-                            l1d_mem_valid <= 1'b1;
-                            l1d_mem_rdata <= {32{m_axi_rdata}};
-                            refill_pending <= 1'b0;
+                        // Start writeback on dirty eviction
+                        if (!refill_pending && !writeback_pending &&
+                            l1d_mem_req && l1d_mem_write) begin
+                            writeback_pending <= 1'b1;
+                            wb_beat_cnt       <= 5'b0;
+                        end
+
+                        // Accumulate AXI read data beats for refill
+                        if (refill_pending && m_axi_rvalid) begin
+                            l1d_mem_rdata[refill_beat_cnt*32 +: 32] <= m_axi_rdata;
+                            if (m_axi_rlast || refill_beat_cnt == 5'd31) begin
+                                l1d_mem_valid  <= 1'b1;
+                                refill_pending <= 1'b0;
+                            end
+                            refill_beat_cnt <= refill_beat_cnt + 1;
+                        end
+
+                        // Writeback completion (AXI write response)
+                        if (writeback_pending && m_axi_bvalid) begin
+                            l1d_mem_valid     <= 1'b1;
+                            writeback_pending <= 1'b0;
                         end
                     end
                 end

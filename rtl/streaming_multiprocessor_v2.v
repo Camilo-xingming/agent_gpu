@@ -1204,8 +1204,25 @@ module streaming_multiprocessor_v2 #(
     endgenerate
 
     // Store path bypasses cache; global loads are serviced via L1.
-    assign gmem_store_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op && !issue_addr_oob_exc && !issue_illegal_exc &&
-                                  issue_mem_write && !issue_mem_read;
+    // On store, invalidate matching L1D cache line for coherence.
+    wire        l1d_store_invalidate = issue_valid && !issue_mem_shared && !issue_atomic_op && !issue_addr_oob_exc && !issue_illegal_exc &&
+                                       issue_mem_write && !issue_mem_read;
+    // First active lane's store address for cache invalidation
+    reg [31:0] l1d_store_inv_addr;
+    always @(*) begin
+        l1d_store_inv_addr = 32'b0;
+        begin : find_store_lane
+            integer si;
+            for (si = 0; si < NUM_LANES; si = si + 1) begin
+                if (issue_mask[si]) begin
+                    l1d_store_inv_addr = rf_rd_data_a[si*32 +: 32];
+                    disable find_store_lane;
+                end
+            end
+        end
+    end
+
+    assign gmem_store_req_valid = l1d_store_invalidate;
     assign gmem_normal_req_valid = gmem_store_req_valid || l1_miss_req_valid;
     assign gmem_normal_req_write = gmem_store_req_valid ? 1'b1 : l1_mem_write;
     assign gmem_normal_req_addr  = gmem_store_req_valid ? rf_rd_data_a : l1_miss_req_addr_vec;
@@ -1247,8 +1264,8 @@ module streaming_multiprocessor_v2 #(
         .policy_apply_valid (1'b0),
         .policy_apply_addr  (32'b0),
         .policy_apply_id    (3'b0),
-        .policy_discard_valid(1'b0),
-        .policy_discard_addr(32'b0)
+        .policy_discard_valid(l1d_store_invalidate),
+        .policy_discard_addr(l1d_store_inv_addr)
     );
 
 
