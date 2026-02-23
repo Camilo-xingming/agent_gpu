@@ -1,5 +1,7 @@
 # RalphGPU - CUDA/PTX Compatible GPU IP
 
+[![CI](https://github.com/ssql2014/RalphGPU/actions/workflows/ci.yml/badge.svg)](https://github.com/ssql2014/RalphGPU/actions/workflows/ci.yml) [![Nightly](https://github.com/ssql2014/RalphGPU/actions/workflows/nightly.yml/badge.svg)](https://github.com/ssql2014/RalphGPU/actions/workflows/nightly.yml)
+
 An open-source, synthesizable GPU IP core compatible with NVIDIA's CUDA/PTX execution model. 63 RTL modules, ~36K lines of SystemVerilog.
 
 ## Features
