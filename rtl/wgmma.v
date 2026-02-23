@@ -325,7 +325,7 @@ module wgmma #(
                             `WGMMA_M64N64K16,
                             `WGMMA_M64N128K16,
                             `WGMMA_M64N256K16: begin
-                                // 启动异步MMA操作
+                                // Start asynchronous MMA and seed partial sums from incoming accumulator.
                                 if (pending_ops < MAX_PENDING_OPS) begin
                                     op_pending[op_head] <= 1'b1;
                                     op_head <= op_head + 1;
@@ -333,27 +333,25 @@ module wgmma #(
                                     state <= ST_COMPUTE;
                                     ready <= 1'b0;
                                     compute_cycle <= 0;
-
-                                    // 初始化累加器
                                     mma_result <= accum_in;
+
+                                    for (i = 0; i < 32; i = i + 1) begin
+                                        partial_sum[i] <= accum_in[i*32 +: 32];
+                                    end
                                 end
-                                done <= 1'b1;
                             end
 
                             `WGMMA_FENCE: begin
-                                // Fence: 确保之前的操作对后续可见
                                 state <= ST_FENCE;
                                 ready <= 1'b0;
                             end
 
                             `WGMMA_COMMIT_GROUP: begin
-                                // 提交当前挂起操作组
                                 op_committed <= op_pending;
                                 done <= 1'b1;
                             end
 
                             `WGMMA_WAIT_GROUP: begin
-                                // 等待指定数量的组完成
                                 if (pending_ops <= wait_count) begin
                                     done <= 1'b1;
                                 end else begin
@@ -370,143 +368,145 @@ module wgmma #(
                 end
 
                 ST_COMPUTE: begin
-                    // Multi-precision compute based on dtype from descriptor
                     compute_cycle <= compute_cycle + 1;
 
-                    // Dispatch to appropriate compute path based on data type
                     case (dtype_a)
                         DTYPE_FP16: begin
-                            // FP16: 32 x 16-bit elements in 512-bit data
                             for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= partial_sum[i] +
-                                    fp16_to_fp32(data_a[i*16 +: 16]) +
-                                    fp16_to_fp32(data_b[i*16 +: 16]);
+                                partial_sum[i] <= fp32_mac(
+                                    fp16_to_fp32(data_a[i*16 +: 16]),
+                                    fp16_to_fp32(data_b[i*16 +: 16]),
+                                    partial_sum[i]
+                                );
                             end
                         end
 
                         DTYPE_BF16: begin
-                            // BF16: 32 x 16-bit elements
                             for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= partial_sum[i] +
-                                    bf16_to_fp32(data_a[i*16 +: 16]) +
-                                    bf16_to_fp32(data_b[i*16 +: 16]);
+                                partial_sum[i] <= fp32_mac(
+                                    bf16_to_fp32(data_a[i*16 +: 16]),
+                                    bf16_to_fp32(data_b[i*16 +: 16]),
+                                    partial_sum[i]
+                                );
                             end
                         end
 
                         DTYPE_TF32: begin
-                            // TF32: 26 x 19-bit elements (approx) in 512-bit
-                            // Simplified: use 16 elements with padding
                             for (i = 0; i < 16; i = i + 1) begin
-                                partial_sum[i] <= partial_sum[i] +
-                                    tf32_to_fp32(data_a[i*32 +: 19]) +
-                                    tf32_to_fp32(data_b[i*32 +: 19]);
+                                partial_sum[i] <= fp32_mac(
+                                    tf32_to_fp32(data_a[i*32 +: 19]),
+                                    tf32_to_fp32(data_b[i*32 +: 19]),
+                                    partial_sum[i]
+                                );
                             end
                         end
 
                         DTYPE_FP8_E4: begin
-                            // FP8 E4M3: 64 x 8-bit elements in 512-bit
                             for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= partial_sum[i] +
-                                    fp8_e4m3_to_fp32(data_a[i*8 +: 8]) +
-                                    fp8_e4m3_to_fp32(data_a[(i+32)*8 +: 8]) +
-                                    fp8_e4m3_to_fp32(data_b[i*8 +: 8]) +
-                                    fp8_e4m3_to_fp32(data_b[(i+32)*8 +: 8]);
+                                partial_sum[i] <= fp32_mac(
+                                    fp8_e4m3_to_fp32(data_a[(i+32)*8 +: 8]),
+                                    fp8_e4m3_to_fp32(data_b[(i+32)*8 +: 8]),
+                                    fp32_mac(
+                                        fp8_e4m3_to_fp32(data_a[i*8 +: 8]),
+                                        fp8_e4m3_to_fp32(data_b[i*8 +: 8]),
+                                        partial_sum[i]
+                                    )
+                                );
                             end
                         end
 
                         DTYPE_FP8_E5: begin
-                            // FP8 E5M2: 64 x 8-bit elements
                             for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= partial_sum[i] +
-                                    fp8_e5m2_to_fp32(data_a[i*8 +: 8]) +
-                                    fp8_e5m2_to_fp32(data_a[(i+32)*8 +: 8]) +
-                                    fp8_e5m2_to_fp32(data_b[i*8 +: 8]) +
-                                    fp8_e5m2_to_fp32(data_b[(i+32)*8 +: 8]);
+                                partial_sum[i] <= fp32_mac(
+                                    fp8_e5m2_to_fp32(data_a[(i+32)*8 +: 8]),
+                                    fp8_e5m2_to_fp32(data_b[(i+32)*8 +: 8]),
+                                    fp32_mac(
+                                        fp8_e5m2_to_fp32(data_a[i*8 +: 8]),
+                                        fp8_e5m2_to_fp32(data_b[i*8 +: 8]),
+                                        partial_sum[i]
+                                    )
+                                );
                             end
                         end
 
                         DTYPE_FP6_E3M2: begin
-                            // FP6 E3M2: 85 x 6-bit elements (Blackwell)
-                            // Simplified: process 32 elements
                             for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= partial_sum[i] +
-                                    fp6_e3m2_to_fp32(data_a[i*6 +: 6]) +
-                                    fp6_e3m2_to_fp32(data_b[i*6 +: 6]);
+                                partial_sum[i] <= fp32_mac(
+                                    fp6_e3m2_to_fp32(data_a[i*6 +: 6]),
+                                    fp6_e3m2_to_fp32(data_b[i*6 +: 6]),
+                                    partial_sum[i]
+                                );
                             end
                         end
 
                         DTYPE_FP4: begin
-                            // FP4 E2M1: 128 x 4-bit elements (Blackwell)
-                            // Process 32 output elements, each accumulating 4 FP4 products
                             for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= partial_sum[i] +
-                                    fp4_e2m1_to_fp32(data_a[i*4 +: 4]) +
-                                    fp4_e2m1_to_fp32(data_a[(i+32)*4 +: 4]) +
-                                    fp4_e2m1_to_fp32(data_a[(i+64)*4 +: 4]) +
-                                    fp4_e2m1_to_fp32(data_a[(i+96)*4 +: 4]) +
-                                    fp4_e2m1_to_fp32(data_b[i*4 +: 4]) +
-                                    fp4_e2m1_to_fp32(data_b[(i+32)*4 +: 4]) +
-                                    fp4_e2m1_to_fp32(data_b[(i+64)*4 +: 4]) +
-                                    fp4_e2m1_to_fp32(data_b[(i+96)*4 +: 4]);
+                                partial_sum[i] <= fp32_mac(
+                                    fp4_e2m1_to_fp32(data_a[(i+96)*4 +: 4]),
+                                    fp4_e2m1_to_fp32(data_b[(i+96)*4 +: 4]),
+                                    fp32_mac(
+                                        fp4_e2m1_to_fp32(data_a[(i+64)*4 +: 4]),
+                                        fp4_e2m1_to_fp32(data_b[(i+64)*4 +: 4]),
+                                        fp32_mac(
+                                            fp4_e2m1_to_fp32(data_a[(i+32)*4 +: 4]),
+                                            fp4_e2m1_to_fp32(data_b[(i+32)*4 +: 4]),
+                                            fp32_mac(
+                                                fp4_e2m1_to_fp32(data_a[i*4 +: 4]),
+                                                fp4_e2m1_to_fp32(data_b[i*4 +: 4]),
+                                                partial_sum[i]
+                                            )
+                                        )
+                                    )
+                                );
                             end
                         end
 
                         DTYPE_INT8: begin
-                            // INT8: 64 x 8-bit elements
                             for (i = 0; i < 32; i = i + 1) begin
                                 partial_sum[i] <= partial_sum[i] +
-                                    {{24{data_a[i*8+7]}}, data_a[i*8 +: 8]} +
-                                    {{24{data_b[i*8+7]}}, data_b[i*8 +: 8]};
+                                    ($signed({{24{data_a[i*8+7]}}, data_a[i*8 +: 8]}) *
+                                     $signed({{24{data_b[i*8+7]}}, data_b[i*8 +: 8]}));
                             end
                         end
 
                         default: begin
-                            // Default: FP16 path
                             for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= partial_sum[i] +
-                                    fp16_to_fp32(data_a[i*16 +: 16]) +
-                                    fp16_to_fp32(data_b[i*16 +: 16]);
+                                partial_sum[i] <= fp32_mac(
+                                    fp16_to_fp32(data_a[i*16 +: 16]),
+                                    fp16_to_fp32(data_b[i*16 +: 16]),
+                                    partial_sum[i]
+                                );
                             end
                         end
                     endcase
 
-                    // Compute latency varies by data type
-                    // FP4/FP6/FP8: 4 cycles, FP16/BF16: 4 cycles, TF32: 6 cycles
                     if (compute_cycle >= 4'd3) begin
                         state <= ST_ACCUMULATE;
                     end
                 end
 
                 ST_ACCUMULATE: begin
-                    // 写回结果到累加器
                     for (i = 0; i < 32; i = i + 1) begin
                         mma_result[i*32 +: 32] <= partial_sum[i];
+                        accum_out[i*32 +: 32] <= partial_sum[i];
+                        partial_sum[i] <= 32'b0;
                     end
 
-                    accum_out <= mma_result;
-
-                    // 标记操作完成
                     op_pending[op_tail] <= 1'b0;
                     op_tail <= op_tail + 1;
                     if (pending_ops > 0) begin
                         pending_ops <= pending_ops - 1;
                     end
 
-                    // 重置部分和
-                    for (i = 0; i < 32; i = i + 1) begin
-                        partial_sum[i] <= 32'b0;
-                    end
-
+                    done <= 1'b1;
                     state <= ST_IDLE;
                 end
 
                 ST_FENCE: begin
-                    // Fence操作: 等待所有挂起操作完成
                     if (pending_ops == 0) begin
                         done <= 1'b1;
                         state <= ST_IDLE;
                     end else if (op_pending[op_tail]) begin
-                        // 模拟完成一个挂起操作
                         op_pending[op_tail] <= 1'b0;
                         op_tail <= op_tail + 1;
                         pending_ops <= pending_ops - 1;
@@ -514,7 +514,6 @@ module wgmma #(
                 end
 
                 ST_WAIT: begin
-                    // 等待足够的操作完成
                     if (pending_ops <= wait_count) begin
                         done <= 1'b1;
                         state <= ST_IDLE;

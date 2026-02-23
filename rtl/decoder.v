@@ -710,6 +710,7 @@ endcase
                     wgmma_load <= 1'b1;
                     mem_read   <= 1'b1;
                     mem_shared <= 1'b1;
+                    reg_write  <= 1'b1;
                 end
 
                 `OP_WGMMA_STORE: begin
