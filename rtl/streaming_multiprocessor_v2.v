@@ -127,7 +127,14 @@ module streaming_multiprocessor_v2 #(
     output wire [NUM_WARPS-1:0]     perf_warp_stalled,
     output wire [NUM_WARPS-1:0]     perf_warp_diverged,
     output wire                     perf_tensor_mma_issued,
-    output wire                     perf_tensor_mma_completed
+    output wire                     perf_tensor_mma_completed,
+
+    // Exception reporting
+    output reg                      exception_valid,
+    output reg  [3:0]               exception_code,
+    output reg  [3:0]               exception_warp_id,
+    output reg  [31:0]              exception_info,
+    output reg  [NUM_WARPS-1:0]     warp_error_mask
 );
 
     //========================================================================
@@ -166,6 +173,49 @@ module streaming_multiprocessor_v2 #(
     localparam [SHFL_WBQ_COUNT_W-1:0] SHFL_WBQ_DEPTH_VAL = SHFL_WBQ_DEPTH;
     localparam [VIDEO_WBQ_COUNT_W-1:0] VIDEO_WBQ_DEPTH_VAL = VIDEO_WBQ_DEPTH;
     localparam L1_LINE_SIZE_BYTES = 128;
+
+    // Exception codes
+    localparam [3:0] EXC_ILLEGAL_INST = 4'h1;
+    localparam [3:0] EXC_ADDR_OOB     = 4'h2;
+    localparam [3:0] EXC_DIV_BY_ZERO  = 4'h3;
+
+    localparam [31:0] GLOBAL_ADDR_MAX = 32'h0FFF_FFFF;
+    localparam [31:0] SHARED_ADDR_MAX = (`SMEM_SIZE_BYTES > 4) ? (`SMEM_SIZE_BYTES - 4) : 0;
+
+    function has_addr_oob;
+        input [SIMD_WIDTH-1:0] addr_vec;
+        input [NUM_LANES-1:0] lane_mask;
+        input is_shared;
+        integer lane_idx;
+        reg [31:0] lane_addr;
+        begin
+            has_addr_oob = 1'b0;
+            for (lane_idx = 0; lane_idx < NUM_LANES; lane_idx = lane_idx + 1) begin
+                lane_addr = addr_vec[lane_idx*DATA_WIDTH +: 32];
+                if (lane_mask[lane_idx]) begin
+                    if (is_shared) begin
+                        if (lane_addr > SHARED_ADDR_MAX) has_addr_oob = 1'b1;
+                    end else begin
+                        if (lane_addr > GLOBAL_ADDR_MAX) has_addr_oob = 1'b1;
+                    end
+                end
+            end
+        end
+    endfunction
+
+    function has_div_zero;
+        input [SIMD_WIDTH-1:0] divisor_vec;
+        input [NUM_LANES-1:0] lane_mask;
+        integer lane_idx;
+        begin
+            has_div_zero = 1'b0;
+            for (lane_idx = 0; lane_idx < NUM_LANES; lane_idx = lane_idx + 1) begin
+                if (lane_mask[lane_idx] && (divisor_vec[lane_idx*DATA_WIDTH +: 32] == 32'b0)) begin
+                    has_div_zero = 1'b1;
+                end
+            end
+        end
+    endfunction
 
     localparam WB_DATA_LSB = 0;
     localparam WB_DATA_MSB = SIMD_WIDTH - 1;
@@ -384,6 +434,7 @@ module streaming_multiprocessor_v2 #(
     reg                  issue_st_async_op;    // st.async operation
     reg                  issue_multimem_op;    // multimem operation
     reg                  issue_barrier_cluster_op;  // barrier.cluster operation
+    reg                  issue_illegal_op;           // Illegal instruction flag
 
     // Issue Stage (slot 1)
     reg                  issue1_valid;
@@ -413,6 +464,7 @@ module streaming_multiprocessor_v2 #(
     reg                  issue1_st_async_op;    // st.async operation
     reg                  issue1_multimem_op;    // multimem operation
     reg                  issue1_barrier_cluster_op;  // barrier.cluster operation
+    reg                  issue1_illegal_op;          // Illegal instruction flag
 
     // Execute Stage (per functional unit)
     reg                  exec_alu_valid;
@@ -1082,6 +1134,16 @@ module streaming_multiprocessor_v2 #(
     assign perf_fu_alu_active      = alu_issue;
     assign perf_fu_fpu_active      = fpu32_issue || fp16_issue || fpu64_issue;
     assign perf_fu_ldst_active     = issue_valid && (issue_mem_read || issue_mem_write);
+
+    // Exception detection (slot 0/slot 1)
+    wire issue_illegal_exc  = issue_valid  && issue_illegal_op;
+    wire issue1_illegal_exc = issue1_valid && issue1_illegal_op;
+    wire issue_addr_oob_exc = issue_valid  && (issue_mem_read || issue_mem_write) &&
+                              has_addr_oob(rf_rd_data_a, issue_mask, issue_mem_shared);
+    wire issue1_addr_oob_exc = issue1_valid && (issue1_mem_read || issue1_mem_write) &&
+                               has_addr_oob(rf1_rd_data_a, issue1_mask, issue1_mem_shared);
+    wire issue_div0_exc = issue_valid  && issue_div_op  && has_div_zero(rf_rd_data_b, issue_mask);
+    wire issue1_div0_exc = issue1_valid && issue1_div_op && has_div_zero(rf1_rd_data_b, issue1_mask);
     assign perf_fu_tensor_active   = tensor_issue_push_fire;
     assign perf_branch_taken       = branch_taken_combined;
     assign perf_branch_divergent   = divergent_branch;
@@ -1117,7 +1179,7 @@ module streaming_multiprocessor_v2 #(
         end
     endgenerate
 
-    assign l1_cache_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op && issue_mem_read;
+    assign l1_cache_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op && issue_mem_read && !issue_addr_oob_exc && !issue_illegal_exc;
     assign l1_miss_req_valid = l1_mem_req && !l1_mem_write;
     assign l1_mem_ready = l1_miss_req_valid && gmem_req_ready;
     assign l1_mem_rdata = gmem_resp_rdata;
@@ -1142,7 +1204,7 @@ module streaming_multiprocessor_v2 #(
     endgenerate
 
     // Store path bypasses cache; global loads are serviced via L1.
-    assign gmem_store_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op &&
+    assign gmem_store_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op && !issue_addr_oob_exc && !issue_illegal_exc &&
                                   issue_mem_write && !issue_mem_read;
     assign gmem_normal_req_valid = gmem_store_req_valid || l1_miss_req_valid;
     assign gmem_normal_req_write = gmem_store_req_valid ? 1'b1 : l1_mem_write;
@@ -1974,6 +2036,7 @@ module streaming_multiprocessor_v2 #(
     wire                 dec_st_async_op;
     wire                 dec_multimem_op;
     wire                 dec_barrier_cluster_op;
+    wire                 dec_illegal_inst;
 
     // Extended decoder signals (Lane 1)
     wire dec1_fp32_special;
@@ -1999,6 +2062,7 @@ module streaming_multiprocessor_v2 #(
     wire                 dec1_st_async_op;
     wire                 dec1_multimem_op;
     wire                 dec1_barrier_cluster_op;
+    wire                 dec1_illegal_inst;
 
     /* verilator lint_off PINMISSING */
     decoder u_decoder0 (
@@ -2070,7 +2134,8 @@ module streaming_multiprocessor_v2 #(
         .misc_op (dec_misc_op),
         .st_async_op (dec_st_async_op),
         .multimem_op (dec_multimem_op),
-        .barrier_cluster_op (dec_barrier_cluster_op)
+        .barrier_cluster_op (dec_barrier_cluster_op),
+        .illegal_inst (dec_illegal_inst)
     );
     /* verilator lint_on PINMISSING */
 
@@ -2148,7 +2213,8 @@ module streaming_multiprocessor_v2 #(
         .misc_op (dec1_misc_op),
         .st_async_op (dec1_st_async_op),
         .multimem_op (dec1_multimem_op),
-        .barrier_cluster_op (dec1_barrier_cluster_op)
+        .barrier_cluster_op (dec1_barrier_cluster_op),
+        .illegal_inst (dec1_illegal_inst)
     );
     /* verilator lint_on PINMISSING */
 
@@ -2206,6 +2272,7 @@ module streaming_multiprocessor_v2 #(
             issue_misc_op <= 1'b0;
             issue_st_async_op <= 1'b0;
             issue_multimem_op <= 1'b0;
+            issue_illegal_op <= 1'b0;
             issue1_warp_id <= 0;
             issue1_pc <= 0;
             issue1_opcode <= 0;
@@ -2244,6 +2311,7 @@ module streaming_multiprocessor_v2 #(
             issue1_misc_op <= 1'b0;
             issue1_st_async_op <= 1'b0;
             issue1_multimem_op <= 1'b0;
+            issue1_illegal_op <= 1'b0;
         end else begin
             // Debug: always trace - unconditional
             if (dec_valid || issue_valid)
@@ -2303,6 +2371,7 @@ module streaming_multiprocessor_v2 #(
                     issue_st_async_op <= dec_st_async_op;
                     issue_multimem_op <= dec_multimem_op;
                     issue_barrier_cluster_op <= dec_barrier_cluster_op;
+                    issue_illegal_op <= dec_illegal_inst;
 
                     // Handle decode-stage reconvergence: update mask and pop stack
                     if (dec0_at_reconverge) begin
@@ -2360,6 +2429,7 @@ module streaming_multiprocessor_v2 #(
                 issue1_st_async_op <= dec1_st_async_op;
                 issue1_multimem_op <= dec1_multimem_op;
                 issue1_barrier_cluster_op <= dec1_barrier_cluster_op;
+                issue1_illegal_op <= dec1_illegal_inst;
             end
         end
     end
@@ -4346,7 +4416,7 @@ module streaming_multiprocessor_v2 #(
         end
     end
 
-    assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op;
+    assign smem_req_valid = issue_valid && issue_mem_shared && !issue_atomic_op && !issue_addr_oob_exc && !issue_illegal_exc;
     assign smem_req_write = issue_mem_write;
     assign smem_req_addr = rf_rd_data_a[NUM_LANES*14-1:0];
     assign smem_req_wdata = rf_rd_data_b;
@@ -5020,7 +5090,14 @@ module streaming_multiprocessor_v2 #(
             bp_update_is_call <= 1'b0;
             bp_update_is_return <= 1'b0;
             bp_update_mispredicted <= 1'b0;
+            exception_valid <= 1'b0;
+            exception_code <= 4'b0;
+            exception_warp_id <= 4'b0;
+            exception_info <= 32'b0;
+            warp_error_mask <= {NUM_WARPS{1'b0}};
         end else begin
+            exception_valid <= 1'b0;
+
             // Kernel start - allocate initial warps with proper masks
             if (kernel_start) begin
 
@@ -5081,6 +5158,7 @@ module streaming_multiprocessor_v2 #(
                 cluster_barrier_thread_count <= 16'b0;
                 cluster_local_arrive_count <= 16'b0;
                 cluster_barrier_complete <= 1'b0;
+                warp_error_mask <= {NUM_WARPS{1'b0}};
             end
 
             // NOTE: Fetch PC is advanced in the instruction buffer fill logic (line 1083)
@@ -5259,9 +5337,63 @@ module streaming_multiprocessor_v2 #(
             end else begin
                 bp_update_valid <= 1'b0;
             end
+            // Exception handling: retire offending warp and report error
+            if (issue_illegal_exc || issue_addr_oob_exc || issue_div0_exc) begin
+                exception_valid <= 1'b1;
+                exception_warp_id <= {{(4-WARP_ID_W){1'b0}}, issue_warp_id};
+                if (issue_illegal_exc) begin
+                    exception_code <= EXC_ILLEGAL_INST;
+                    exception_info <= {26'b0, issue_opcode};
+                end else if (issue_addr_oob_exc) begin
+                    exception_code <= EXC_ADDR_OOB;
+                    exception_info <= rf_rd_data_a[31:0];
+                end else begin
+                    exception_code <= EXC_DIV_BY_ZERO;
+                    exception_info <= rf_rd_data_b[31:0];
+                end
+                warp_error_mask[issue_warp_id] <= 1'b1;
+                warp_valid[issue_warp_id] <= 1'b0;
+                warp_active[issue_warp_id] <= 1'b0;
+                warp_exit_pending[issue_warp_id] <= 1'b0;
+                warp_stalled_mem[issue_warp_id] <= 1'b0;
+                warp_stalled_fu[issue_warp_id] <= 1'b0;
+                warp_stalled_sync[issue_warp_id] <= 1'b0;
+                warp_stalled_async[issue_warp_id] <= 1'b0;
+                warp_stalled_branch[issue_warp_id] <= 1'b0;
+                warp_sync_pending[issue_warp_id] <= 1'b0;
+                bar_sync_pending[issue_warp_id] <= 1'b0;
+                cluster_barrier_pending[issue_warp_id] <= 1'b0;
+                branch_flush_mask[issue_warp_id] <= 1'b1;
+            end else if (issue1_illegal_exc || issue1_addr_oob_exc || issue1_div0_exc) begin
+                exception_valid <= 1'b1;
+                exception_warp_id <= {{(4-WARP_ID_W){1'b0}}, issue1_warp_id};
+                if (issue1_illegal_exc) begin
+                    exception_code <= EXC_ILLEGAL_INST;
+                    exception_info <= {26'b0, issue1_opcode};
+                end else if (issue1_addr_oob_exc) begin
+                    exception_code <= EXC_ADDR_OOB;
+                    exception_info <= rf1_rd_data_a[31:0];
+                end else begin
+                    exception_code <= EXC_DIV_BY_ZERO;
+                    exception_info <= rf1_rd_data_b[31:0];
+                end
+                warp_error_mask[issue1_warp_id] <= 1'b1;
+                warp_valid[issue1_warp_id] <= 1'b0;
+                warp_active[issue1_warp_id] <= 1'b0;
+                warp_exit_pending[issue1_warp_id] <= 1'b0;
+                warp_stalled_mem[issue1_warp_id] <= 1'b0;
+                warp_stalled_fu[issue1_warp_id] <= 1'b0;
+                warp_stalled_sync[issue1_warp_id] <= 1'b0;
+                warp_stalled_async[issue1_warp_id] <= 1'b0;
+                warp_stalled_branch[issue1_warp_id] <= 1'b0;
+                warp_sync_pending[issue1_warp_id] <= 1'b0;
+                bar_sync_pending[issue1_warp_id] <= 1'b0;
+                cluster_barrier_pending[issue1_warp_id] <= 1'b0;
+                branch_flush_mask[issue1_warp_id] <= 1'b1;
+            end
 
             // Memory stall handling
-            if (issue_valid && issue_mem_read && !issue_atomic_op) begin
+            if (issue_valid && issue_mem_read && !issue_atomic_op && !issue_addr_oob_exc && !issue_illegal_exc) begin
                 warp_stalled_mem[issue_warp_id] <= 1'b1;
             end
             if (smem_resp_valid && smem_pending_valid) begin

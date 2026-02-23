@@ -134,7 +134,8 @@ module decoder (
     output reg         tcgen05_commit,      // tcgen05.commit - Signal completion via mbarrier
     output reg         tcgen05_wait,        // tcgen05.wait - Wait for TMEM operations
     output reg  [15:0] tmem_addr,           // TMEM address (row:col encoding)
-    output reg  [3:0]  tcgen05_dtype        // tcgen05 data type (FP16/BF16/FP8/etc)
+    output reg  [3:0]  tcgen05_dtype,       // tcgen05 data type (FP16/BF16/FP8/etc)
+    output reg         illegal_inst         // Illegal instruction or unsupported function
 );
 
     //------------------------------------------------------------------------
@@ -238,6 +239,7 @@ module decoder (
             tcgen05_wait <= 1'b0;
             tmem_addr <= 16'b0;
             tcgen05_dtype <= 4'b0;
+            illegal_inst <= 1'b0;
         end else if (valid_in) begin
             valid_out <= 1'b1;
 
@@ -327,6 +329,7 @@ module decoder (
             tcgen05_wait <= 1'b0;
             tmem_addr <= inst_imm16;  // TMEM address from immediate field
             tcgen05_dtype <= inst_rc[3:0];  // Data type from RC field
+            illegal_inst <= 1'b0;
 
             // 根据OPCODE设置控制信号
             /* verilator lint_off CASEOVERLAP */
@@ -620,6 +623,7 @@ module decoder (
                             end
                             default: begin
                                 `ifdef SIMULATION
+                                illegal_inst <= 1'b1;
                                 $display("[DECODER] TCGEN05_UNKNOWN: func=%0d", inst_func);
                                 `endif
                             end
@@ -759,7 +763,7 @@ endcase
                             // No register write - just updates internal stack pointer
                         end
                         default: begin
-                            // Unknown stack operation - treat as NOP
+                            illegal_inst <= 1'b1;
                         end
                     endcase
                 end
@@ -790,7 +794,7 @@ endcase
                             // No register write - just configures register limit
                         end
                         default: begin
-                            // Unknown misc operation - treat as NOP
+                            illegal_inst <= 1'b1;
                         end
                     endcase
                 end
@@ -815,7 +819,7 @@ endcase
                             // Stalls warp until condition met
                         end
                         default: begin
-                            // Unknown st.async operation - treat as NOP
+                            illegal_inst <= 1'b1;
                         end
                     endcase
                 end
@@ -843,7 +847,7 @@ endcase
                             mem_shared <= 1'b1;
                         end
                         default: begin
-                            // Unknown multimem operation - treat as NOP
+                            illegal_inst <= 1'b1;
                         end
                     endcase
                 end
@@ -872,7 +876,7 @@ endcase
                             // Sets expected thread count for barrier
                         end
                         default: begin
-                            // Unknown barrier.cluster operation - treat as NOP
+                            illegal_inst <= 1'b1;
                         end
                     endcase
                 end
@@ -958,7 +962,7 @@ endcase
 
             /* verilator lint_on CASEOVERLAP */
                 default: begin
-                    // 未知指令，当作NOP
+                    illegal_inst <= 1'b1;
                 end
             endcase
         end else begin
