@@ -550,12 +550,19 @@ module streaming_multiprocessor_v2 #(
     wire                  tensor_wbq_push_fire;
     wire                  tensor_wbq_pop;
 
-    // Warp Shuffle Signals
+    // Warp Collective Signals (SHFL/VOTE/REDUX)
     wire [SIMD_WIDTH-1:0] shuffle_result;
     wire                  shuffle_valid_in, shuffle_valid_out;
     wire [NUM_LANES-1:0]  shuffle_valid_mask;
     wire [NUM_LANES*5-1:0] shuffle_src_lane;
     wire [NUM_LANES*5-1:0] shuffle_offset;
+    wire [NUM_LANES-1:0]  vote_pred_in;
+    wire [31:0]           vote_result_scalar;
+    wire [31:0]           redux_result_scalar;
+    wire                  vote_pred_out;
+    wire [SIMD_WIDTH-1:0] shuffle_result_raw;
+    wire [SIMD_WIDTH-1:0] vote_result_broadcast;
+    wire [SIMD_WIDTH-1:0] redux_result_broadcast;
 
     // Video SIMD Unit Signals
     wire [SIMD_WIDTH-1:0] video_result;
@@ -2148,10 +2155,10 @@ module streaming_multiprocessor_v2 #(
     // Map decoder outputs to V2 signal names
     assign dec_sfu_op = dec_fp32_special;
     assign dec_tensor_op = dec_wmma_mma;
-    assign dec_shuffle_op = dec_shfl_op;
+    assign dec_shuffle_op = dec_shfl_op || dec_vote_op || dec_redux_op;
     assign dec1_sfu_op = dec1_fp32_special;
     assign dec1_tensor_op = dec1_wmma_mma;
-    assign dec1_shuffle_op = dec1_shfl_op;
+    assign dec1_shuffle_op = dec1_shfl_op || dec1_vote_op || dec1_redux_op;
 
     //========================================================================
     // STAGE 3: ISSUE (Scoreboard Check + Register Read)
@@ -3467,6 +3474,7 @@ module streaming_multiprocessor_v2 #(
     wire [4:0] shfl_issue_rd = shfl_use_slot0 ? issue_rd : issue1_rd;
     wire [NUM_LANES-1:0] shfl_issue_mask = shfl_use_slot0 ? issue_mask : issue1_mask;
     wire [5:0] shfl_issue_func = shfl_use_slot0 ? issue_func : issue1_func;
+    wire [5:0] shfl_issue_opcode = shfl_use_slot0 ? issue_opcode : issue1_opcode;
     wire [15:0] shfl_issue_imm16 = shfl_use_slot0 ? issue_imm16 : issue1_imm16;
     wire [SIMD_WIDTH-1:0] shfl_src_data = shfl_use_slot0 ? rf_rd_data_a : rf1_rd_data_a;
     wire [SIMD_WIDTH-1:0] shfl_src_b = shfl_use_slot0 ? rf_rd_data_b : rf1_rd_data_b;
@@ -3482,6 +3490,15 @@ module streaming_multiprocessor_v2 #(
 
     assign shuffle_offset = {NUM_LANES{shfl_issue_imm16[4:0]}};
 
+    genvar vote_i;
+    generate
+        for (vote_i = 0; vote_i < NUM_LANES; vote_i = vote_i + 1) begin : vote_lanes
+            assign vote_pred_in[vote_i] = |shfl_src_data[vote_i*32 +: 32];
+            assign vote_result_broadcast[vote_i*32 +: 32] = vote_result_scalar;
+            assign redux_result_broadcast[vote_i*32 +: 32] = redux_result_scalar;
+        end
+    endgenerate
+
     warp_shuffle u_warp_shuffle (
         .func       (shfl_issue_func),
         .src_data   (shfl_src_data),
@@ -3490,9 +3507,29 @@ module streaming_multiprocessor_v2 #(
         .lane_mask  (shfl_issue_mask),
         .width      (shfl_issue_imm16[4:0]),
         .membermask (shfl_issue_mask),
-        .result     (shuffle_result),
+        .result     (shuffle_result_raw),
         .valid_out  (shuffle_valid_mask)
     );
+
+    warp_vote #(.LANES(NUM_LANES)) u_warp_vote (
+        .func       (shfl_issue_func),
+        .pred_in    (vote_pred_in),
+        .lane_mask  (shfl_issue_mask),
+        .membermask (shfl_issue_mask),
+        .result     (vote_result_scalar),
+        .pred_out   (vote_pred_out)
+    );
+
+    warp_reduction #(.LANES(NUM_LANES)) u_warp_reduction (
+        .func       (shfl_issue_func),
+        .src_data   (shfl_src_data),
+        .lane_mask  (shfl_issue_mask),
+        .membermask (shfl_issue_mask),
+        .result     (redux_result_scalar)
+    );
+
+    assign shuffle_result = (shfl_issue_opcode == 6'b011101) ? vote_result_broadcast :
+                            (shfl_issue_opcode == 6'b011110) ? redux_result_broadcast : shuffle_result_raw;
 
     // Shuffle pipeline tracking (1 stage delay for proper writeback timing)
     always @(posedge clk or negedge rst_n) begin
