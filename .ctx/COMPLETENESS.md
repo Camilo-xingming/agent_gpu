@@ -27,7 +27,7 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 | LD.PARAM/CONST | ✅ | ✅ | ✅ | VERIFIED |
 | ATOM basic | ✅ | ✅ | ✅ | VERIFIED |
 | MEMBAR | ✅ | ✅ | ✅ | VERIFIED |
-| cp.async | ✅ | ❌ | ❌ | DECODE ONLY |
+| cp.async | ✅ | ❌ | ❌ | PARTIAL |
 
 ## Tier 3: Floating Point
 
@@ -60,7 +60,7 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 
 | Feature | RTL | Gen | FRM | Status |
 |---------|-----|-----|-----|--------|
-| mbarrier | ✅ | ❌ | ❌ | DECODE ONLY |
+| mbarrier | ✅ | ✅ | ✅ | PARTIAL |
 | st.async | ✅ | ❌ | ❌ | DECODE ONLY |
 | multimem | ✅ | ❌ | ❌ | DECODE ONLY |
 | barrier.cluster | ✅ | ❌ | ❌ | DECODE ONLY |
@@ -73,7 +73,7 @@ Legend: RTL=Implementation, Gen=Python Test Generator, FRM=Functional Reference 
 - FRM Coverage: ~98% (ALU/MEM/FP32 + SFU + DP4A + Branch + BAR.SYNC + MEMBAR + DIV/REM + Special + Atom + Sync + Param/Const + FP16 + FP64 + CVT)
 - Functional Verification: 203/203 FRM tests pass
 - **Tier 1: 100% VERIFIED** (all items have RTL + Gen + FRM)
-- **Tier 2: 100% VERIFIED** (LD/ST.GLOBAL/SHARED, LD.PARAM/CONST, ATOM, MEMBAR) - cp.async DECODE ONLY
+- **Tier 2: MOSTLY VERIFIED** (LD/ST.GLOBAL/SHARED, LD.PARAM/CONST, ATOM, MEMBAR) - cp.async PARTIAL (execution path fixed in PR #181, no Gen/FRM yet)
 - **Tier 3: 100% VERIFIED** (FP32 basic/SFU, FP64 basic, FP16 basic, CVT all verified)
 
 ## Priority MVUs Completed
