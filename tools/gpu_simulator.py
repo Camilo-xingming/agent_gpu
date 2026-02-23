@@ -53,6 +53,7 @@ class Opcode(IntEnum):
     # Move immediate
     MOV_IMM = 0b110000
     ALU_IMM = 0b110001
+    MBARRIER = 0b110010
     NOP = 0b111111
 
 # SHFL功能码 - matches gpu_defines.vh
@@ -210,6 +211,18 @@ class MembarFunc(IntEnum):
     GL = 0b01   # membar.gl - Global level
     SYS = 0b10  # membar.sys - System level
 
+
+class MbarrierFunc(IntEnum):
+    INIT = 0b000000          # mbarrier.init
+    ARRIVE = 0b000001        # mbarrier.arrive
+    ARRIVE_DROP = 0b000010   # mbarrier.arrive_drop
+    ARRIVE_TX = 0b000011     # mbarrier.arrive_and_expect_tx
+    TEST_WAIT = 0b000100     # mbarrier.test_wait
+    TRY_WAIT = 0b000101      # mbarrier.try_wait
+    INVALIDATE = 0b000110    # mbarrier.inval
+    ARRIVE_NOCOMP = 0b000111 # mbarrier.arrive.noComplete
+    EXPECT_TX = 0b001000     # mbarrier.expect_tx
+
 # 特殊寄存器
 class SpecialReg(IntEnum):
     TID_X = 0
@@ -257,6 +270,8 @@ class CTAState:
     barriers: Dict[int, tuple] = field(default_factory=dict)
     # Memory visibility tracking (for membar)
     pending_writes: List[tuple] = field(default_factory=list)
+    # mbarrier tracking: barrier_idx -> {arrival, expected, pending_tx, phase, valid}
+    mbarriers: Dict[int, dict] = field(default_factory=dict)
 
     def barrier_arrive(self, barrier_id: int, thread_count: int, total_threads: int) -> bool:
         """Thread arrives at barrier. Returns True if barrier should release."""
@@ -277,6 +292,76 @@ class CTAState:
         # In FRM, memory operations are instantaneous
         # This is a placeholder for future cache/memory modeling
         self.pending_writes.clear()
+
+
+    def mbarrier_init(self, idx: int, expected: int):
+        """Initialize mbarrier with expected arrival count."""
+        self.mbarriers[idx] = {
+            "arrival": 0, "expected": expected,
+            "pending_tx": 0, "phase": 0, "valid": True
+        }
+
+    def mbarrier_arrive(self, idx: int, count: int) -> bool:
+        """Arrive at mbarrier. Returns True if phase flipped."""
+        if idx not in self.mbarriers or not self.mbarriers[idx]["valid"]:
+            return False
+        mb = self.mbarriers[idx]
+        mb["arrival"] += count
+        if mb["arrival"] >= mb["expected"] and mb["pending_tx"] == 0:
+            mb["phase"] ^= 1
+            mb["arrival"] = 0
+            return True
+        return False
+
+    def mbarrier_arrive_drop(self, idx: int, count: int) -> bool:
+        """Arrive and decrement expected count."""
+        if idx not in self.mbarriers or not self.mbarriers[idx]["valid"]:
+            return False
+        mb = self.mbarriers[idx]
+        mb["arrival"] += count
+        mb["expected"] = max(mb["expected"] - 1, 0)
+        if mb["arrival"] >= mb["expected"] and mb["pending_tx"] == 0:
+            mb["phase"] ^= 1
+            mb["arrival"] = 0
+            return True
+        return False
+
+    def mbarrier_arrive_tx(self, idx: int, count: int, tx_bytes: int):
+        """Arrive and add expected transaction bytes."""
+        if idx not in self.mbarriers or not self.mbarriers[idx]["valid"]:
+            return
+        mb = self.mbarriers[idx]
+        mb["arrival"] += count
+        mb["pending_tx"] += tx_bytes
+
+    def mbarrier_expect_tx(self, idx: int, tx_bytes: int):
+        """Add expected transaction bytes without arriving."""
+        if idx not in self.mbarriers or not self.mbarriers[idx]["valid"]:
+            return
+        self.mbarriers[idx]["pending_tx"] += tx_bytes
+
+    def mbarrier_async_arrive(self, idx: int, tx_bytes: int) -> bool:
+        """Async arrival (from cp.async completion). Returns True if phase flipped."""
+        if idx not in self.mbarriers or not self.mbarriers[idx]["valid"]:
+            return False
+        mb = self.mbarriers[idx]
+        mb["pending_tx"] = max(mb["pending_tx"] - tx_bytes, 0)
+        if mb["arrival"] >= mb["expected"] and mb["pending_tx"] == 0:
+            mb["phase"] ^= 1
+            mb["arrival"] = 0
+            return True
+        return False
+
+    def mbarrier_test_wait(self, idx: int, wait_phase: int) -> bool:
+        """Non-blocking test. Returns True if phase has flipped past wait_phase."""
+        if idx not in self.mbarriers or not self.mbarriers[idx]["valid"]:
+            return False
+        return self.mbarriers[idx]["phase"] != wait_phase
+
+    def mbarrier_invalidate(self, idx: int):
+        """Invalidate mbarrier."""
+        if idx in self.mbarriers:
+            self.mbarriers[idx]["valid"] = False
 
 
 class RalphGPUSimulator:
@@ -1085,6 +1170,53 @@ class RalphGPUSimulator:
                         self.current_cta.flush_writes(scope)
                     # In FRM, memory operations are instantaneous
                     # This enforces a sequencing point for correctness
+
+            elif opcode == Opcode.MBARRIER:
+                # mbarrier operations (Hopper+ async barrier)
+                if thread.tid == 0:
+                    # barrier_addr is in ra register, count/phase in rb register
+                    barrier_addr = thread.registers[ra]
+                    barrier_idx = (barrier_addr >> 4) & 0x7  # 16-byte aligned objects
+                    count_val = thread.registers[rb] if rb else 0
+                    active_count = sum(1 for t in warp.threads if t.active)
+
+                    try:
+                        mbar_func = MbarrierFunc(func)
+                    except ValueError:
+                        mbar_func = None
+
+                    if self.current_cta:
+                        if mbar_func == MbarrierFunc.INIT:
+                            self.current_cta.mbarrier_init(barrier_idx, count_val)
+                        elif mbar_func == MbarrierFunc.ARRIVE:
+                            self.current_cta.mbarrier_arrive(barrier_idx, active_count)
+                        elif mbar_func == MbarrierFunc.ARRIVE_DROP:
+                            self.current_cta.mbarrier_arrive_drop(barrier_idx, active_count)
+                        elif mbar_func == MbarrierFunc.ARRIVE_TX:
+                            self.current_cta.mbarrier_arrive_tx(barrier_idx, active_count, count_val)
+                        elif mbar_func == MbarrierFunc.EXPECT_TX:
+                            self.current_cta.mbarrier_expect_tx(barrier_idx, count_val)
+                        elif mbar_func == MbarrierFunc.ARRIVE_NOCOMP:
+                            # Arrive without completion check
+                            if barrier_idx in self.current_cta.mbarriers:
+                                self.current_cta.mbarriers[barrier_idx]["arrival"] += active_count
+                        elif mbar_func == MbarrierFunc.TEST_WAIT:
+                            wait_phase = count_val & 1
+                            result = 1 if self.current_cta.mbarrier_test_wait(barrier_idx, wait_phase) else 0
+                            thread.registers[rd] = result
+                            # Propagate to all active threads
+                            for t in warp.threads:
+                                if t.active:
+                                    t.registers[rd] = result
+                        elif mbar_func == MbarrierFunc.TRY_WAIT:
+                            wait_phase = count_val & 1
+                            if not self.current_cta.mbarrier_test_wait(barrier_idx, wait_phase):
+                                warp.at_barrier = True
+                        elif mbar_func == MbarrierFunc.INVALIDATE:
+                            self.current_cta.mbarrier_invalidate(barrier_idx)
+                    break  # Already processed all threads
+
+
 
             elif opcode == Opcode.SHFL:
                 # Warp shuffle - requires cross-lane communication

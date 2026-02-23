@@ -83,11 +83,6 @@ module mbarrier_unit #(
 );
 
     //------------------------------------------------------------------------
-    // lint: UNDRIVEN stubs
-    assign smem_rd_addr = {SMEM_ADDR_W{1'b0}};
-    assign smem_wr_addr = {SMEM_ADDR_W{1'b0}};
-    assign smem_wr_data = 128'b0;
-    assign smem_wr_mask = 16'b0;
 
     // Internal Barrier State
     // Each barrier is 16 bytes, indexed by barrier_addr[SMEM_ADDR_W-1:4]
@@ -174,6 +169,10 @@ module mbarrier_unit #(
             warp_blocked <= {NUM_WARPS{1'b0}};
             smem_rd_en <= 1'b0;
             smem_wr_en <= 1'b0;
+            smem_rd_addr <= {SMEM_ADDR_W{1'b0}};
+            smem_wr_addr <= {SMEM_ADDR_W{1'b0}};
+            smem_wr_data <= 128'b0;
+            smem_wr_mask <= 16'b0;
 
             for (w = 0; w < NUM_BARRIERS; w = w + 1) begin
                 arrival_count[w] <= 32'b0;
@@ -193,6 +192,10 @@ module mbarrier_unit #(
             result_valid <= 1'b0;
             smem_rd_en <= 1'b0;
             smem_wr_en <= 1'b0;
+            smem_rd_addr <= {SMEM_ADDR_W{1'b0}};
+            smem_wr_addr <= {SMEM_ADDR_W{1'b0}};
+            smem_wr_data <= 128'b0;
+            smem_wr_mask <= 16'b0;
 
             //----------------------------------------------------------------
             // Check for warp release (phase flipped)
