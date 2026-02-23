@@ -694,6 +694,22 @@ module streaming_multiprocessor_v2 #(
     reg  [NUM_WARPS-1:0]  warp_stalled_wgmma;         // Warps waiting on WGMMA wait_group
     reg  [3:0]            wgmma_wait_threshold [0:NUM_WARPS-1];  // Per-warp wait threshold
 
+    // Latched WGMMA command and data path (issue -> SMEM -> execute)
+    reg                   wgmma_valid_in_r;
+    reg  [5:0]            wgmma_func_r;
+    reg  [2:0]            wgmma_warpgroup_r;
+    reg  [3:0]            wgmma_wait_count_r;
+    reg  [63:0]           wgmma_desc_a_r;
+    reg  [63:0]           wgmma_desc_b_r;
+    reg  [31:0]           wgmma_scale_d_r;
+    reg  [511:0]          wgmma_data_a_r;
+    reg  [511:0]          wgmma_data_b_r;
+    reg  [1023:0]         wgmma_accum_in_r;
+    reg  [2:0]            wgmma_exec_accum_idx;
+    reg  [2:0]            wgmma_active_accum_idx;
+    reg                   wgmma_active_is_mma;
+    reg                   wgmma_smem_req_pending;
+
     // WGMMA-SMEM Interface Signals
     wire                  wgmma_smem_rd_en;           // WGMMA shared memory read enable
     wire [13:0]           wgmma_smem_addr_a;          // Base address for matrix A tile
@@ -701,10 +717,12 @@ module streaming_multiprocessor_v2 #(
     wire [511:0]          wgmma_smem_data_a;          // 512-bit data from SMEM for matrix A
     wire [511:0]          wgmma_smem_data_b;          // 512-bit data from SMEM for matrix B
     wire                  wgmma_smem_rd_valid;        // SMEM read data valid
+    reg                   wgmma_smem_rd_en_r;
+    reg  [13:0]           wgmma_smem_addr_a_r;
+    reg  [13:0]           wgmma_smem_addr_b_r;
 
     // WGMMA Accumulator Interface
     reg  [1023:0]         wgmma_accum_reg [0:7];      // 8 accumulator registers per warpgroup
-    wire [2:0]            wgmma_accum_idx;            // Accumulator index from descriptor
 
     // Texture Unit Signals (tex/txq/suld/sust/sured)
     wire                  tex_valid_in;
@@ -1046,11 +1064,26 @@ module streaming_multiprocessor_v2 #(
                                          issue1_opcode == `OP_WGMMA_STORE);
     wire issue_wgmma_mma = issue_valid && (issue_opcode == `OP_WGMMA_MMA);
     wire issue1_wgmma_mma = issue1_valid && (issue1_opcode == `OP_WGMMA_MMA);
+    wire issue_wgmma_mma_async = issue_wgmma_mma &&
+                                 ((issue_func == `WGMMA_M64N8K16) || (issue_func == `WGMMA_M64N16K16) ||
+                                  (issue_func == `WGMMA_M64N32K16) || (issue_func == `WGMMA_M64N64K16) ||
+                                  (issue_func == `WGMMA_M64N128K16) || (issue_func == `WGMMA_M64N256K16));
+    wire issue1_wgmma_mma_async = issue1_wgmma_mma &&
+                                  ((issue1_func == `WGMMA_M64N8K16) || (issue1_func == `WGMMA_M64N16K16) ||
+                                   (issue1_func == `WGMMA_M64N32K16) || (issue1_func == `WGMMA_M64N64K16) ||
+                                   (issue1_func == `WGMMA_M64N128K16) || (issue1_func == `WGMMA_M64N256K16));
     wire issue_wgmma_wait = issue_wgmma_mma && (issue_func == `WGMMA_WAIT_GROUP);
     wire issue1_wgmma_wait = issue1_wgmma_mma && (issue1_func == `WGMMA_WAIT_GROUP);
 
-    // WGMMA backpressure: stall if WGMMA unit not ready
-    wire wgmma_stall = (issue_wgmma || issue1_wgmma) && !wgmma_ready;
+    // WGMMA backpressure: block frontend while command is in-flight or waiting for SMEM data.
+    wire wgmma_frontend_busy = !wgmma_ready || wgmma_valid_in_r || wgmma_smem_req_pending;
+    wire wgmma_stall = (issue_wgmma || issue1_wgmma) && wgmma_frontend_busy;
+    wire wgmma_issue_slot0 = issue_wgmma && !wgmma_stall;
+    wire wgmma_issue_slot1 = !issue_wgmma && issue1_wgmma && !wgmma_stall;
+    wire issue_wgmma_wait_fire = wgmma_issue_slot0 && issue_wgmma_wait;
+    wire issue1_wgmma_wait_fire = wgmma_issue_slot1 && issue1_wgmma_wait;
+    wire issue_wgmma_mma_fire = wgmma_issue_slot0 && issue_wgmma_mma_async;
+    wire issue1_wgmma_mma_fire = wgmma_issue_slot1 && issue1_wgmma_mma_async;
 
     assign frontend_flush = (issue_valid && issue_exit_op && (INIT_WARPS == 1));
 
@@ -1688,11 +1721,10 @@ module streaming_multiprocessor_v2 #(
                                          (op == `OP_SFU) || (op == `OP_MOV_SPECIAL) ||
                                          (op == `OP_MOV_IMM) || (op == `OP_SETP) ||
                                          (op == `OP_CVT) || (op == `OP_NOP) || (op == `OP_VIDEO);
-            assign pd_is_tensor[pd_i]  = (op == `OP_WMMA_MMA) ||
-                                         (op == `OP_WGMMA_MMA) || (op == `OP_WGMMA_LOAD) ||
-                                         (op == `OP_WGMMA_STORE);
+            assign pd_is_tensor[pd_i]  = (op == `OP_WMMA_MMA) || (op == `OP_WGMMA_MMA);
             assign pd_is_memory[pd_i]  = (op == `OP_LD_GLOBAL) || (op == `OP_ST_GLOBAL) ||
                                          (op == `OP_WMMA_LOAD) || (op == `OP_WMMA_STORE) ||
+                                         (op == `OP_WGMMA_LOAD) || (op == `OP_WGMMA_STORE) ||
                                          (op == `OP_LD_SHARED) || (op == `OP_ST_SHARED) ||
                                          (op == `OP_LD_LOCAL) || (op == `OP_LD_PARAM) ||
                                          (op == `OP_ATOM) || (op == `OP_RED) ||
@@ -2479,12 +2511,12 @@ module streaming_multiprocessor_v2 #(
                 // [REMOVED] scoreboard_busy SET - now in scheduler
             end
 
-            // WGMMA MMA tracking: mark destination busy and track pending operation
-            if (issue_wgmma_mma) begin
+            // WGMMA async MMA tracking: mark destination busy and track pending operation
+            if (issue_wgmma_mma_fire) begin
                 wgmma_pending_valid <= 1'b1;
                 wgmma_pending_warp <= issue_warp_id;
                 wgmma_pending_rd <= issue_rd;
-            end else if (issue1_wgmma_mma) begin
+            end else if (issue1_wgmma_mma_fire) begin
                 wgmma_pending_valid <= 1'b1;
                 wgmma_pending_warp <= issue1_warp_id;
                 wgmma_pending_rd <= issue1_rd;
@@ -2696,6 +2728,8 @@ module streaming_multiprocessor_v2 #(
     // WGMMA Wait Tracking (wgmma.wait_group)
     // Manages warp stalls for WGMMA wait_group operations.
     //------------------------------------------------------------------------
+    wire [31:0] issue_warpgroup_id_ext = {{(32-WARP_ID_W){1'b0}}, issue_warp_id} >> 2;
+    wire [31:0] issue1_warpgroup_id_ext = {{(32-WARP_ID_W){1'b0}}, issue1_warp_id} >> 2;
     integer wgmma_w;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -2719,14 +2753,22 @@ module streaming_multiprocessor_v2 #(
                 end
             end
 
-            // wgmma.wait_group handling - stall the requesting warp
-            if (issue_wgmma_wait) begin
-                warp_stalled_wgmma[issue_warp_id] <= 1'b1;
-                wgmma_wait_threshold[issue_warp_id] <= issue_imm16[3:0];
+            // wgmma.wait_group handling - stall all warps in the requesting warpgroup.
+            if (issue_wgmma_wait_fire) begin
+                for (wgmma_w = 0; wgmma_w < NUM_WARPS; wgmma_w = wgmma_w + 1) begin
+                    if ((wgmma_w >> 2) == issue_warpgroup_id_ext) begin
+                        warp_stalled_wgmma[wgmma_w] <= 1'b1;
+                        wgmma_wait_threshold[wgmma_w] <= issue_imm16[3:0];
+                    end
+                end
             end
-            if (issue1_wgmma_wait) begin
-                warp_stalled_wgmma[issue1_warp_id] <= 1'b1;
-                wgmma_wait_threshold[issue1_warp_id] <= issue1_imm16[3:0];
+            if (issue1_wgmma_wait_fire) begin
+                for (wgmma_w = 0; wgmma_w < NUM_WARPS; wgmma_w = wgmma_w + 1) begin
+                    if ((wgmma_w >> 2) == issue1_warpgroup_id_ext) begin
+                        warp_stalled_wgmma[wgmma_w] <= 1'b1;
+                        wgmma_wait_threshold[wgmma_w] <= issue1_imm16[3:0];
+                    end
+                end
             end
         end
     end
@@ -4343,52 +4385,90 @@ module streaming_multiprocessor_v2 #(
     // WGMMA Unit (Hopper+ Warpgroup MMA)
     // Handles wgmma.mma_async, wgmma.fence, wgmma.commit_group, wgmma.wait_group
     //------------------------------------------------------------------------
-    // Input signals for WGMMA
-    wire        wgmma_valid_in = wgmma_ready && (issue_wgmma || issue1_wgmma);
-    wire [5:0]  wgmma_func = issue_wgmma ? issue_func : issue1_func;
-    wire [WARP_ID_W-1:0] wgmma_issue_warp = issue_wgmma ? issue_warp_id : issue1_warp_id;
-    // Warpgroup = warp_id / 4 (right shift by 2)
-    // Use explicit division to avoid bit-select issues with small WARP_ID_W
-    wire [2:0]  wgmma_warpgroup = {1'b0, wgmma_issue_warp} >> 2;
+    wire wgmma_issue_fire = wgmma_issue_slot0 || wgmma_issue_slot1;
+    wire [5:0] wgmma_issue_func = wgmma_issue_slot0 ? issue_func : issue1_func;
+    wire [WARP_ID_W-1:0] wgmma_issue_warp = wgmma_issue_slot0 ? issue_warp_id : issue1_warp_id;
+    wire [2:0] wgmma_issue_warpgroup = {1'b0, wgmma_issue_warp} >> 2;
+    wire [63:0] wgmma_issue_desc_a = wgmma_issue_slot0 ? {32'b0, rf_rd_data_a[31:0]} : {32'b0, rf1_rd_data_a[31:0]};
+    wire [63:0] wgmma_issue_desc_b = wgmma_issue_slot0 ? {32'b0, rf_rd_data_b[31:0]} : {32'b0, rf1_rd_data_b[31:0]};
+    wire [31:0] wgmma_issue_scale_d = wgmma_issue_slot0 ? rf_rd_data_c[31:0] : rf1_rd_data_c[31:0];
+    wire [3:0] wgmma_issue_wait_count = wgmma_issue_slot0 ? issue_imm16[3:0] : issue1_imm16[3:0];
+    wire [2:0] wgmma_issue_accum_idx = wgmma_issue_slot0 ? issue_imm16[6:4] : issue1_imm16[6:4];
+    wire wgmma_issue_is_mma = (wgmma_issue_func == `WGMMA_M64N8K16) ||
+                              (wgmma_issue_func == `WGMMA_M64N16K16) ||
+                              (wgmma_issue_func == `WGMMA_M64N32K16) ||
+                              (wgmma_issue_func == `WGMMA_M64N64K16) ||
+                              (wgmma_issue_func == `WGMMA_M64N128K16) ||
+                              (wgmma_issue_func == `WGMMA_M64N256K16);
 
-    // Matrix descriptors from registers (64-bit descriptors from 2 consecutive 32-bit regs)
-    wire [63:0] wgmma_desc_a = issue_wgmma ? {rf_rd_data_a[63:0]} : {rf1_rd_data_a[63:0]};
-    wire [63:0] wgmma_desc_b = issue_wgmma ? {rf_rd_data_b[63:0]} : {rf1_rd_data_b[63:0]};
-    wire [31:0] wgmma_scale_d = issue_wgmma ? rf_rd_data_c[31:0] : rf1_rd_data_c[31:0];
-    wire [3:0]  wgmma_wait_count = issue_wgmma ? issue_imm16[3:0] : issue1_imm16[3:0];
+    assign wgmma_smem_rd_en = wgmma_smem_rd_en_r;
+    assign wgmma_smem_addr_a = wgmma_smem_addr_a_r;
+    assign wgmma_smem_addr_b = wgmma_smem_addr_b_r;
 
-    // Extract shared memory base addresses from descriptors
-    // Descriptor format: [31:0] = base_addr (word address in shared memory)
-    // The descriptor's base_addr field contains the SMEM address for the matrix tile
-    assign wgmma_smem_addr_a = wgmma_desc_a[13:0];  // 14-bit SMEM address for matrix A
-    assign wgmma_smem_addr_b = wgmma_desc_b[13:0];  // 14-bit SMEM address for matrix B
-
-    // WGMMA reads from SMEM when a MMA operation is starting
-    // Only enable SMEM read for actual MMA operations (not fence/commit/wait)
-    wire wgmma_is_mma_op = (wgmma_func == `WGMMA_M64N8K16)  || (wgmma_func == `WGMMA_M64N16K16) ||
-                           (wgmma_func == `WGMMA_M64N32K16) || (wgmma_func == `WGMMA_M64N64K16) ||
-                           (wgmma_func == `WGMMA_M64N128K16) || (wgmma_func == `WGMMA_M64N256K16);
-    assign wgmma_smem_rd_en = wgmma_valid_in && wgmma_is_mma_op;
-
-    // Accumulator index from descriptor (use bits from scale_d or imm16)
-    // Typically the accumulator index is encoded in the instruction immediate
-    assign wgmma_accum_idx = issue_wgmma ? issue_imm16[6:4] : issue1_imm16[6:4];
-
-    // WGMMA Accumulator register file management
+    // WGMMA command staging: latch issue metadata, then launch when SMEM data is ready.
     integer wgmma_acc_i;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             for (wgmma_acc_i = 0; wgmma_acc_i < 8; wgmma_acc_i = wgmma_acc_i + 1) begin
                 wgmma_accum_reg[wgmma_acc_i] <= 1024'b0;
             end
-        end else if (wgmma_done) begin
-            // Write back WGMMA result to accumulator register
-            wgmma_accum_reg[wgmma_accum_idx] <= wgmma_accum_out;
+            wgmma_valid_in_r <= 1'b0;
+            wgmma_func_r <= 6'b0;
+            wgmma_warpgroup_r <= 3'b0;
+            wgmma_wait_count_r <= 4'b0;
+            wgmma_desc_a_r <= 64'b0;
+            wgmma_desc_b_r <= 64'b0;
+            wgmma_scale_d_r <= 32'b0;
+            wgmma_data_a_r <= 512'b0;
+            wgmma_data_b_r <= 512'b0;
+            wgmma_accum_in_r <= 1024'b0;
+            wgmma_exec_accum_idx <= 3'b0;
+            wgmma_active_accum_idx <= 3'b0;
+            wgmma_active_is_mma <= 1'b0;
+            wgmma_smem_req_pending <= 1'b0;
+            wgmma_smem_rd_en_r <= 1'b0;
+            wgmma_smem_addr_a_r <= 14'b0;
+            wgmma_smem_addr_b_r <= 14'b0;
+        end else begin
+            wgmma_valid_in_r <= 1'b0;
+            wgmma_smem_rd_en_r <= 1'b0;
+
+            if (wgmma_issue_fire) begin
+                wgmma_func_r <= wgmma_issue_func;
+                wgmma_warpgroup_r <= wgmma_issue_warpgroup;
+                wgmma_wait_count_r <= wgmma_issue_wait_count;
+                wgmma_desc_a_r <= wgmma_issue_desc_a;
+                wgmma_desc_b_r <= wgmma_issue_desc_b;
+                wgmma_scale_d_r <= wgmma_issue_scale_d;
+                wgmma_exec_accum_idx <= wgmma_issue_accum_idx;
+                wgmma_accum_in_r <= wgmma_accum_reg[wgmma_issue_accum_idx];
+
+                if (wgmma_issue_is_mma) begin
+                    wgmma_smem_req_pending <= 1'b1;
+                    wgmma_smem_rd_en_r <= 1'b1;
+                    wgmma_smem_addr_a_r <= wgmma_issue_desc_a[13:0];
+                    wgmma_smem_addr_b_r <= wgmma_issue_desc_b[13:0];
+                end else begin
+                    wgmma_active_is_mma <= 1'b0;
+                    wgmma_valid_in_r <= 1'b1;
+                end
+            end
+
+            if (wgmma_smem_req_pending && wgmma_smem_rd_valid) begin
+                wgmma_data_a_r <= wgmma_smem_data_a;
+                wgmma_data_b_r <= wgmma_smem_data_b;
+                wgmma_active_accum_idx <= wgmma_exec_accum_idx;
+                wgmma_active_is_mma <= 1'b1;
+                wgmma_smem_req_pending <= 1'b0;
+                wgmma_valid_in_r <= 1'b1;
+            end
+
+            if (wgmma_done && wgmma_active_is_mma) begin
+                wgmma_accum_reg[wgmma_active_accum_idx] <= wgmma_accum_out;
+                wgmma_active_is_mma <= 1'b0;
+            end
         end
     end
-
-    // Select current accumulator value for WGMMA input
-    wire [1023:0] wgmma_accum_in = wgmma_accum_reg[wgmma_accum_idx];
 
     wgmma #(
         .WARPGROUP_SIZE(4),
@@ -4397,21 +4477,17 @@ module streaming_multiprocessor_v2 #(
     ) u_wgmma (
         .clk            (clk),
         .rst_n          (rst_n),
-        // Control interface
-        .func           (wgmma_func),
-        .valid_in       (wgmma_valid_in),
-        .warpgroup_id   (wgmma_warpgroup),
-        .wait_count     (wgmma_wait_count),
-        // Matrix descriptors
-        .desc_a         (wgmma_desc_a),
-        .desc_b         (wgmma_desc_b),
-        .scale_d        (wgmma_scale_d),
-        // Data interface - now wired to shared memory!
-        .data_a         (wgmma_smem_data_a),        // From shared memory read port
-        .data_b         (wgmma_smem_data_b),        // From shared memory read port
-        .accum_in       (wgmma_accum_in),           // From accumulator register file
+        .func           (wgmma_func_r),
+        .valid_in       (wgmma_valid_in_r),
+        .warpgroup_id   (wgmma_warpgroup_r),
+        .wait_count     (wgmma_wait_count_r),
+        .desc_a         (wgmma_desc_a_r),
+        .desc_b         (wgmma_desc_b_r),
+        .scale_d        (wgmma_scale_d_r),
+        .data_a         (wgmma_data_a_r),
+        .data_b         (wgmma_data_b_r),
+        .accum_in       (wgmma_accum_in_r),
         .accum_out      (wgmma_accum_out),
-        // Status outputs
         .ready          (wgmma_ready),
         .done           (wgmma_done),
         .pending_ops    (wgmma_pending_ops)

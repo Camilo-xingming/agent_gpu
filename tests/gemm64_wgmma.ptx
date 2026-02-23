@@ -1,0 +1,36 @@
+.entry gemm64_wgmma:
+    // Descriptor base addresses in shared memory.
+    mov.u32 r1, 0x0000
+    mov.u32 r2, 0x0100
+
+    // Seed matrix A/B tiles so WGMMA reads deterministic non-zero data.
+    mov.u32 r10, 0x0000
+    mov.u32 r11, 0x00010002
+    st.shared.u32 [r10], r11
+    mov.u32 r10, 0x0004
+    mov.u32 r11, 0x00030004
+    st.shared.u32 [r10], r11
+
+    mov.u32 r10, 0x0100
+    mov.u32 r11, 0x00050006
+    st.shared.u32 [r10], r11
+    mov.u32 r10, 0x0104
+    mov.u32 r11, 0x00070008
+    st.shared.u32 [r10], r11
+
+    // Stream async WGMMA operations through tensor pipeline.
+    wgmma.mma_async.m64n8k16.f32 r4, r1, r2
+    wgmma.mma_async.m64n8k16.f32 r4, r1, r2
+    wgmma.mma_async.m64n8k16.f32 r4, r1, r2
+    wgmma.mma_async.m64n8k16.f32 r4, r1, r2
+    wgmma.mma_async.m64n8k16.f32 r4, r1, r2
+    wgmma.mma_async.m64n8k16.f32 r4, r1, r2
+    wgmma.mma_async.m64n8k16.f32 r4, r1, r2
+    wgmma.mma_async.m64n8k16.f32 r4, r1, r2
+
+    wgmma.commit_group
+    wgmma.wait_group
+    wgmma.fence
+
+    exit
+.end

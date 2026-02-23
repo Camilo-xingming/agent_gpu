@@ -130,7 +130,7 @@ endif
 
 .PHONY: all sim wave clean assemble help test test_all
 .PHONY: test_alu test_mul test_decoder test_regfile test_smem test_warp test_sfu
-.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4
+.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4
 .PHONY: test_vector_add test_multi_sm test_memsys test_l1_data_cache test_phase2
 
 all: $(BUILD_DIR) sim
@@ -647,6 +647,7 @@ help:
 	@echo "  test_sm_v2_perf - SM V2 FP32 FMA performance microbenchmark"
 	@echo "  test_sm_v2_perf_gemm16_ptx - SM V2 PTX-driven GEMM 16x16x16 microbenchmark"
 	@echo "  test_sm_v2_perf_gemm16_wmma_ptx - SM V2 PTX WMMA GEMM 16x16x16 path test"
+	@echo "  test_sm_v2_perf_gemm64_wgmma_ptx - SM V2 PTX WGMMA GEMM 64x8x16 path test"
 	@echo "  test_sm_v2_perf_tensor - SM V2 Tensor Core WMMA microbenchmark"
 	@echo "  test_sm_v2_perf_tensor_multiwarp - SM V2 Tensor Core multi-warp test"
 	@echo ""
@@ -695,3 +696,17 @@ $(BUILD_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.vvp: $(SM_V2_SRCS) $(TB_DIR)/tb_sm_v2
 
 gemm16_wmma.hex: tests/gemm16_wmma.ptx tools/ptx_assembler.py
 	$(PYTHON) tools/ptx_assembler.py tests/gemm16_wmma.ptx -o gemm16_wmma.hex
+
+
+# Performance microbenchmark (PTX-driven WGMMA GEMM stream)
+test_sm_v2_perf_gemm64_wgmma_ptx: gemm64_wgmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.vvp
+	@echo "========================================"
+	@echo "Running SM V2 PTX WGMMA GEMM Path Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_perf_gemm64_wgmma_ptx.vvp
+
+$(BUILD_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.vvp: $(SM_V2_SRCS) $(TB_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.v $(filter %.v,$(RTL_SRCS))
+
+gemm64_wgmma.hex: tests/gemm64_wgmma.ptx tools/ptx_assembler.py
+	$(PYTHON) tools/ptx_assembler.py tests/gemm64_wgmma.ptx -o gemm64_wgmma.hex
