@@ -130,6 +130,9 @@ module ralph_gpu_top #(
     localparam CSR_BLOCK_DIM_X  = 12'h018;
     localparam CSR_BLOCK_DIM_Y  = 12'h01C;
     localparam CSR_BLOCK_DIM_Z  = 12'h020;
+    localparam CSR_ERROR_STATUS = 12'h024;
+    localparam CSR_ERROR_WARP_MASK = 12'h028;
+    localparam CSR_ERROR_INFO   = 12'h02C;
 
     //------------------------------------------------------------------------
     // CSR存储
@@ -139,6 +142,12 @@ module ralph_gpu_top #(
     reg [31:0]  kernel_pc_reg;
     reg [31:0]  grid_dim_x, grid_dim_y, grid_dim_z;
     reg [31:0]  block_dim_x, block_dim_y, block_dim_z;
+    reg         error_pending;
+    reg  [3:0]  error_code;
+    reg  [7:0]  error_sm_id;
+    reg  [7:0]  error_warp_id;
+    reg  [31:0] error_info;
+    reg  [31:0] error_warp_mask_global;
 
     //------------------------------------------------------------------------
     // Block分配器状态
@@ -277,6 +286,11 @@ module ralph_gpu_top #(
     wire [NUM_SM*4-1:0] sm_perf_warp_diverged;
     wire [NUM_SM-1:0] sm_perf_tensor_mma_issued;
     wire [NUM_SM-1:0] sm_perf_tensor_mma_completed;
+    wire [NUM_SM-1:0] sm_exception_valid;
+    wire [NUM_SM*4-1:0] sm_exception_code;
+    wire [NUM_SM*4-1:0] sm_exception_warp_id;
+    wire [NUM_SM*32-1:0] sm_exception_info;
+    wire [NUM_SM*4-1:0] sm_warp_error_mask;
     wire [NUM_SM-1:0] sm_perf_l1_hit;
     wire [NUM_SM-1:0] sm_perf_l1_miss;
 
@@ -526,7 +540,12 @@ module ralph_gpu_top #(
                 .perf_warp_stalled      (sm_perf_warp_stalled[sm*4 +: 4]),
                 .perf_warp_diverged     (sm_perf_warp_diverged[sm*4 +: 4]),
                 .perf_tensor_mma_issued (sm_perf_tensor_mma_issued[sm]),
-                .perf_tensor_mma_completed(sm_perf_tensor_mma_completed[sm])
+                .perf_tensor_mma_completed(sm_perf_tensor_mma_completed[sm]),
+                .exception_valid       (sm_exception_valid[sm]),
+                .exception_code        (sm_exception_code[sm*4 +: 4]),
+                .exception_warp_id     (sm_exception_warp_id[sm*4 +: 4]),
+                .exception_info        (sm_exception_info[sm*32 +: 32]),
+                .warp_error_mask       (sm_warp_error_mask[sm*4 +: 4])
             );
 
             assign sm_axi_awid[sm]    = sm_core_axi_awid[sm];
@@ -1084,10 +1103,47 @@ module ralph_gpu_top #(
             l2_stat_misses_prev <= l2_stat_misses_perf;
         end
     end
+
+    // Latch first exception from SMs into host-readable error CSRs
+    integer exc_sm_i;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            error_pending <= 1'b0;
+            error_code <= 4'b0;
+            error_sm_id <= 8'b0;
+            error_warp_id <= 8'b0;
+            error_info <= 32'b0;
+            error_warp_mask_global <= 32'b0;
+        end else begin
+            if ((csr_wr_en && csr_addr == CSR_ERROR_STATUS && csr_wr_data[0]) || kernel_start_reg) begin
+                error_pending <= 1'b0;
+                error_code <= 4'b0;
+                error_sm_id <= 8'b0;
+                error_warp_id <= 8'b0;
+                error_info <= 32'b0;
+                error_warp_mask_global <= 32'b0;
+            end
+
+            for (exc_sm_i = 0; exc_sm_i < NUM_SM; exc_sm_i = exc_sm_i + 1) begin
+                if (sm_exception_valid[exc_sm_i]) begin
+                    error_warp_mask_global[exc_sm_i*4 +: 4] <=
+                        error_warp_mask_global[exc_sm_i*4 +: 4] | sm_warp_error_mask[exc_sm_i*4 +: 4];
+                    if (!error_pending) begin
+                        error_pending <= 1'b1;
+                        error_code <= sm_exception_code[exc_sm_i*4 +: 4];
+                        error_sm_id <= exc_sm_i[7:0];
+                        error_warp_id <= {4'b0, sm_exception_warp_id[exc_sm_i*4 +: 4]};
+                        error_info <= sm_exception_info[exc_sm_i*32 +: 32];
+                    end
+                end
+            end
+        end
+    end
+
     // CSR读取
     always @(*) begin
         case (csr_addr)
-            CSR_GPU_STATUS:  csr_rd_data = {30'b0, gpu_busy, 1'b1};  // bit0=ready
+            CSR_GPU_STATUS:  csr_rd_data = {29'b0, error_pending, gpu_busy, 1'b1};  // bit2=error, bit1=busy, bit0=ready
             CSR_GPU_CONTROL: csr_rd_data = {31'b0, kernel_start_reg};
             CSR_KERNEL_PC:   csr_rd_data = kernel_pc_reg;
             CSR_GRID_DIM_X:  csr_rd_data = grid_dim_x;
@@ -1096,6 +1152,9 @@ module ralph_gpu_top #(
             CSR_BLOCK_DIM_X: csr_rd_data = block_dim_x;
             CSR_BLOCK_DIM_Y: csr_rd_data = block_dim_y;
             CSR_BLOCK_DIM_Z: csr_rd_data = block_dim_z;
+            CSR_ERROR_STATUS: csr_rd_data = {3'b0, error_warp_id, error_sm_id, error_code, error_pending};
+            CSR_ERROR_WARP_MASK: csr_rd_data = error_warp_mask_global;
+            CSR_ERROR_INFO: csr_rd_data = error_info;
             default: begin
                 // Performance counter read: CSR address 0x100-0x13F
                 if (csr_addr >= 12'h100 && csr_addr <= 12'h13F)
