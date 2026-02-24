@@ -90,15 +90,13 @@ module register_file_banked #(
     // ECC parameters
     localparam PROTECTED_WIDTH = ECC_ENABLE ? (DATA_WIDTH + ECC_BITS) : DATA_WIDTH;
 
-    // Calculate bank index from register address and lane
-    // Banking scheme: bank = (reg_addr + lane_id) mod NUM_BANKS
+    // Calculate bank index from register address.
+    // Banking scheme: bank = reg_addr mod NUM_BANKS.
+    // This maps each logical register to a stable bank across all lanes.
     function [BANK_BITS-1:0] get_bank;
         input [4:0] reg_addr;
-        input [LANE_W-1:0] lane_id;
-        reg [BANK_BITS:0] bank_sum;
         begin
-            bank_sum = {1'b0, reg_addr[BANK_BITS-1:0]} + {1'b0, lane_id[BANK_BITS-1:0]};
-            get_bank = bank_sum[BANK_BITS-1:0] % NUM_BANKS[BANK_BITS-1:0];
+            get_bank = reg_addr % NUM_BANKS;
         end
     endfunction
 
@@ -186,69 +184,43 @@ module register_file_banked #(
     //------------------------------------------------------------------------
     // Register Storage - Organized by banks for conflict-free access
     //------------------------------------------------------------------------
-    // Bank organization: [bank][warp][lane_set][reg][data+ecc]
-    // Each bank contains 1/NUM_BANKS of the lanes
-    localparam LANES_PER_BANK = NUM_LANES / NUM_BANKS;
-
-    // Storage: simple 3D array [warp][lane][reg] for iverilog compatibility.
-    // Banking is a physical optimization; functionally equivalent to flat layout.
-    // iverilog cannot handle always @(*) or assign with 4D bank-indexed arrays.
+    // Storage is modeled as [warp][lane][reg] for simulator compatibility.
+    // Banking behavior is reflected in conflict detection/arbitration paths.
     reg [PROTECTED_WIDTH-1:0] sim_regs [0:NUM_WARPS-1][0:NUM_LANES-1][0:NUM_REGS-1];
 
     //------------------------------------------------------------------------
     // Bank Access Arbitration
     //------------------------------------------------------------------------
-    // Track which ports access which banks
-    wire [BANK_BITS-1:0] port_bank_a [0:NUM_LANES-1];
-    wire [BANK_BITS-1:0] port_bank_b [0:NUM_LANES-1];
-    wire [BANK_BITS-1:0] port_bank_c [0:NUM_LANES-1];
+    wire [BANK_BITS-1:0] rd_bank_a = get_bank(rd_addr_a);
+    wire [BANK_BITS-1:0] rd_bank_b = get_bank(rd_addr_b);
+    wire [BANK_BITS-1:0] rd_bank_c = get_bank(rd_addr_c);
+    wire [BANK_BITS-1:0] wr_bank   = get_bank(wr_addr);
 
-    genvar lane;
-    generate
-        for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : gen_bank_calc
-            assign port_bank_a[lane] = get_bank(rd_addr_a, lane[LANE_W-1:0]);
-            assign port_bank_b[lane] = get_bank(rd_addr_b, lane[LANE_W-1:0]);
-            assign port_bank_c[lane] = get_bank(rd_addr_c, lane[LANE_W-1:0]);
-        end
-    endgenerate
+    wire [BANK_BITS-1:0] oc_bank_0 = get_bank(oc_addr[4:0]);
+    wire [BANK_BITS-1:0] oc_bank_1 = get_bank(oc_addr[9:5]);
+    wire [BANK_BITS-1:0] oc_bank_2 = get_bank(oc_addr[14:10]);
 
     //------------------------------------------------------------------------
     // Conflict Detection
     //------------------------------------------------------------------------
-    // Check for multi-port conflicts (same bank accessed by different ports)
-    reg [NUM_BANKS-1:0] bank_access_count_a;
-    reg [NUM_BANKS-1:0] bank_access_count_b;
-    reg [NUM_BANKS-1:0] bank_access_count_c;
+    wire rd_conflict_ab = (rd_bank_a == rd_bank_b);
+    wire rd_conflict_ac = (rd_bank_a == rd_bank_c);
+    wire rd_conflict_bc = (rd_bank_b == rd_bank_c);
 
-    integer conf_i;
-    always @(*) begin
-        bank_access_count_a = 0;
-        bank_access_count_b = 0;
-        bank_access_count_c = 0;
+    assign rd_conflict_a = rd_conflict_ab || rd_conflict_ac;
+    assign rd_conflict_b = rd_conflict_ab || rd_conflict_bc;
+    assign rd_conflict_c = rd_conflict_ac || rd_conflict_bc;
 
-        for (conf_i = 0; conf_i < NUM_LANES; conf_i = conf_i + 1) begin
-            bank_access_count_a[port_bank_a[conf_i]] = 1'b1;
-            bank_access_count_b[port_bank_b[conf_i]] = 1'b1;
-            bank_access_count_c[port_bank_c[conf_i]] = 1'b1;
-        end
-    end
+    // A write that targets a bank used by any read port is tracked as a bank collision.
+    assign wr_conflict = wr_en && ((wr_bank == rd_bank_a) ||
+                                   (wr_bank == rd_bank_b) ||
+                                   (wr_bank == rd_bank_c));
 
-    // Inter-port conflicts (A vs B vs C accessing same bank)
-    reg conflict_ab, conflict_ac, conflict_bc;
-    always @(*) begin
-        conflict_ab = |(bank_access_count_a & bank_access_count_b);
-        conflict_ac = |(bank_access_count_a & bank_access_count_c);
-        conflict_bc = |(bank_access_count_b & bank_access_count_c);
-    end
-
-    // For same-port conflicts, we need to check if multiple lanes in same port
-    // access the same bank with different addresses (broadcast is OK)
-    // This is simplified - real implementation would track per-bank address uniqueness
-    assign rd_conflict_a = 1'b0;  // Simplified: assume no intra-port conflicts
-    assign rd_conflict_b = 1'b0;
-    assign rd_conflict_c = 1'b0;
-    assign wr_conflict   = 1'b0;  // Writes are masked, so no conflict
-    assign oc_conflict   = conflict_ab || conflict_ac || conflict_bc;
+    // Operand-collector conflict (three operands, one bank per cycle).
+    wire oc_conflict_ab = (oc_bank_0 == oc_bank_1);
+    wire oc_conflict_ac = (oc_bank_0 == oc_bank_2);
+    wire oc_conflict_bc = (oc_bank_1 == oc_bank_2);
+    assign oc_conflict = oc_valid && (oc_conflict_ab || oc_conflict_ac || oc_conflict_bc);
 
     //------------------------------------------------------------------------
     // Read Logic — generate + assign with 3D array (iverilog compatible)
@@ -258,6 +230,7 @@ module register_file_banked #(
     wire [NUM_LANES-1:0] rd_single_error_a, rd_single_error_b, rd_single_error_c;
     wire [NUM_LANES-1:0] rd_double_error_a, rd_double_error_b, rd_double_error_c;
 
+    genvar lane;
     generate
         for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : gen_rd_logic
             // Raw data from sim_regs (3D: warp, lane, reg)
@@ -308,34 +281,35 @@ module register_file_banked #(
         end
     endgenerate
 
-    assign oc_ready = {NUM_READ_PORTS{oc_valid && !oc_conflict}};
+    // Fixed-priority bank arbitration for operand collector ports.
+    // Port0 has highest priority, then Port1, then Port2.
+    wire oc_grant_0 = oc_valid;
+    wire oc_grant_1 = oc_valid && (oc_bank_1 != oc_bank_0);
+    wire oc_grant_2 = oc_valid && (oc_bank_2 != oc_bank_0) &&
+                      (oc_bank_2 != oc_bank_1 || !oc_grant_1);
+
+    assign oc_ready = {oc_grant_2, oc_grant_1, oc_grant_0};
 
     //------------------------------------------------------------------------
     // Write Logic (Sequential) with ECC Encoding
     //------------------------------------------------------------------------
-    integer wr_w, wr_b, wr_l, wr_r;
-    reg [BANK_BITS-1:0] wr_bank_idx;
-    integer wr_lane_idx;
+    integer wr_w, wr_l, wr_r;
     reg [DATA_WIDTH-1:0] wr_data_lane;
     reg [ECC_BITS-1:0] wr_ecc;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             // Reset all registers (including ECC bits)
-            for (wr_b = 0; wr_b < NUM_BANKS; wr_b = wr_b + 1) begin
-                for (wr_w = 0; wr_w < NUM_WARPS; wr_w = wr_w + 1) begin
-                    for (wr_l = 0; wr_l < LANES_PER_BANK; wr_l = wr_l + 1) begin
-                        for (wr_r = 0; wr_r < NUM_REGS; wr_r = wr_r + 1) begin
-                            sim_regs[wr_w][wr_b*LANES_PER_BANK+wr_l][wr_r] <= {PROTECTED_WIDTH{1'b0}};
-                        end
+            for (wr_w = 0; wr_w < NUM_WARPS; wr_w = wr_w + 1) begin
+                for (wr_l = 0; wr_l < NUM_LANES; wr_l = wr_l + 1) begin
+                    for (wr_r = 0; wr_r < NUM_REGS; wr_r = wr_r + 1) begin
+                        sim_regs[wr_w][wr_l][wr_r] <= {PROTECTED_WIDTH{1'b0}};
                     end
                 end
             end
         end else if (wr_en) begin
             for (wr_l = 0; wr_l < NUM_LANES; wr_l = wr_l + 1) begin
                 if (wr_mask[wr_l]) begin
-                    wr_bank_idx = get_bank(wr_addr, wr_l[LANE_W-1:0]);
-                    wr_lane_idx = wr_l / NUM_BANKS;
                     wr_data_lane = wr_data[wr_l*DATA_WIDTH +: DATA_WIDTH];
 
                     if (ECC_ENABLE) begin
@@ -538,6 +512,7 @@ module operand_collector #(
     //------------------------------------------------------------------------
     integer rst_e, rst_o;
     integer coll_e, coll_o;
+    reg [NUM_OPERANDS-1:0] next_collected;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -569,17 +544,19 @@ module operand_collector #(
                 alloc_ptr <= alloc_ptr + 1'b1;
             end
 
-            // Collect operands from RF
-            if (entry_valid[issue_ptr] && !entry_complete[issue_ptr] && (&(rf_ready | ~entry_need[issue_ptr]))) begin
+            // Collect operands from RF (supports partial collection across cycles)
+            if (entry_valid[issue_ptr] && !entry_complete[issue_ptr]) begin
+                next_collected = entry_collected[issue_ptr];
                 for (coll_o = 0; coll_o < NUM_OPERANDS; coll_o = coll_o + 1) begin
                     if (entry_need[issue_ptr][coll_o] && rf_ready[coll_o]) begin
                         entry_data[issue_ptr][coll_o] <= rf_data[coll_o*(NUM_LANES*DATA_WIDTH) +: (NUM_LANES*DATA_WIDTH)];
                         entry_collected[issue_ptr][coll_o] <= 1'b1;
+                        next_collected[coll_o] = 1'b1;
                     end
                 end
 
-                // Check if all needed operands collected
-                if ((entry_collected[issue_ptr] | rf_ready) == entry_need[issue_ptr]) begin
+                // Complete once every required operand has been collected.
+                if (next_collected == entry_need[issue_ptr]) begin
                     entry_complete[issue_ptr] <= 1'b1;
                     issue_ptr <= issue_ptr + 1'b1;
                 end

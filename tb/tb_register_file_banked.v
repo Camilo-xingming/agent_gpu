@@ -371,55 +371,84 @@ module tb_register_file_banked;
         $display("Test %0d: Three-port read done (pass=%0d, fail=%0d)", test_num, pass_count, fail_count);
 
         // ================================================================
-        // Test 6: Operand collector interface
+        // Test 6: Direct read-port bank conflict flags
         // ================================================================
         test_num = 6;
-        $display("\n=== Test %0d: Operand collector interface ===", test_num);
+        $display("\n=== Test %0d: Direct read-port bank conflict flags ===", test_num);
 
-        // Reuse regs 1,2,3 written in test 5 (warp 0)
-        // Set rd_addr ports to same value to avoid inter-port bank conflicts
-        // (oc_conflict is derived from rd_addr bank overlap in the RTL)
+        // NUM_BANKS=2 => bank = reg_addr[0]
+        // A=1(bank1), B=3(bank1), C=2(bank0) => conflicts on A/B only
+        read_ports(0, 5'd1, 5'd3, 5'd2);
+        #1;
+        if (rd_conflict_a && rd_conflict_b && !rd_conflict_c) begin
+            pass_count = pass_count + 1;
+        end else begin
+            fail_count = fail_count + 1;
+            $display("FAIL [Test %0d] unexpected rd_conflict flags (case1): a=%b b=%b c=%b",
+                     test_num, rd_conflict_a, rd_conflict_b, rd_conflict_c);
+        end
+
+        // A=0(bank0), B=1(bank1), C=2(bank0) => conflicts on A/C only
+        read_ports(0, 5'd0, 5'd1, 5'd2);
+        #1;
+        if (rd_conflict_a && !rd_conflict_b && rd_conflict_c) begin
+            pass_count = pass_count + 1;
+        end else begin
+            fail_count = fail_count + 1;
+            $display("FAIL [Test %0d] unexpected rd_conflict flags (case2): a=%b b=%b c=%b",
+                     test_num, rd_conflict_a, rd_conflict_b, rd_conflict_c);
+        end
+
+        $display("Test %0d: Read-port conflict flags done (pass=%0d, fail=%0d)", test_num, pass_count, fail_count);
+
+        // ================================================================
+        // Test 7: Operand collector arbitration / partial ready
+        // ================================================================
+        test_num = 7;
+        $display("\n=== Test %0d: Operand collector arbitration ===", test_num);
+
+        // Reuse regs 1,2,3 from test 5.
         @(posedge clk);
-        rd_warp_id <= 0;
-        rd_addr_a  <= 5'd0;
-        rd_addr_b  <= 5'd0;
-        rd_addr_c  <= 5'd0;
         oc_valid   <= 1'b1;
         oc_warp_id <= 0;
-        oc_addr    <= {5'd3, 5'd2, 5'd1};  // [14:10]=reg3, [9:5]=reg2, [4:0]=reg1
+        // p0=reg1(bank1), p1=reg2(bank0), p2=reg3(bank1)
+        // Expected grant: p0,p1 granted; p2 blocked => oc_ready=3'b011
+        oc_addr    <= {5'd3, 5'd2, 5'd1};
         @(posedge clk);
         #1;
 
-        // oc_data layout: port0 = reg1, port1 = reg2, port2 = reg3
-        check_all_lanes(oc_data[0*SIMD_WIDTH +: SIMD_WIDTH], 32'hCAFE_0000, "oc_port0");
-        check_all_lanes(oc_data[1*SIMD_WIDTH +: SIMD_WIDTH], 32'hBEEF_0000, "oc_port1");
-        check_all_lanes(oc_data[2*SIMD_WIDTH +: SIMD_WIDTH], 32'hF00D_0000, "oc_port2");
-
-        // Check oc_ready: oc_ready = {3{oc_valid && !oc_conflict}}
-        // NOTE: The RTL get_bank() uses "% NUM_BANKS[BANK_BITS-1:0]" which
-        // evaluates to modulo-zero for power-of-2 NUM_BANKS, propagating X
-        // into oc_conflict and thus oc_ready. This is a known RTL issue in
-        // the bank conflict detection path; data reads are unaffected.
-        // We verify oc_data correctness (above) and just log oc_ready status.
-        if (oc_ready === {NUM_READ_PORTS{1'b1}}) begin
+        check_all_lanes(oc_data[0*SIMD_WIDTH +: SIMD_WIDTH], 32'hCAFE_0000, "oc_p0_data");
+        check_all_lanes(oc_data[1*SIMD_WIDTH +: SIMD_WIDTH], 32'hBEEF_0000, "oc_p1_data");
+        if (oc_ready === 3'b011 && oc_conflict) begin
             pass_count = pass_count + 1;
-            $display("  oc_ready = %b (all ready)", oc_ready);
-        end else if (oc_ready === {NUM_READ_PORTS{1'b0}}) begin
-            pass_count = pass_count + 1;
-            $display("  oc_ready = %b (conflict detected, data still correct)", oc_ready);
         end else begin
-            // X on oc_ready due to get_bank modulo bug — still pass since data is correct
+            fail_count = fail_count + 1;
+            $display("FAIL [Test %0d] oc_ready/cf case1 mismatch: ready=%b conflict=%b",
+                     test_num, oc_ready, oc_conflict);
+        end
+
+        // p0=reg2(bank0), p1=reg4(bank0), p2=reg1(bank1)
+        // Expected grant: p0,p2 granted; p1 blocked => oc_ready=3'b101
+        @(posedge clk);
+        oc_addr <= {5'd1, 5'd4, 5'd2};
+        @(posedge clk);
+        #1;
+
+        if (oc_ready === 3'b101 && oc_conflict) begin
             pass_count = pass_count + 1;
-            $display("  oc_ready = %b (X from get_bank modulo bug, data verified correct)", oc_ready);
+        end else begin
+            fail_count = fail_count + 1;
+            $display("FAIL [Test %0d] oc_ready/cf case2 mismatch: ready=%b conflict=%b",
+                     test_num, oc_ready, oc_conflict);
         end
 
         oc_valid <= 1'b0;
-        $display("Test %0d: Operand collector done (pass=%0d, fail=%0d)", test_num, pass_count, fail_count);
+        $display("Test %0d: Operand collector arbitration done (pass=%0d, fail=%0d)", test_num, pass_count, fail_count);
 
         // ================================================================
-        // Test 7: Write-read forwarding (write then read next cycle)
+        // Test 8: Write-read forwarding (write then read next cycle)
         // ================================================================
-        test_num = 7;
+        test_num = 8;
         $display("\n=== Test %0d: Write-read forwarding ===", test_num);
 
         // Write reg 20 warp 1
@@ -445,9 +474,9 @@ module tb_register_file_banked;
         $display("Test %0d: Write-read forwarding done (pass=%0d, fail=%0d)", test_num, pass_count, fail_count);
 
         // ================================================================
-        // Test 8: Statistics counting - stat_total_accesses increments
+        // Test 9: Statistics counting - stat_total_accesses increments
         // ================================================================
-        test_num = 8;
+        test_num = 9;
         $display("\n=== Test %0d: Statistics counting ===", test_num);
 
         begin : stat_block
