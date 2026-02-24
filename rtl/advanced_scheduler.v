@@ -80,6 +80,7 @@ module advanced_warp_scheduler #(
     //------------------------------------------------------------------------
     // Scoreboard Visibility (eliminates hierarchical references)
     //------------------------------------------------------------------------
+    output wire [NUM_WARPS*4-1:0] issue_seq_out,
     output wire [NUM_WARPS*32-1:0] scoreboard_out
 );
 
@@ -105,6 +106,18 @@ module advanced_warp_scheduler #(
     generate
         for (sb_gi = 0; sb_gi < NUM_WARPS; sb_gi = sb_gi + 1) begin : gen_sb_out
             assign scoreboard_out[sb_gi*32 +: 32] = scoreboard[sb_gi];
+        end
+    endgenerate
+
+    //------------------------------------------------------------------------
+    // Per-Warp Issue Sequence Number (ISN)
+    //------------------------------------------------------------------------
+    reg [3:0] issue_seq [0:NUM_WARPS-1];
+
+    genvar isn_gi;
+    generate
+        for (isn_gi = 0; isn_gi < NUM_WARPS; isn_gi = isn_gi + 1) begin : gen_isn_out
+            assign issue_seq_out[isn_gi*4 +: 4] = issue_seq[isn_gi];
         end
     endgenerate
 
@@ -400,6 +413,7 @@ module advanced_warp_scheduler #(
         if (!rst_n) begin
             for (sb_w = 0; sb_w < NUM_WARPS; sb_w = sb_w + 1) begin
                 scoreboard[sb_w] <= 0;
+                issue_seq[sb_w] <= 4'd0;
             end
             compute_rr_ptr <= 0;
             tensor_rr_ptr <= 0;
@@ -415,6 +429,12 @@ module advanced_warp_scheduler #(
                     // Extract rd from the captured instruction (bits 25:21 for R-type)
                     scoreboard[issue_warp_r[sb_w]][issue_inst_r[sb_w][25:21]] <= 1'b1;
                 end
+            end
+
+            // ISN increment: fires when instruction is consumed
+            for (sb_w = 0; sb_w < NUM_WARPS; sb_w = sb_w + 1) begin
+                if (warp_consume_r[sb_w])
+                    issue_seq[sb_w] <= issue_seq[sb_w] + 4'd1;
             end
 
             // Clear scoreboard bits on writeback

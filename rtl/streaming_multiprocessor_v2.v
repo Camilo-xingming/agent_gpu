@@ -402,7 +402,9 @@ module streaming_multiprocessor_v2 #(
     reg  [WARP_ID_W-1:0] dec0_warp_id;
     reg  [WARP_ID_W-1:0] dec1_warp_id;
     reg  [31:0]          dec0_pc;
+    reg  [3:0]           dec0_isn;
     reg  [31:0]          dec1_pc;
+    reg  [3:0]           dec1_isn;
     reg  [31:0]          dec0_instruction;
     reg  [31:0]          dec1_instruction;
 
@@ -410,6 +412,7 @@ module streaming_multiprocessor_v2 #(
     reg                  issue_valid;
     reg  [WARP_ID_W-1:0] issue_warp_id;
     reg  [31:0]          issue_pc;
+    reg  [3:0]           issue_isn;
     reg  [5:0]           issue_opcode;
     reg  [4:0]           issue_rd, issue_ra, issue_rb, issue_rc;
     reg  [5:0]           issue_func;
@@ -440,6 +443,7 @@ module streaming_multiprocessor_v2 #(
     reg                  issue1_valid;
     reg  [WARP_ID_W-1:0] issue1_warp_id;
     reg  [31:0]          issue1_pc;
+    reg  [3:0]           issue1_isn;
     reg  [5:0]           issue1_opcode;
     reg  [4:0]           issue1_rd, issue1_ra, issue1_rb, issue1_rc;
     reg  [5:0]           issue1_func;
@@ -1891,6 +1895,8 @@ module streaming_multiprocessor_v2 #(
     wire [SCHED_LANES*3-1:0] sched_issue_pipe_flat;
     wire [SCHED_LANES*4-1:0] bw_issue_async_mma_id_flat;
     wire [NUM_WARPS*32-1:0] sched_scoreboard_flat;
+    wire [NUM_WARPS*4-1:0] sched_issue_seq_flat;
+    wire [3:0] sched_issue_seq [0:NUM_WARPS-1];
 
     genvar si;
     generate
@@ -1901,6 +1907,7 @@ module streaming_multiprocessor_v2 #(
             assign pd_rs3_flat[si*5 +: 5] = pd_rs3[si];
             assign pd_reads_rs3_flat[si] = pd_reads_rs3[si];
             assign sched_scoreboard[si] = sched_scoreboard_flat[si*32 +: 32];
+            assign sched_issue_seq[si] = sched_issue_seq_flat[si*4 +: 4];
         end
         for (si = 0; si < SCHED_LANES; si = si + 1) begin : gen_sched_unpack
             assign sched_issue_warp_id[si] = sched_issue_warp_id_flat[si*WARP_ID_W +: WARP_ID_W];
@@ -1990,6 +1997,7 @@ module streaming_multiprocessor_v2 #(
         .stat_async_mma_completed(bw_stat_async_mma_completed),
         .stat_tcgen05_issued(bw_stat_tcgen05_issued),
         .perf_sched_stall_ifetch(sched_perf_stall_ifetch),
+        .issue_seq_out(sched_issue_seq_flat),
         .scoreboard_out(sched_scoreboard_flat)
     );
 `else
@@ -2039,6 +2047,7 @@ module streaming_multiprocessor_v2 #(
         .stat_single_issue(),
         .stat_dual_issue(),
         .stat_stalls(),
+        .issue_seq_out(sched_issue_seq_flat),
         .scoreboard_out(sched_scoreboard_flat)
     );
 `endif
@@ -2072,6 +2081,8 @@ module streaming_multiprocessor_v2 #(
         if (!rst_n) begin
             dec0_valid <= 0;
             dec1_valid <= 0;
+            dec0_isn <= 4'd0;
+            dec1_isn <= 4'd0;
         end else begin
             // Debug: trace issue0_fire
             // Flush decode stage if branch taken for same warp
@@ -2083,6 +2094,7 @@ module streaming_multiprocessor_v2 #(
                     dec0_warp_id <= sched_issue_warp_id[0];
                     dec0_instruction <= sched_issue_inst[0];
                     dec0_pc <= warp_pc[sched_issue_warp_id[0]]; // Capture current PC
+                    dec0_isn <= sched_issue_seq[sched_issue_warp_id[0]];
                     // Advance PC at scheduling time for non-branch instructions
                     // (branches will override PC when they resolve)
                     if (!pd_is_branch[sched_issue_warp_id[0]] &&
@@ -2102,6 +2114,7 @@ module streaming_multiprocessor_v2 #(
                     dec1_warp_id <= sched_issue_warp_id[1];
                     dec1_instruction <= sched_issue_inst[1];
                     dec1_pc <= warp_pc[sched_issue_warp_id[1]];
+                    dec1_isn <= sched_issue_seq[sched_issue_warp_id[1]];
                     if (!pd_is_branch[sched_issue_warp_id[1]] &&
                         warp_inst_consume[sched_issue_warp_id[1]]) begin
                         warp_pc[sched_issue_warp_id[1]] <= warp_pc[sched_issue_warp_id[1]] + 4;
@@ -2348,6 +2361,7 @@ module streaming_multiprocessor_v2 #(
             issue1_valid <= 1'b0;
             issue_warp_id <= 0;
             issue_pc <= 0;
+            issue_isn <= 4'd0;
             issue_opcode <= 0;
             issue_rd <= 0;
             issue_ra <= 0;
@@ -2387,6 +2401,7 @@ module streaming_multiprocessor_v2 #(
             issue_illegal_op <= 1'b0;
             issue1_warp_id <= 0;
             issue1_pc <= 0;
+            issue1_isn <= 4'd0;
             issue1_opcode <= 0;
             issue1_rd <= 0;
             issue1_ra <= 0;
@@ -2444,6 +2459,7 @@ module streaming_multiprocessor_v2 #(
                 begin
                     issue_warp_id <= dec0_warp_id;
                     issue_pc <= dec0_pc;
+                    issue_isn <= dec0_isn;
                     issue_opcode <= dec_opcode;
                     issue_rd <= dec_rd;
                     issue_ra <= dec_ra;
@@ -2503,6 +2519,7 @@ module streaming_multiprocessor_v2 #(
             if (dec1_dec_valid && !branch_flush_dec1) begin
                 issue1_warp_id <= dec1_warp_id;
                 issue1_pc <= dec1_pc;
+                issue1_isn <= dec1_isn;
                 issue1_opcode <= dec1_opcode;
                 issue1_rd <= dec1_rd;
                 issue1_ra <= dec1_ra;
@@ -3379,6 +3396,24 @@ module streaming_multiprocessor_v2 #(
     // scoreboard==0) correctly holds warp teardown until tensor writebacks complete.
     reg [NUM_WARPS-1:0] tensor_push_lockout_0;  // lockout cycle 1
     reg [NUM_WARPS-1:0] tensor_push_lockout_1;  // lockout cycle 2
+    reg [3:0] tensor_last_pushed_isn [0:NUM_WARPS-1];
+    // Update tensor_last_pushed_isn on successful tensor push
+    integer isn_w;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            for (isn_w = 0; isn_w < NUM_WARPS; isn_w = isn_w + 1)
+                tensor_last_pushed_isn[isn_w] <= 4'hF;
+        end else if (kernel_start) begin
+            for (isn_w = 0; isn_w < NUM_WARPS; isn_w = isn_w + 1)
+                tensor_last_pushed_isn[isn_w] <= 4'hF;
+        end else if (tensor_issue_push_fire) begin
+            if (tensor_push_lane0)
+                tensor_last_pushed_isn[issue_warp_id] <= issue_isn;
+            else if (tensor_push_lane1)
+                tensor_last_pushed_isn[issue1_warp_id] <= issue1_isn;
+        end
+    end
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             tensor_push_lockout_0 <= {NUM_WARPS{1'b0}};
@@ -3401,9 +3436,14 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_WARPS-1:0] tensor_push_locked = tensor_push_lockout_0 | tensor_push_lockout_1;
     wire tensor_push_lane0_raw = issue_valid && issue_tensor_op;
     wire tensor_push_lane1_raw = issue1_valid && issue1_tensor_op && !tensor_push_lane0;
-    // Keep lockout suppression on slot1 only; slot0 must not be blocked.
-    wire tensor_push_lane0 = tensor_push_lane0_raw;
-    wire tensor_push_lane1 = tensor_push_lane1_raw && !tensor_push_locked[issue1_warp_id];
+
+    // ISN-based stale push elimination: track last pushed ISN per warp
+    wire isn_match_lane0 = (issue_isn == tensor_last_pushed_isn[issue_warp_id]);
+    wire isn_match_lane1 = (issue1_isn == tensor_last_pushed_isn[issue1_warp_id]);
+
+    // ISN gate on lane0; keep lockout as belt-and-suspenders on lane1
+    wire tensor_push_lane0 = tensor_push_lane0_raw && !isn_match_lane0;
+    wire tensor_push_lane1 = tensor_push_lane1_raw && !isn_match_lane1 && !tensor_push_locked[issue1_warp_id];
     assign tensor_issue_push = tensor_push_lane0 || tensor_push_lane1;
     assign tensor_issue_push_data = tensor_push_lane0 ?
         pack_tensor_issue(issue_warp_id, issue_rd,
