@@ -130,6 +130,12 @@ vote.sync.all / any / uni / ballot     # Vote
 redux.sync.add / min / max / and ...   # Reduction
 ```
 
+## Documentation
+
+- [Architecture Guide](docs/ARCHITECTURE_GUIDE.md) - Detailed technical overview of RalphGPU internal structure.
+- [ISA Reference](docs/ISA_REFERENCE.md) - Complete instruction set reference and encoding details.
+- [PTX Compatibility](docs/PTX_COMPATIBILITY.md) - Status of NVIDIA PTX instruction support.
+
 ## Verification
 
 ### Tools
