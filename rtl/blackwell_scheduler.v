@@ -47,6 +47,7 @@ module blackwell_scheduler #(
     input wire [NUM_WARPS*5-1:0] warp_rs1,
     input wire [NUM_WARPS*5-1:0] warp_rs2,
     input wire [NUM_WARPS*5-1:0] warp_rs3,
+    input  wire [NUM_WARPS-1:0]     warp_reads_rs3,
     input  wire [NUM_WARPS-1:0]     warp_is_compute,
     input  wire [NUM_WARPS-1:0]     warp_is_tensor,
     input  wire [NUM_WARPS-1:0]     tensor_push_locked,  // 2-cycle lockout from SM
@@ -152,6 +153,7 @@ module blackwell_scheduler #(
     //------------------------------------------------------------------------
     output wire                     perf_sched_stall_ifetch,
 
+    output wire [NUM_WARPS*4-1:0] issue_seq_out,
     output wire [NUM_WARPS*32-1:0] scoreboard_out
 );
 
@@ -179,6 +181,18 @@ module blackwell_scheduler #(
     generate
         for (sb_gi = 0; sb_gi < NUM_WARPS; sb_gi = sb_gi + 1) begin : gen_sb_out
             assign scoreboard_out[sb_gi*32 +: 32] = scoreboard[sb_gi];
+        end
+    endgenerate
+
+    //------------------------------------------------------------------------
+    // Per-Warp Issue Sequence Number (ISN) — stale tensor push elimination
+    //------------------------------------------------------------------------
+    reg [3:0] issue_seq [0:NUM_WARPS-1];
+
+    genvar isn_gi;
+    generate
+        for (isn_gi = 0; isn_gi < NUM_WARPS; isn_gi = isn_gi + 1) begin : gen_isn_out
+            assign issue_seq_out[isn_gi*4 +: 4] = issue_seq[isn_gi];
         end
     endgenerate
 
@@ -216,7 +230,7 @@ module blackwell_scheduler #(
             // Standard RAW/WAW hazards for register operands
             wire raw_hazard = scoreboard[w][warp_rs1[w*5 +: 5]] ||
                              scoreboard[w][warp_rs2[w*5 +: 5]] ||
-                             scoreboard[w][warp_rs3[w*5 +: 5]];
+                             (warp_reads_rs3[w] && scoreboard[w][warp_rs3[w*5 +: 5]]);
             wire waw_hazard = warp_writes_reg[w] && scoreboard[w][warp_rd[w*5 +: 5]];
 
             // Async MMA hazards:
@@ -457,6 +471,7 @@ end
                 async_mma_pending[sb_w] <= 0;
                 async_mma_next_id[sb_w] <= 0;
                 async_mma_count[sb_w] <= 0;
+                issue_seq[sb_w] <= 4'd0;
             end
             for (sb_s = 0; sb_s < NUM_SCHEDULERS; sb_s = sb_s + 1) begin
                 sched_rr_ptr[sb_s] <= 0;
@@ -519,6 +534,12 @@ end
             if (tensor_sb_set_valid && tensor_sb_set_rd != 5'b0) begin
                 scoreboard[tensor_sb_set_warp][tensor_sb_set_rd] <= 1'b1;
             end
+            // ISN increment: fires when instruction is truly consumed
+            for (sb_w = 0; sb_w < NUM_WARPS; sb_w = sb_w + 1) begin
+                if (warp_inst_consume[sb_w])
+                    issue_seq[sb_w] <= issue_seq[sb_w] + 4'd1;
+            end
+
             // Clear scoreboard on writeback
             if (wb_valid) begin
                 scoreboard[wb_warp_id][wb_rd] <= 1'b0;

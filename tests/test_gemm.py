@@ -7,7 +7,7 @@ def main():
     print('Testing 2x2 GEMM (Matrix Multiply)...')
     sim = RalphGPUSimulator(num_sm=1)
     
-    sim.load_program('llm_gemm_2x2.hex')
+    sim.load_program('programs/llm_gemm_2x2.hex')
     sim.run_kernel(entry_pc=0, max_cycles=1000)
     
     # Expected: C = [[19, 22], [43, 50]]

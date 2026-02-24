@@ -1,9 +1,0 @@
-Read RalphGPU/docs/performance-verification-plan.md and follow the "Claude Code 任务清单" section.
-
-Your tasks:
-1. Create scripts/perf_analysis.py - performance analysis framework
-2. Design application-level tests (vector addition, matrix mul, parallel reduction)
-3. Ensure regression tests pass
-4. Generate RalphGPU/docs/PERFORMANCE_REPORT.md
-
-Start with the performance analysis framework first.

@@ -126,7 +126,7 @@ module tb_dp4a_simple;
         for (integer i = 0; i < 256; i = i + 1) begin
             imem[i] = 32'hFC000000;
         end
-        $readmemh("dp4a_simple.hex", imem);
+        $readmemh("../programs/dp4a_simple.hex", imem);
         $display("============================================================");
         $display("Simple DP4A Top-Level Test");
         $display("Expected result: %0d", EXPECTED_RESULT);

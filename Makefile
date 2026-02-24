@@ -49,6 +49,7 @@ RTL_SRCS = \
     $(RTL_DIR)/texture_unit.v \
     $(RTL_DIR)/video_unit.v \
     $(RTL_DIR)/streaming_multiprocessor_v2.v \
+    $(RTL_DIR)/command_processor.v \
     $(RTL_DIR)/ralph_gpu_top.v \
     $(RTL_DIR)/memory_controller_hbm.v \
     $(RTL_DIR)/memory_interface_wide.v \
@@ -100,6 +101,8 @@ TB_ALU = $(TB_DIR)/tb_alu.v
 TB_MUL = $(TB_DIR)/tb_mul_unit.v
 TB_DEC = $(TB_DIR)/tb_decoder.v
 TB_REG = $(TB_DIR)/tb_register_file.v
+TB_REG_BANKED = $(TB_DIR)/tb_register_file_banked.v
+TB_BW_SCHED_SB = $(TB_DIR)/tb_blackwell_scheduler_scoreboard.v
 TB_SMEM = $(TB_DIR)/tb_shared_memory.v
 TB_WARP = $(TB_DIR)/tb_warp_scheduler.v
 TB_VADD = $(TB_DIR)/tb_vector_add.v
@@ -129,9 +132,9 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all
-.PHONY: test_alu test_mul test_decoder test_regfile test_smem test_warp test_sfu
-.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4
-.PHONY: test_vector_add test_multi_sm test_memsys test_l1_data_cache test_phase2
+.PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_warp test_sfu
+.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4 dashboard dashboard-check dashboard-baseline
+.PHONY: test_vector_add test_multi_sm test_command_processor test_memsys test_l1_data_cache test_phase2
 
 all: $(BUILD_DIR) sim
 
@@ -186,6 +189,24 @@ test_regfile: $(BUILD_DIR)/tb_register_file.vvp
 
 $(BUILD_DIR)/tb_register_file.vvp: $(RTL_DIR)/register_file.v $(RTL_DIR)/gpu_defines.vh $(TB_REG) | $(BUILD_DIR)
 	$(IVERILOG) $(INCLUDES) -o $@ $(TB_REG) $(RTL_DIR)/register_file.v
+
+test_regfile_banked: $(BUILD_DIR)/tb_register_file_banked.vvp
+	@echo "========================================"
+	@echo "Running Banked Register File Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_register_file_banked.vvp
+
+$(BUILD_DIR)/tb_register_file_banked.vvp: $(RTL_DIR)/register_file_banked.v $(RTL_DIR)/gpu_defines.vh $(TB_REG_BANKED) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_REG_BANKED) $(RTL_DIR)/register_file_banked.v
+
+test_bw_scheduler_scoreboard: $(BUILD_DIR)/tb_blackwell_scheduler_scoreboard.vvp
+	@echo "========================================"
+	@echo "Running Blackwell Scheduler Scoreboard Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_blackwell_scheduler_scoreboard.vvp
+
+$(BUILD_DIR)/tb_blackwell_scheduler_scoreboard.vvp: $(RTL_DIR)/blackwell_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_BW_SCHED_SB) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_BW_SCHED_SB) $(RTL_DIR)/blackwell_scheduler.v
 
 test_smem: $(BUILD_DIR)/tb_shared_memory.vvp
 	@echo "========================================"
@@ -518,6 +539,36 @@ bench_all: bench_atomics bench_divergence
 	@echo "========================================"
 
 # Generate performance report from benchmark logs
+# Performance dashboard: run benchmarks, generate IPC/stall/utilization report
+dashboard:
+	@echo "========================================"
+	@echo "Running Performance Dashboard"
+	@echo "========================================"
+	$(PYTHON) tools/perf_dashboard.py --run \
+		--json $(BUILD_DIR)/perf_results.json \
+		--csv $(BUILD_DIR)/perf_results.csv \
+		-o docs/PERF_DASHBOARD.md
+	@echo "Dashboard: docs/PERF_DASHBOARD.md"
+	@echo "JSON:      $(BUILD_DIR)/perf_results.json"
+	@echo "CSV:       $(BUILD_DIR)/perf_results.csv"
+
+# Dashboard with regression check against baseline
+dashboard-check:
+	@echo "========================================"
+	@echo "Performance Dashboard + Regression Check"
+	@echo "========================================"
+	$(PYTHON) tools/perf_dashboard.py --run \
+		--json $(BUILD_DIR)/perf_results.json \
+		--csv $(BUILD_DIR)/perf_results.csv \
+		--baseline $(BUILD_DIR)/perf_baseline.json \
+		-o docs/PERF_DASHBOARD.md
+
+# Save current results as new baseline
+dashboard-baseline:
+	@echo "Saving current results as baseline..."
+	cp $(BUILD_DIR)/perf_results.json $(BUILD_DIR)/perf_baseline.json
+	@echo "Baseline saved: $(BUILD_DIR)/perf_baseline.json"
+
 perf_report:
 	@echo "========================================"
 	@echo "Generating Performance Report"
@@ -658,6 +709,9 @@ help:
 	@echo "  bench_app_compile   - Compile application-level benchmarks"
 	@echo "  bench_all           - Run all benchmarks"
 	@echo "  perf_report         - Generate PERFORMANCE_REPORT.md from logs"
+	@echo "  dashboard            - Run perf benchmarks + generate dashboard (IPC/stall/util)"
+	@echo "  dashboard-check      - Dashboard + regression check vs baseline"
+	@echo "  dashboard-baseline   - Save current results as new baseline"
 	@echo ""
 	@echo "Directory structure:"
 	@echo "  rtl/      - RTL source files"
@@ -685,7 +739,7 @@ $(BUILD_DIR)/tb_warp_inst_valid_d1.vvp: $(TB_DIR)/tb_warp_inst_valid_d1.v | $(BU
 
 
 # Performance microbenchmark (PTX-driven WMMA GEMM stream)
-test_sm_v2_perf_gemm16_wmma_ptx: gemm16_wmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.vvp
+test_sm_v2_perf_gemm16_wmma_ptx: programs/gemm16_wmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.vvp
 	@echo "========================================"
 	@echo "Running SM V2 PTX WMMA GEMM Path Test"
 	@echo "========================================"
@@ -694,12 +748,12 @@ test_sm_v2_perf_gemm16_wmma_ptx: gemm16_wmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm
 $(BUILD_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.vvp: $(SM_V2_SRCS) $(TB_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.v $(filter %.v,$(RTL_SRCS))
 
-gemm16_wmma.hex: tests/gemm16_wmma.ptx tools/ptx_assembler.py
-	$(PYTHON) tools/ptx_assembler.py tests/gemm16_wmma.ptx -o gemm16_wmma.hex
+programs/gemm16_wmma.hex: tests/gemm16_wmma.ptx tools/ptx_assembler.py
+	$(PYTHON) tools/ptx_assembler.py tests/gemm16_wmma.ptx -o programs/gemm16_wmma.hex
 
 
 # Performance microbenchmark (PTX-driven WGMMA GEMM stream)
-test_sm_v2_perf_gemm64_wgmma_ptx: gemm64_wgmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.vvp
+test_sm_v2_perf_gemm64_wgmma_ptx: programs/gemm64_wgmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.vvp
 	@echo "========================================"
 	@echo "Running SM V2 PTX WGMMA GEMM Path Test"
 	@echo "========================================"
@@ -708,5 +762,17 @@ test_sm_v2_perf_gemm64_wgmma_ptx: gemm64_wgmma.hex $(BUILD_DIR)/tb_sm_v2_perf_ge
 $(BUILD_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.vvp: $(SM_V2_SRCS) $(TB_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.v $(filter %.v,$(RTL_SRCS))
 
-gemm64_wgmma.hex: tests/gemm64_wgmma.ptx tools/ptx_assembler.py
-	$(PYTHON) tools/ptx_assembler.py tests/gemm64_wgmma.ptx -o gemm64_wgmma.hex
+programs/gemm64_wgmma.hex: tests/gemm64_wgmma.ptx tools/ptx_assembler.py
+	$(PYTHON) tools/ptx_assembler.py tests/gemm64_wgmma.ptx -o programs/gemm64_wgmma.hex
+
+#----------------------------------------------------------------------------
+# Command Processor unit test
+#----------------------------------------------------------------------------
+test_command_processor: $(BUILD_DIR)/tb_command_processor.vvp
+	@echo "========================================"
+	@echo "Running Command Processor Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_command_processor.vvp
+
+$(BUILD_DIR)/tb_command_processor.vvp: $(RTL_DIR)/command_processor.v $(RTL_DIR)/gpu_defines.vh tb/tb_command_processor.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_command_processor.v $(RTL_DIR)/command_processor.v

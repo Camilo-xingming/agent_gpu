@@ -38,6 +38,7 @@ module advanced_warp_scheduler #(
     input wire [NUM_WARPS*5-1:0] warp_rs1,
     input wire [NUM_WARPS*5-1:0] warp_rs2,
     input wire [NUM_WARPS*5-1:0] warp_rs3,
+    input  wire [NUM_WARPS-1:0]     warp_reads_rs3,
     input  wire [NUM_WARPS-1:0]     warp_is_compute,    // ALU/FPU/SFU
     input  wire [NUM_WARPS-1:0]     warp_is_tensor,     // Tensor Core
     input  wire [NUM_WARPS-1:0]     warp_is_memory,     // Load/Store
@@ -79,6 +80,7 @@ module advanced_warp_scheduler #(
     //------------------------------------------------------------------------
     // Scoreboard Visibility (eliminates hierarchical references)
     //------------------------------------------------------------------------
+    output wire [NUM_WARPS*4-1:0] issue_seq_out,
     output wire [NUM_WARPS*32-1:0] scoreboard_out
 );
 
@@ -107,16 +109,29 @@ module advanced_warp_scheduler #(
         end
     endgenerate
 
+    //------------------------------------------------------------------------
+    // Per-Warp Issue Sequence Number (ISN)
+    //------------------------------------------------------------------------
+    reg [3:0] issue_seq [0:NUM_WARPS-1];
+
+    genvar isn_gi;
+    generate
+        for (isn_gi = 0; isn_gi < NUM_WARPS; isn_gi = isn_gi + 1) begin : gen_isn_out
+            assign issue_seq_out[isn_gi*4 +: 4] = issue_seq[isn_gi];
+        end
+    endgenerate
+
     // Check RAW hazard
     function check_raw_hazard;
         input [WARP_W-1:0] warp_id;
         input [4:0] rs1;
         input [4:0] rs2;
         input [4:0] rs3;
+        input use_rs3;
         begin
             check_raw_hazard = scoreboard[warp_id][rs1] ||
                               scoreboard[warp_id][rs2] ||
-                              scoreboard[warp_id][rs3];
+                              (use_rs3 && scoreboard[warp_id][rs3]);
         end
     endfunction
 
@@ -155,7 +170,7 @@ module advanced_warp_scheduler #(
             // RAW hazard: any source register has pending write
             wire raw_hazard = scoreboard[w][warp_rs1[w*5 +: 5]] ||
                              scoreboard[w][warp_rs2[w*5 +: 5]] ||
-                             scoreboard[w][warp_rs3[w*5 +: 5]];
+                             (warp_reads_rs3[w] && scoreboard[w][warp_rs3[w*5 +: 5]]);
             // WAW hazard: destination register has pending write
             wire waw_hazard = warp_writes_reg[w] && scoreboard[w][warp_rd[w*5 +: 5]];
             assign warp_has_hazard[w] = raw_hazard || waw_hazard;
@@ -398,6 +413,7 @@ module advanced_warp_scheduler #(
         if (!rst_n) begin
             for (sb_w = 0; sb_w < NUM_WARPS; sb_w = sb_w + 1) begin
                 scoreboard[sb_w] <= 0;
+                issue_seq[sb_w] <= 4'd0;
             end
             compute_rr_ptr <= 0;
             tensor_rr_ptr <= 0;
@@ -413,6 +429,12 @@ module advanced_warp_scheduler #(
                     // Extract rd from the captured instruction (bits 25:21 for R-type)
                     scoreboard[issue_warp_r[sb_w]][issue_inst_r[sb_w][25:21]] <= 1'b1;
                 end
+            end
+
+            // ISN increment: fires when instruction is consumed
+            for (sb_w = 0; sb_w < NUM_WARPS; sb_w = sb_w + 1) begin
+                if (warp_consume_r[sb_w])
+                    issue_seq[sb_w] <= issue_seq[sb_w] + 4'd1;
             end
 
             // Clear scoreboard bits on writeback

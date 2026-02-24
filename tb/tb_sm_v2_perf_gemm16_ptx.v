@@ -90,7 +90,7 @@ module tb_sm_v2_perf_gemm16_ptx;
             imem[i] = {`OP_NOP, 26'b0};
         end
         if (!$value$plusargs("imem=%s", imem_file)) begin
-            imem_file = "gemm16_fma.hex";
+            imem_file = "../programs/gemm16_fma.hex";
         end
         imem_loaded = 1'b0;
 
@@ -101,17 +101,17 @@ module tb_sm_v2_perf_gemm16_ptx;
             $readmemh(imem_file, imem, 0, N_OPS);
             imem_loaded = 1'b1;
         end else begin
-            imem_fd = $fopen("../gemm16_fma.hex", "r");
+            imem_fd = $fopen("../programs/gemm16_fma.hex", "r");
             if (imem_fd != 0) begin
                 $fclose(imem_fd);
-                imem_file = "../gemm16_fma.hex";
+                imem_file = "../programs/gemm16_fma.hex";
                 $readmemh(imem_file, imem, 0, N_OPS);
                 imem_loaded = 1'b1;
             end else begin
-                imem_fd = $fopen("../../gemm16_fma.hex", "r");
+                imem_fd = $fopen("programs/gemm16_fma.hex", "r");
                 if (imem_fd != 0) begin
                     $fclose(imem_fd);
-                    imem_file = "../../gemm16_fma.hex";
+                    imem_file = "programs/gemm16_fma.hex";
                     $readmemh(imem_file, imem, 0, N_OPS);
                     imem_loaded = 1'b1;
                 end
@@ -119,7 +119,7 @@ module tb_sm_v2_perf_gemm16_ptx;
         end
 
         if (!imem_loaded) begin
-            $display("FATAL: unable to load instruction hex file (tried: %s, ../gemm16_fma.hex, ../../gemm16_fma.hex)", imem_file);
+            $display("FATAL: unable to load instruction hex file (tried: %s, ../programs/gemm16_fma.hex, programs/gemm16_fma.hex)", imem_file);
             $finish;
         end else begin
             $display("INFO: loaded instruction hex: %s", imem_file);

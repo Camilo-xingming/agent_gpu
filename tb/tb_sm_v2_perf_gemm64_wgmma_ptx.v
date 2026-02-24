@@ -82,7 +82,7 @@ module tb_sm_v2_perf_gemm64_wgmma_ptx;
             imem[i] = {`OP_NOP, 26'b0};
         end
         if (!$value$plusargs("imem=%s", imem_file)) begin
-            imem_file = "gemm64_wgmma.hex";
+            imem_file = "../programs/gemm64_wgmma.hex";
         end
         imem_loaded = 1'b0;
 
@@ -92,17 +92,17 @@ module tb_sm_v2_perf_gemm64_wgmma_ptx;
             $readmemh(imem_file, imem);
             imem_loaded = 1'b1;
         end else begin
-            imem_fd = $fopen("../gemm64_wgmma.hex", "r");
+            imem_fd = $fopen("../programs/gemm64_wgmma.hex", "r");
             if (imem_fd != 0) begin
                 $fclose(imem_fd);
-                imem_file = "../gemm64_wgmma.hex";
+                imem_file = "../programs/gemm64_wgmma.hex";
                 $readmemh(imem_file, imem);
                 imem_loaded = 1'b1;
             end else begin
-                imem_fd = $fopen("../../gemm64_wgmma.hex", "r");
+                imem_fd = $fopen("programs/gemm64_wgmma.hex", "r");
                 if (imem_fd != 0) begin
                     $fclose(imem_fd);
-                    imem_file = "../../gemm64_wgmma.hex";
+                    imem_file = "programs/gemm64_wgmma.hex";
                     $readmemh(imem_file, imem);
                     imem_loaded = 1'b1;
                 end
@@ -110,7 +110,7 @@ module tb_sm_v2_perf_gemm64_wgmma_ptx;
         end
 
         if (!imem_loaded) begin
-            $display("FATAL: unable to load instruction hex file (tried: %s, ../gemm64_wgmma.hex, ../../gemm64_wgmma.hex)", imem_file);
+            $display("FATAL: unable to load instruction hex file (tried: %s, ../programs/gemm64_wgmma.hex, programs/gemm64_wgmma.hex)", imem_file);
             $finish;
         end else begin
             $display("INFO: loaded instruction hex: %s", imem_file);

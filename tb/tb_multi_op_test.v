@@ -134,7 +134,7 @@ module tb_multi_op_test;
         for (integer i = 0; i < 256; i = i + 1) begin
             imem[i] = 32'hFC000000;
         end
-        $readmemh("multi_op_test.hex", imem);
+        $readmemh("../programs/multi_op_test.hex", imem);
         $display("============================================================");
         $display("Multi-Operation Top-Level Test");
         $display("Testing: ALU ADD/SUB/AND/OR, MUL, VIDEO DP4A");

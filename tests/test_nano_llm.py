@@ -9,7 +9,7 @@ def main():
     print('='*60)
     
     sim = RalphGPUSimulator(num_sm=1)
-    sim.load_program('nano_llm.hex')
+    sim.load_program('programs/nano_llm.hex')
     sim.run_kernel(entry_pc=0, max_cycles=1000)
     
     # Read intermediate values

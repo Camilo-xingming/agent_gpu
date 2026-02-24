@@ -78,7 +78,7 @@ module tb_softmax_pipeline_bubble;
     integer i;
     initial begin
         for (i = 0; i < IMEM_WORDS; i = i + 1) imem_mem[i] = {`OP_NOP, 26'b0};
-        if (!$value$plusargs("imem=%s", imem_file)) imem_file = "llm_softmax.hex";
+        if (!$value$plusargs("imem=%s", imem_file)) imem_file = "../programs/llm_softmax.hex";
         imem_fd = $fopen(imem_file, "r");
         if (imem_fd != 0) begin
             $fclose(imem_fd);
