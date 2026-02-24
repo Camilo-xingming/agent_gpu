@@ -150,7 +150,7 @@ module tb_dp4a_top;
             imem[i] = 32'hFC000000;  // NOP/EXIT opcode
         end
         // Load program from hex file
-        $readmemh("dp4a_top_test.hex", imem);
+        $readmemh("../programs/dp4a_top_test.hex", imem);
         // Count instructions
         instr_count = 0;
         for (integer i = 0; i < 256; i = i + 1) begin
@@ -159,7 +159,7 @@ module tb_dp4a_top;
         $display("============================================================");
         $display("RalphGPU DP4A/DP2A Top-Level Integration Test");
         $display("============================================================");
-        $display("Loaded %0d instructions from dp4a_top_test.hex", instr_count);
+        $display("Loaded %0d instructions from programs/dp4a_top_test.hex", instr_count);
         $display("Expected results:");
         $display("  Test 1 (DP4A): %0d", EXPECTED_DP4A_1);
         $display("  Test 2 (DP4A): %0d", EXPECTED_DP4A_2);

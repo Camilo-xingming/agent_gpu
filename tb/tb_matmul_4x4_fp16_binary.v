@@ -151,7 +151,7 @@ module tb_matmul_4x4_fp16_binary;
             imem[i] = 32'hFC000000;  // NOP opcode
         end
         // Load binary from hex file
-        $readmemh("matmul_4x4_fp16.hex", imem);
+        $readmemh("../programs/matmul_4x4_fp16.hex", imem);
         // Count instructions
         instr_count = 0;
         for (integer i = 0; i < 1024; i = i + 1) begin

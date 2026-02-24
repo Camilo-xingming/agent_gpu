@@ -310,7 +310,7 @@ module tb_llm_fp_operators;
         $display("\n--- Test 1: LLM Softmax ---");
         $display("    exp(x)/sum(exp(x)) using ex2, div");
         init_memory();
-        $readmemh("llm_softmax.hex", imem);
+        $readmemh("../programs/llm_softmax.hex", imem);
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
 
@@ -342,7 +342,7 @@ module tb_llm_fp_operators;
         $display("\n--- Test 2: LLM LayerNorm ---");
         $display("    (x - mean) * rsqrt(var)");
         init_memory();
-        $readmemh("llm_layernorm.hex", imem);
+        $readmemh("../programs/llm_layernorm.hex", imem);
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
 
@@ -376,7 +376,7 @@ module tb_llm_fp_operators;
         $display("\n--- Test 3: LLM GELU Activation ---");
         $display("    0.5 * x * (1 + tanh(k*x))");
         init_memory();
-        $readmemh("llm_gelu.hex", imem);
+        $readmemh("../programs/llm_gelu.hex", imem);
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
 
@@ -412,7 +412,7 @@ module tb_llm_fp_operators;
         $display("\n--- Test 4: LLM SiLU (Swish) Activation ---");
         $display("    x * sigmoid(x) = x / (1 + exp(-x))");
         init_memory();
-        $readmemh("llm_silu.hex", imem);
+        $readmemh("../programs/llm_silu.hex", imem);
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
 
@@ -447,7 +447,7 @@ module tb_llm_fp_operators;
         $display("\n--- Test 5: LLM RMSNorm ---");
         $display("    x * rsqrt(mean(x^2))");
         init_memory();
-        $readmemh("llm_rmsnorm.hex", imem);
+        $readmemh("../programs/llm_rmsnorm.hex", imem);
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
 

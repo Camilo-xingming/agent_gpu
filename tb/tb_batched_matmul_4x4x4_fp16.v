@@ -144,7 +144,7 @@ module tb_batched_matmul_4x4x4_fp16;
         for (integer i = 0; i < 2048; i = i + 1) begin
             imem[i] = 32'hFC000000;  // NOP
         end
-        $readmemh("batched_matmul_4x4x4_fp16.hex", imem);
+        $readmemh("../programs/batched_matmul_4x4x4_fp16.hex", imem);
         instr_count = 0;
         for (integer i = 0; i < 2048; i = i + 1) begin
             if (imem[i] != 32'hFC000000) instr_count = instr_count + 1;

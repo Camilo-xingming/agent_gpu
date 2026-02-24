@@ -11,8 +11,14 @@ build/
 /sim_*
 /tb_*
 
-# Test hex files (root level only)
+# Generated hex files (root and programs/)
 /*.hex
+/programs/gemm16_wmma.hex
+/programs/gemm64_wgmma.hex
+
+# Agent task files
+.claude-task
+.gemini-task
 
 # Editor files
 *.swp

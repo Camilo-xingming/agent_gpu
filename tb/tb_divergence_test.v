@@ -3,7 +3,7 @@
 // Tests SIMT divergence and reconvergence
 // Program: if (tid & 1) result = 200; else result = 100;
 // Expected: even threads -> 100, odd threads -> 200
-// Loads program from divergence_test.hex
+// Loads program from programs/divergence_test.hex
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -145,13 +145,13 @@ module tb_divergence_test;
             imem[i] = 32'hFC000000;  // NOP/EXIT opcode
         end
         // Load program from hex file
-        $readmemh("divergence_test.hex", imem);
+        $readmemh("../programs/divergence_test.hex", imem);
         // Count instructions
         instr_count = 0;
         for (integer i = 0; i < 256; i = i + 1) begin
             if (imem[i] != 32'hFC000000) instr_count = instr_count + 1;
         end
-        $display("Loaded %0d instructions from divergence_test.hex", instr_count);
+        $display("Loaded %0d instructions from programs/divergence_test.hex", instr_count);
         $display("Testing divergent branch: even threads -> 100, odd threads -> 200");
     end
 
