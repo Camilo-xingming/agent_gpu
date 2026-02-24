@@ -38,6 +38,7 @@ module advanced_warp_scheduler #(
     input wire [NUM_WARPS*5-1:0] warp_rs1,
     input wire [NUM_WARPS*5-1:0] warp_rs2,
     input wire [NUM_WARPS*5-1:0] warp_rs3,
+    input  wire [NUM_WARPS-1:0]     warp_reads_rs3,
     input  wire [NUM_WARPS-1:0]     warp_is_compute,    // ALU/FPU/SFU
     input  wire [NUM_WARPS-1:0]     warp_is_tensor,     // Tensor Core
     input  wire [NUM_WARPS-1:0]     warp_is_memory,     // Load/Store
@@ -113,10 +114,11 @@ module advanced_warp_scheduler #(
         input [4:0] rs1;
         input [4:0] rs2;
         input [4:0] rs3;
+        input use_rs3;
         begin
             check_raw_hazard = scoreboard[warp_id][rs1] ||
                               scoreboard[warp_id][rs2] ||
-                              scoreboard[warp_id][rs3];
+                              (use_rs3 && scoreboard[warp_id][rs3]);
         end
     endfunction
 
@@ -155,7 +157,7 @@ module advanced_warp_scheduler #(
             // RAW hazard: any source register has pending write
             wire raw_hazard = scoreboard[w][warp_rs1[w*5 +: 5]] ||
                              scoreboard[w][warp_rs2[w*5 +: 5]] ||
-                             scoreboard[w][warp_rs3[w*5 +: 5]];
+                             (warp_reads_rs3[w] && scoreboard[w][warp_rs3[w*5 +: 5]]);
             // WAW hazard: destination register has pending write
             wire waw_hazard = warp_writes_reg[w] && scoreboard[w][warp_rd[w*5 +: 5]];
             assign warp_has_hazard[w] = raw_hazard || waw_hazard;

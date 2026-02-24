@@ -47,6 +47,7 @@ module blackwell_scheduler #(
     input wire [NUM_WARPS*5-1:0] warp_rs1,
     input wire [NUM_WARPS*5-1:0] warp_rs2,
     input wire [NUM_WARPS*5-1:0] warp_rs3,
+    input  wire [NUM_WARPS-1:0]     warp_reads_rs3,
     input  wire [NUM_WARPS-1:0]     warp_is_compute,
     input  wire [NUM_WARPS-1:0]     warp_is_tensor,
     input  wire [NUM_WARPS-1:0]     tensor_push_locked,  // 2-cycle lockout from SM
@@ -216,7 +217,7 @@ module blackwell_scheduler #(
             // Standard RAW/WAW hazards for register operands
             wire raw_hazard = scoreboard[w][warp_rs1[w*5 +: 5]] ||
                              scoreboard[w][warp_rs2[w*5 +: 5]] ||
-                             scoreboard[w][warp_rs3[w*5 +: 5]];
+                             (warp_reads_rs3[w] && scoreboard[w][warp_rs3[w*5 +: 5]]);
             wire waw_hazard = warp_writes_reg[w] && scoreboard[w][warp_rd[w*5 +: 5]];
 
             // Async MMA hazards:

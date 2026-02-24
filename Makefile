@@ -100,6 +100,8 @@ TB_ALU = $(TB_DIR)/tb_alu.v
 TB_MUL = $(TB_DIR)/tb_mul_unit.v
 TB_DEC = $(TB_DIR)/tb_decoder.v
 TB_REG = $(TB_DIR)/tb_register_file.v
+TB_REG_BANKED = $(TB_DIR)/tb_register_file_banked.v
+TB_BW_SCHED_SB = $(TB_DIR)/tb_blackwell_scheduler_scoreboard.v
 TB_SMEM = $(TB_DIR)/tb_shared_memory.v
 TB_WARP = $(TB_DIR)/tb_warp_scheduler.v
 TB_VADD = $(TB_DIR)/tb_vector_add.v
@@ -129,7 +131,7 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all
-.PHONY: test_alu test_mul test_decoder test_regfile test_smem test_warp test_sfu
+.PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_warp test_sfu
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4 dashboard dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_multi_sm test_memsys test_l1_data_cache test_phase2
 
@@ -186,6 +188,24 @@ test_regfile: $(BUILD_DIR)/tb_register_file.vvp
 
 $(BUILD_DIR)/tb_register_file.vvp: $(RTL_DIR)/register_file.v $(RTL_DIR)/gpu_defines.vh $(TB_REG) | $(BUILD_DIR)
 	$(IVERILOG) $(INCLUDES) -o $@ $(TB_REG) $(RTL_DIR)/register_file.v
+
+test_regfile_banked: $(BUILD_DIR)/tb_register_file_banked.vvp
+	@echo "========================================"
+	@echo "Running Banked Register File Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_register_file_banked.vvp
+
+$(BUILD_DIR)/tb_register_file_banked.vvp: $(RTL_DIR)/register_file_banked.v $(RTL_DIR)/gpu_defines.vh $(TB_REG_BANKED) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_REG_BANKED) $(RTL_DIR)/register_file_banked.v
+
+test_bw_scheduler_scoreboard: $(BUILD_DIR)/tb_blackwell_scheduler_scoreboard.vvp
+	@echo "========================================"
+	@echo "Running Blackwell Scheduler Scoreboard Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_blackwell_scheduler_scoreboard.vvp
+
+$(BUILD_DIR)/tb_blackwell_scheduler_scoreboard.vvp: $(RTL_DIR)/blackwell_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_BW_SCHED_SB) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_BW_SCHED_SB) $(RTL_DIR)/blackwell_scheduler.v
 
 test_smem: $(BUILD_DIR)/tb_shared_memory.vvp
 	@echo "========================================"

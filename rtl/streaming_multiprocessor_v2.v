@@ -1722,6 +1722,7 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_WARPS-1:0]     pd_is_shfl;
     wire [NUM_WARPS-1:0]     pd_is_video;
     wire [NUM_WARPS-1:0]     pd_writes_reg;
+    wire [NUM_WARPS-1:0]     pd_reads_rs3;
 
     genvar pd_i;
     generate
@@ -1735,8 +1736,22 @@ module streaming_multiprocessor_v2 #(
             assign pd_rs3[pd_i] = inst[10:6]; // Approximation
 
             wire [5:0] op = inst[31:26];
+            wire [5:0] fn = inst[5:0];
+            wire is_mma_tcgen05 = (op == `OP_MMA) && fn[4] && !fn[5];
+            wire writes_op_mma = (op == `OP_MMA) && (
+                                 fn[5] ||                // sparse MMA
+                                 !fn[4] ||               // regular MMA
+                                 (fn[3:0] == 4'b0001) || // tcgen05.ld
+                                 (fn[3:0] == 4'b0100));  // tcgen05.alloc
+            wire writes_op_mbarr = (op == `OP_MBARRIER) &&
+                                   ((fn == `MBAR_TEST_WAIT) || (fn == `MBAR_TRY_WAIT));
+            wire writes_op_cache_policy = (op == `OP_CACHE_POLICY) && (fn == `CACHE_CREATEPOLICY);
+            wire writes_op_stack = (op == `OP_STACK) &&
+                                   ((fn == `STACK_ALLOCA) || (fn == `STACK_SAVE));
+            wire writes_op_multimem = (op == `OP_MULTIMEM) && (fn == `MULTIMEM_LD);
+
             assign pd_is_compute[pd_i] = (op == `OP_ALU) || (op == `OP_ALU_IMM) || (op == `OP_MUL) ||
-                                         (op == `OP_DIV) ||  // Added DIV to compute path
+                                         (op == `OP_DIV) ||
                                          (op == `OP_FP32_ARITH) || (op == `OP_FP16_ARITH) ||
                                          (op == `OP_SFU) || (op == `OP_MOV_SPECIAL) ||
                                          (op == `OP_MOV_IMM) || (op == `OP_SETP) ||
@@ -1761,10 +1776,33 @@ module streaming_multiprocessor_v2 #(
             assign pd_is_sfu[pd_i]   = (op == `OP_SFU);
             assign pd_is_shfl[pd_i]  = (op == `OP_SHFL);
             assign pd_is_video[pd_i] = (op == `OP_VIDEO);
-            assign pd_writes_reg[pd_i] = (op != `OP_ST_GLOBAL) && (op != `OP_ST_SHARED) &&
-                                         (op != `OP_BRANCH) && (op != `OP_EXIT) &&
-                                         (op != `OP_NOP) && (op != `OP_BAR_SYNC) &&
-                                         (op != `OP_MEMBAR);
+
+            // Predecode writeback intent (mirrors decoder reg_write behavior).
+            assign pd_writes_reg[pd_i] =
+                (op == `OP_ALU) || (op == `OP_ALU_IMM) || (op == `OP_MUL) || (op == `OP_DIV) ||
+                (op == `OP_LD_GLOBAL) || (op == `OP_LD_SHARED) || (op == `OP_MOV_SPECIAL) ||
+                (op == `OP_FP32_ARITH) || (op == `OP_SFU) || (op == `OP_FP64_ARITH) ||
+                (op == `OP_FP16_ARITH) || (op == `OP_CVT) ||
+                (op == `OP_LD_PARAM) || (op == `OP_LD_CONST) || (op == `OP_LD_LOCAL) ||
+                (op == `OP_LD_V2) || (op == `OP_LD_V4) ||
+                (op == `OP_ATOM) ||
+                (op == `OP_SHFL) || (op == `OP_VOTE) || (op == `OP_REDUX) ||
+                (op == `OP_WMMA_LOAD) || (op == `OP_WMMA_MMA) || writes_op_mma ||
+                (op == `OP_VIDEO) ||
+                (op == `OP_TEX) || (op == `OP_TXQ) || (op == `OP_SULD) || (op == `OP_SURED) ||
+                (op == `OP_WGMMA_LOAD) || (op == `OP_WGMMA_MMA) ||
+                writes_op_mbarr || writes_op_cache_policy || writes_op_stack || writes_op_multimem ||
+                (op == `OP_MOV_IMM) || (op == `OP_MATCH_SYNC) || (op == `OP_ELECT_SYNC) ||
+                (op == `OP_DPX);
+
+            // RAW precision: only check RC when opcode can consume a third source register.
+            assign pd_reads_rs3[pd_i] =
+                (op == `OP_ALU) || (op == `OP_MUL) ||
+                (op == `OP_FP32_ARITH) || (op == `OP_FP16_ARITH) || (op == `OP_FP64_ARITH) ||
+                (op == `OP_SHFL) || (op == `OP_VOTE) || (op == `OP_REDUX) ||
+                (op == `OP_WMMA_MMA) || (op == `OP_WGMMA_MMA) || (op == `OP_DPX) ||
+                ((op == `OP_MMA) && !is_mma_tcgen05) ||
+                (is_mma_tcgen05 && (fn[3:0] == 4'b0010));  // tcgen05.st uses RA/RC payloads
         end
     endgenerate
 
@@ -1847,6 +1885,7 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_WARPS*5-1:0] pd_rs1_flat;
     wire [NUM_WARPS*5-1:0] pd_rs2_flat;
     wire [NUM_WARPS*5-1:0] pd_rs3_flat;
+    wire [NUM_WARPS-1:0] pd_reads_rs3_flat;
     wire [SCHED_LANES*WARP_ID_W-1:0] sched_issue_warp_id_flat;
     wire [SCHED_LANES*32-1:0] sched_issue_inst_flat;
     wire [SCHED_LANES*3-1:0] sched_issue_pipe_flat;
@@ -1860,6 +1899,7 @@ module streaming_multiprocessor_v2 #(
             assign pd_rs1_flat[si*5 +: 5] = pd_rs1[si];
             assign pd_rs2_flat[si*5 +: 5] = pd_rs2[si];
             assign pd_rs3_flat[si*5 +: 5] = pd_rs3[si];
+            assign pd_reads_rs3_flat[si] = pd_reads_rs3[si];
             assign sched_scoreboard[si] = sched_scoreboard_flat[si*32 +: 32];
         end
         for (si = 0; si < SCHED_LANES; si = si + 1) begin : gen_sched_unpack
@@ -1887,6 +1927,7 @@ module streaming_multiprocessor_v2 #(
         .warp_rs1(pd_rs1_flat),
         .warp_rs2(pd_rs2_flat),
         .warp_rs3(pd_rs3_flat),
+        .warp_reads_rs3(pd_reads_rs3_flat),
         .warp_is_compute(pd_is_compute),
         .warp_is_tensor(pd_is_tensor),
         .tensor_push_locked(tensor_push_locked),
@@ -1969,6 +2010,7 @@ module streaming_multiprocessor_v2 #(
         .warp_rs1(pd_rs1_flat),
         .warp_rs2(pd_rs2_flat),
         .warp_rs3(pd_rs3_flat),
+        .warp_reads_rs3(pd_reads_rs3_flat),
         .warp_is_compute(pd_is_compute),
         .warp_is_tensor(pd_is_tensor),
         .warp_is_memory(pd_is_memory),
