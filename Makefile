@@ -130,7 +130,7 @@ endif
 
 .PHONY: all sim wave clean assemble help test test_all
 .PHONY: test_alu test_mul test_decoder test_regfile test_smem test_warp test_sfu
-.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4
+.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4 dashboard dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_multi_sm test_memsys test_l1_data_cache test_phase2
 
 all: $(BUILD_DIR) sim
@@ -518,6 +518,36 @@ bench_all: bench_atomics bench_divergence
 	@echo "========================================"
 
 # Generate performance report from benchmark logs
+# Performance dashboard: run benchmarks, generate IPC/stall/utilization report
+dashboard:
+	@echo "========================================"
+	@echo "Running Performance Dashboard"
+	@echo "========================================"
+	$(PYTHON) tools/perf_dashboard.py --run \
+		--json $(BUILD_DIR)/perf_results.json \
+		--csv $(BUILD_DIR)/perf_results.csv \
+		-o docs/PERF_DASHBOARD.md
+	@echo "Dashboard: docs/PERF_DASHBOARD.md"
+	@echo "JSON:      $(BUILD_DIR)/perf_results.json"
+	@echo "CSV:       $(BUILD_DIR)/perf_results.csv"
+
+# Dashboard with regression check against baseline
+dashboard-check:
+	@echo "========================================"
+	@echo "Performance Dashboard + Regression Check"
+	@echo "========================================"
+	$(PYTHON) tools/perf_dashboard.py --run \
+		--json $(BUILD_DIR)/perf_results.json \
+		--csv $(BUILD_DIR)/perf_results.csv \
+		--baseline $(BUILD_DIR)/perf_baseline.json \
+		-o docs/PERF_DASHBOARD.md
+
+# Save current results as new baseline
+dashboard-baseline:
+	@echo "Saving current results as baseline..."
+	cp $(BUILD_DIR)/perf_results.json $(BUILD_DIR)/perf_baseline.json
+	@echo "Baseline saved: $(BUILD_DIR)/perf_baseline.json"
+
 perf_report:
 	@echo "========================================"
 	@echo "Generating Performance Report"
@@ -658,6 +688,9 @@ help:
 	@echo "  bench_app_compile   - Compile application-level benchmarks"
 	@echo "  bench_all           - Run all benchmarks"
 	@echo "  perf_report         - Generate PERFORMANCE_REPORT.md from logs"
+	@echo "  dashboard            - Run perf benchmarks + generate dashboard (IPC/stall/util)"
+	@echo "  dashboard-check      - Dashboard + regression check vs baseline"
+	@echo "  dashboard-baseline   - Save current results as new baseline"
 	@echo ""
 	@echo "Directory structure:"
 	@echo "  rtl/      - RTL source files"
