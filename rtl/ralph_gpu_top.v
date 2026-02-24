@@ -102,7 +102,6 @@ module ralph_gpu_top #(
 
     localparam NUM_LANES = `THREADS_PER_WARP;
     localparam SM_ID_W = (NUM_SM > 1) ? $clog2(NUM_SM) : 1;
-    localparam EXT_AXI_ID_W = AXI_ID_WIDTH + SM_ID_W;  // Extended ID: {SM_ID, local_txn_id}
     localparam TLB_VADDR_WIDTH = 48;
     localparam TLB_PADDR_WIDTH = 40;
 
@@ -215,6 +214,8 @@ module ralph_gpu_top #(
     wire        sm_axi_arready [0:NUM_SM-1];
     wire        sm_core_axi_awready [0:NUM_SM-1];
     wire        sm_core_axi_arready [0:NUM_SM-1];
+    wire        sm_axi_wready  [0:NUM_SM-1];
+    wire        sm_core_axi_wready [0:NUM_SM-1];
 
     // Per-SM gated AXI response signals (response demux)
     wire [AXI_ID_WIDTH-1:0] sm_resp_rid   [0:NUM_SM-1];
@@ -545,7 +546,7 @@ module ralph_gpu_top #(
                 .m_axi_wstrb   (sm_core_axi_wstrb[sm]),
                 .m_axi_wlast   (sm_core_axi_wlast[sm]),
                 .m_axi_wvalid  (sm_core_axi_wvalid[sm]),
-                .m_axi_wready  (m_axi_wready),
+                .m_axi_wready  (sm_core_axi_wready[sm]),
                 .m_axi_bid     (sm_resp_bid[sm]),
                 .m_axi_bresp   (sm_resp_bresp[sm]),
                 .m_axi_bvalid  (sm_resp_bvalid[sm]),
@@ -612,6 +613,7 @@ module ralph_gpu_top #(
             assign sm_axi_rready[sm]  = sm_core_axi_rready[sm];
             assign sm_core_axi_awready[sm] = sm_axi_awready[sm];
             assign sm_core_axi_arready[sm] = sm_axi_arready[sm];
+            assign sm_core_axi_wready[sm]  = sm_axi_wready[sm];
 
             // L1D response is now handled by l1d_bypass or l1d_full above
         end
@@ -1040,11 +1042,33 @@ module ralph_gpu_top #(
         end
     end
 
+    // W channel owner tracking - locks W mux to SM whose AW was accepted
+    reg [AXI_ARB_W-1:0] axi_w_owner;
+    reg axi_w_active;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            axi_w_owner  <= {AXI_ARB_W{1'b0}};
+            axi_w_active <= 1'b0;
+        end else begin
+            if (!axi_w_active && axi_aw_valid && m_axi_awready) begin
+                axi_w_owner  <= axi_aw_sel;
+                axi_w_active <= 1'b1;
+            end else if (axi_w_active && m_axi_wvalid && m_axi_wready && m_axi_wlast) begin
+                axi_w_active <= 1'b0;
+            end
+        end
+    end
+
+    // W channel select: locked owner during burst, else follows AW arbiter
+    wire [AXI_ARB_W-1:0] axi_w_sel = axi_w_active ? axi_w_owner : axi_aw_sel;
+
     // Per-SM ready gating
     generate
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_ready_gen
             assign sm_axi_awready[sm] = (axi_aw_sel == sm[AXI_ARB_W-1:0] && axi_aw_valid) ? m_axi_awready : 1'b0;
             assign sm_axi_arready[sm] = (axi_ar_sel == sm[AXI_ARB_W-1:0] && axi_ar_valid) ? m_axi_arready : 1'b0;
+            assign sm_axi_wready[sm]  = (axi_w_sel == sm[AXI_ARB_W-1:0] && (axi_w_active || axi_aw_valid)) ? m_axi_wready : 1'b0;
         end
     endgenerate
 
@@ -1055,10 +1079,10 @@ module ralph_gpu_top #(
     assign m_axi_awsize  = sm_axi_awsize[axi_aw_sel];
     assign m_axi_awburst = sm_axi_awburst[axi_aw_sel];
     assign m_axi_awvalid = axi_aw_valid ? sm_axi_awvalid[axi_aw_sel] : 1'b0;
-    assign m_axi_wdata   = sm_axi_wdata[axi_aw_sel];
-    assign m_axi_wstrb   = sm_axi_wstrb[axi_aw_sel];
-    assign m_axi_wlast   = sm_axi_wlast[axi_aw_sel];
-    assign m_axi_wvalid  = axi_aw_valid ? sm_axi_wvalid[axi_aw_sel] : 1'b0;
+    assign m_axi_wdata   = sm_axi_wdata[axi_w_sel];
+    assign m_axi_wstrb   = sm_axi_wstrb[axi_w_sel];
+    assign m_axi_wlast   = sm_axi_wlast[axi_w_sel];
+    assign m_axi_wvalid  = (axi_w_active || axi_aw_valid) ? sm_axi_wvalid[axi_w_sel] : 1'b0;
 
     // Read channel output: encode SM ID in upper AXI ID bits
     assign m_axi_arid    = {axi_ar_sel[SM_ID_W-1:0], sm_axi_arid[axi_ar_sel][AXI_ID_WIDTH-SM_ID_W-1:0]};

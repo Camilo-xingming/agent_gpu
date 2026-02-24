@@ -13,6 +13,7 @@
 | atomic-contention-analysis.md | Atomic 竞争分析 | Coders | Coders | atomic 相关 issue | atomic, contention |
 | memory-optimization-reference.md | 内存优化参考 | Coders | Coders | 内存子系统优化时 | memory, optimization |
 | performance-verification-plan.md | 性能验证计划 | Coders | Coders/Jerry | 性能相关 sprint | performance, verification |
+| plan-150-multi-sm.md | Multi-SM 实现计划 (#150) | Coders | Coders | 多 SM 架构时 | multi-sm, axi, plan |
 
 ## pm/ 子目录 — 项目管理文档
 
