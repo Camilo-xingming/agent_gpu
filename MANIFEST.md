@@ -12,6 +12,7 @@
 | Makefile | 编译、测试、lint、dashboard 目标 | Coders | Coders | 每次构建/测试 | build, test, lint |
 | .gitignore | Git 忽略规则 | Coders | Git | — | git, ignore |
 | MANIFEST.md | 文件索引（本文件） | All | All | 查找文件时 | index, manifest |
+| plan-147-coalescing.md | Issue #147 内存合并单元实现计划 | CoderOpus | Coders | 实现 #147 时 | plan, coalescing, memory |
 
 ## 子目录
 
