@@ -8,6 +8,7 @@
 |------|------|------|------------|--------|--------|
 | ptx_assembler.py | PTX 汇编器（文本 → 二进制） | Coders | Makefile / Coders | 编译 PTX 测试时 | ptx, assembler |
 | gpu_simulator.py | GPU 仿真驱动 | Coders | Makefile | 跑仿真时 | simulator, sim |
+| cuda_kernel_compiler.py | CUDA-like C 前端编译器（C-like kernel -> PTX） | Coders | Makefile / Coders | 验证 CUDA-like 编译链路时 | cuda, compiler, ptx |
 | perf_dashboard.py | 性能 Dashboard（IPC/stall/utilization） | Coders | `make dashboard` | 性能评估时 | performance, ipc, stall |
 | perf_report.py | 性能报告生成 | Coders | Makefile | PR review 时 | performance, report |
 | rtl_frm_compare.py | RTL vs FRM 对比验证 | Coders | `make frm-compare` (CI) | 每次 CI | frm, compare, verify |
