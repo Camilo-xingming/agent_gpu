@@ -1255,6 +1255,26 @@ module streaming_multiprocessor_v2 #(
         end
     end
 
+    // Cache policy requests routed directly to L1D policy interface.
+    wire issue_cache_policy_l1 = issue_valid && issue_cache_policy_op;
+    wire issue1_cache_policy_l1 = issue1_valid && issue1_cache_policy_op;
+    wire cache_policy_active_l1 = issue_cache_policy_l1 || issue1_cache_policy_l1;
+    wire [5:0] cache_policy_func_l1 = issue_cache_policy_l1 ? issue_func : issue1_func;
+
+    wire cache_policy_create_l1 = cache_policy_active_l1 && (cache_policy_func_l1 == `CACHE_CREATEPOLICY);
+    wire [2:0] cache_policy_create_id_l1 = issue_cache_policy_l1 ? issue_imm16[2:0] : issue1_imm16[2:0];
+    wire [7:0] cache_policy_create_priority_l1 = issue_cache_policy_l1 ? rf_rd_data_b[7:0] : rf1_rd_data_b[7:0];
+
+    wire cache_policy_apply_l1 = cache_policy_active_l1 && (cache_policy_func_l1 == `CACHE_APPLYPRIORITY);
+    wire [31:0] cache_policy_apply_addr_l1 = issue_cache_policy_l1 ? rf_rd_data_a[31:0] : rf1_rd_data_a[31:0];
+    wire [2:0] cache_policy_apply_id_l1 = issue_cache_policy_l1 ? rf_rd_data_b[2:0] : rf1_rd_data_b[2:0];
+
+    wire cache_policy_discard_l1 = cache_policy_active_l1 && (cache_policy_func_l1 == `CACHE_DISCARD);
+    wire [31:0] cache_policy_discard_addr_l1 = issue_cache_policy_l1 ? rf_rd_data_a[31:0] : rf1_rd_data_a[31:0];
+
+    wire l1_policy_discard_valid = cache_policy_discard_l1 || l1d_store_invalidate;
+    wire [31:0] l1_policy_discard_addr = cache_policy_discard_l1 ? cache_policy_discard_addr_l1 : l1d_store_inv_addr;
+
     assign gmem_store_req_valid = l1d_store_invalidate;
     assign gmem_normal_req_valid = gmem_store_req_valid || l1_miss_req_valid;
     assign gmem_normal_req_write = gmem_store_req_valid ? 1'b1 : l1_mem_write;
@@ -1289,16 +1309,16 @@ module streaming_multiprocessor_v2 #(
         .mem_ready          (l1_mem_ready),
         .stat_hits          (l1_stat_hits),
         .stat_misses        (l1_stat_misses),
-        .policy_create_valid(1'b0),
-        .policy_id          (3'b0),
-        .policy_priority    (8'b0),
+        .policy_create_valid(cache_policy_create_l1),
+        .policy_id          (cache_policy_create_id_l1),
+        .policy_priority    (cache_policy_create_priority_l1),
         .policy_token_out   (),
         .policy_token_valid (),
-        .policy_apply_valid (1'b0),
-        .policy_apply_addr  (32'b0),
-        .policy_apply_id    (3'b0),
-        .policy_discard_valid(l1d_store_invalidate),
-        .policy_discard_addr(l1d_store_inv_addr)
+        .policy_apply_valid (cache_policy_apply_l1),
+        .policy_apply_addr  (cache_policy_apply_addr_l1),
+        .policy_apply_id    (cache_policy_apply_id_l1),
+        .policy_discard_valid(l1_policy_discard_valid),
+        .policy_discard_addr(l1_policy_discard_addr)
     );
 
 

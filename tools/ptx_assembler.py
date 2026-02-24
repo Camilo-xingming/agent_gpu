@@ -93,6 +93,8 @@ class Opcode(IntEnum):
     MBARRIER    = 0b110010  # mbarrier operations
     BAR_WARP_SYNC = 0b110011  # bar.warp.sync
     CACHE_POLICY = 0b110100  # Cache policy operations
+    ST_ASYNC    = 0b111000  # st.async
+    MULTIMEM    = 0b111001  # multimem
     BARRIER_CLUSTER = 0b111010  # barrier.cluster
 
     NOP         = 0b111111
@@ -443,6 +445,34 @@ class BarrierClusterFunc(IntEnum):
     WAIT   = 0b000001  # barrier.cluster.wait
     SYNC   = 0b000010  # barrier.cluster.sync (arrive + wait)
     INIT   = 0b000011  # barrier.cluster.init
+
+#============================================================================
+# st.async Function Codes
+#============================================================================
+class StAsyncFunc(IntEnum):
+    GLOBAL = 0b000000
+    SHARED = 0b000001
+    COMMIT = 0b000010
+    WAIT   = 0b000011
+
+#============================================================================
+# multimem Function Codes
+#============================================================================
+class MultimemFunc(IntEnum):
+    LD  = 0b000000
+    ST  = 0b000001
+    RED = 0b000010
+
+#============================================================================
+# Cache Policy Function Codes
+#============================================================================
+class CachePolicyFunc(IntEnum):
+    CREATEPOLICY  = 0b000000
+    APPLYPRIORITY = 0b000001
+    DISCARD       = 0b000010
+    ISSPACEP      = 0b000100
+    MAPA          = 0b000101
+    GETCTARANK    = 0b000110
 
 #============================================================================
 # Special Registers
@@ -905,6 +935,18 @@ class PTXAssembler:
             return self._parse_mbarrier(mnemonic, operands)
         if mnemonic.startswith('barrier.cluster'):
             return self._parse_barrier_cluster(mnemonic, operands)
+
+        # st.async / multimem / cache policy (Hopper+/Blackwell)
+        if mnemonic.startswith('st.async'):
+            return self._parse_st_async(mnemonic, operands)
+        if mnemonic.startswith('multimem'):
+            return self._parse_multimem(mnemonic, operands)
+        if mnemonic.startswith('createpolicy'):
+            return self._parse_cache_policy(CachePolicyFunc.CREATEPOLICY, operands)
+        if mnemonic.startswith('applypriority'):
+            return self._parse_cache_policy(CachePolicyFunc.APPLYPRIORITY, operands)
+        if mnemonic.startswith('discard'):
+            return self._parse_cache_policy(CachePolicyFunc.DISCARD, operands)
 
         #================================================================
         # FP32 Arithmetic
@@ -1609,6 +1651,126 @@ class PTXAssembler:
 
         return inst
 
+    def _parse_st_async(self, mnemonic: str, operands: List[str]) -> Instruction:
+        """Parse st.async instructions.
+
+        Supported forms:
+        - st.async.global [addr], data
+        - st.async.shared [addr], data
+        - st.async.commit
+        - st.async.wait N
+        """
+        inst = Instruction(opcode=Opcode.ST_ASYNC)
+
+        if '.global' in mnemonic:
+            if len(operands) < 2:
+                raise ValueError('st.async.global requires: [addr], data_reg')
+            inst.func = StAsyncFunc.GLOBAL
+            inst.ra = parse_register(operands[0].strip('[]'))
+            inst.rb = parse_register(operands[1])
+        elif '.shared' in mnemonic:
+            if len(operands) < 2:
+                raise ValueError('st.async.shared requires: [addr], data_reg')
+            inst.func = StAsyncFunc.SHARED
+            inst.ra = parse_register(operands[0].strip('[]'))
+            inst.rb = parse_register(operands[1])
+        elif '.commit' in mnemonic:
+            inst.func = StAsyncFunc.COMMIT
+        elif '.wait' in mnemonic:
+            inst.func = StAsyncFunc.WAIT
+            if operands:
+                inst.rc = parse_immediate(operands[0]) & 0x1F
+        else:
+            raise ValueError(f"Unknown st.async operation: {mnemonic}")
+
+        return inst
+
+    def _parse_multimem(self, mnemonic: str, operands: List[str]) -> Instruction:
+        """Parse multimem instructions.
+
+        Supported forms:
+        - multimem.ld rd, [addr]
+        - multimem.st [addr], data
+        - multimem.red.add [addr], data
+        """
+        inst = Instruction(opcode=Opcode.MULTIMEM)
+
+        if mnemonic.startswith('multimem.ld'):
+            if len(operands) < 2:
+                raise ValueError('multimem.ld requires: rd, [addr]')
+            inst.func = MultimemFunc.LD
+            inst.rd = parse_register(operands[0])
+            inst.ra = parse_register(operands[1].strip('[]'))
+        elif mnemonic.startswith('multimem.st'):
+            if len(operands) < 2:
+                raise ValueError('multimem.st requires: [addr], data_reg')
+            inst.func = MultimemFunc.ST
+            inst.ra = parse_register(operands[0].strip('[]'))
+            inst.rb = parse_register(operands[1])
+        elif mnemonic.startswith('multimem.red'):
+            if len(operands) < 2:
+                raise ValueError('multimem.red.* requires: [addr], data_reg')
+            inst.func = MultimemFunc.RED
+            inst.ra = parse_register(operands[0].strip('[]'))
+            inst.rb = parse_register(operands[1])
+        else:
+            raise ValueError(f"Unknown multimem operation: {mnemonic}")
+
+        return inst
+
+    def _parse_cache_policy(self, func: int, operands: List[str]) -> Instruction:
+        """Parse cache policy instructions.
+
+        Supported forms:
+        - createpolicy rd, [addr], priority_reg, policy_id
+        - applypriority [addr], policy_reg, cache_level
+        - discard [addr]
+        """
+        inst = Instruction(opcode=Opcode.CACHE_POLICY, func=func)
+
+        def parse_policy_id(policy_str: str) -> int:
+            key = policy_str.strip().lower()
+            try:
+                return parse_immediate(key)
+            except ValueError:
+                # Accept aliases like evict_first / L2::evict_last
+                key = key.replace('::', '.')
+                key = key.split('.')[-1]
+                policy_alias = {
+                    'evict_normal': 0,
+                    'normal': 0,
+                    'evict_first': 1,
+                    'first': 1,
+                    'evict_last': 2,
+                    'last': 2,
+                }
+                if key not in policy_alias:
+                    raise ValueError(f"Unknown cache policy id: {policy_str}")
+                return policy_alias[key]
+
+        if func == CachePolicyFunc.CREATEPOLICY:
+            if len(operands) < 4:
+                raise ValueError('createpolicy requires: rd, [addr], priority_reg, policy_id')
+            inst.rd = parse_register(operands[0])
+            inst.ra = parse_register(operands[1].strip('[]'))
+            inst.rb = parse_register(operands[2])
+            inst.rc = parse_policy_id(operands[3]) & 0x1F
+        elif func == CachePolicyFunc.APPLYPRIORITY:
+            if len(operands) < 2:
+                raise ValueError('applypriority requires: [addr], policy_reg [, cache_level]')
+            inst.ra = parse_register(operands[0].strip('[]'))
+            inst.rb = parse_register(operands[1])
+            if len(operands) > 2:
+                inst.rc = parse_immediate(operands[2]) & 0x1F
+        elif func == CachePolicyFunc.DISCARD:
+            if not operands:
+                raise ValueError('discard requires: [addr]')
+            inst.ra = parse_register(operands[0].strip('[]'))
+        else:
+            raise ValueError(f"Unsupported cache policy func: {func}")
+
+        return inst
+
     def _parse_fp32(self, func: int, operands: List[str]) -> Instruction:
         """Parse FP32 binary: add.f32 rd, ra, rb"""
         inst = Instruction(opcode=Opcode.FP32_ARITH, func=func)
@@ -2289,13 +2451,23 @@ def run_coverage_test() -> Tuple[int, int, float]:
         "dp4a.s32.s32 r0, r1, r2, r3",
         "dp2a.s32.s32 r0, r1, r2, r3",
 
-        # Async Copy (~6)
+        # Async Copy / Async Store / Cache Policy (~16)
         "cp.async.ca.shared.global [r0], [r1], 16",
         "cp.async.cg.shared.global [r0], [r1], 16",
         "cp.async.commit_group",
         "cp.async.wait_group 0",
         "cp.async.wait_all",
         "cp.async.bulk.shared.global [r0], [r1], 128",
+        "st.async.global [r0], r1",
+        "st.async.shared [r0], r1",
+        "st.async.commit",
+        "st.async.wait 1",
+        "createpolicy r2, [r0], r1, 2",
+        "applypriority [r0], r2, 1",
+        "discard [r0]",
+        "multimem.ld r0, [r1]",
+        "multimem.st [r1], r2",
+        "multimem.red.add [r1], r2",
 
         # NOP
         "nop",
