@@ -231,6 +231,10 @@ module l1_data_cache #(
                 end
             end
 
+            ST_MISS: begin
+                next_state = ST_FILL;
+            end
+
             ST_WRITEBACK: begin
                 if (mem_valid) begin
                     next_state = ST_FILL;
@@ -366,7 +370,11 @@ module l1_data_cache #(
                     end
                 end
 
-                ST_WRITEBACK: begin
+
+                ST_MISS: begin
+                end
+
+            ST_WRITEBACK: begin
                     // 写回脏行
                     mem_req   <= 1;
                     mem_write <= 1;

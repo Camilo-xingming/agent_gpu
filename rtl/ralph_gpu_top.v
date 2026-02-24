@@ -656,9 +656,11 @@ module ralph_gpu_top #(
     assign aw_ptw_req_ready = 1'b1;
     assign ar_ptw_req_ready = 1'b1;
 
+    reg [TLB_PADDR_WIDTH-1:0] aw_ptw_leaf_base;
+    reg [8:0] aw_ptw_l3_idx;
     always @(*) begin
-        reg [TLB_PADDR_WIDTH-1:0] aw_ptw_leaf_base;
-        reg [8:0] aw_ptw_l3_idx;
+        aw_ptw_leaf_base = {TLB_PADDR_WIDTH{1'b0}};
+        aw_ptw_l3_idx = 9'b0;
         aw_ptw_resp_valid = aw_ptw_req_valid;
         aw_ptw_resp_data = 64'b0;
         if (aw_ptw_req_addr == TLB_PAGE_TABLE_BASE) begin
@@ -672,9 +674,11 @@ module ralph_gpu_top #(
         end
     end
 
+    reg [TLB_PADDR_WIDTH-1:0] ar_ptw_leaf_base;
+    reg [8:0] ar_ptw_l3_idx;
     always @(*) begin
-        reg [TLB_PADDR_WIDTH-1:0] ar_ptw_leaf_base;
-        reg [8:0] ar_ptw_l3_idx;
+        ar_ptw_leaf_base = {TLB_PADDR_WIDTH{1'b0}};
+        ar_ptw_l3_idx = 9'b0;
         ar_ptw_resp_valid = ar_ptw_req_valid;
         ar_ptw_resp_data = 64'b0;
         if (ar_ptw_req_addr == TLB_PAGE_TABLE_BASE) begin
@@ -1286,7 +1290,7 @@ module ralph_gpu_top #(
             CSR_BLOCK_DIM_X: csr_rd_data = block_dim_x;
             CSR_BLOCK_DIM_Y: csr_rd_data = block_dim_y;
             CSR_BLOCK_DIM_Z: csr_rd_data = block_dim_z;
-            CSR_ERROR_STATUS: csr_rd_data = {3'b0, error_warp_id, error_sm_id, error_code, error_pending};
+            CSR_ERROR_STATUS: csr_rd_data = {11'b0, error_warp_id, error_sm_id, error_code, error_pending};
             CSR_ERROR_WARP_MASK: csr_rd_data = error_warp_mask_global;
             CSR_ERROR_INFO: csr_rd_data = error_info;
             default: begin
