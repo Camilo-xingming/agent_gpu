@@ -572,15 +572,7 @@ def parse_special_reg(reg_str: str) -> int:
 
 def parse_immediate(imm_str: str) -> int:
     """Parse immediate value"""
-    imm_str = imm_str.strip()
-    if imm_str.startswith('0x'):
-        return int(imm_str, 16)
-    elif imm_str.startswith('0b'):
-        return int(imm_str, 2)
-    elif imm_str.startswith('-'):
-        return int(imm_str)
-    else:
-        return int(imm_str)
+    return int(imm_str.strip().lower(), 0)
 
 def is_signed_type(type_str: str) -> bool:
     """Check if type is signed"""
@@ -597,6 +589,173 @@ class PTXAssembler:
         self.current_addr = 0
         self.instructions_assembled: List[str] = []
 
+    def _split_operands(self, operand_str: str) -> List[str]:
+        """Split operands by commas while preserving bracket/brace groups."""
+        if not operand_str:
+            return []
+
+        operands = []
+        current = []
+        bracket_depth = 0
+        brace_depth = 0
+        paren_depth = 0
+
+        for ch in operand_str:
+            if ch == ',' and bracket_depth == 0 and brace_depth == 0 and paren_depth == 0:
+                token = ''.join(current).strip()
+                if token:
+                    operands.append(token)
+                current = []
+                continue
+
+            current.append(ch)
+            if ch == '[':
+                bracket_depth += 1
+            elif ch == ']':
+                bracket_depth = max(0, bracket_depth - 1)
+            elif ch == '{':
+                brace_depth += 1
+            elif ch == '}':
+                brace_depth = max(0, brace_depth - 1)
+            elif ch == '(':
+                paren_depth += 1
+            elif ch == ')':
+                paren_depth = max(0, paren_depth - 1)
+
+        token = ''.join(current).strip()
+        if token:
+            operands.append(token)
+        return operands
+
+    def _split_mnemonic_operands(self, line: str) -> Tuple[str, List[str]]:
+        """Split an instruction into mnemonic and operand list."""
+        parts = line.strip().split(None, 1)
+        if not parts:
+            return '', []
+        if len(parts) == 1:
+            return parts[0].lower(), []
+        return parts[0].lower(), self._split_operands(parts[1])
+
+    def _is_64bit_type(self, mnemonic: str) -> bool:
+        return any(tag in mnemonic for tag in ('.b64', '.s64', '.u64', '.f64'))
+
+    def _validate_reg_span(self, base_reg: int, width: int, context: str):
+        if base_reg < 0 or (base_reg + width - 1) > 31:
+            raise ValueError(f"{context} exceeds register file bounds: r{base_reg}..r{base_reg + width - 1}")
+
+    def _build_reg_move(self, dst_reg: int, src_reg: int) -> Instruction:
+        """Build register move via ALU_IMM add-zero."""
+        return Instruction(
+            opcode=Opcode.ALU_IMM,
+            rd=dst_reg,
+            ra=src_reg,
+            func=AluFunc.ADD,
+            imm16=0,
+        )
+
+    def _build_load_imm32(self, dst_reg: int, value32: int) -> List[Instruction]:
+        """Build MOV sequence for a 32-bit immediate value."""
+        value32 &= 0xFFFFFFFF
+        lo16 = value32 & 0xFFFF
+        hi16 = (value32 >> 16) & 0xFFFF
+
+        if hi16 == 0:
+            return [Instruction(opcode=Opcode.MOV_IMM, rd=dst_reg, imm16=lo16)]
+
+        instructions = [
+            Instruction(opcode=Opcode.MOV_IMM, rd=dst_reg, imm16=hi16),
+            Instruction(opcode=Opcode.ALU_IMM, rd=dst_reg, ra=dst_reg, func=AluFunc.SHL, imm16=16),
+        ]
+
+        if lo16 != 0:
+            temp_reg = 31 if dst_reg != 31 else 30
+            instructions.append(Instruction(opcode=Opcode.MOV_IMM, rd=temp_reg, imm16=lo16))
+            instructions.append(Instruction(opcode=Opcode.ALU, rd=dst_reg, ra=dst_reg, rb=temp_reg, func=AluFunc.OR))
+
+        return instructions
+
+    def _try_expand_mov(self, mnemonic: str, operands: List[str]) -> Optional[List[Instruction]]:
+        if not mnemonic.startswith('mov.') or len(operands) < 2:
+            return None
+
+        dst_reg = parse_register(operands[0])
+        src = operands[1].strip()
+        src_lower = src.lower()
+        is_64bit = self._is_64bit_type(mnemonic)
+
+        if src_lower.startswith('%'):
+            return None
+
+        try:
+            src_reg = parse_register(src_lower)
+            if is_64bit:
+                self._validate_reg_span(dst_reg, 2, '64-bit mov destination')
+                self._validate_reg_span(src_reg, 2, '64-bit mov source')
+                return [
+                    self._build_reg_move(dst_reg, src_reg),
+                    self._build_reg_move(dst_reg + 1, src_reg + 1),
+                ]
+            return None
+        except ValueError:
+            pass
+
+        imm = parse_immediate(src)
+
+        if is_64bit:
+            if imm < -(1 << 63) or imm > ((1 << 64) - 1):
+                raise ValueError(f"64-bit immediate out of range: {imm}")
+            self._validate_reg_span(dst_reg, 2, '64-bit mov destination')
+            value = imm & ((1 << 64) - 1)
+            lo32 = value & 0xFFFFFFFF
+            hi32 = (value >> 32) & 0xFFFFFFFF
+            return self._build_load_imm32(dst_reg, lo32) + self._build_load_imm32(dst_reg + 1, hi32)
+
+        if imm < -(1 << 31) or imm > ((1 << 32) - 1):
+            raise ValueError(f"32-bit immediate out of range: {imm}")
+        if 0 <= imm <= 0xFFFF:
+            return None
+
+        return self._build_load_imm32(dst_reg, imm & 0xFFFFFFFF)
+
+    def _try_expand_alu64(self, mnemonic: str, operands: List[str]) -> Optional[List[Instruction]]:
+        if len(operands) < 3 or not any(tag in mnemonic for tag in ('.b64', '.s64', '.u64')):
+            return None
+
+        op = mnemonic.split('.')[0]
+        op_map = {
+            'add': (AluFunc.ADD_CC, AluFunc.ADDC),
+            'sub': (AluFunc.SUB_CC, AluFunc.SUBC),
+            'and': (AluFunc.AND, AluFunc.AND),
+            'or': (AluFunc.OR, AluFunc.OR),
+            'xor': (AluFunc.XOR, AluFunc.XOR),
+        }
+        if op not in op_map:
+            return None
+
+        try:
+            dst_reg = parse_register(operands[0])
+            src_a = parse_register(operands[1])
+            src_b = parse_register(operands[2])
+        except ValueError:
+            return None
+
+        self._validate_reg_span(dst_reg, 2, '64-bit ALU destination')
+        self._validate_reg_span(src_a, 2, '64-bit ALU source A')
+        self._validate_reg_span(src_b, 2, '64-bit ALU source B')
+
+        low_func, high_func = op_map[op]
+        return [
+            Instruction(opcode=Opcode.ALU, rd=dst_reg, ra=src_a, rb=src_b, func=low_func),
+            Instruction(opcode=Opcode.ALU, rd=dst_reg + 1, ra=src_a + 1, rb=src_b + 1, func=high_func),
+        ]
+
+    def _estimate_instruction_words(self, line: str) -> int:
+        """Estimate encoded instruction words for first-pass label addresses."""
+        try:
+            return len(self.parse_instruction_expanded(line))
+        except Exception:
+            return 1
+
     def first_pass(self, lines: List[str]):
         """First pass: collect labels"""
         addr = 0
@@ -608,7 +767,7 @@ class PTXAssembler:
                 label = line[:-1].strip()
                 self.labels[label] = addr
             else:
-                addr += 4
+                addr += 4 * self._estimate_instruction_words(line)
 
     def second_pass(self, lines: List[str]) -> List[int]:
         """Second pass: generate machine code"""
@@ -634,69 +793,22 @@ class PTXAssembler:
         return machine_code
 
     def parse_instruction_expanded(self, line: str) -> List[Instruction]:
-        """Parse instruction, potentially expanding to multiple instructions for large immediates"""
-        # Check for mov with 32-bit immediate
-        parts = line.replace(',', ' ').split()
-        if len(parts) >= 3 and parts[0].lower().startswith('mov.'):
-            try:
-                src = parts[2].strip()
-                if not src.startswith('%') and not src.startswith('r'):
-                    imm = parse_immediate(src)
-                    if imm > 0xFFFF or imm < -32768:
-                        # Need to expand 32-bit immediate into sequence:
-                        # 1. mov rd, hi16       (load upper 16 bits)
-                        # 2. shl rd, rd, 16     (shift to upper position)
-                        # 3. mov r31, lo16      (load lower 16 bits to temp)
-                        # 4. or rd, rd, r31     (combine)
-                        rd = parse_register(parts[1])
-                        lo16 = imm & 0xFFFF
-                        hi16 = (imm >> 16) & 0xFFFF
-                        temp_reg = 31  # Use r31 as temp
+        """Parse instruction, potentially expanding to multiple instructions."""
+        if line.startswith('@'):
+            return [self.parse_instruction(line)]
 
-                        instructions = []
+        mnemonic, operands = self._split_mnemonic_operands(line)
+        if not mnemonic:
+            return [Instruction(opcode=Opcode.NOP)]
 
-                        # If hi16 is 0, just load lo16 directly
-                        if hi16 == 0:
-                            inst = Instruction(opcode=Opcode.MOV_IMM)
-                            inst.rd = rd
-                            inst.imm16 = lo16
-                            return [inst]
+        expanded = self._try_expand_mov(mnemonic, operands)
+        if expanded is not None:
+            return expanded
 
-                        # mov rd, hi16
-                        inst1 = Instruction(opcode=Opcode.MOV_IMM)
-                        inst1.rd = rd
-                        inst1.imm16 = hi16
-                        instructions.append(inst1)
+        expanded = self._try_expand_alu64(mnemonic, operands)
+        if expanded is not None:
+            return expanded
 
-                        # shl rd, rd, 16 (using ALU_IMM with 10-bit immediate)
-                        inst2 = Instruction(opcode=Opcode.ALU_IMM)
-                        inst2.rd = rd
-                        inst2.ra = rd
-                        inst2.func = AluFunc.SHL
-                        inst2.imm16 = 16  # Fits in 10 bits
-                        instructions.append(inst2)
-
-                        # If lo16 is non-zero, add it
-                        if lo16 != 0:
-                            # mov r31, lo16
-                            inst3 = Instruction(opcode=Opcode.MOV_IMM)
-                            inst3.rd = temp_reg
-                            inst3.imm16 = lo16
-                            instructions.append(inst3)
-
-                            # or rd, rd, r31
-                            inst4 = Instruction(opcode=Opcode.ALU)
-                            inst4.rd = rd
-                            inst4.ra = rd
-                            inst4.rb = temp_reg
-                            inst4.func = AluFunc.OR
-                            instructions.append(inst4)
-
-                        return instructions
-            except:
-                pass  # Fall through to normal parsing
-
-        # Normal single instruction
         return [self.parse_instruction(line)]
 
     def parse_instruction(self, line: str) -> Instruction:
@@ -712,13 +824,9 @@ class PTXAssembler:
                 predicate = (parse_register(pred_str), False)
             line = parts[1] if len(parts) > 1 else ''
 
-        # Split instruction and operands
-        parts = line.replace(',', ' ').split()
-        if not parts:
+        mnemonic, operands = self._split_mnemonic_operands(line)
+        if not mnemonic:
             return Instruction(opcode=Opcode.NOP)
-
-        mnemonic = parts[0].lower()
-        operands = parts[1:] if len(parts) > 1 else []
 
         # Dispatch to appropriate handler
         inst = self._dispatch_instruction(mnemonic, operands)
@@ -873,6 +981,16 @@ class PTXAssembler:
         #================================================================
         # Memory Operations
         #================================================================
+        # Vector loads/stores (supports ld/st.*.vN.* and ld/st.vN.* forms)
+        if mnemonic.startswith('ld') and '.v2' in mnemonic:
+            return self._parse_load(Opcode.LD_V2, operands)
+        if mnemonic.startswith('ld') and '.v4' in mnemonic:
+            return self._parse_load(Opcode.LD_V4, operands)
+        if mnemonic.startswith('st') and '.v2' in mnemonic:
+            return self._parse_store(Opcode.ST_V2, operands)
+        if mnemonic.startswith('st') and '.v4' in mnemonic:
+            return self._parse_store(Opcode.ST_V4, operands)
+
         if mnemonic.startswith('ld.global'):
             return self._parse_load(Opcode.LD_GLOBAL, operands)
         if mnemonic.startswith('st.global'):
@@ -889,16 +1007,6 @@ class PTXAssembler:
             return self._parse_load(Opcode.LD_LOCAL, operands)
         if mnemonic.startswith('st.local'):
             return self._parse_store(Opcode.ST_LOCAL, operands)
-
-        # Vector loads/stores
-        if mnemonic.startswith('ld.v2'):
-            return self._parse_load(Opcode.LD_V2, operands)
-        if mnemonic.startswith('ld.v4'):
-            return self._parse_load(Opcode.LD_V4, operands)
-        if mnemonic.startswith('st.v2'):
-            return self._parse_store(Opcode.ST_V2, operands)
-        if mnemonic.startswith('st.v4'):
-            return self._parse_store(Opcode.ST_V4, operands)
 
         # Cache hints
         if mnemonic.startswith('ld.ca'):
@@ -1459,37 +1567,92 @@ class PTXAssembler:
         inst.func = offset & 0x3F
         return inst
 
-    def _parse_load(self, opcode: int, operands: List[str]) -> Instruction:
-        """Parse load: ld.global rd, [ra+offset]"""
-        inst = Instruction(opcode=opcode)
-        inst.rd = parse_register(operands[0])
+    def _vector_width_for_opcode(self, opcode: int) -> int:
+        if opcode in (Opcode.LD_V2, Opcode.ST_V2):
+            return 2
+        if opcode in (Opcode.LD_V4, Opcode.ST_V4):
+            return 4
+        return 1
 
-        addr_str = ' '.join(operands[1:]).strip('[]')
-        if '+' in addr_str:
-            parts = addr_str.split('+')
-            inst.ra = parse_register(parts[0])
-            offset = parse_immediate(parts[1])
-            inst.rb = (offset >> 6) & 0x1F
-            inst.func = offset & 0x3F
+    def _parse_vector_register_operand(self, operand: str, width: int) -> int:
+        """Parse vector register operand and return base register index."""
+        reg_text = operand.strip()
+        if reg_text.startswith('{'):
+            if not reg_text.endswith('}'):
+                raise ValueError(f"Malformed vector register list: {operand}")
+            regs = [parse_register(part.strip()) for part in reg_text[1:-1].split(',') if part.strip()]
+            if len(regs) != width:
+                raise ValueError(f"Expected {width} registers, got {len(regs)} in {operand}")
+            base = regs[0]
+            for i, reg in enumerate(regs):
+                if reg != base + i:
+                    raise ValueError(f"Vector registers must be contiguous: {operand}")
+            self._validate_reg_span(base, width, 'vector register operand')
+            return base
+
+        base = parse_register(reg_text)
+        self._validate_reg_span(base, width, 'vector register operand')
+        return base
+
+    def _parse_address_operand(self, operand: str) -> Tuple[int, int]:
+        """Parse memory address operand [ra+offset]."""
+        addr_text = operand.strip()
+        if not (addr_text.startswith('[') and addr_text.endswith(']')):
+            raise ValueError(f"Invalid memory address operand: {operand}")
+
+        inner = re.sub(r'\s+', '', addr_text[1:-1])
+        if not inner:
+            raise ValueError(f"Empty memory address operand: {operand}")
+
+        split_idx = -1
+        for idx in range(1, len(inner)):
+            if inner[idx] in '+-':
+                split_idx = idx
+                break
+
+        if split_idx == -1:
+            return parse_register(inner), 0
+
+        base_reg = parse_register(inner[:split_idx])
+        offset = parse_immediate(inner[split_idx:])
+        return base_reg, offset
+
+    def _parse_load(self, opcode: int, operands: List[str]) -> Instruction:
+        """Parse load: ld.* rd/[rd-list], [ra+offset]"""
+        if len(operands) < 2:
+            raise ValueError(f"Load requires destination and address operands: {operands}")
+
+        inst = Instruction(opcode=opcode)
+        vec_width = self._vector_width_for_opcode(opcode)
+        if vec_width > 1:
+            inst.rd = self._parse_vector_register_operand(operands[0], vec_width)
         else:
-            inst.ra = parse_register(addr_str)
+            inst.rd = parse_register(operands[0])
+
+        inst.ra, offset = self._parse_address_operand(operands[1])
+        if offset != 0:
+            offset_bits = offset & 0x7FF
+            inst.rb = (offset_bits >> 6) & 0x1F
+            inst.func = offset_bits & 0x3F
         return inst
 
     def _parse_store(self, opcode: int, operands: List[str]) -> Instruction:
-        """Parse store: st.global [ra+offset], rs"""
+        """Parse store: st.* [ra+offset], rs/[rs-list]"""
+        if len(operands) < 2:
+            raise ValueError(f"Store requires address and source operands: {operands}")
+
         inst = Instruction(opcode=opcode)
+        inst.ra, offset = self._parse_address_operand(operands[0])
+        if offset != 0:
+            offset_bits = offset & 0x7FF
+            inst.rc = (offset_bits >> 6) & 0x1F
+            inst.func = offset_bits & 0x3F
 
-        addr_str = operands[0].strip('[]')
-        if '+' in addr_str:
-            parts = addr_str.split('+')
-            inst.ra = parse_register(parts[0])
-            offset = parse_immediate(parts[1])
-            inst.rc = (offset >> 6) & 0x1F
-            inst.func = offset & 0x3F
+        vec_width = self._vector_width_for_opcode(opcode)
+        if vec_width > 1:
+            inst.rb = self._parse_vector_register_operand(operands[1], vec_width)
         else:
-            inst.ra = parse_register(addr_str)
-
-        inst.rb = parse_register(operands[1])
+            inst.rb = parse_register(operands[1])
         return inst
 
     def _parse_load_cached(self, opcode: int, operands: List[str], hint: int) -> Instruction:
@@ -1515,11 +1678,7 @@ class PTXAssembler:
             inst.ra = parse_special_reg(src)
         elif src.startswith('r') or src.startswith('p'):
             # Register-to-register move: mov rd, ra
-            # Implement as add rd, ra, 0
-            inst.opcode = Opcode.ALU
-            inst.func = 0  # ADD
-            inst.ra = parse_register(src)
-            inst.rb = 0  # Adding zero
+            return self._build_reg_move(inst.rd, parse_register(src))
         else:
             # Immediate value - use MOV_IMM opcode
             # Format: [31:26]=opcode, [25:21]=rd, [15:0]=imm16
@@ -2321,8 +2480,16 @@ def run_coverage_test() -> Tuple[int, int, float]:
         "st.local.s32 [r0], r1",
         "ld.v2.s32 r0, [r1]",
         "ld.v4.s32 r0, [r1]",
+        "ld.global.v2.s32 {r0, r1}, [r2]",
+        "ld.global.v4.s32 {r4, r5, r6, r7}, [r8+16]",
         "st.v2.s32 [r0], r1",
         "st.v4.s32 [r0], r1",
+        "st.global.v2.s32 [r2], {r0, r1}",
+        "st.global.v4.s32 [r8+16], {r4, r5, r6, r7}",
+        "mov.b64 rd0, 0x1122334455667788",
+        "mov.b64 rd2, rd0",
+        "add.u64 rd4, rd0, rd2",
+        "sub.u64 rd6, rd4, rd2",
         "mov.u32 r0, %tid.x",
         "mov.u32 r0, %tid.y",
         "mov.u32 r0, %tid.z",
@@ -2480,8 +2647,9 @@ def run_coverage_test() -> Tuple[int, int, float]:
 
     for inst_str in test_instructions:
         try:
-            inst = assembler.parse_instruction(inst_str)
-            code = inst.encode()
+            instructions = assembler.parse_instruction_expanded(inst_str)
+            for inst in instructions:
+                inst.encode()
             passed += 1
         except Exception as e:
             failed += 1
