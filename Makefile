@@ -738,7 +738,7 @@ $(BUILD_DIR)/tb_warp_inst_valid_d1.vvp: $(TB_DIR)/tb_warp_inst_valid_d1.v | $(BU
 
 
 # Performance microbenchmark (PTX-driven WMMA GEMM stream)
-test_sm_v2_perf_gemm16_wmma_ptx: gemm16_wmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.vvp
+test_sm_v2_perf_gemm16_wmma_ptx: programs/gemm16_wmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.vvp
 	@echo "========================================"
 	@echo "Running SM V2 PTX WMMA GEMM Path Test"
 	@echo "========================================"
@@ -747,12 +747,12 @@ test_sm_v2_perf_gemm16_wmma_ptx: gemm16_wmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm
 $(BUILD_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.vvp: $(SM_V2_SRCS) $(TB_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_sm_v2_perf_gemm16_wmma_ptx.v $(filter %.v,$(RTL_SRCS))
 
-gemm16_wmma.hex: tests/gemm16_wmma.ptx tools/ptx_assembler.py
-	$(PYTHON) tools/ptx_assembler.py tests/gemm16_wmma.ptx -o gemm16_wmma.hex
+programs/gemm16_wmma.hex: tests/gemm16_wmma.ptx tools/ptx_assembler.py
+	$(PYTHON) tools/ptx_assembler.py tests/gemm16_wmma.ptx -o programs/gemm16_wmma.hex
 
 
 # Performance microbenchmark (PTX-driven WGMMA GEMM stream)
-test_sm_v2_perf_gemm64_wgmma_ptx: gemm64_wgmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.vvp
+test_sm_v2_perf_gemm64_wgmma_ptx: programs/gemm64_wgmma.hex $(BUILD_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.vvp
 	@echo "========================================"
 	@echo "Running SM V2 PTX WGMMA GEMM Path Test"
 	@echo "========================================"
@@ -761,5 +761,5 @@ test_sm_v2_perf_gemm64_wgmma_ptx: gemm64_wgmma.hex $(BUILD_DIR)/tb_sm_v2_perf_ge
 $(BUILD_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.vvp: $(SM_V2_SRCS) $(TB_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.v $(filter %.v,$(RTL_SRCS))
 
-gemm64_wgmma.hex: tests/gemm64_wgmma.ptx tools/ptx_assembler.py
-	$(PYTHON) tools/ptx_assembler.py tests/gemm64_wgmma.ptx -o gemm64_wgmma.hex
+programs/gemm64_wgmma.hex: tests/gemm64_wgmma.ptx tools/ptx_assembler.py
+	$(PYTHON) tools/ptx_assembler.py tests/gemm64_wgmma.ptx -o programs/gemm64_wgmma.hex

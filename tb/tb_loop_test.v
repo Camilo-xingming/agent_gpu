@@ -2,7 +2,7 @@
 // RalphGPU - Loop Test
 // Tests conditional branching for loop execution
 // Simple test: sum = 0; for(i=N; i>0; i--) sum += 2; expect sum = 2*N
-// Loads program from loop_test.hex
+// Loads program from programs/loop_test.hex
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -145,13 +145,13 @@ module tb_loop_test;
             imem[i] = 32'hFC000000;  // NOP/EXIT opcode
         end
         // Load program from hex file
-        $readmemh("loop_test.hex", imem);
+        $readmemh("../programs/loop_test.hex", imem);
         // Count instructions
         instr_count = 0;
         for (integer i = 0; i < 256; i = i + 1) begin
             if (imem[i] != 32'hFC000000) instr_count = instr_count + 1;
         end
-        $display("Loaded %0d instructions from loop_test.hex", instr_count);
+        $display("Loaded %0d instructions from programs/loop_test.hex", instr_count);
         $display("Expected result: %0d (loop_count=%0d * add_value=%0d)",
                  EXPECTED_RESULT, LOOP_COUNT, ADD_VALUE);
     end

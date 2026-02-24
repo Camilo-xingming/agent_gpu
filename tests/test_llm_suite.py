@@ -14,7 +14,7 @@ def test_attention_score():
     print('='*60)
     
     sim = RalphGPUSimulator(num_sm=1)
-    sim.load_program('llm_attention_score.hex')
+    sim.load_program('programs/llm_attention_score.hex')
     sim.run_kernel(entry_pc=0, max_cycles=1000)
     
     result = sim.global_memory.get(0x1000, 0)
@@ -36,7 +36,7 @@ def test_gemm():
     print('='*60)
     
     sim = RalphGPUSimulator(num_sm=1)
-    sim.load_program('llm_gemm_2x2.hex')
+    sim.load_program('programs/llm_gemm_2x2.hex')
     sim.run_kernel(entry_pc=0, max_cycles=1000)
     
     c00 = sim.global_memory.get(0x1000, 0)
@@ -60,7 +60,7 @@ def test_nano_llm():
     print('='*60)
     
     sim = RalphGPUSimulator(num_sm=1)
-    sim.load_program('nano_llm.hex')
+    sim.load_program('programs/nano_llm.hex')
     sim.run_kernel(entry_pc=0, max_cycles=1000)
     
     output = sim.global_memory.get(0x2000, 0)

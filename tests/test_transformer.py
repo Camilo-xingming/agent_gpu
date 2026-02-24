@@ -25,7 +25,7 @@ def main():
     print()
     
     sim = RalphGPUSimulator(num_sm=1)
-    sim.load_program('transformer_block.hex')
+    sim.load_program('programs/transformer_block.hex')
     sim.run_kernel(entry_pc=0, max_cycles=2000)
     
     # Read intermediate values

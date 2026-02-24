@@ -253,7 +253,7 @@ module tb_llm_operators;
         //--------------------------------------------------------------------
         $display("\n--- Test 1: LLM Dot Product (DP4A) ---");
         init_memory();
-        $readmemh("llm_dot_product.hex", imem);
+        $readmemh("../programs/llm_dot_product.hex", imem);
         expected_result = 23;  // 1*3+2*3+10 + 1*2+1*2 = 19 + 4 = 23
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
@@ -283,7 +283,7 @@ module tb_llm_operators;
         //--------------------------------------------------------------------
         $display("\n--- Test 2: LLM GEMM 2x2 ---");
         init_memory();
-        $readmemh("llm_gemm_2x2.hex", imem);
+        $readmemh("../programs/llm_gemm_2x2.hex", imem);
         // Expected: C = [[19, 22], [43, 50]]
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
@@ -323,7 +323,7 @@ module tb_llm_operators;
         //--------------------------------------------------------------------
         $display("\n--- Test 3: LLM ReLU Activation ---");
         init_memory();
-        $readmemh("llm_relu.hex", imem);
+        $readmemh("../programs/llm_relu.hex", imem);
         expected_result = 14;  // 3 + 7 + 0 + 4 = 14
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
@@ -353,7 +353,7 @@ module tb_llm_operators;
         //--------------------------------------------------------------------
         $display("\n--- Test 4: LLM Attention Score ---");
         init_memory();
-        $readmemh("llm_attention_score.hex", imem);
+        $readmemh("../programs/llm_attention_score.hex", imem);
         expected_result = 15;  // Q.K = 8 + 7 = 15
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
@@ -383,7 +383,7 @@ module tb_llm_operators;
         //--------------------------------------------------------------------
         $display("\n--- Test 5: LLM Residual Add ---");
         init_memory();
-        $readmemh("llm_residual_add.hex", imem);
+        $readmemh("../programs/llm_residual_add.hex", imem);
         expected_result = 110;  // 11 + 22 + 33 + 44 = 110
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);

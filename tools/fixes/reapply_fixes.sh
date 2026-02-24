@@ -1,5 +1,6 @@
 #!/bin/bash
-cd ~/RalphGPU
+# Navigate to repo root (this script lives in tools/fixes/)
+cd "$(dirname "$0")/../.."
 
 # Fix 1: Disable branch stall at schedule time
 sed -i.bak '5289,5294s/^/\/\/ DISABLED: /' rtl/streaming_multiprocessor_v2.v

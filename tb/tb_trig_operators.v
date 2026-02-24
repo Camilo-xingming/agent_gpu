@@ -315,7 +315,7 @@ module tb_trig_operators;
         $display("\n--- Test 1: sin.f32 ---");
         $display("    sin(pi/4)=0.707, sin(pi/6)=0.5, sin(pi/2)=1.0");
         init_memory();
-        $readmemh("trig_sin.hex", imem);
+        $readmemh("../programs/trig_sin.hex", imem);
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
         sin_cycles = cycle_count;
@@ -357,7 +357,7 @@ module tb_trig_operators;
         $display("\n--- Test 2: cos.f32 ---");
         $display("    cos(pi/4)=0.707, cos(pi/6)=0.866, cos(0)=1.0");
         init_memory();
-        $readmemh("trig_cos.hex", imem);
+        $readmemh("../programs/trig_cos.hex", imem);
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
         cos_cycles = cycle_count;
@@ -399,7 +399,7 @@ module tb_trig_operators;
         $display("\n--- Test 3: tan (sin/cos) ---");
         $display("    tan(pi/4)=1.0, tan(pi/6)=0.577");
         init_memory();
-        $readmemh("trig_tan.hex", imem);
+        $readmemh("../programs/trig_tan.hex", imem);
 
         run_kernel(TIMEOUT_CYCLES, cycle_count);
         tan_cycles = cycle_count;
