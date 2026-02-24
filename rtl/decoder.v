@@ -943,23 +943,6 @@ endcase
                 // Note: Sparse MMA operations are now handled under OP_MMA with func[5]=1
                 // Note: TCGEN05 operations are now handled under OP_MMA with func[4]=1
 
-                //============================================================
-                // Phase 4.2: Cache Policy and Address Space Instructions
-                // Consolidated: createpolicy, applypriority, discard, isspacep, mapa, getctarank
-                //============================================================
-                `OP_CACHE_POLICY: begin
-                    // All cache policy and address space operations use func codes
-                    cache_policy_op <= 1'b1;
-                    reg_write <= 1'b1;
-                    // isspacep also writes predicate
-                    if (inst_func == `CACHE_ISSPACEP) begin
-                        pred_write <= 1'b1;
-                    end
-                    `ifdef SIMULATION
-                    $display("[DECODER] CACHE_POLICY: func=%0d", inst_func);
-                    `endif
-                end
-
                 `OP_NOP: begin
                     // 空操作，不设置任何控制信号
                 end

@@ -59,6 +59,10 @@ class Opcode(IntEnum):
     MOV_IMM = 0b110000
     ALU_IMM = 0b110001
     MBARRIER = 0b110010
+    CACHE_POLICY = 0b110100
+    ST_ASYNC = 0b111000
+    MULTIMEM = 0b111001
+    BARRIER_CLUSTER = 0b111010
     NOP = 0b111111
 
 # SHFL功能码 - matches gpu_defines.vh
@@ -95,6 +99,25 @@ class CpAsyncFunc(IntEnum):
     WAIT_ALL = 0b000100   # cp.async.wait_all
     BULK = 0b001000       # cp.async.bulk
     BULK_TENSOR = 0b001001  # cp.async.bulk.tensor (TMA)
+
+class StAsyncFunc(IntEnum):
+    GLOBAL = 0b000000
+    SHARED = 0b000001
+    COMMIT = 0b000010
+    WAIT = 0b000011
+
+class MultimemFunc(IntEnum):
+    LD = 0b000000
+    ST = 0b000001
+    RED = 0b000010
+
+class CachePolicyFunc(IntEnum):
+    CREATEPOLICY = 0b000000
+    APPLYPRIORITY = 0b000001
+    DISCARD = 0b000010
+    ISSPACEP = 0b000100
+    MAPA = 0b000101
+    GETCTARANK = 0b000110
 
 # WGMMA功能码
 class WgmmaFunc(IntEnum):
@@ -395,6 +418,10 @@ class RalphGPUSimulator:
         # 统计
         self.cycle_count = 0
         self.instruction_count = 0
+
+        # Cache policy state (FRM-level lightweight model)
+        self.cache_policy_slots: Dict[int, int] = {}
+        self.cache_line_policy: Dict[int, int] = {}
 
     def load_program(self, hex_file: str):
         """从hex文件加载程序"""
@@ -1305,6 +1332,69 @@ class RalphGPUSimulator:
                         val = self.global_memory.get(src_addr + byte_off, 0)
                         self.shared_memory[sm_id][dst_addr + byte_off] = val
                 # COMMIT/WAIT/WAIT_ALL are no-ops in instant FRM
+
+            elif opcode == Opcode.ST_ASYNC:
+                # st.async (FRM: complete immediately)
+                if func == StAsyncFunc.GLOBAL:
+                    addr = thread.registers[ra]
+                    self.global_memory[addr] = thread.registers[rb] & 0xFFFFFFFF
+                elif func == StAsyncFunc.SHARED:
+                    addr = thread.registers[ra]
+                    self.shared_memory[sm_id][addr] = thread.registers[rb] & 0xFFFFFFFF
+                # COMMIT/WAIT are ordering controls in RTL, no-op in instant FRM
+
+            elif opcode == Opcode.CACHE_POLICY:
+                # Cache policy operations are modeled once per warp in FRM
+                if thread.tid == 0:
+                    leader = warp.threads[0]
+                    if func == CachePolicyFunc.CREATEPOLICY:
+                        addr = leader.registers[ra]
+                        priority = leader.registers[rb] & 0xFF
+                        policy_id = rc & 0x7
+                        token = ((0xCA << 24) | (priority << 16) | policy_id) & 0xFFFFFFFF
+                        self.cache_policy_slots[policy_id] = priority
+                        self.cache_line_policy[addr] = policy_id
+                        for t in warp.threads:
+                            if t.active:
+                                t.registers[rd] = token
+                    elif func == CachePolicyFunc.APPLYPRIORITY:
+                        addr = leader.registers[ra]
+                        token = leader.registers[rb] & 0xFFFFFFFF
+                        policy_id = (token & 0x7) if ((token >> 24) & 0xFF) == 0xCA else (rc & 0x7)
+                        self.cache_line_policy[addr] = policy_id
+                    elif func == CachePolicyFunc.DISCARD:
+                        addr = leader.registers[ra]
+                        self.cache_line_policy.pop(addr, None)
+                    # Other cache policy funcs are no-ops for now
+                    break
+
+            elif opcode == Opcode.MULTIMEM:
+                # multimem modeled once per warp to avoid 32x duplicated side effects
+                if thread.tid == 0:
+                    leader = warp.threads[0]
+                    addr_val = leader.registers[ra] & 0xFFFFFFFF
+                    target_mask = (addr_val >> 24) & 0xFF
+                    smem_addr = addr_val & 0x00FFFFFF
+                    target_local = (target_mask == 0) or ((target_mask >> sm_id) & 0x1)
+
+                    if func == MultimemFunc.LD:
+                        value = self.shared_memory[sm_id].get(smem_addr, 0)
+                        for t in warp.threads:
+                            if t.active:
+                                t.registers[rd] = value & 0xFFFFFFFF
+                    elif func == MultimemFunc.ST:
+                        if target_local:
+                            self.shared_memory[sm_id][smem_addr] = leader.registers[rb] & 0xFFFFFFFF
+                    elif func == MultimemFunc.RED:
+                        if target_local:
+                            old = self.shared_memory[sm_id].get(smem_addr, 0)
+                            addend = leader.registers[rb] & 0xFFFFFFFF
+                            self.shared_memory[sm_id][smem_addr] = (old + addend) & 0xFFFFFFFF
+                    break
+
+            elif opcode == Opcode.BARRIER_CLUSTER:
+                # Single-SM FRM has no cross-SM topology; treat as synchronization no-op
+                pass
 
             elif opcode == Opcode.WGMMA_MMA:
                 # WGMMA mma_async - stub (no-op in FRM)

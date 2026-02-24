@@ -1900,6 +1900,201 @@ class BranchTestGenerator:
         return tests
 
 
+
+class B300TestGenerator:
+    """Generate B300 feature tests (st.async/multimem/barrier.cluster/cache policy)."""
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def gen_st_async_tests(self) -> List[TestCase]:
+        tests = []
+
+        tests.append(TestCase(
+            name="st_async_global_000",
+            category="b300",
+            ptx_code=[
+                "mov.u32 r1, 256",
+                "mov.u32 r2, 4660",
+                "st.async.global [r1], r2",
+                "ld.global.u32 r3, [r1]",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 0x00001234}
+        ))
+
+        tests.append(TestCase(
+            name="st_async_shared_000",
+            category="b300",
+            ptx_code=[
+                "mov.u32 r1, 64",
+                "mov.u32 r2, 22136",
+                "st.async.shared [r1], r2",
+                "ld.shared.u32 r3, [r1]",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 0x00005678}
+        ))
+
+        tests.append(TestCase(
+            name="st_async_commit_wait_000",
+            category="b300",
+            ptx_code=[
+                "mov.u32 r1, 7",
+                "st.async.commit",
+                "st.async.wait 1",
+                "add.s32 r2, r1, r1",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={2: 0x0000000E}
+        ))
+
+        return tests
+
+    def gen_cache_policy_tests(self) -> List[TestCase]:
+        tests = []
+
+        tests.append(TestCase(
+            name="cache_createpolicy_evict_first_000",
+            category="b300",
+            ptx_code=[
+                "mov.u32 r1, 0",
+                "mov.u32 r2, 2",
+                "createpolicy r3, [r1], r2, 1",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 0xCA020001}
+        ))
+
+        tests.append(TestCase(
+            name="cache_createpolicy_evict_last_000",
+            category="b300",
+            ptx_code=[
+                "mov.u32 r1, 0",
+                "mov.u32 r2, 3",
+                "createpolicy r3, [r1], r2, 2",
+                "applypriority [r1], r3, 1",
+                "discard [r1]",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 0xCA030002}
+        ))
+
+        tests.append(TestCase(
+            name="cache_createpolicy_evict_normal_000",
+            category="b300",
+            ptx_code=[
+                "mov.u32 r1, 0",
+                "mov.u32 r2, 1",
+                "createpolicy r3, [r1], r2, 0",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 0xCA010000}
+        ))
+
+        return tests
+
+    def gen_multimem_tests(self) -> List[TestCase]:
+        tests = []
+
+        tests.append(TestCase(
+            name="multimem_ld_000",
+            category="b300",
+            ptx_code=[
+                "mov.u32 r10, 128",
+                "mov.u32 r11, 21930",
+                "st.shared.u32 [r10], r11",
+                "mov.u32 r1, 16777344",
+                "multimem.ld r3, [r1]",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 0x000055AA}
+        ))
+
+        tests.append(TestCase(
+            name="multimem_st_000",
+            category="b300",
+            ptx_code=[
+                "mov.u32 r1, 16777348",
+                "mov.u32 r2, 48879",
+                "multimem.st [r1], r2",
+                "mov.u32 r10, 132",
+                "ld.shared.u32 r3, [r10]",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 0x0000BEEF}
+        ))
+
+        tests.append(TestCase(
+            name="multimem_red_add_000",
+            category="b300",
+            ptx_code=[
+                "mov.u32 r10, 136",
+                "mov.u32 r11, 5",
+                "st.shared.u32 [r10], r11",
+                "mov.u32 r1, 16777352",
+                "mov.u32 r2, 7",
+                "multimem.red.add [r1], r2",
+                "ld.shared.u32 r3, [r10]",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 0x0000000C}
+        ))
+
+        return tests
+
+    def gen_barrier_cluster_tests(self) -> List[TestCase]:
+        tests = []
+
+        tests.append(TestCase(
+            name="barrier_cluster_arrive_wait_000",
+            category="b300",
+            ptx_code=[
+                "barrier.cluster.init",
+                "barrier.cluster.arrive",
+                "barrier.cluster.wait",
+                "mov.u32 r1, 9",
+                "add.s32 r2, r1, r1",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={2: 0x00000012}
+        ))
+
+        tests.append(TestCase(
+            name="barrier_cluster_sync_000",
+            category="b300",
+            ptx_code=[
+                "barrier.cluster.init",
+                "barrier.cluster.sync",
+                "mov.u32 r1, 21",
+                "add.s32 r2, r1, r1",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={2: 0x0000002A}
+        ))
+
+        return tests
+
+    def gen_all_b300_tests(self) -> List[TestCase]:
+        tests = []
+        tests.extend(self.gen_st_async_tests())
+        tests.extend(self.gen_multimem_tests())
+        tests.extend(self.gen_barrier_cluster_tests())
+        tests.extend(self.gen_cache_policy_tests())
+        return tests
+
+
 def write_test_case(test: TestCase, output_dir: Path):
     """Write a test case to PTX and expected results files"""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -2136,11 +2331,22 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(mbar_tests)} mbarrier tests")
 
+    # B300 feature tests
+    b300_gen = B300TestGenerator(seed=42)
+    b300_tests = b300_gen.gen_all_b300_tests()
+    print(f"Generated {len(b300_tests)} B300 feature tests")
+
+    success_count = 0
+    for test in b300_tests:
+        if write_test_case(test, output_dir / "b300"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(b300_tests)} B300 feature tests")
+
     # Summary
     total_tests = (len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) +
                    len(div_tests) + len(special_tests) + len(atom_tests) + len(sync_tests) +
                    len(param_tests) + len(membar_tests) + len(sfu_tests) + len(fp16_tests) +
-                   len(fp64_tests) + len(cvt_tests) + len(mbar_tests))
+                   len(fp64_tests) + len(cvt_tests) + len(mbar_tests) + len(b300_tests))
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -2165,7 +2371,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "fp16", "fp64", "cvt", "mbarrier", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "fp16", "fp64", "cvt", "mbarrier", "b300", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -2254,6 +2460,11 @@ def main():
             tests = gen.gen_all_mbarrier_tests()
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "mbarrier"))
             print(f"Generated {success}/{len(tests)} mbarrier tests")
+        elif args.gen == "b300":
+            gen = B300TestGenerator(seed=args.seed)
+            tests = gen.gen_all_b300_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "b300"))
+            print(f"Generated {success}/{len(tests)} B300 feature tests")
     else:
         parser.print_help()
 
