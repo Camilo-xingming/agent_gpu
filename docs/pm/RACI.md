@@ -17,7 +17,7 @@
 |---|---|---|---|---|
 | 代码实现 | Coders | Lily | — | Jerry |
 | PR 提交 | Coders | Coders | — | Lily |
-| PR Review / Merge | Lily | Lily | Coders | Jerry |
+| PR Review / Merge | Lily (standup 自动触发) | Lily | Coders | Jerry |
 | Bug 修复 | Coders | Lily | — | Jerry |
 | 技术方案设计 | Coders | Lily | Jerry | — |
 
