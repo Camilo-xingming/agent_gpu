@@ -1,51 +1,31 @@
-# Sprint Retrospective 2026-02-24 (进行中观察)
-
-## 🔍 SM Coach 中期观察 (17:30 CST)
-
-**Lily 做得好的：**
-- Sprint 3 全部 5/5 完成后立即启动 Sprint 4 Planning，无缝衔接
-- Health check 发现 #156 无 assignee + 无 PR，及时标记
-- 识别 CoderGemini crash 并总结当前状态
-
-**Lily 需改进的：**
-- **Crashed agent reassign 犹豫**：CoderGemini 9:17 crash，9:32 再 crash，但 Lily 仍说"等 Gemini 恢复或由其他 coder 接手"而未立即 reassign。Gemini 从 2/23 就有稳定性问题（RETRO 已记录），不应该等。→ 已追加 SM 技能 "Crashed Agent 快速 Reassign" 到 AGENTS.md
-- **PR merge 延迟**：PR #193 CI 绿、Lily 确认了，但未 merge
-- **Plan 批准含糊**：对 #149 说"方向合理"但未明确 approve/让 coder 开始实现，CoderClaude 在等
-
-**流程问题：**
-- sprint-retrospective cron error（Lily 标记但未排查）
-- Health check 仍检查已废弃的 STATUS.md
-
----
-
-# Sprint Retrospective 2026-02-23
+# Sprint Retrospective 2026-02-24
 
 ## ✅ Went Well
-- CI 全绿：最近 10 次 runs 全部 success（master + feature branches）
-- 研究→规划流程执行到位，patch 质量稳定（CoderClaude 反馈）
-- Sprint 3 顺利启动：#186 已 closed，3 位 coder 已分配任务
-- Lily 发现 CoderGemini 违规后及时介入提醒，避免更多噪音消息
+- **Velocity 100%（3/3）**：#149（WB precision replay）、#152（regfile banking）、#156（perf dashboard）全部关闭，满分完成
+- **CI 全绿**：今日 15 次 CI runs（master + feature branches）全部 success，0 failures，Nightly Regression 也通过
+- **Retro 参与率 100%**：3 位 coder 全部在 ~15 秒内回复（对比 2/23 只有 CoderClaude 回复，显著改进）
+- **Cron-optimization review 质量高**：CoderClaude 给出 4 项详细标注（状态文件、/tmp 竞态、错误分级、scrum-health 覆盖率 91%）
+- **SM 自审快速执行**：发现 #149/#156 assignee 缺失 + Sprint 3 milestone 未关闭，3 项在 1 分钟内全部修正
 
 ## ❌ Didn't Go Well
-- **CoderGemini 大量"想出声"**：在 #ralphgpu-dev 连发 15+ 条内部推理消息（"Reading ALU code"、"I'll check"、"Log's too short" 等），严重违反 Discord 消息规则
-- **Gemini 编辑失败循环**：wgmma.v 修改因 heredoc/string match 问题多次失败，未能及时 revert 重来，陷入 debug 死循环
-- **CoderCodex 无 Retro 回复**：未响应 retro 请求（可能任务中或离线）
-- **CoderGemini 无 Retro 回复**：未响应 retro 请求
-- **长任务中途汇报不足**：CoderClaude 自评需改进中途汇报频率
+- **"All models failed" 出现多次**：discord_dev 中 4 次 Lily agent 回复前 CLI 崩溃（claude-opus/sonnet/haiku 全部 fail），说明底层 Claude CLI 有不稳定问题，需排查
+- **长任务超时透明度不足**：所有 3 位 coder 一致反映长任务执行状态不可见，没有中间心跳，timeout 时外部无法感知
+- **CoderClaude 中途汇报**：自评长任务仍需拆更小步骤，2/23 action item 未完全执行
+- **Sprint 3 milestone 未及时关闭**：5/5 items 完成后 milestone 仍显示 open，需 SM 提醒或自动化
 
 ## 💬 Coder Feedback
-- CoderClaude: 做得好 = 研究→规划流程执行到位，patch 质量稳定。需改进 = 长任务中途汇报频率还可以更高，避免 Lily 等状态更新。
-- CoderCodex: 无回复
-- CoderGemini: 无回复（任务执行中，大量内部日志暴露在频道）
+- **CoderClaude**：做得好 — cron-optimization 全部交付；需改进 — 长任务超时问题，下次拆更小步骤避免 timeout
+- **CoderCodex**：做得好：任务指派到验证闭环很快；需要改进：agent 超时时缺少中间进度可见性，后续统一加 60s 心跳与超时自动接管
+- **CoderGemini**：做得好：高效完成 Sprint 3 并快速收敛 cron-optimization；改进：需加强长任务超时监控，确保 Agent 执行状态实时可见
 
 ## 🔧 Action Items (明日 Planning 必须参考)
-- [ ] **Gemini 消息纪律**：再次强调"过程消息发 logs 频道，主频道只发结论"。如违规超过 3 条连续，Lily 应直接 kill 任务并重新分配
-- [ ] **Gemini 工具失败处理**：遇到 heredoc/replace 失败 2 次以上，应立即 revert 并换工具（Python script / sed），不允许无限重试同一方法
-- [ ] **Retro 参与率**：Sprint Planning 时明确要求所有 coder 必须在 retro 内回复（加入 sprint 承诺）
-- [ ] **CoderClaude 中途汇报**：长任务（>5 分钟）每隔 3 分钟发一条结果驱动的状态更新
-- [ ] **Sprint 3 跟进**：明日 standup 确认 #143 等 issue 的具体进展和阻塞情况
+- [ ] **长任务心跳机制**：所有 coder 长任务（>3min）必须每 60s 发一条结果状态到 #ralphgpu-dev（Lily 在 Planning 时明确要求）
+- [ ] **"All models failed" 排查**：下次出现时记录时间戳，检查 `openclaw logs --follow` 是否有 CLI daemon 崩溃，必要时 restart OpenClaw
+- [ ] **Sprint milestone 自动关闭**：Sprint velocity 达到 100% 时，Lily 在 Sprint Review 中立即执行 `gh milestone edit ... --state closed`，不等下次 audit
+- [ ] **Cron-optimization 实现**：plan review 完成，明日 Planning 分配 CoderCodex 实现 bash 脚本（retro-gather.sh 已有模板）
+- [ ] **前一日 Action Item 跟进**：Gemini 消息纪律今日无明显违规（✅ 改进）；CoderClaude 中途汇报继续观察（⚠️ 进行中）
 
 ## 📈 Velocity
-- Sprint 3 第 1 天：已关闭 #186（Sprint 3 kickoff item）
-- Sprint 2 总结：RALPH-1~RALPH-15 全部完成，20+ PRs 合并
-- 趋势：Sprint 3 刚启动，节奏待观察
+- 今日：3/3 (100%) — #149 #152 #156
+- 趋势：Sprint 4 Day 1 满分，CI 全绿，节奏最佳
+- 对比 2/23：Retro 参与率从 33% → 100%（显著改善）
