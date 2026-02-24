@@ -14,6 +14,25 @@
 | memory-optimization-reference.md | 内存优化参考 | Coders | Coders | 内存子系统优化时 | memory, optimization |
 | performance-verification-plan.md | 性能验证计划 | Coders | Coders/Jerry | 性能相关 sprint | performance, verification |
 
+## pm/ 子目录 — 项目管理文档
+
+| 文件 | 用途 | 写者 | 读者 | 何时读 | 关键词 |
+|------|------|------|------|--------|--------|
+| pm/README.md | PM 文档索引 | Jerry/SM Coach | 所有人 | 查找 PM 文档时 | pm, index |
+| pm/RACI.md | 职责分配矩阵 (R/A/C/I) | Jerry/SM Coach | 所有人 | 职责不清时 | raci, roles, responsibility |
+| pm/DoD.md | Definition of Done（PR 级 + Sprint 级） | Jerry/SM Coach | Lily + Coders | PR review / Sprint Review | dod, done, criteria |
+| pm/communication-plan.md | 沟通计划：频道矩阵、升级路径、标注规则 | Jerry/SM Coach | 所有人 | 新 agent 上线 / 沟通问题时 | communication, discord, escalation |
+| pm/decision-log.md | 决策日志：重要技术和流程决策追溯 | Jerry/Lily | 所有人 | 追溯决策原因时 | decision, log, why |
+| pm/velocity.md | Velocity 追踪：每 Sprint 计划/完成统计 | Lily (review cron) | Jerry/Lily | Sprint Review / Planning | velocity, sprint, metrics |
+
+## pm/checklists/ 子目录 — 操作清单（来自 RETRO lesson learned）
+
+| 文件 | 用途 | 写者 | 读者 | 何时读 | 关键词 |
+|------|------|------|------|--------|--------|
+| pm/checklists/pr-submission.md | PR 提交前自检 | SM Coach / RETRO | Coders | 提 PR 前 | pr, checklist, submission |
+| pm/checklists/sprint-planning.md | Sprint Planning 检查项 | SM Coach / RETRO | Lily | Planning 前/中/后 | planning, checklist |
+| pm/checklists/post-incident.md | 故障恢复后清理确认 | SM Coach / RETRO | Lily / Jerry | 故障恢复后 | incident, recovery, cleanup |
+| pm/checklists/agent-onboarding.md | 新 agent 上线配置检查 | SM Coach / RETRO | Jerry | 新增/切换 agent 时 | agent, onboarding, config |
 ## architecture/ 子目录
 
 | 文件 | 用途 | 写者 | 读者 | 关键词 |
