@@ -14,3 +14,4 @@
 | test_generator.py | 测试用例生成器 | Coders | Makefile | 新增测试时 | test, generator |
 | run_single_test.py | 单个测试运行器 | Coders | 手动 | 调试单个测试时 | test, runner |
 | verification_framework.py | 验证框架 | Coders | Makefile | 集成验证时 | verify, framework |
+| check-manifest.sh | CI 检查：MANIFEST.md 覆盖率（检测未列入的文件） | Jerry | CI (`manifest-check` job) | 每次 PR | ci, manifest, coverage |
