@@ -10,6 +10,9 @@
 | TESTING.md | 测试策略和方法 | Coders | Coders | 写新测试前 | test, strategy |
 | PTX_COMPATIBILITY.md | PTX 指令兼容性矩阵 | Coders | Coders | 新增指令时 | ptx, compatibility |
 | WARP_INST_VALID_D1_STATUS.md | Warp 指令有效性分析 | Coders | Coders | 调试 pipeline 时 | warp, pipeline, debug |
+| ARCHITECTURE_GUIDE.md | RalphGPU æž¶æž„æŒ‡å — (Hopper/Blackwell) | Coders | Coders | è®¾è®¡åˆ†æž æ—¶ | architecture, guide |
+| ISA_REFERENCE.md | ISA æŒ‡ä»¤é›†å­è€ƒæ‰‹å†Œ | Coders | Coders | æ±‡ç¼–è°ƒè¯•æ—¶ | isa, reference |
+| PERF_DASHBOARD.md | æ€§èƒ½çœ‹æ ¿ (MatMul Benchmark) | Coders | Lily/Jerry | æ€§èƒ½åˆ†æž æ—¶ | performance, dashboard |
 | atomic-contention-analysis.md | Atomic 竞争分析 | Coders | Coders | atomic 相关 issue | atomic, contention |
 | memory-optimization-reference.md | 内存优化参考 | Coders | Coders | 内存子系统优化时 | memory, optimization |
 | performance-verification-plan.md | 性能验证计划 | Coders | Coders/Jerry | 性能相关 sprint | performance, verification |
