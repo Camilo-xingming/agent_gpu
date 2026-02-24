@@ -49,6 +49,7 @@ RTL_SRCS = \
     $(RTL_DIR)/texture_unit.v \
     $(RTL_DIR)/video_unit.v \
     $(RTL_DIR)/streaming_multiprocessor_v2.v \
+    $(RTL_DIR)/command_processor.v \
     $(RTL_DIR)/ralph_gpu_top.v \
     $(RTL_DIR)/memory_controller_hbm.v \
     $(RTL_DIR)/memory_interface_wide.v \
@@ -133,7 +134,7 @@ endif
 .PHONY: all sim wave clean assemble help test test_all
 .PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_warp test_sfu
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4 dashboard dashboard-check dashboard-baseline
-.PHONY: test_vector_add test_multi_sm test_memsys test_l1_data_cache test_phase2
+.PHONY: test_vector_add test_multi_sm test_command_processor test_memsys test_l1_data_cache test_phase2
 
 all: $(BUILD_DIR) sim
 
@@ -763,3 +764,15 @@ $(BUILD_DIR)/tb_sm_v2_perf_gemm64_wgmma_ptx.vvp: $(SM_V2_SRCS) $(TB_DIR)/tb_sm_v
 
 programs/gemm64_wgmma.hex: tests/gemm64_wgmma.ptx tools/ptx_assembler.py
 	$(PYTHON) tools/ptx_assembler.py tests/gemm64_wgmma.ptx -o programs/gemm64_wgmma.hex
+
+#----------------------------------------------------------------------------
+# Command Processor unit test
+#----------------------------------------------------------------------------
+test_command_processor: $(BUILD_DIR)/tb_command_processor.vvp
+	@echo "========================================"
+	@echo "Running Command Processor Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_command_processor.vvp
+
+$(BUILD_DIR)/tb_command_processor.vvp: $(RTL_DIR)/command_processor.v $(RTL_DIR)/gpu_defines.vh tb/tb_command_processor.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_command_processor.v $(RTL_DIR)/command_processor.v
