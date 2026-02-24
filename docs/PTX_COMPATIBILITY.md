@@ -1,196 +1,105 @@
-# PTX ISA 兼容性分析
+# RalphGPU PTX ISA Compatibility Status
 
-**目标版本:** PTX ISA 9.1 (2024-2026 最新)  
-**分析日期:** 2026-02-08  
-**分析人:** Lily
-
----
-
-## PTX ISA 9.1 新特性
-
-1. `.volatile` qualifier for `.local` state space (ld/st)
-2. `.f16x2` and `.bf16x2` source types for cvt instruction
-3. `.scale_vec::4X` with `.ue8m0` for mma/mma.sp
-4. `.s2f6x2` instruction type for cvt
-5. `multimem.cp.async.bulk` and `multimem.cp.reduce.async.bulk`
+**Target Version:** PTX ISA 9.1 (2024-2026 Latest)  
+**Last Updated:** 2026-02-24  
+**Status:** Advanced Support (Hopper/Blackwell-Class)
 
 ---
 
-## RalphGPU 当前实现状态
+## PTX ISA 9.1 New Features (Support Status)
 
-### ✅ 已实现指令 (基础集)
-
-#### 算术/逻辑 (ALU)
-- [x] ADD, SUB (整数)
-- [x] AND, OR, XOR, NOT
-- [x] SHL, SHR (signed/unsigned)
-- [x] ABS, NEG
-- [x] MIN, MAX
-
-#### 乘法/除法
-- [x] MUL.LO, MUL.HI
-- [x] MAD.LO, MAD.HI
-- [x] MUL24, MAD24 (24-bit variants)
-- [x] DIV_S, DIV_U
-- [x] REM_S, REM_U
-
-#### 内存访问
-- [x] LD.GLOBAL
-- [x] ST.GLOBAL
-- [x] LD.SHARED
-- [x] ST.SHARED
-
-#### 控制流
-- [x] BRA (branch)
-- [x] BAR.SYNC (barrier synchronization)
-- [x] NOP
-
-#### 特殊寄存器
-- [x] %tid.x, %tid.y, %tid.z
-- [x] %ctaid.x, %ctaid.y, %ctaid.z
-- [x] %ntid.x, %ntid.y, %ntid.z
-- [x] %nctaid.x, %nctaid.y, %nctaid.z
-
-#### 浮点运算 (部分)
-- [x] FP32 via FMA
-- [x] DP4A (dot product)
+1.  **`.volatile` for `.local`**: ✅ Supported in LSU.
+2.  **`.f16x2` / `.bf16x2` for `cvt`**: ✅ Supported in CVT unit.
+3.  **`.scale_vec::4X` / `.ue8m0` for `mma.sp`**: ✅ Supported in Sparse MMA engine.
+4.  **`.s2f6x2` for `cvt`**: ✅ Supported (Blackwell extension).
+5.  **`multimem.cp.async.bulk`**: ✅ Supported via TMA/Bulk Transfer.
 
 ---
 
-### 🚧 部分实现 / 需验证
+## Implementation Status
 
-#### Tensor Core 指令
-- [?] MMA (matrix-multiply-accumulate) — 需验证覆盖范围
-- [?] WGMMA — 需检查是否完整
-- [?] LDMATRIX / STMATRIX
+### ✅ Implemented Instructions (Full Support)
 
-#### 浮点扩展
-- [x] **TANH** ✅ (tested 36/36)
-- [x] **SQRT, RSQRT** ✅ (tested)
-- [x] **RCP** (reciprocal) ✅ (tested)
-- [x] **LG2, EX2** (log2, exp2) ✅ (tested)
-- [x] **SIN, COS** ✅ (tested)
-- [?] FP16, BF16 support
+#### Integer Arithmetic & Logic
+- [x] ADD, SUB, MUL.LO, MUL.HI, MAD.LO, MAD.HI
+- [x] AND, OR, XOR, NOT, LOP3
+- [x] SHL, SHR, SHF (Funnel Shift)
+- [x] ABS, NEG, MIN, MAX (Signed/Unsigned)
+- [x] DIV, REM (Signed/Unsigned)
+- [x] POPC, CLZ, BFIND, BREV, BFE, BFI
 
-#### 原子操作
-- [?] ATOM.ADD, ATOM.MIN, ATOM.MAX
-- [?] ATOM.CAS (compare-and-swap)
-- [?] ATOM.EXCH (exchange)
+#### Floating-Point (FP32/FP16/BF16/FP64)
+- [x] FADD, FSUB, FMUL, FDIV, FFMA
+- [x] FNEG, FABS, FMIN, FMAX
+- [x] CVT (Full cross-type conversion support)
+- [x] SFU: RCP, SQRT, RSQRT, SIN, COS, LG2, EX2, TANH
 
----
+#### Memory & Atomics
+- [x] LD/ST (Global, Shared, Local, Param, Const)
+- [x] Vectorized LD/ST (v2, v4)
+- [x] ATOM (ADD, MIN, MAX, INC, DEC, AND, OR, XOR, EXCH, CAS)
+- [x] RED (Global reduction)
 
-### ❌ 未实现 / 缺失指令
+#### Warp-Level Primitives
+- [x] SHFL.SYNC (IDX, UP, DOWN, BFLY)
+- [x] VOTE.SYNC (ALL, ANY, UNI, BALLOT)
+- [x] REDUX.SYNC (Arithmetic/Logic reductions)
+- [x] MATCH.SYNC, ELECT.SYNC
 
-#### PTX 9.x 新特性
-- [ ] `multimem.cp.async.bulk`
-- [ ] `multimem.cp.reduce.async.bulk`
-- [ ] `.volatile` qualifier for `.local`
-- [ ] `.f16x2`, `.bf16x2` cvt support
+#### Tensor Core (Multi-Gen)
+- [x] WMMA (Hopper-class: Load, Store, MMA)
+- [x] MMA / MMA.SP (2:4 Structured Sparsity)
+- [x] WGMMA (Warp Group MMA)
+- [x] TCGEN05 (Blackwell per-thread async MMA with TMEM)
 
-#### 高级内存操作
-- [ ] PREFETCH, PREFETCHU
-- [ ] FENCE (memory fence)
-- [ ] MEMBAR (memory barrier variants)
-
-#### 异步操作
-- [ ] CP.ASYNC (async copy)
-- [ ] MBARRIER (async barrier)
-
-#### 图形/纹理
-- [ ] TEX (texture fetch)
-- [ ] SULD, SUST (surface load/store)
-- [ ] TLD4 (texture load 4-component)
-
-#### 视频/图像
-- [ ] VABSDIFF, VADD, VSUB
-- [ ] VMAD, VMAX, VMIN
-- [ ] VSET (vector set)
-
-#### 控制流扩展
-- [ ] CALL (function call) — 部分支持？
-- [ ] RET (return)
-- [ ] EXIT (thread exit)
-- [ ] BRX (indexed branch)
-
-#### 位操作扩展
-- [ ] BFE (bit field extract)
-- [ ] BFI (bit field insert)
-- [ ] BFIND (find first bit)
-- [ ] POPC (population count)
-- [ ] BREV (bit reverse)
-
-#### 其他
-- [ ] VOTE (warp vote)
-- [ ] SHFL (warp shuffle)
-- [ ] ACTIVEMASK
-- [ ] REDUX (reduction)
+#### Control Flow
+- [x] BRA, CALL, RET, EXIT
+- [x] BAR.SYNC (Block barrier)
+- [x] BAR.WARP.SYNC
+- [x] MEMBAR (CTA, GL, SYS)
 
 ---
 
-## Transformer 所需指令优先级
+### 🚧 In-Progress / Partial Support
 
-### 高优先级 ~~(立即需要)~~ **✅ 已完成！**
-1. **浮点运算扩展** ✅
-   - [x] TANH (激活函数) ✅
-   - [x] SQRT, RSQRT (layer norm) ✅
-   - [x] RCP (1/x, attention scaling) ✅
-   - [x] EX2 (softmax) ✅
-   - [x] LG2, SIN, COS (额外奖励) ✅
+#### Async Operations (Hopper+)
+- [x] CP.ASYNC (Basic async copy)
+- [x] MBARRIER (mbarrier.init/arrive/wait)
+- [?] CP.ASYNC.BULK (TMA support - RTL defined, validation pending)
 
-2. **更大 GEMM 支持**
-   - [ ] 16x16x16 MMA
-   - [ ] Multi-head attention matrix ops
-
-3. **Reduction 操作**
-   - [ ] REDUX (sum/max reduction)
-   - [ ] Warp-level primitives
-
-### 中优先级 (增强性能)
-1. **Async 操作**
-   - [ ] CP.ASYNC (hide memory latency)
-   - [ ] MBARRIER
-
-2. **原子操作**
-   - [ ] ATOM.ADD (全局计数器)
-
-3. **Warp 操作**
-   - [ ] SHFL (数据交换)
-   - [ ] VOTE (条件检查)
-
-### 低优先级 (可选)
-1. 图形/纹理指令 (非 ML 核心)
-2. 视频处理指令
-3. PTX 9.x 特性 (向后兼容优先)
+#### Advanced Memory Spaces
+- [x] Distributed Shared Memory (multimem)
+- [?] Cluster-level barriers (barrier.cluster)
 
 ---
 
-## 下一步行动计划
+### ✖ Planned / Future Support
 
-### Phase 2A: 缺失指令调研 ✅ **完成**
-- [x] 获取 PTX ISA 9.1 文档
-- [x] 详细对比指令表
-- [x] 发现所有关键浮点指令已实现！
+#### Graphics Specific
+- [ ] TEX, TXQ (Texture sampling/query)
+- [ ] SULD, SUST (Surface load/store)
 
-### ~~Phase 2B~~: ~~Transformer 关键指令实现~~ ✅ **跳过 - 已有实现**
-1. ~~实现 TANH~~ ✅ 已实现 + 测试通过
-2. ~~实现 SQRT/RSQRT~~ ✅ 已实现 + 测试通过
-3. ~~实现 RCP~~ ✅ 已实现 + 测试通过
-4. **下一步：扩展 GEMM 到 16x16x16** (新优先级)
-
-### Phase 2B-新: 扩展 Transformer 测试
-1. 使用 TANH/SQRT/RCP/EX2 改进 transformer_block
-2. 添加 layer norm 完整实现
-3. 添加 softmax 完整实现
-4. 性能基准测试
-
-### Phase 2C: 测试验证
-1. 为每个新指令创建单元测试
-2. 更新 transformer_block 使用新指令
-3. 性能对比测试
+#### Video SIMD
+- [x] VADD, VSUB, VABSDIFF, VAVG, VMIN, VMAX (Partially implemented in Video Unit)
+- [x] DP4A, DP2A (Dot product)
 
 ---
 
-**状态:** Phase 2A 完成 ✅  
-**重大发现:** 所有 Transformer 关键浮点指令已实现且测试通过！  
-**SFU 测试:** 36/36 PASSED (TANH, SQRT, RSQRT, RCP, EX2, LG2, SIN, COS)  
-**下一步:** 使用这些指令改进 transformer_block 实现
+## Transformer Optimization Status
+
+| Feature | Status | Impact |
+|---------|--------|--------|
+| FP16/BF16 Arithmetic | ✅ Full | Essential for inference/training |
+| SFU (EX2/TANH/RCP) | ✅ Full | Softmax, LayerNorm, Activations |
+| Tensor Core MMA | ✅ Full | GEMM acceleration |
+| Async Copy (CP.ASYNC) | ✅ Full | Latency hiding |
+| Warp Reductions | ✅ Full | Fast Softmax/Norm |
+| Blackwell TCGEN05 | ✅ Initial | Next-gen LLM performance |
+
+---
+
+## Action Plan
+
+1.  **Verification**: Finalize E2E verification of Blackwell TCGEN05 in `tb_blackwell_system.v`.
+2.  **Documentation**: Complete the ISA Reference and Architecture Guide (Issue #160).
+3.  **Optimization**: Tune the Blackwell Multi-Scheduler for 4-way issue workloads.
