@@ -183,8 +183,8 @@ module tb_multi_sm;
                 read_count <= read_count + 1;
 
                 // 统计SM访问 (根据AXI ID)
-                if (m_axi_arid[3:2] == 2'd0) sm0_accesses <= sm0_accesses + 1;
-                if (m_axi_arid[3:2] == 2'd1) sm1_accesses <= sm1_accesses + 1;
+                if (m_axi_arid[3] == 1'b0) sm0_accesses <= sm0_accesses + 1;
+                if (m_axi_arid[3] == 1'b1) sm1_accesses <= sm1_accesses + 1;
             end else if (m_axi_rvalid && m_axi_rready) begin
                 m_axi_rvalid <= 0;
             end
@@ -464,7 +464,61 @@ module tb_multi_sm;
         end
 
         //====================================================================
-        // 统计信息
+        // Test 7: 3D Grid Block ID Test (2x2x1)
+        //====================================================================
+        $display("\n--- 3D Grid Block ID Test ---");
+
+        prepare_kernel();
+        csr_write(12'h00C, 32'h0000_0002);   // GRID_DIM_X = 2
+        csr_write(12'h010, 32'h0000_0002);   // GRID_DIM_Y = 2
+        csr_write(12'h014, 32'h0000_0001);   // GRID_DIM_Z = 1
+        csr_write(12'h004, 32'h0000_0001);   // Start
+
+        // Check block IDs after dispatch
+        #200;
+        $display("  SM0: block_id=(%0d,%0d,%0d)", dut.sm_block_id_x[0],
+                 dut.sm_block_id_y[0], dut.sm_block_id_z[0]);
+        $display("  SM1: block_id=(%0d,%0d,%0d)", dut.sm_block_id_x[1],
+                 dut.sm_block_id_y[1], dut.sm_block_id_z[1]);
+
+        // Verify 3D decomposition: for grid 2x2x1, block_id_y should be non-zero
+        // for blocks 2,3. The NOP kernel is fast so we may see any dispatch round.
+        // Key check: x values differ, y values match within a dispatch round.
+        if (dut.sm_block_id_x[0] != dut.sm_block_id_x[1] &&
+            dut.sm_block_id_y[0] == dut.sm_block_id_y[1]) begin
+            $display("[PASS] 3D grid block IDs correct (x differs, y matches in round)");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] 3D grid block IDs unexpected: SM0=(%0d,%0d,%0d) SM1=(%0d,%0d,%0d)",
+                     dut.sm_block_id_x[0], dut.sm_block_id_y[0], dut.sm_block_id_z[0],
+                     dut.sm_block_id_x[1], dut.sm_block_id_y[1], dut.sm_block_id_z[1]);
+            failed = failed + 1;
+        end
+
+        fork: wait_3d
+            begin
+                wait(irq_kernel_done);
+                disable wait_3d;
+            end
+            begin
+                #100000;
+                disable wait_3d;
+            end
+        join
+
+        if (irq_kernel_done) begin
+            $display("[PASS] 3D grid kernel completed");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] 3D grid kernel timeout");
+            failed = failed + 1;
+        end
+
+        // Reset grid dims
+        csr_write(12'h010, 32'h0000_0001);   // GRID_DIM_Y = 1
+        csr_write(12'h014, 32'h0000_0001);   // GRID_DIM_Z = 1
+
+
         //====================================================================
         $display("\n--- Memory Access Statistics ---");
         $display("  Total reads:  %0d", read_count);

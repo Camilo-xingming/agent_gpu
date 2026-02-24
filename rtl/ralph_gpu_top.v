@@ -153,6 +153,8 @@ module ralph_gpu_top #(
     // Block分配器状态
     //------------------------------------------------------------------------
     reg [31:0]  sm_block_id_x [0:NUM_SM-1];
+    reg [31:0]  sm_block_id_y [0:NUM_SM-1];
+    reg [31:0]  sm_block_id_z [0:NUM_SM-1];
     reg [NUM_SM-1:0] sm_busy;
     wire [NUM_SM-1:0] sm_done;
     reg [NUM_SM-1:0] sm_kernel_start;
@@ -212,6 +214,18 @@ module ralph_gpu_top #(
     wire        sm_axi_arready [0:NUM_SM-1];
     wire        sm_core_axi_awready [0:NUM_SM-1];
     wire        sm_core_axi_arready [0:NUM_SM-1];
+    wire        sm_axi_wready  [0:NUM_SM-1];
+    wire        sm_core_axi_wready [0:NUM_SM-1];
+
+    // Per-SM gated AXI response signals (response demux)
+    wire [AXI_ID_WIDTH-1:0] sm_resp_rid   [0:NUM_SM-1];
+    wire [AXI_DATA_WIDTH-1:0] sm_resp_rdata [0:NUM_SM-1];
+    wire [1:0]  sm_resp_rresp [0:NUM_SM-1];
+    wire        sm_resp_rlast [0:NUM_SM-1];
+    wire        sm_resp_rvalid [0:NUM_SM-1];
+    wire [AXI_ID_WIDTH-1:0] sm_resp_bid   [0:NUM_SM-1];
+    wire [1:0]  sm_resp_bresp [0:NUM_SM-1];
+    wire        sm_resp_bvalid [0:NUM_SM-1];
 
     //------------------------------------------------------------------------
     // TLB address translation for SM global memory AXI requests
@@ -465,18 +479,18 @@ module ralph_gpu_top #(
                             wb_beat_cnt       <= 5'b0;
                         end
 
-                        // Accumulate AXI read data beats for refill
-                        if (refill_pending && m_axi_rvalid) begin
-                            l1d_mem_rdata[refill_beat_cnt*32 +: 32] <= m_axi_rdata;
-                            if (m_axi_rlast || refill_beat_cnt == 5'd31) begin
+                        // Accumulate AXI read data beats for refill (per-SM gated)
+                        if (refill_pending && sm_resp_rvalid[sm]) begin
+                            l1d_mem_rdata[refill_beat_cnt*32 +: 32] <= sm_resp_rdata[sm];
+                            if (sm_resp_rlast[sm] || refill_beat_cnt == 5'd31) begin
                                 l1d_mem_valid  <= 1'b1;
                                 refill_pending <= 1'b0;
                             end
                             refill_beat_cnt <= refill_beat_cnt + 1;
                         end
 
-                        // Writeback completion (AXI write response)
-                        if (writeback_pending && m_axi_bvalid) begin
+                        // Writeback completion (per-SM gated write response)
+                        if (writeback_pending && sm_resp_bvalid[sm]) begin
                             l1d_mem_valid     <= 1'b1;
                             writeback_pending <= 1'b0;
                         end
@@ -495,8 +509,8 @@ module ralph_gpu_top #(
                 .kernel_start  (sm_kernel_start[sm]),
                 .kernel_pc     (kernel_pc_reg),
                 .block_id_x    (sm_block_id_x[sm]),
-                .block_id_y    (32'b0),
-                .block_id_z    (32'b0),
+                .block_id_y    (sm_block_id_y[sm]),
+                .block_id_z    (sm_block_id_z[sm]),
                 .block_dim_x   (block_dim_x),
                 .block_dim_y   (block_dim_y),
                 .block_dim_z   (block_dim_z),
@@ -532,10 +546,10 @@ module ralph_gpu_top #(
                 .m_axi_wstrb   (sm_core_axi_wstrb[sm]),
                 .m_axi_wlast   (sm_core_axi_wlast[sm]),
                 .m_axi_wvalid  (sm_core_axi_wvalid[sm]),
-                .m_axi_wready  (m_axi_wready),
-                .m_axi_bid     (m_axi_bid),
-                .m_axi_bresp   (m_axi_bresp),
-                .m_axi_bvalid  (m_axi_bvalid),
+                .m_axi_wready  (sm_core_axi_wready[sm]),
+                .m_axi_bid     (sm_resp_bid[sm]),
+                .m_axi_bresp   (sm_resp_bresp[sm]),
+                .m_axi_bvalid  (sm_resp_bvalid[sm]),
                 .m_axi_bready  (sm_core_axi_bready[sm]),
                 .m_axi_arid    (sm_core_axi_arid[sm]),
                 .m_axi_araddr  (sm_core_axi_araddr[sm]),
@@ -544,11 +558,11 @@ module ralph_gpu_top #(
                 .m_axi_arburst (sm_core_axi_arburst[sm]),
                 .m_axi_arvalid (sm_core_axi_arvalid[sm]),
                 .m_axi_arready (sm_core_axi_arready[sm]),
-                .m_axi_rid     (m_axi_rid),
-                .m_axi_rdata   (m_axi_rdata),
-                .m_axi_rresp   (m_axi_rresp),
-                .m_axi_rlast   (m_axi_rlast),
-                .m_axi_rvalid  (m_axi_rvalid),
+                .m_axi_rid     (sm_resp_rid[sm]),
+                .m_axi_rdata   (sm_resp_rdata[sm]),
+                .m_axi_rresp   (sm_resp_rresp[sm]),
+                .m_axi_rlast   (sm_resp_rlast[sm]),
+                .m_axi_rvalid  (sm_resp_rvalid[sm]),
                 .m_axi_rready  (sm_core_axi_rready[sm]),
 
                 // Performance counter outputs
@@ -599,6 +613,7 @@ module ralph_gpu_top #(
             assign sm_axi_rready[sm]  = sm_core_axi_rready[sm];
             assign sm_core_axi_awready[sm] = sm_axi_awready[sm];
             assign sm_core_axi_arready[sm] = sm_axi_arready[sm];
+            assign sm_core_axi_wready[sm]  = sm_axi_wready[sm];
 
             // L1D response is now handled by l1d_bypass or l1d_full above
         end
@@ -973,47 +988,131 @@ module ralph_gpu_top #(
     end
 
     //------------------------------------------------------------------------
-    // AXI仲裁 (简化：选择第一个活跃SM)
+    //------------------------------------------------------------------------
+    // AXI Round-Robin Arbiter with SM ID encoding
+    // High bits of AXI ID = SM index for correct response routing
     //------------------------------------------------------------------------
     localparam AXI_ARB_W = (NUM_SM > 1) ? $clog2(NUM_SM) : 1;
-    reg [AXI_ARB_W-1:0] axi_arb_sel;
-
+    reg [AXI_ARB_W-1:0] axi_rr_ptr;
     integer i;
+
+    // Write address channel round-robin
+    reg [AXI_ARB_W-1:0] axi_aw_sel;
+    reg axi_aw_valid;
     always @(*) begin
-        axi_arb_sel = 0;
-        for (i = 0; i < NUM_SM; i = i + 1) begin
-            if (sm_axi_awvalid[i] || sm_axi_arvalid[i]) begin
-                axi_arb_sel = i[AXI_ARB_W-1:0];
+        axi_aw_sel = axi_rr_ptr;
+        axi_aw_valid = 1'b0;
+        for (i = 0; i < NUM_SM; i = i + 1) begin : aw_arb_loop
+            integer idx_aw;
+            idx_aw = ({{(32-AXI_ARB_W){1'b0}}, axi_rr_ptr} + i + 1);
+            if (idx_aw >= NUM_SM) idx_aw = idx_aw - NUM_SM;
+            if (!axi_aw_valid && sm_axi_awvalid[idx_aw]) begin
+                axi_aw_sel = idx_aw[AXI_ARB_W-1:0];
+                axi_aw_valid = 1'b1;
             end
         end
     end
 
+    // Read address channel round-robin
+    reg [AXI_ARB_W-1:0] axi_ar_sel;
+    reg axi_ar_valid;
+    always @(*) begin
+        axi_ar_sel = axi_rr_ptr;
+        axi_ar_valid = 1'b0;
+        for (i = 0; i < NUM_SM; i = i + 1) begin : ar_arb_loop
+            integer idx_ar;
+            idx_ar = ({{(32-AXI_ARB_W){1'b0}}, axi_rr_ptr} + i + 1);
+            if (idx_ar >= NUM_SM) idx_ar = idx_ar - NUM_SM;
+            if (!axi_ar_valid && sm_axi_arvalid[idx_ar]) begin
+                axi_ar_sel = idx_ar[AXI_ARB_W-1:0];
+                axi_ar_valid = 1'b1;
+            end
+        end
+    end
+
+    // Update round-robin pointer
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            axi_rr_ptr <= {AXI_ARB_W{1'b0}};
+        end else begin
+            if (axi_aw_valid && m_axi_awready)
+                axi_rr_ptr <= axi_aw_sel;
+            else if (axi_ar_valid && m_axi_arready)
+                axi_rr_ptr <= axi_ar_sel;
+        end
+    end
+
+    // W channel owner tracking - locks W mux to SM whose AW was accepted
+    reg [AXI_ARB_W-1:0] axi_w_owner;
+    reg axi_w_active;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            axi_w_owner  <= {AXI_ARB_W{1'b0}};
+            axi_w_active <= 1'b0;
+        end else begin
+            if (!axi_w_active && axi_aw_valid && m_axi_awready) begin
+                axi_w_owner  <= axi_aw_sel;
+                axi_w_active <= 1'b1;
+            end else if (axi_w_active && m_axi_wvalid && m_axi_wready && m_axi_wlast) begin
+                axi_w_active <= 1'b0;
+            end
+        end
+    end
+
+    // W channel select: locked owner during burst, else follows AW arbiter
+    wire [AXI_ARB_W-1:0] axi_w_sel = axi_w_active ? axi_w_owner : axi_aw_sel;
+
+    // Per-SM ready gating
     generate
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_ready_gen
-            assign sm_axi_awready[sm] = (axi_arb_sel == sm[AXI_ARB_W-1:0]) ? m_axi_awready : 1'b0;
-            assign sm_axi_arready[sm] = (axi_arb_sel == sm[AXI_ARB_W-1:0]) ? m_axi_arready : 1'b0;
+            assign sm_axi_awready[sm] = (axi_aw_sel == sm[AXI_ARB_W-1:0] && axi_aw_valid) ? m_axi_awready : 1'b0;
+            assign sm_axi_arready[sm] = (axi_ar_sel == sm[AXI_ARB_W-1:0] && axi_ar_valid) ? m_axi_arready : 1'b0;
+            assign sm_axi_wready[sm]  = (axi_w_sel == sm[AXI_ARB_W-1:0] && (axi_w_active || axi_aw_valid)) ? m_axi_wready : 1'b0;
         end
     endgenerate
 
-    assign m_axi_awid    = sm_axi_awid[axi_arb_sel];
-    assign m_axi_awaddr  = sm_axi_awaddr[axi_arb_sel];
-    assign m_axi_awlen   = sm_axi_awlen[axi_arb_sel];
-    assign m_axi_awsize  = sm_axi_awsize[axi_arb_sel];
-    assign m_axi_awburst = sm_axi_awburst[axi_arb_sel];
-    assign m_axi_awvalid = sm_axi_awvalid[axi_arb_sel];
-    assign m_axi_wdata   = sm_axi_wdata[axi_arb_sel];
-    assign m_axi_wstrb   = sm_axi_wstrb[axi_arb_sel];
-    assign m_axi_wlast   = sm_axi_wlast[axi_arb_sel];
-    assign m_axi_wvalid  = sm_axi_wvalid[axi_arb_sel];
-    assign m_axi_bready  = sm_axi_bready[axi_arb_sel];
-    assign m_axi_arid    = sm_axi_arid[axi_arb_sel];
-    assign m_axi_araddr  = sm_axi_araddr[axi_arb_sel];
-    assign m_axi_arlen   = sm_axi_arlen[axi_arb_sel];
-    assign m_axi_arsize  = sm_axi_arsize[axi_arb_sel];
-    assign m_axi_arburst = sm_axi_arburst[axi_arb_sel];
-    assign m_axi_arvalid = sm_axi_arvalid[axi_arb_sel];
-    assign m_axi_rready  = sm_axi_rready[axi_arb_sel];
+    // Write channel output: encode SM ID in upper AXI ID bits
+    assign m_axi_awid    = {axi_aw_sel[SM_ID_W-1:0], sm_axi_awid[axi_aw_sel][AXI_ID_WIDTH-SM_ID_W-1:0]};
+    assign m_axi_awaddr  = sm_axi_awaddr[axi_aw_sel];
+    assign m_axi_awlen   = sm_axi_awlen[axi_aw_sel];
+    assign m_axi_awsize  = sm_axi_awsize[axi_aw_sel];
+    assign m_axi_awburst = sm_axi_awburst[axi_aw_sel];
+    assign m_axi_awvalid = axi_aw_valid ? sm_axi_awvalid[axi_aw_sel] : 1'b0;
+    assign m_axi_wdata   = sm_axi_wdata[axi_w_sel];
+    assign m_axi_wstrb   = sm_axi_wstrb[axi_w_sel];
+    assign m_axi_wlast   = sm_axi_wlast[axi_w_sel];
+    assign m_axi_wvalid  = (axi_w_active || axi_aw_valid) ? sm_axi_wvalid[axi_w_sel] : 1'b0;
 
+    // Read channel output: encode SM ID in upper AXI ID bits
+    assign m_axi_arid    = {axi_ar_sel[SM_ID_W-1:0], sm_axi_arid[axi_ar_sel][AXI_ID_WIDTH-SM_ID_W-1:0]};
+    assign m_axi_araddr  = sm_axi_araddr[axi_ar_sel];
+    assign m_axi_arlen   = sm_axi_arlen[axi_ar_sel];
+    assign m_axi_arsize  = sm_axi_arsize[axi_ar_sel];
+    assign m_axi_arburst = sm_axi_arburst[axi_ar_sel];
+    assign m_axi_arvalid = axi_ar_valid ? sm_axi_arvalid[axi_ar_sel] : 1'b0;
+
+    // Response routing: extract SM ID from AXI ID high bits
+    wire [SM_ID_W-1:0] resp_rd_sm = m_axi_rid[AXI_ID_WIDTH-1 -: SM_ID_W];
+    wire [SM_ID_W-1:0] resp_wr_sm = m_axi_bid[AXI_ID_WIDTH-1 -: SM_ID_W];
+
+    // bready/rready: route to target SM
+    assign m_axi_bready = sm_axi_bready[resp_wr_sm];
+    assign m_axi_rready = sm_axi_rready[resp_rd_sm];
+
+    // Response demux: gate valid signals to target SM only
+    generate
+        for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_resp_demux
+            assign sm_resp_rvalid[sm] = m_axi_rvalid && (resp_rd_sm == sm[SM_ID_W-1:0]);
+            assign sm_resp_rid[sm]    = {{SM_ID_W{1'b0}}, m_axi_rid[AXI_ID_WIDTH-SM_ID_W-1:0]};
+            assign sm_resp_rdata[sm]  = m_axi_rdata;
+            assign sm_resp_rresp[sm]  = m_axi_rresp;
+            assign sm_resp_rlast[sm]  = m_axi_rlast;
+            assign sm_resp_bvalid[sm] = m_axi_bvalid && (resp_wr_sm == sm[SM_ID_W-1:0]);
+            assign sm_resp_bid[sm]    = {{SM_ID_W{1'b0}}, m_axi_bid[AXI_ID_WIDTH-SM_ID_W-1:0]};
+            assign sm_resp_bresp[sm]  = m_axi_bresp;
+        end
+    endgenerate
     //------------------------------------------------------------------------
     // Kernel调度状态机
     //------------------------------------------------------------------------
@@ -1036,6 +1135,8 @@ module ralph_gpu_top #(
             sm_kernel_start   <= 0;
             for (i = 0; i < NUM_SM; i = i + 1) begin
                 sm_block_id_x[i] <= 32'b0;
+                sm_block_id_y[i] <= 32'b0;
+                sm_block_id_z[i] <= 32'b0;
             end
         end else begin
             sm_kernel_start <= 0;
@@ -1058,7 +1159,9 @@ module ralph_gpu_top #(
                         if (!sm_busy[i] && (next_block < total_blocks)) begin
                             sm_busy[i] <= 1'b1;
                             sm_kernel_start[i] <= 1'b1;
-                            sm_block_id_x[i] <= next_block;
+                            sm_block_id_x[i] <= next_block % grid_dim_x;
+                            sm_block_id_y[i] <= (next_block / grid_dim_x) % grid_dim_y;
+                            sm_block_id_z[i] <= next_block / (grid_dim_x * grid_dim_y);
                             next_block = next_block + 1;
                         end
                     end
