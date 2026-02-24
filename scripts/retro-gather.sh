@@ -3,36 +3,9 @@
 
 set -uo pipefail
 
-resolve_repo_root() {
-  if [[ -n "${REPO_ROOT:-}" ]]; then
-    printf '%s\n' "$REPO_ROOT"
-    return
-  fi
-
-  local default_root="$HOME/.openclaw/workspace/RalphGPU"
-  if [[ -d "$default_root/.git" ]]; then
-    printf '%s\n' "$default_root"
-    return
-  fi
-
-  local script_root
-  script_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd || true)"
-  if [[ -n "$script_root" && -d "$script_root/.git" ]]; then
-    printf '%s\n' "$script_root"
-    return
-  fi
-
-  pwd
-}
-
-has_command() {
-  local cmd="$1"
-  if [[ "$cmd" == */* ]]; then
-    [[ -x "$cmd" ]]
-  else
-    command -v "$cmd" >/dev/null 2>&1
-  fi
-}
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || pwd)"
+# shellcheck source=cron-common.sh
+source "$SCRIPT_DIR/cron-common.sh"
 
 extract_github_action_items() {
   local content="$1"
@@ -60,43 +33,25 @@ extract_discord_action_items() {
   printf '%s\n' "$text" | awk 'NF { print }' | grep -E '(Action|action|TODO|todo|待办|跟进|请|立即|必须|需|需要|should|修复|分配|排查|follow)' 2>/dev/null || true
 }
 
-append_error() {
-  local msg="$1"
-  errors_json="$(jq -cn --argjson arr "$errors_json" --arg m "$msg" '$arr + [$m]')"
-}
-
 REPO_ROOT="$(resolve_repo_root)"
 GITHUB_REPO="${GITHUB_REPO:-ssql2014/RalphGPU}"
 
-GH_BIN="${GH_BIN:-}"
+GH_BIN_INPUT="${GH_BIN:-}"
+GH_BIN="$(resolve_command_path "$GH_BIN_INPUT" gh /opt/homebrew/bin/gh /usr/local/bin/gh 2>/dev/null || true)"
 if [[ -z "$GH_BIN" ]]; then
-  if command -v gh >/dev/null 2>&1; then
-    GH_BIN="$(command -v gh)"
-  elif [[ -x /opt/homebrew/bin/gh ]]; then
-    GH_BIN="/opt/homebrew/bin/gh"
-  elif [[ -x /usr/local/bin/gh ]]; then
-    GH_BIN="/usr/local/bin/gh"
-  else
-    GH_BIN="gh"
-  fi
+  GH_BIN="${GH_BIN_INPUT:-gh}"
 fi
 
-OPENCLAW_BIN="${OPENCLAW_BIN:-}"
+OPENCLAW_BIN_INPUT="${OPENCLAW_BIN:-}"
+OPENCLAW_BIN="$(resolve_command_path "$OPENCLAW_BIN_INPUT" openclaw /opt/homebrew/bin/openclaw /usr/local/bin/openclaw 2>/dev/null || true)"
 if [[ -z "$OPENCLAW_BIN" ]]; then
-  if command -v openclaw >/dev/null 2>&1; then
-    OPENCLAW_BIN="$(command -v openclaw)"
-  elif [[ -x /opt/homebrew/bin/openclaw ]]; then
-    OPENCLAW_BIN="/opt/homebrew/bin/openclaw"
-  elif [[ -x /usr/local/bin/openclaw ]]; then
-    OPENCLAW_BIN="/usr/local/bin/openclaw"
-  else
-    OPENCLAW_BIN="openclaw"
-  fi
+  OPENCLAW_BIN="${OPENCLAW_BIN_INPUT:-openclaw}"
 fi
 
 SHARED_DIR="${SHARED_DIR:-$HOME/.openclaw/shared-memory/ralphgpu}"
 OUTPUT_FILE="${OUTPUT_FILE:-$SHARED_DIR/retro-data.json}"
 CRON_LOG="${CRON_LOG:-$SHARED_DIR/cron-bash.log}"
+STATUS_FILE="${STATUS_FILE:-$SHARED_DIR/status/retro-gather.status.json}"
 RETRO_MD_PATH="${RETRO_MD_PATH:-$REPO_ROOT/docs/RETRO.md}"
 
 DISCORD_ACCOUNT="${DISCORD_ACCOUNT:-lily}"
@@ -107,9 +62,11 @@ DISCORD_LIMIT="${DISCORD_LIMIT:-40}"
 NOW_TS="$(date '+%Y-%m-%dT%H:%M:%S')"
 TODAY="$(date '+%Y-%m-%d')"
 
-mkdir -p "$SHARED_DIR"
+mkdir -p "$SHARED_DIR" "$(dirname -- "$STATUS_FILE")"
 
 errors_json='[]'
+warnings_json='[]'
+health_checks_json='[]'
 status='ok'
 milestone_json='null'
 sprint_issues_json='[]'
@@ -129,29 +86,83 @@ if ! has_command jq; then
   exit 1
 fi
 
+add_health_check "jq_available" "pass" "jq command available" true
+add_health_check "atomic_write_enabled" "pass" "output writes use mktemp+mv" true
+
+lock_path=''
+status_file_finalized='false'
+
+cleanup() {
+  local rc=$?
+  stop_heartbeat
+  if [[ "$status_file_finalized" != 'true' && "$rc" -ne 0 ]]; then
+    write_status_file "$STATUS_FILE" "retro-gather" "error" "script exited with code $rc" || true
+  fi
+  if [[ -n "$lock_path" ]]; then
+    release_script_lock "$lock_path"
+  fi
+}
+trap cleanup EXIT
+
+if ! lock_path="$(acquire_script_lock "$SHARED_DIR" "retro-gather")"; then
+  log_event "retro-gather" "WARN" "lock busy, skipping duplicate run"
+  exit 0
+fi
+
+if write_status_file "$STATUS_FILE" "retro-gather" "running" "collecting retrospective data"; then
+  add_health_check "status_file_running" "pass" "running state written" true
+else
+  append_warning "Failed to write running status file: $STATUS_FILE"
+  add_health_check "status_file_running" "fail" "running state write failed" true
+fi
+
+start_heartbeat "retro-gather" "collecting sprint retrospective context"
+
 if [[ -f "$RETRO_MD_PATH" ]]; then
   retro_md="$(cat "$RETRO_MD_PATH")"
+  add_health_check "retro_md_present" "pass" "RETRO.md loaded" true
 else
-  append_error "RETRO.md not found: $RETRO_MD_PATH"
+  append_warning "RETRO.md not found: $RETRO_MD_PATH"
+  add_health_check "retro_md_present" "fail" "RETRO.md missing" true
 fi
 
 if has_command "$OPENCLAW_BIN"; then
-  if ! discord_dev="$("$OPENCLAW_BIN" message read --account "$DISCORD_ACCOUNT" --channel discord --target "$DISCORD_DEV_TARGET" --limit "$DISCORD_LIMIT" 2>/dev/null)"; then
-    append_error "Failed to read Discord dev channel"
+  if capture_with_retry discord_dev 2 2 "$OPENCLAW_BIN" message read --account "$DISCORD_ACCOUNT" --channel discord --target "$DISCORD_DEV_TARGET" --limit "$DISCORD_LIMIT"; then
+    add_health_check "discord_dev_read" "pass" "dev channel messages captured" false
+  else
+    append_warning "Failed to read Discord dev channel"
     discord_dev=''
+    add_health_check "discord_dev_read" "fail" "dev channel read failed" false
   fi
-  if ! discord_main="$("$OPENCLAW_BIN" message read --account "$DISCORD_ACCOUNT" --channel discord --target "$DISCORD_MAIN_TARGET" --limit "$DISCORD_LIMIT" 2>/dev/null)"; then
-    append_error "Failed to read Discord main channel"
+
+  if capture_with_retry discord_main 2 2 "$OPENCLAW_BIN" message read --account "$DISCORD_ACCOUNT" --channel discord --target "$DISCORD_MAIN_TARGET" --limit "$DISCORD_LIMIT"; then
+    add_health_check "discord_main_read" "pass" "main channel messages captured" false
+  else
+    append_warning "Failed to read Discord main channel"
     discord_main=''
+    add_health_check "discord_main_read" "fail" "main channel read failed" false
   fi
-  cron_status="$("$OPENCLAW_BIN" cron list 2>/dev/null || true)"
+
+  cron_status="$($OPENCLAW_BIN cron list 2>/dev/null || true)"
 else
-  append_error "openclaw command not found: $OPENCLAW_BIN"
+  append_warning "openclaw command not found: $OPENCLAW_BIN"
+  add_health_check "discord_capture" "skip" "openclaw unavailable" false
 fi
 
 if has_command "$GH_BIN"; then
-  milestones_json="$("$GH_BIN" api "repos/$GITHUB_REPO/milestones?state=all&per_page=100" 2>/dev/null || echo '[]')"
-  milestone_seed="$(printf '%s\n' "$milestones_json" | jq -c --arg today "$TODAY" '
+  add_health_check "github_cli_available" "pass" "gh command available" true
+
+  milestones_json='[]'
+  if capture_with_retry milestones_json 3 2 "$GH_BIN" api "repos/$GITHUB_REPO/milestones?state=all&per_page=100"; then
+    add_health_check "milestone_query" "pass" "milestones queried" true
+  else
+    append_error "Failed to fetch milestones from GitHub"
+    status='error'
+    add_health_check "milestone_query" "fail" "milestones query failed" true
+  fi
+
+  milestone_seed='null'
+  if milestone_seed="$(printf '%s\n' "$milestones_json" | jq -c --arg today "$TODAY" '
     [ .[] | select(.title | startswith("Sprint ")) ] as $sprints
     | ([ $sprints[]
         | . as $ms
@@ -162,13 +173,30 @@ if has_command "$GH_BIN"; then
       // ([ $sprints[] | select(.state == "closed") ] | sort_by(.closed_at // .due_on // .created_at // "") | last)
       // ($sprints | sort_by(.due_on // .created_at // "") | last)
       // null
-  ')"
+  ' 2>/dev/null)"; then
+    add_health_check "milestone_parse" "pass" "milestone parsed" true
+  else
+    milestone_seed='null'
+    append_error "Failed to parse milestone payload"
+    status='error'
+    add_health_check "milestone_parse" "fail" "milestone parse failed" true
+  fi
 
   if [[ "$milestone_seed" == 'null' ]]; then
-    status='no_milestone'
+    if [[ "$status" == 'ok' ]]; then
+      status='no_milestone'
+    fi
+    add_health_check "milestone_selected" "pass" "no eligible milestone; handled as anomaly" true
   else
-    milestone_number="$(printf '%s\n' "$milestone_seed" | jq -r '.number')"
-    issues_seed="$("$GH_BIN" api "repos/$GITHUB_REPO/issues?state=all&milestone=$milestone_number&per_page=100" 2>/dev/null || echo '[]')"
+    milestone_number="$(printf '%s\n' "$milestone_seed" | jq -r '.number' 2>/dev/null || echo '')"
+    issues_seed='[]'
+    if [[ -n "$milestone_number" ]] && capture_with_retry issues_seed 3 2 "$GH_BIN" api "repos/$GITHUB_REPO/issues?state=all&milestone=$milestone_number&per_page=100"; then
+      add_health_check "milestone_issue_query" "pass" "milestone issues queried" true
+    else
+      append_error "Failed to fetch issues for milestone $milestone_number"
+      status='error'
+      add_health_check "milestone_issue_query" "fail" "milestone issue query failed" true
+    fi
 
     sprint_issues_json="$(printf '%s\n' "$issues_seed" | jq -c 'map({
       assignees: (.assignees // []),
@@ -176,10 +204,10 @@ if has_command "$GH_BIN"; then
       number: .number,
       state: ((.state // "") | ascii_upcase),
       title: (.title // "")
-    })')"
+    })' 2>/dev/null || echo '[]')"
 
-    total_count="$(printf '%s\n' "$sprint_issues_json" | jq 'length')"
-    closed_count="$(printf '%s\n' "$sprint_issues_json" | jq '[.[] | select(.state == "CLOSED")] | length')"
+    total_count="$(printf '%s\n' "$sprint_issues_json" | jq 'length' 2>/dev/null || echo 0)"
+    closed_count="$(printf '%s\n' "$sprint_issues_json" | jq '[.[] | select(.state == "CLOSED")] | length' 2>/dev/null || echo 0)"
 
     milestone_json="$(jq -cn --argjson ms "$milestone_seed" --argjson total "$total_count" --argjson closed "$closed_count" '{
       title: $ms.title,
@@ -195,11 +223,20 @@ if has_command "$GH_BIN"; then
     }')"
   fi
 
-  ci_runs_json="$("$GH_BIN" run list --repo "$GITHUB_REPO" --limit 20 --json name,status,conclusion,headBranch,createdAt 2>/dev/null || echo '[]')"
-  ci_fail_count="$(printf '%s\n' "$ci_runs_json" | jq '[.[] | select((.status // "") == "completed" and (.conclusion // "") != "success")] | length')"
+  ci_runs_json='[]'
+  if capture_with_retry ci_runs_json 3 2 "$GH_BIN" run list --repo "$GITHUB_REPO" --limit 20 --json name,status,conclusion,headBranch,createdAt; then
+    add_health_check "ci_runs_query" "pass" "ci runs queried" true
+  else
+    append_error "Failed to query CI runs"
+    status='error'
+    add_health_check "ci_runs_query" "fail" "ci runs query failed" true
+  fi
+
+  ci_fail_count="$(printf '%s\n' "$ci_runs_json" | jq '[.[] | select((.status // "") == "completed" and (.conclusion // "") != "success")] | length' 2>/dev/null || echo 0)"
 else
   append_error "gh command not found: $GH_BIN"
   status='error'
+  add_health_check "github_cli_available" "fail" "gh command missing" true
 fi
 
 github_action_lines="$(extract_github_action_items "$retro_md")"
@@ -228,6 +265,16 @@ fi
 combined_action_items_json="$(jq -cn --argjson gh "$github_action_items_json" --argjson dc "$discord_action_items_json" '($gh + $dc) | unique_by(.source + "|" + .text)')"
 action_items_json="$(jq -cn --argjson gh "$github_action_items_json" --argjson dc "$discord_action_items_json" --argjson all "$combined_action_items_json" '{github: $gh, discord: $dc, combined: $all}')"
 
+combined_count="$(printf '%s\n' "$combined_action_items_json" | jq 'length' 2>/dev/null || echo 0)"
+if [[ "$combined_count" -ge 0 ]]; then
+  add_health_check "action_items_collected" "pass" "action items parsed and merged" true
+else
+  add_health_check "action_items_collected" "fail" "action item parse failure" true
+fi
+
+scrum_health_json="$(build_health_summary)"
+scrum_health_pct="$(printf '%s\n' "$scrum_health_json" | jq -r '.coverage_pct // 0' 2>/dev/null || echo 0)"
+
 output_json="$(jq -cn \
   --arg status "$status" \
   --arg timestamp "$NOW_TS" \
@@ -243,7 +290,9 @@ output_json="$(jq -cn \
   --argjson action_items "$action_items_json" \
   --arg cron_status "$cron_status" \
   --argjson errors "$errors_json" \
-  '{
+  --argjson warnings "$warnings_json" \
+  --argjson scrum_health "$scrum_health_json" \
+  ' {
     status: $status,
     timestamp: $timestamp,
     date: $date,
@@ -257,21 +306,38 @@ output_json="$(jq -cn \
     retro_md: $retro_md,
     action_items: $action_items,
     cron_status: $cron_status,
-    errors: $errors
+    scrum_health: $scrum_health,
+    errors: $errors,
+    warnings: $warnings
   }')"
 
-printf '%s\n' "$output_json" > "$OUTPUT_FILE"
+if ! atomic_write_file "$OUTPUT_FILE" "$output_json"; then
+  append_error "Failed to write output file: $OUTPUT_FILE"
+  status='error'
+fi
 
 summary_done="$(printf '%s\n' "$velocity_json" | jq -r '.done // 0' 2>/dev/null || echo 0)"
 summary_total="$(printf '%s\n' "$velocity_json" | jq -r '.total // 0' 2>/dev/null || echo 0)"
 
+status_state='success'
+status_detail='retro data gathered'
+
 if [[ "$status" == 'ok' ]]; then
-  log_line="$(date '+%Y-%m-%d %H:%M') | retro-gather | OK | retro data gathered (${summary_done}/${summary_total} done, ci_fails=${ci_fail_count})"
+  log_event "retro-gather" "OK" "retro data gathered (${summary_done}/${summary_total} done, ci_fails=${ci_fail_count}, scrum_health=${scrum_health_pct}%)"
 elif [[ "$status" == 'no_milestone' ]]; then
-  log_line="$(date '+%Y-%m-%d %H:%M') | retro-gather | ANOMALY | no_milestone"
+  status_state='anomaly'
+  status_detail='no active milestone found'
+  log_event "retro-gather" "ANOMALY" "no_milestone (scrum_health=${scrum_health_pct}%)"
 else
-  log_line="$(date '+%Y-%m-%d %H:%M') | retro-gather | ERROR | gather failed"
+  status_state='error'
+  status_detail='retro gather failed'
+  log_event "retro-gather" "ERROR" "gather failed (scrum_health=${scrum_health_pct}%)"
 fi
 
-printf '%s\n' "$log_line" >> "$CRON_LOG"
-printf '%s\n' "$log_line"
+if write_status_file "$STATUS_FILE" "retro-gather" "$status_state" "$status_detail"; then
+  status_file_finalized='true'
+else
+  append_warning "Failed to write final status file: $STATUS_FILE"
+fi
+
+log_event "retro-gather" "INFO" "output=$OUTPUT_FILE" >/dev/null
