@@ -215,13 +215,7 @@ module l1_data_cache #(
                 if (cache_hit) begin
                     next_state = ST_HIT;
                 end else begin
-                    // Miss: 检查是否需要写回
-                    if (dirty_array[replace_way][primary_index] &&
-                        valid_array[replace_way][primary_index]) begin
-                        next_state = ST_WRITEBACK;
-                    end else begin
-                        next_state = ST_FILL;
-                    end
+                    next_state = ST_MISS;
                 end
             end
 
@@ -232,10 +226,15 @@ module l1_data_cache #(
             end
 
             ST_MISS: begin
-                next_state = ST_FILL;
+                if (dirty_array[replace_way][primary_index] &&
+                    valid_array[replace_way][primary_index]) begin
+                    next_state = ST_WRITEBACK;
+                end else begin
+                    next_state = ST_FILL;
+                end
             end
 
-            ST_WRITEBACK: begin
+                ST_WRITEBACK: begin
                 if (mem_valid) begin
                     next_state = ST_FILL;
                 end
@@ -374,7 +373,7 @@ module l1_data_cache #(
                 ST_MISS: begin
                 end
 
-            ST_WRITEBACK: begin
+                ST_WRITEBACK: begin
                     // 写回脏行
                     mem_req   <= 1;
                     mem_write <= 1;
@@ -434,6 +433,8 @@ module l1_data_cache #(
 
                 ST_DONE: begin
                     // 完成状态，返回IDLE
+                end
+                default: begin
                 end
             endcase
 
