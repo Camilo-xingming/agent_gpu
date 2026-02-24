@@ -40,3 +40,16 @@
 |------|------|------|------|--------|
 | dual-issue.md | 双发射架构设计 | Coders | Coders | dual-issue, scheduler |
 | waw-analysis.md | WAW 冒险分析 | Coders | Coders | waw, hazard, scoreboard |
+
+## 历史工作文件（Coder 产出，按需查阅）
+
+| 文件 | 用途 | 写者 | 读者 | 关键词 |
+|------|------|------|------|--------|
+| PERFORMANCE_REPORT.md | 性能测试报告 | Coders | Coders/Jerry | performance, report |
+| design_document.md | 设计文档 | Coders | Coders | design |
+| findings.md | 问题调查结论 | Coders | Coders | findings, debug |
+| goal.md | 目标定义文档 | Coders | Coders | goal |
+| plan-149.md | Issue #149 实现计划 | Coders | Coders | plan, 149, scheduler |
+| progress.md | 进度跟踪文档 | Coders | Coders | progress |
+| research-149.md | Issue #149 调研报告 | Coders | Coders | research, 149 |
+| task_plan.md | PTX 测试套件任务计划 | Coders | Coders | task, ptx, test |
