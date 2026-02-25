@@ -1,0 +1,42 @@
+#============================================================================
+# FPGA vendor flows (Issue #158)
+#============================================================================
+
+FPGA_DIR ?= fpga
+FPGA_BUILD_DIR ?= $(BUILD_DIR)/fpga
+
+# On ist-mac-s these tools are installed under /opt/homebrew/bin.
+FPGA_IVERILOG ?= $(shell command -v iverilog 2>/dev/null || echo /opt/homebrew/bin/iverilog)
+FPGA_VVP ?= $(shell command -v vvp 2>/dev/null || echo /opt/homebrew/bin/vvp)
+VIVADO ?= vivado
+QUARTUS_SH ?= quartus_sh
+
+FPGA_COMMON_SRCS = \
+	$(FPGA_DIR)/common/uart_tx.v \
+	$(FPGA_DIR)/common/ralph_gpu_fpga_demo_top.v
+
+.PHONY: test_fpga_demo fpga_xilinx_synth fpga_intel_synth fpga_demo_clean fpga_help
+
+test_fpga_demo: $(BUILD_DIR)/tb_fpga_demo.vvp
+	cd $(BUILD_DIR) && $(FPGA_VVP) tb_fpga_demo.vvp
+
+$(BUILD_DIR)/tb_fpga_demo.vvp: tb/tb_fpga_demo.v $(FPGA_COMMON_SRCS) | $(BUILD_DIR)
+	$(FPGA_IVERILOG) -g2012 -I$(RTL_DIR) -o $@ tb/tb_fpga_demo.v $(FPGA_COMMON_SRCS)
+
+fpga_xilinx_synth: | $(BUILD_DIR)
+	mkdir -p $(FPGA_BUILD_DIR)/xilinx
+	$(VIVADO) -mode batch -source $(FPGA_DIR)/xilinx/run_vivado.tcl -tclargs $(abspath $(FPGA_BUILD_DIR)/xilinx)
+
+fpga_intel_synth: | $(BUILD_DIR)
+	mkdir -p $(FPGA_BUILD_DIR)/intel
+	$(QUARTUS_SH) -t $(FPGA_DIR)/intel/run_quartus.tcl $(abspath $(FPGA_BUILD_DIR)/intel)
+
+fpga_demo_clean:
+	rm -rf $(FPGA_BUILD_DIR)
+
+fpga_help:
+	@echo "FPGA Targets:"
+	@echo "  test_fpga_demo    - Simulate shared FPGA demo top (heartbeat + UART)"
+	@echo "  fpga_xilinx_synth - Run Vivado synthesis for Arty A7 demo"
+	@echo "  fpga_intel_synth  - Run Quartus analysis/synthesis for DE10-Nano demo"
+	@echo "  fpga_demo_clean   - Remove FPGA build artifacts"

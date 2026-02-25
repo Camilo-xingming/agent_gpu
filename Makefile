@@ -776,3 +776,6 @@ test_command_processor: $(BUILD_DIR)/tb_command_processor.vvp
 
 $(BUILD_DIR)/tb_command_processor.vvp: $(RTL_DIR)/command_processor.v $(RTL_DIR)/gpu_defines.vh tb/tb_command_processor.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_command_processor.v $(RTL_DIR)/command_processor.v
+
+# Optional FPGA vendor-flow targets
+-include fpga/Makefile.fpga
