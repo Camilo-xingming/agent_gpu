@@ -13,6 +13,7 @@
 | .gitignore | Git 忽略规则 | Coders | Git | — | git, ignore |
 | MANIFEST.md | 文件索引（本文件） | All | All | 查找文件时 | index, manifest |
 | plan-147-coalescing.md | Issue #147 内存合并单元实现计划 | CoderOpus | Coders | 实现 #147 时 | plan, coalescing, memory |
+| AGENTS.md | Heartbeat 规则：长任务（>3min）需每 60s 发 ⏳ 状态 | Coders | Coders | 长任务执行时 | heartbeat, agents, rules |
 
 ## 子目录
 
