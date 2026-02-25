@@ -110,6 +110,10 @@ GPU 指令内存镜像文件，供 testbench `$readmemh` 加载。
 | task_plan.md | 任务计划 |
 | plan-149.md | Issue #149 实现计划 |
 | research-149.md | Issue #149 调研 |
+| DESIGN_REPLAY.md | Pipeline Replay è®¾è®¡å®žçŽ° |
+| fpga-prototype-feasibility.md | FPGA åŽŸåž‹éªŒè¯å¯é¡æ€§åˆ†æž |
+| issue-151-command-processor-plan.md | Command Processor å®žçŽ°è®¡åˆ’ |
+| memory_coalescing_unit_design.md | å†…å­˜åå¹¶å•å…ƒè®¾è®¡ |
 
 ### tests/ — 新增测试（从根目录移入）
 

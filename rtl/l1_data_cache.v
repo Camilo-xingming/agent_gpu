@@ -40,6 +40,7 @@ module l1_data_cache #(
     output reg  [31:0]          mem_addr,
     output reg  [LINE_SIZE_BYTES*8-1:0] mem_wdata,
     input  wire [LINE_SIZE_BYTES*8-1:0] mem_rdata,
+    input  wire [1:0]           mem_rresp,
     input  wire                 mem_valid,
     input  wire                 mem_ready,
 
@@ -84,6 +85,8 @@ module l1_data_cache #(
     reg [WARP_ID_WIDTH-1:0] saved_warp_id;
     reg [4:0]  saved_rd;
     reg [31:0] saved_addr [0:THREADS-1];
+    reg [THREADS*32-1:0] saved_wdata;
+    reg        saved_write;
     reg [THREADS-1:0] saved_mask;
     reg [INDEX_BITS-1:0] saved_index;
     reg [TAG_BITS-1:0] saved_tag;
@@ -134,14 +137,18 @@ module l1_data_cache #(
             saved_index <= 0;
             saved_tag <= 0;
             saved_way <= 0;
+            saved_write <= 0;
             mem_req <= 0;
             mem_write <= 0;
             stat_hits <= 0;
             stat_misses <= 0;
             latency_counter <= 0;
-            for (i=0; i<NUM_WAYS; i=i+1)
-                for (j=0; j<NUM_SETS; j=j+1)
+            for (i=0; i<NUM_WAYS; i=i+1) begin
+                for (j=0; j<NUM_SETS; j=j+1) begin
                     valid_array[i][j] <= 0;
+                    dirty_array[i][j] <= 0;
+                end
+            end
             for (j=0; j<NUM_SETS; j=j+1)
                 lru_array[j] <= 0;
         end else begin
@@ -158,6 +165,8 @@ module l1_data_cache #(
                         saved_index <= primary_index;
                         saved_tag <= primary_tag;
                         saved_way <= replace_way_comb;
+                        saved_write <= req_write;
+                        saved_wdata <= req_wdata;
                         for (i=0; i<THREADS; i=i+1) begin
                             saved_addr[i] <= req_addr[i*32 +: 32];
                         end
@@ -177,13 +186,21 @@ module l1_data_cache #(
                         resp_valid_reg <= 1;
                         resp_hit <= 1;
                         stat_hits <= stat_hits + 1;
-                        for (i=0; i<THREADS; i=i+1) begin
-                            if (saved_mask[i])
-                                resp_rdata[i*32 +: 32] <= data_array[hit_way_comb][saved_index][saved_addr[i][OFFSET_BITS-1:2]];
+                        if (saved_write) begin
+                            for (i=0; i<THREADS; i=i+1) begin
+                                if (saved_mask[i])
+                                    data_array[hit_way_comb][saved_index][saved_addr[i][OFFSET_BITS-1:2]] <= saved_wdata[i*32 +: 32];
+                            end
+                            dirty_array[hit_way_comb][saved_index] <= 1;
+                        end else begin
+                            for (i=0; i<THREADS; i=i+1) begin
+                                if (saved_mask[i])
+                                    resp_rdata[i*32 +: 32] <= data_array[hit_way_comb][saved_index][saved_addr[i][OFFSET_BITS-1:2]];
+                            end
                         end
                         state <= ST_IDLE;
-                        // Pseudo-LRU update (stub)
-                        lru_array[saved_index] <= (hit_way_comb == 2'd3) ? 2'd0 : (hit_way_comb + 2'd1);
+                        // Simple LRU: next replacement should NOT be this way
+                        lru_array[saved_index] <= (hit_way_comb == NUM_WAYS[1:0]-1) ? 2'd0 : (hit_way_comb + 2'd1);
                     end else begin
                         latency_counter <= latency_counter - 1;
                     end
@@ -220,8 +237,8 @@ module l1_data_cache #(
                         for (i=0; i<WORDS_PER_LINE; i=i+1)
                             data_array[saved_way][saved_index][i] <= mem_rdata[i*32 +: 32];
                         state <= ST_IDLE;
-                        // Pseudo-LRU update after fill
-                        lru_array[saved_index] <= (saved_way == 2'd3) ? 2'd0 : (saved_way + 2'd1);
+                        // After fill, next replacement is the next way
+                        lru_array[saved_index] <= (saved_way == NUM_WAYS[1:0]-1) ? 2'd0 : (saved_way + 2'd1);
                     end
                 end
                 

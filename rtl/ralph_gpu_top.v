@@ -421,7 +421,7 @@ module ralph_gpu_top #(
                     .mem_addr       (l1d_mem_addr),
                     .mem_wdata      (l1d_mem_wdata),
                     .mem_rdata      (l1d_mem_rdata),
-                    .mem_valid      (l1d_mem_valid),
+                    .mem_rresp(m_axi_rresp), .mem_valid(l1d_mem_valid),
                     .mem_ready      (l1d_mem_ready),
                     .stat_hits      (),  // Unused for now
                     .stat_misses    (),
@@ -1169,7 +1169,7 @@ module ralph_gpu_top #(
         .m_axi_araddr       (cp_axi_araddr),
         .m_axi_arready      (cp_axi_arready), 
         .m_axi_rdata        (cp_axi_rdata),
-        .m_axi_rvalid       (cp_axi_rvalid), 
+        .m_axi_rresp(m_axi_rresp), .m_axi_rvalid(cp_axi_rvalid), 
         .m_axi_rready       (cp_axi_rready)
     );
 

@@ -425,7 +425,7 @@ module streaming_multiprocessor_v2 #(
     reg                  issue_sfu_op, issue_tensor_op;
     reg                  issue_mem_read, issue_mem_write, issue_mem_shared;
     reg                  issue_branch_op, issue_sync_op, issue_special_reg;
-    reg                  issue_exit_op, issue_atomic_op, issue_shuffle_op;
+    reg                  issue_exit_op, issue_membar_op, issue_atomic_op, issue_shuffle_op;
     reg                  issue_video_op;       // Video SIMD operation
     reg                  issue_reg_write;
     reg                  issue_bar_warp_sync;  // bar.warp.sync flag
@@ -456,7 +456,7 @@ module streaming_multiprocessor_v2 #(
     reg                  issue1_sfu_op, issue1_tensor_op;
     reg                  issue1_mem_read, issue1_mem_write, issue1_mem_shared;
     reg                  issue1_branch_op, issue1_sync_op, issue1_special_reg;
-    reg                  issue1_exit_op, issue1_atomic_op, issue1_shuffle_op;
+    reg                  issue1_exit_op, issue1_membar_op, issue1_atomic_op, issue1_shuffle_op;
     reg                  issue1_video_op;       // Video SIMD operation
     reg                  issue1_reg_write;
     reg                  issue1_bar_warp_sync;  // bar.warp.sync flag
@@ -1332,7 +1332,7 @@ module streaming_multiprocessor_v2 #(
         .mem_addr           (l1_mem_addr),
         .mem_wdata          (l1_mem_wdata),
         .mem_rdata          (l1_mem_rdata),
-        .mem_valid          (l1_mem_valid),
+        .mem_rresp(m_axi_rresp), .mem_valid(l1_mem_valid),
         .mem_ready          (l1_mem_ready),
         .stat_hits          (l1_stat_hits),
         .stat_misses        (l1_stat_misses),
@@ -2417,7 +2417,7 @@ module streaming_multiprocessor_v2 #(
             issue_branch_op <= 1'b0;
             issue_sync_op <= 1'b0;
             issue_special_reg <= 1'b0;
-            issue_exit_op <= 1'b0;
+            issue_exit_op <= 1'b0; issue_membar_op <= 1'b0;
             issue_atomic_op <= 1'b0;
             issue_shuffle_op <= 1'b0;
             issue_reg_write <= 1'b0;
@@ -2457,7 +2457,7 @@ module streaming_multiprocessor_v2 #(
             issue1_branch_op <= 1'b0;
             issue1_sync_op <= 1'b0;
             issue1_special_reg <= 1'b0;
-            issue1_exit_op <= 1'b0;
+            issue1_exit_op <= 1'b0; issue1_membar_op <= 1'b0;
             issue1_atomic_op <= 1'b0;
             issue1_shuffle_op <= 1'b0;
             issue1_reg_write <= 1'b0;
@@ -2518,6 +2518,7 @@ module streaming_multiprocessor_v2 #(
                     issue_sync_op <= dec_sync_op;
                     issue_special_reg <= dec_special_reg;
                     issue_exit_op <= dec_exit_op;
+                    issue_membar_op <= dec_membar_op;
                     issue_atomic_op <= dec_atomic_op;
                     issue_shuffle_op <= dec_shuffle_op;
                     issue_reg_write <= dec_reg_write;
@@ -2577,6 +2578,7 @@ module streaming_multiprocessor_v2 #(
                 issue1_sync_op <= dec1_sync_op;
                 issue1_special_reg <= dec1_special_reg;
                 issue1_exit_op <= dec1_exit_op;
+                issue1_membar_op <= dec1_membar_op;
                 issue1_atomic_op <= dec1_atomic_op;
                 issue1_shuffle_op <= dec1_shuffle_op;
                 issue1_reg_write <= dec1_reg_write;
@@ -5829,11 +5831,27 @@ module streaming_multiprocessor_v2 #(
             end
 
             // Exit instruction (defer warp teardown until in-flight ops drain)
-            if (issue_valid && issue_exit_op) begin
+                        if (issue_valid && issue_exit_op) begin
                 warp_exit_pending[issue_warp_id] <= 1'b1;
+                warp_pc[issue_warp_id] <= issue_pc + 32'd4;
+                warp_fetch_pc[issue_warp_id] <= issue_pc + 32'd4;
+                branch_flush_mask[issue_warp_id] <= 1'b1;
             end
-            if (issue1_valid && issue1_exit_op) begin
+                        if (issue1_valid && issue1_exit_op) begin
                 warp_exit_pending[issue1_warp_id] <= 1'b1;
+                warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                branch_flush_mask[issue1_warp_id] <= 1'b1;
+            end
+            if (issue_valid && issue_membar_op) begin
+                warp_pc[issue_warp_id] <= issue_pc + 32'd4;
+                warp_fetch_pc[issue_warp_id] <= issue_pc + 32'd4;
+                branch_flush_mask[issue_warp_id] <= 1'b1;
+            end
+            if (issue1_valid && issue1_membar_op) begin
+                warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                branch_flush_mask[issue1_warp_id] <= 1'b1;
             end
 
             // Pipeline Replay Handling (Rollback PC and clear stalls)

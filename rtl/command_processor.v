@@ -59,6 +59,7 @@ module command_processor #(
     output wire [31:0] m_axi_araddr,
     input  wire        m_axi_arready,
     input  wire [31:0] m_axi_rdata,
+    input  wire [1:0]  m_axi_rresp,
     input  wire        m_axi_rvalid,
     output wire        m_axi_rready
 );
