@@ -2089,8 +2089,6 @@ module streaming_multiprocessor_v2 #(
     assign issue1_fire = sched_issue_valid_mask[1] && !decode_stalled_slot1 && !lane_unit_conflict;
 
     // DEBUG: Scheduler output
-    always @(posedge clk) begin
-    end
 
     // We reuse the 'dec0' pipeline registers to hold the scheduled instructions
     // effectively merging Decode/Issue stages into one logical flow handled by scheduler+decoder
@@ -2116,8 +2114,6 @@ module streaming_multiprocessor_v2 #(
                     // Advance PC at scheduling time for non-branch instructions
                     // (branches will override PC when they resolve)
                     if (!pd_is_branch[sched_issue_warp_id[0]] &&
-                        warp_inst_consume[sched_issue_warp_id[0]]) begin
-                    end
                     // Note: warp_stalled_branch is set in main always block for branch scheduling
                 end
             end
@@ -2130,11 +2126,9 @@ module streaming_multiprocessor_v2 #(
                 if (issue1_fire) begin
                     dec1_warp_id <= sched_issue_warp_id[1];
                     dec1_instruction <= sched_issue_inst[1];
-                    dec1_pc <= warp_pc[sched_issue_warp_id[1]];
+                    if (issue0_fire && (sched_issue_warp_id[0] == sched_issue_warp_id[1])) dec1_pc <= warp_pc[sched_issue_warp_id[1]] + 4; else dec1_pc <= warp_pc[sched_issue_warp_id[1]];
                     dec1_isn <= sched_issue_seq[sched_issue_warp_id[1]];
                     if (!pd_is_branch[sched_issue_warp_id[1]] &&
-                        warp_inst_consume[sched_issue_warp_id[1]]) begin
-                    end
                     // Note: warp_stalled_branch is set in main always block for branch scheduling
                 end
             end
@@ -5559,8 +5553,6 @@ module streaming_multiprocessor_v2 #(
             // Handle SM-level reconvergence (when PC matches stacked reconverge_pc)
             // Note: Reconvergence is now handled at decode stage (dec0_at_reconverge)
             // to ensure the instruction uses the merged mask
-            if (sm_at_reconverge) begin
-            end
 
             // Branch predictor update (when branch resolves)
             // Priority: lane 0, then lane 1 (only one update per cycle)
