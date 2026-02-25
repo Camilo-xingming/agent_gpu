@@ -764,6 +764,7 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_LANES*32-1:0] l1_cache_resp_rdata_flat;
     wire                  l1_cache_resp_valid;
     wire                  l1_cache_resp_hit;
+    wire                  l1_cache_resp_replay;  // Pipeline replay: L1 miss detected
     wire                  l1_mem_req;
     wire                  l1_mem_write;
     wire [31:0]           l1_mem_addr;
@@ -774,6 +775,13 @@ module streaming_multiprocessor_v2 #(
     wire [31:0]           l1_stat_hits;
     wire [31:0]           l1_stat_misses;
     reg                   l1_miss_pending;
+
+    // Pipeline Replay state tracking (#5)
+    reg [NUM_WARPS-1:0]   replay_pending;       // Warp has L1 miss refill in progress (replayed)
+    reg [31:0]            replay_pc [0:NUM_WARPS-1];  // PC to replay (saved at issue time)
+    wire                  replay_trigger;       // Combinational: L1 signals replay this cycle
+    wire [WARP_ID_W-1:0] replay_warp;          // Warp being replayed
+    wire [4:0]            replay_rd;            // Dest register to clear from scoreboard
     reg [31:0]            l1_cycle_counter;
     reg [31:0]            l1_req_issue_cycle;
     reg                   l1_req_inflight;
@@ -1225,6 +1233,11 @@ module streaming_multiprocessor_v2 #(
     assign gmem_load_resp_valid = l1_cache_resp_valid;
     assign gmem_load_resp_rdata = l1_cache_resp_rdata_packed;
 
+    // Pipeline Replay: trigger when L1 signals a miss (#5)
+    assign replay_trigger = l1_cache_resp_replay && mem_pending_valid;
+    assign replay_warp = mem_warp_pending;
+    assign replay_rd = mem_rd_pending;
+
     generate
         genvar l1_lane_i;
         for (l1_lane_i = 0; l1_lane_i < NUM_LANES; l1_lane_i = l1_lane_i + 1) begin : gen_l1_lane_map
@@ -1304,6 +1317,7 @@ module streaming_multiprocessor_v2 #(
         .resp_rdata         (l1_cache_resp_rdata_flat),
         .resp_valid         (l1_cache_resp_valid),
         .resp_hit           (l1_cache_resp_hit),
+        .resp_replay        (l1_cache_resp_replay),
         .mem_req            (l1_mem_req),
         .mem_write          (l1_mem_write),
         .mem_addr           (l1_mem_addr),
@@ -1366,6 +1380,7 @@ module streaming_multiprocessor_v2 #(
     reg [4:0]           mem_rd_pending;
     reg [NUM_LANES-1:0] mem_mask_pending;
     reg                 mem_pending_valid;
+    reg [31:0]          mem_pc_pending;   // Saved load PC for replay rollback (#5)
     reg [WARP_ID_W-1:0] store_warp_pending;
     reg [NUM_LANES-1:0] store_mask_pending;
     reg                 store_pending_valid;
@@ -1980,6 +1995,9 @@ module streaming_multiprocessor_v2 #(
         .wgmma_sb_clr_valid(wgmma_done && wgmma_pending_valid),
         .wgmma_sb_clr_warp(wgmma_pending_warp),
         .wgmma_sb_clr_rd(wgmma_pending_rd),
+        .replay_sb_clr_valid(replay_trigger),
+        .replay_sb_clr_warp(replay_warp),
+        .replay_sb_clr_rd(replay_rd),
         .issue_valid(sched_issue_valid_mask),
         .issue_warp_id(sched_issue_warp_id_flat),
         .issue_inst(sched_issue_inst_flat),
@@ -3489,6 +3507,7 @@ module streaming_multiprocessor_v2 #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             mem_pending_valid <= 1'b0;
+            mem_pc_pending <= 32'b0;
             `ifdef SIMULATION
             mem_pend_dbg_cnt <= 0;
             `endif
@@ -3497,6 +3516,7 @@ module streaming_multiprocessor_v2 #(
             mem_warp_pending <= issue_warp_id;
             mem_rd_pending <= issue_rd;
             mem_mask_pending <= issue_mask;
+            mem_pc_pending <= issue_pc;    // Save load PC for replay rollback (#5)
         end else if (gmem_load_resp_valid && mem_pending_valid) begin
             mem_pending_valid <= 1'b0;
         end
@@ -3509,6 +3529,28 @@ module streaming_multiprocessor_v2 #(
             l1_miss_pending <= 1'b1;
         end else if (gmem_resp_valid && l1_miss_pending) begin
             l1_miss_pending <= 1'b0;
+        end
+    end
+
+    // Pipeline Replay: pending state tracking (#5)
+    integer replay_init_i;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            replay_pending <= {NUM_WARPS{1'b0}};
+            for (replay_init_i = 0; replay_init_i < NUM_WARPS; replay_init_i = replay_init_i + 1)
+                replay_pc[replay_init_i] <= 32'b0;
+        end else if (kernel_start) begin
+            replay_pending <= {NUM_WARPS{1'b0}};
+        end else begin
+            // Set replay_pending when replay triggers
+            if (replay_trigger) begin
+                replay_pending[replay_warp] <= 1'b1;
+                replay_pc[replay_warp] <= mem_pc_pending;  // Save the load PC for rollback
+            end
+            // Clear replay_pending when L1 refill completes
+            if (gmem_load_resp_valid && mem_pending_valid && replay_pending[mem_warp_pending]) begin
+                replay_pending[mem_warp_pending] <= 1'b0;
+            end
         end
     end
 
@@ -4950,7 +4992,8 @@ module streaming_multiprocessor_v2 #(
             `endif
         end else begin
             // Latch global memory response
-            if (gmem_load_resp_valid && mem_pending_valid && !gmem_resp_latched) begin
+            // Suppress writeback latch when replay was triggered — refill data goes to L1 only
+            if (gmem_load_resp_valid && mem_pending_valid && !gmem_resp_latched && !replay_pending[mem_warp_pending]) begin
                 gmem_resp_latched <= 1'b1;
                 gmem_resp_warp <= mem_warp_pending;
                 gmem_resp_rd <= mem_rd_pending;
@@ -5597,6 +5640,21 @@ module streaming_multiprocessor_v2 #(
             end
             if (gmem_load_resp_valid && mem_pending_valid) begin
                 warp_stalled_mem[mem_warp_pending] <= 1'b0;
+            end
+
+            //----------------------------------------------------------------
+            // Pipeline Replay handling (#5)
+            // On L1 miss: rollback PC, clear stall, flush pipeline
+            // The warp can issue non-memory instructions while L1 refills
+            //----------------------------------------------------------------
+            if (replay_trigger) begin
+                // Rollback warp PC to the load instruction
+                warp_pc[replay_warp] <= mem_pc_pending;
+                warp_fetch_pc[replay_warp] <= mem_pc_pending;
+                // Clear memory stall — warp can issue compute ops
+                warp_stalled_mem[replay_warp] <= 1'b0;
+                // Flush pipeline for this warp (refetch from rolled-back PC)
+                branch_flush_mask[replay_warp] <= 1'b1;
             end
 
             //================================================================

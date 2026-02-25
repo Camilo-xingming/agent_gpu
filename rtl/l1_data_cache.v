@@ -28,6 +28,7 @@ module l1_data_cache #(
     output reg [THREADS*32-1:0] resp_rdata, // 32个读数据
     output reg                  resp_valid,
     output reg                  resp_hit,           // 全部命中
+    output reg                  resp_replay,        // Pipeline replay: miss detected, SM should rollback
 
     //------------------------------------------------------------------------
     // 到全局内存接口 (AXI-like)
@@ -266,6 +267,7 @@ module l1_data_cache #(
         if (!rst_n) begin
             resp_valid <= 0;
             resp_hit   <= 0;
+            resp_replay <= 0;
             mem_req    <= 0;
             mem_write  <= 0;
             mem_addr   <= 0;
@@ -311,6 +313,7 @@ module l1_data_cache #(
         end else begin
             // 默认值
             resp_valid <= 0;
+            resp_replay <= 0;
             mem_req    <= 0;
 
             case (state)
@@ -329,6 +332,10 @@ module l1_data_cache #(
 
                 ST_TAG_CHECK: begin
                     // Tag检查在组合逻辑中完成
+                    // Signal replay on miss: SM can rollback warp PC immediately
+                    if (!cache_hit) begin
+                        resp_replay <= 1'b1;
+                    end
                 end
 
                 ST_HIT: begin

@@ -424,6 +424,7 @@ module ralph_gpu_top #(
                     .resp_rdata     (sm_l1d_resp_rdata),
                     .resp_valid     (sm_l1d_resp_valid),
                     .resp_hit       (sm_l1d_resp_hit),
+                    .resp_replay    (),  // Unused: SM has internal L1
                     .mem_req        (l1d_mem_req),
                     .mem_write      (l1d_mem_write),
                     .mem_addr       (l1d_mem_addr),
