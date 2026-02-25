@@ -91,6 +91,7 @@ module l1_data_cache #(
     reg [INDEX_BITS-1:0] saved_index;
     reg [TAG_BITS-1:0] saved_tag;
     reg [1:0] saved_way;
+    reg [1:0] saved_hit_way;
     reg [2:0] latency_counter;
 
     wire [31:0] primary_addr = req_addr[31:0];
@@ -173,6 +174,7 @@ module l1_data_cache #(
 
                         if (cache_hit_comb) begin
                             state <= ST_HIT;
+                            saved_hit_way <= hit_way_comb;
                             latency_counter <= HIT_LATENCY - 1;
                         end else begin
                             state <= ST_MISS;
@@ -189,43 +191,47 @@ module l1_data_cache #(
                         if (saved_write) begin
                             for (i=0; i<THREADS; i=i+1) begin
                                 if (saved_mask[i])
-                                    data_array[hit_way_comb][saved_index][saved_addr[i][OFFSET_BITS-1:2]] <= saved_wdata[i*32 +: 32];
+                                    data_array[saved_hit_way][saved_index][saved_addr[i][OFFSET_BITS-1:2]] <= saved_wdata[i*32 +: 32];
                             end
-                            dirty_array[hit_way_comb][saved_index] <= 1;
+                            dirty_array[saved_hit_way][saved_index] <= 1;
                         end else begin
                             for (i=0; i<THREADS; i=i+1) begin
                                 if (saved_mask[i])
-                                    resp_rdata[i*32 +: 32] <= data_array[hit_way_comb][saved_index][saved_addr[i][OFFSET_BITS-1:2]];
+                                    resp_rdata[i*32 +: 32] <= data_array[saved_hit_way][saved_index][saved_addr[i][OFFSET_BITS-1:2]];
                             end
                         end
                         state <= ST_IDLE;
                         // Simple LRU: next replacement should NOT be this way
-                        lru_array[saved_index] <= (hit_way_comb == NUM_WAYS[1:0]-1) ? 2'd0 : (hit_way_comb + 2'd1);
+                        lru_array[saved_index] <= (saved_hit_way == 2'd3) ? 2'd0 : (saved_hit_way + 2'd1);
                     end else begin
                         latency_counter <= latency_counter - 1;
                     end
                 end
 
                 ST_MISS: begin
-                    if (dirty_array[saved_way][saved_index] && valid_array[saved_way][saved_index])
+                    if (dirty_array[saved_way][saved_index] && valid_array[saved_way][saved_index]) begin
                         state <= ST_WRITEBACK;
-                    else
+                        mem_addr <= {tag_array[saved_way][saved_index], saved_index, {OFFSET_BITS{1'b0}}};
+                        for (integer k=0; k<WORDS_PER_LINE; k=k+1)
+                            mem_wdata[k*32 +: 32] <= data_array[saved_way][saved_index][k];
+                    end else begin
                         state <= ST_FILL;
+                        mem_addr <= {saved_tag, saved_index, {OFFSET_BITS{1'b0}}};
+                    end
                 end
 
                 ST_WRITEBACK: begin
                     mem_req <= 1;
                     mem_write <= 1;
-                    mem_addr <= {tag_array[saved_way][saved_index], saved_index, {OFFSET_BITS{1'b0}}};
-                    for (i=0; i<WORDS_PER_LINE; i=i+1)
-                        mem_wdata[i*32 +: 32] <= data_array[saved_way][saved_index][i];
+                    
+                    
                     if (mem_ready) state <= ST_FILL;
                 end
 
                 ST_FILL: begin
                     mem_req <= 1;
                     mem_write <= 0;
-                    mem_addr <= {saved_tag, saved_index, {OFFSET_BITS{1'b0}}};
+                    
                     if (mem_ready) state <= ST_FILL_WAIT;
                 end
 
@@ -233,12 +239,20 @@ module l1_data_cache #(
                     if (mem_valid) begin
                         tag_array[saved_way][saved_index] <= saved_tag;
                         valid_array[saved_way][saved_index] <= 1;
-                        dirty_array[saved_way][saved_index] <= 0;
-                        for (i=0; i<WORDS_PER_LINE; i=i+1)
-                            data_array[saved_way][saved_index][i] <= mem_rdata[i*32 +: 32];
+                        for (integer k=0; k<WORDS_PER_LINE; k=k+1)
+                            data_array[saved_way][saved_index][k] <= mem_rdata[k*32 +: 32];
+                        if (saved_write) begin
+                            for (j=0; j<THREADS; j=j+1) begin
+                                if (saved_mask[j])
+                                    data_array[saved_way][saved_index][saved_addr[j][OFFSET_BITS-1:2]] <= saved_wdata[j*32 +: 32];
+                            end
+                            dirty_array[saved_way][saved_index] <= 1;
+                            resp_valid_reg <= 1;
+                        end else begin
+                            dirty_array[saved_way][saved_index] <= 0;
+                        end
                         state <= ST_IDLE;
-                        // After fill, next replacement is the next way
-                        lru_array[saved_index] <= (saved_way == NUM_WAYS[1:0]-1) ? 2'd0 : (saved_way + 2'd1);
+                        lru_array[saved_index] <= (saved_way == 2'd3) ? 2'd0 : (saved_way + 2'd1);
                     end
                 end
                 

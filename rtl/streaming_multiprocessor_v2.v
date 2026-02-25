@@ -2125,10 +2125,7 @@ module streaming_multiprocessor_v2 #(
                     dec0_isn <= sched_issue_seq[sched_issue_warp_id[0]];
                     // Advance PC at scheduling time for non-branch instructions
                     // (branches will override PC when they resolve)
-                    if (!pd_is_branch[sched_issue_warp_id[0]] &&
-                        warp_inst_consume[sched_issue_warp_id[0]]) begin
-                        warp_pc[sched_issue_warp_id[0]] <= warp_pc[sched_issue_warp_id[0]] + 4;
-                    end
+                    // PC advancement moved to main always block for single-driver
                     // Note: warp_stalled_branch is set in main always block for branch scheduling
                 end
             end
@@ -2141,12 +2138,12 @@ module streaming_multiprocessor_v2 #(
                 if (issue1_fire) begin
                     dec1_warp_id <= sched_issue_warp_id[1];
                     dec1_instruction <= sched_issue_inst[1];
-                    dec1_pc <= warp_pc[sched_issue_warp_id[1]];
+                    if (issue0_fire && (sched_issue_warp_id[0] == sched_issue_warp_id[1]))
+                        dec1_pc <= warp_pc[sched_issue_warp_id[1]] + 4;
+                    else
+                        dec1_pc <= warp_pc[sched_issue_warp_id[1]];
                     dec1_isn <= sched_issue_seq[sched_issue_warp_id[1]];
-                    if (!pd_is_branch[sched_issue_warp_id[1]] &&
-                        warp_inst_consume[sched_issue_warp_id[1]]) begin
-                        warp_pc[sched_issue_warp_id[1]] <= warp_pc[sched_issue_warp_id[1]] + 4;
-                    end
+                    // PC advancement moved to main always block for single-driver
                     // Note: warp_stalled_branch is set in main always block for branch scheduling
                 end
             end
@@ -5398,6 +5395,18 @@ module streaming_multiprocessor_v2 #(
                 cluster_local_arrive_count <= 16'b0;
                 cluster_barrier_complete <= 1'b0;
                 warp_error_mask <= {NUM_WARPS{1'b0}};
+            end
+
+
+            // Integrated PC advancement for non-branches (consolidated here for single-driver)
+            if (issue0_fire && !pd_is_branch[sched_issue_warp_id[0]] && warp_inst_consume[sched_issue_warp_id[0]]) begin
+                if (issue1_fire && (sched_issue_warp_id[0] == sched_issue_warp_id[1]) && !pd_is_branch[sched_issue_warp_id[1]] && warp_inst_consume[sched_issue_warp_id[1]])
+                    warp_pc[sched_issue_warp_id[0]] <= warp_pc[sched_issue_warp_id[0]] + 8;
+                else
+                    warp_pc[sched_issue_warp_id[0]] <= warp_pc[sched_issue_warp_id[0]] + 4;
+            end
+            if (issue1_fire && (sched_issue_warp_id[0] != sched_issue_warp_id[1]) && !pd_is_branch[sched_issue_warp_id[1]] && warp_inst_consume[sched_issue_warp_id[1]]) begin
+                warp_pc[sched_issue_warp_id[1]] <= warp_pc[sched_issue_warp_id[1]] + 4;
             end
 
             // NOTE: Fetch PC is advanced in the instruction buffer fill logic (line 1083)
