@@ -58,7 +58,7 @@ module tb_single_ptx_test;
 
     ralph_gpu_top #(
         .NUM_SM(1),
-        .L1D_BYPASS(1)
+        .L1D_BYPASS(0)
     ) u_gpu (
         .clk(clk), .rst_n(rst_n),
         .csr_wr_en(csr_wr_en), .csr_addr(csr_addr),

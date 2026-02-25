@@ -83,7 +83,7 @@ module tb_atomic_contention_minimal;
     // DUT
     ralph_gpu_top #(
         .NUM_SM(1),
-        .L1D_BYPASS(1)
+        .L1D_BYPASS(0)
     ) u_dut (
         .clk(clk),
         .rst_n(rst_n),

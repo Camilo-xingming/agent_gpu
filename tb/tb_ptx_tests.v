@@ -117,7 +117,7 @@ module tb_ptx_tests;
     //------------------------------------------------------------------------
     ralph_gpu_top #(
         .NUM_SM(1),       // Single SM for controlled testing
-        .L1D_BYPASS(1)    // Use fast bypass mode for L1D cache
+        .L1D_BYPASS(0)    // Enable full L1D cache mode
     ) u_gpu (
         .clk            (clk),
         .rst_n          (rst_n),
