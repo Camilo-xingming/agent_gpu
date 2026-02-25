@@ -767,7 +767,7 @@ module streaming_multiprocessor_v2 #(
     wire                  l1_cache_resp_hit;
     wire                  l1_cache_resp_replay;
     wire [31:0]           l1_cache_resp_pc;
-    wire [4:0]            l1_cache_resp_warp_id;
+    wire [WARP_ID_W-1:0]            l1_cache_resp_warp_id;
     wire [4:0]            l1_cache_resp_rd;
     wire                  l1_mem_req;
     wire                  l1_mem_write;
@@ -1307,7 +1307,8 @@ module streaming_multiprocessor_v2 #(
         .NUM_WAYS        (4),
         .HIT_LATENCY     (2),
         .THREADS         (NUM_LANES),
-        .DATA_WIDTH      (32)
+        .DATA_WIDTH      (32),
+        .WARP_ID_WIDTH   (WARP_ID_W)
     ) u_l1_data_cache (
         .clk                (clk),
         .rst_n              (rst_n),
@@ -5591,7 +5592,7 @@ module streaming_multiprocessor_v2 #(
                 warp_valid[issue_warp_id] <= 1'b0;
                 warp_active[issue_warp_id] <= 1'b0;
                 warp_exit_pending[issue_warp_id] <= 1'b0;
-                warp_stalled_mem[l1_cache_resp_warp_id] <= 1'b0; 
+                warp_stalled_mem[issue_warp_id] <= 1'b0; 
                 branch_flush_mask[l1_cache_resp_warp_id] <= 1'b1;
                 warp_stalled_fu[issue_warp_id] <= 1'b0;
                 warp_stalled_sync[issue_warp_id] <= 1'b0;
@@ -5837,9 +5838,9 @@ module streaming_multiprocessor_v2 #(
 
             // Pipeline Replay Handling (Rollback PC and clear stalls)
             if (l1_cache_resp_valid && l1_cache_resp_replay) begin
-                warp_pc[l1_cache_resp_warp_id] <= l1_cache_resp_pc;
-                warp_fetch_pc[l1_cache_resp_warp_id] <= l1_cache_resp_pc;
-                warp_stalled_mem[l1_cache_resp_warp_id] <= 1'b0; 
+                warp_pc[l1_cache_resp_warp_id[WARP_ID_W-1:0]] <= l1_cache_resp_pc;
+                warp_fetch_pc[l1_cache_resp_warp_id[WARP_ID_W-1:0]] <= l1_cache_resp_pc;
+                warp_stalled_mem[l1_cache_resp_warp_id[WARP_ID_W-1:0]] <= 1'b0; 
                 branch_flush_mask[l1_cache_resp_warp_id] <= 1'b1;
                 $display("[%0t SM%0d] REPLAY: warp=%0d pc=%h", $time, SM_ID, l1_cache_resp_warp_id, l1_cache_resp_pc);
             end

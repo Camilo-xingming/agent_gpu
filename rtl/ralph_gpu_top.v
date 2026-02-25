@@ -288,6 +288,15 @@ module ralph_gpu_top #(
     wire [31:0] l2_stat_misses_perf;
     reg  [31:0] l2_stat_hits_prev;
     reg  [31:0] l2_stat_misses_prev;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            l2_stat_hits_prev <= 32'b0;
+            l2_stat_misses_prev <= 32'b0;
+        end else begin
+            l2_stat_hits_prev <= l2_stat_hits_perf;
+            l2_stat_misses_prev <= l2_stat_misses_perf;
+        end
+    end
 
     wire perf_l2_hit = (l2_stat_hits_perf != l2_stat_hits_prev);
     wire perf_l2_miss = (l2_stat_misses_perf != l2_stat_misses_prev);
@@ -915,7 +924,7 @@ module ralph_gpu_top #(
     wire imem_accept = imem_arb_valid && !imem_q_full;
 
     assign imem_req  = imem_accept;
-    assign imem_addr = imem_accept ? sm_imem_addr[imem_arb_sel] : 32'b0;
+    assign imem_addr = imem_accept ? sm_imem_addr[imem_arb_sel[0]] : 32'b0;
 
 `ifdef SIMULATION
     // Debug: trace imem interface - print first clock only
@@ -940,11 +949,11 @@ module ralph_gpu_top #(
             sm_imem_datas[sm_i] = 64'b0;
         end
         if (imem_accept) begin
-            sm_imem_ready[imem_arb_sel] = 1'b1;
+            sm_imem_ready[imem_arb_sel[0]] = 1'b1;
         end
         if (imem_valid && !imem_q_empty) begin
-            sm_imem_valids[imem_q[imem_q_head]] = 1'b1;
-            sm_imem_datas[imem_q[imem_q_head]] = imem_data;
+            sm_imem_valids[imem_q[imem_q_head][0]] = 1'b1;
+            sm_imem_datas[imem_q[imem_q_head][0]] = imem_data;
         end
     end
 
@@ -1069,23 +1078,23 @@ module ralph_gpu_top #(
     endgenerate
 
     // Write channel output: encode SM ID in upper AXI ID bits
-    assign m_axi_awid    = {axi_aw_sel[AXI_ARB_W-1:0], sm_axi_awid[axi_aw_sel][AXI_ID_WIDTH-AXI_ARB_W-1:0]};
-    assign m_axi_awaddr  = sm_axi_awaddr[axi_aw_sel];
-    assign m_axi_awlen   = sm_axi_awlen[axi_aw_sel];
-    assign m_axi_awsize  = sm_axi_awsize[axi_aw_sel];
-    assign m_axi_awburst = sm_axi_awburst[axi_aw_sel];
-    assign m_axi_awvalid = axi_aw_valid ? sm_axi_awvalid[axi_aw_sel] : 1'b0;
-    assign m_axi_wdata   = sm_axi_wdata[axi_w_sel];
-    assign m_axi_wstrb   = sm_axi_wstrb[axi_w_sel];
-    assign m_axi_wlast   = sm_axi_wlast[axi_w_sel];
-    assign m_axi_wvalid  = (axi_w_active || axi_aw_valid) ? sm_axi_wvalid[axi_w_sel] : 1'b0;
+    assign m_axi_awid    = {axi_aw_sel[AXI_ARB_W-1:0], sm_axi_awid[axi_aw_sel[0]][AXI_ID_WIDTH-AXI_ARB_W-1:0]};
+    assign m_axi_awaddr  = sm_axi_awaddr[axi_aw_sel[0]];
+    assign m_axi_awlen   = sm_axi_awlen[axi_aw_sel[0]];
+    assign m_axi_awsize  = sm_axi_awsize[axi_aw_sel[0]];
+    assign m_axi_awburst = sm_axi_awburst[axi_aw_sel[0]];
+    assign m_axi_awvalid = axi_aw_valid ? sm_axi_awvalid[axi_aw_sel[0]] : 1'b0;
+    assign m_axi_wdata   = sm_axi_wdata[axi_w_sel[0]];
+    assign m_axi_wstrb   = sm_axi_wstrb[axi_w_sel[0]];
+    assign m_axi_wlast   = sm_axi_wlast[axi_w_sel[0]];
+    assign m_axi_wvalid  = (axi_w_active || axi_aw_valid) ? sm_axi_wvalid[axi_w_sel[0]] : 1'b0;
 
     // Read channel output: encode SM ID in upper AXI ID bits
-    assign m_axi_arid    = (axi_ar_sel < NUM_SM) ? {axi_ar_sel[AXI_ARB_W-1:0], sm_axi_arid[axi_ar_sel][AXI_ID_WIDTH-AXI_ARB_W-1:0]} : {axi_ar_sel[AXI_ARB_W-1:0], {(AXI_ID_WIDTH-AXI_ARB_W){1'b0}}};
-    assign m_axi_araddr  = (axi_ar_sel < NUM_SM) ? sm_axi_araddr[axi_ar_sel] : cp_axi_araddr;
-    assign m_axi_arlen   = (axi_ar_sel < NUM_SM) ? sm_axi_arlen[axi_ar_sel] : 8'd7;
-    assign m_axi_arsize  = (axi_ar_sel < NUM_SM) ? sm_axi_arsize[axi_ar_sel] : 3'b010;
-    assign m_axi_arburst = (axi_ar_sel < NUM_SM) ? sm_axi_arburst[axi_ar_sel] : 2'b01;
+    assign m_axi_arid    = (axi_ar_sel < NUM_SM) ? {axi_ar_sel[AXI_ARB_W-1:0], sm_axi_arid[axi_ar_sel[0]][AXI_ID_WIDTH-AXI_ARB_W-1:0]} : {axi_ar_sel[AXI_ARB_W-1:0], {(AXI_ID_WIDTH-AXI_ARB_W){1'b0}}};
+    assign m_axi_araddr  = (axi_ar_sel < NUM_SM) ? sm_axi_araddr[axi_ar_sel[0]] : cp_axi_araddr;
+    assign m_axi_arlen   = (axi_ar_sel < NUM_SM) ? sm_axi_arlen[axi_ar_sel[0]] : 8'd7;
+    assign m_axi_arsize  = (axi_ar_sel < NUM_SM) ? sm_axi_arsize[axi_ar_sel[0]] : 3'b010;
+    assign m_axi_arburst = (axi_ar_sel < NUM_SM) ? sm_axi_arburst[axi_ar_sel[0]] : 2'b01;
     assign m_axi_arvalid = axi_ar_valid;
 
     // Response routing: extract SM ID from AXI ID high bits
@@ -1098,8 +1107,8 @@ module ralph_gpu_top #(
     assign cp_axi_arready = (axi_ar_sel == NUM_SM[AXI_ARB_W-1:0] && axi_ar_valid) ? m_axi_arready : 1'b0;
 
     // bready/rready: route to target SM
-    assign m_axi_bready = sm_axi_bready[resp_wr_sm];
-    assign m_axi_rready = (resp_rd_id < NUM_SM) ? sm_axi_rready[resp_rd_id] : cp_axi_rready;
+    assign m_axi_bready = sm_axi_bready[resp_wr_sm[0]];
+    assign m_axi_rready = (resp_rd_id < NUM_SM) ? sm_axi_rready[resp_rd_id[0]] : cp_axi_rready;
 
     // Response demux: gate valid signals to target SM only
     generate

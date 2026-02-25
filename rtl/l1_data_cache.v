@@ -10,7 +10,8 @@ module l1_data_cache #(
     parameter NUM_WAYS        = 4,
     parameter HIT_LATENCY     = 2,
     parameter THREADS         = 32,
-    parameter DATA_WIDTH      = 32
+    parameter DATA_WIDTH      = 32,
+    parameter WARP_ID_WIDTH   = 5
 )(
     input  wire                 clk,
     input  wire                 rst_n,
@@ -22,7 +23,7 @@ module l1_data_cache #(
     input  wire [THREADS*32-1:0] req_wdata,
     input  wire [THREADS-1:0]   req_mask,
     input  wire [31:0]          req_pc,
-    input  wire [4:0]           req_warp_id,
+    input  wire [WARP_ID_WIDTH-1:0] req_warp_id,
     input  wire [4:0]           req_rd,
 
     output reg [THREADS*32-1:0] resp_rdata,
@@ -30,7 +31,7 @@ module l1_data_cache #(
     output reg                  resp_hit,
     output wire                 resp_replay,
     output wire [31:0]          resp_pc,
-    output wire [4:0]           resp_warp_id,
+    output wire [WARP_ID_WIDTH-1:0] resp_warp_id,
     output wire [4:0]           resp_rd,
 
     // Memory Interface
@@ -49,8 +50,8 @@ module l1_data_cache #(
     input  wire                 policy_create_valid,
     input  wire [2:0]           policy_id,
     input  wire [7:0]           policy_priority,
-    output reg  [31:0]          policy_token_out,
-    output reg                  policy_token_valid,
+    output wire [31:0]          policy_token_out,
+    output wire                 policy_token_valid,
     input  wire                 policy_apply_valid,
     input  wire [31:0]          policy_apply_addr,
     input  wire [2:0]           policy_apply_id,
@@ -80,7 +81,7 @@ module l1_data_cache #(
 
     reg [2:0] state;
     reg [31:0] saved_pc;
-    reg [4:0]  saved_warp_id;
+    reg [WARP_ID_WIDTH-1:0] saved_warp_id;
     reg [4:0]  saved_rd;
     reg [31:0] saved_addr [0:THREADS-1];
     reg [THREADS-1:0] saved_mask;
@@ -141,6 +142,8 @@ module l1_data_cache #(
             for (i=0; i<NUM_WAYS; i=i+1)
                 for (j=0; j<NUM_SETS; j=j+1)
                     valid_array[i][j] <= 0;
+            for (j=0; j<NUM_SETS; j=j+1)
+                lru_array[j] <= 0;
         end else begin
             resp_valid_reg <= 0;
             mem_req <= 0;
@@ -179,6 +182,8 @@ module l1_data_cache #(
                                 resp_rdata[i*32 +: 32] <= data_array[hit_way_comb][saved_index][saved_addr[i][OFFSET_BITS-1:2]];
                         end
                         state <= ST_IDLE;
+                        // Pseudo-LRU update (stub)
+                        lru_array[saved_index] <= (hit_way_comb == 2'd3) ? 2'd0 : (hit_way_comb + 2'd1);
                     end else begin
                         latency_counter <= latency_counter - 1;
                     end
@@ -215,6 +220,8 @@ module l1_data_cache #(
                         for (i=0; i<WORDS_PER_LINE; i=i+1)
                             data_array[saved_way][saved_index][i] <= mem_rdata[i*32 +: 32];
                         state <= ST_IDLE;
+                        // Pseudo-LRU update after fill
+                        lru_array[saved_index] <= (saved_way == 2'd3) ? 2'd0 : (saved_way + 2'd1);
                     end
                 end
                 
@@ -222,4 +229,8 @@ module l1_data_cache #(
             endcase
         end
     end
+
+    assign policy_token_out = 32'b0;
+    assign policy_token_valid = 1'b0;
+
 endmodule

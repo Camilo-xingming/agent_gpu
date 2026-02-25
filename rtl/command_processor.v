@@ -147,7 +147,7 @@ module command_processor #(
             CSR_CP_STATUS:         csr_rd_data = {24'b0, cp_enable, cp_state, queue_count[3:0]};
             default: begin
                 if (csr_addr >= CSR_DESC_BASE && csr_addr < (CSR_DESC_BASE + DESC_WORDS * 4))
-                    csr_rd_data = desc_staging[(csr_addr - CSR_DESC_BASE) >> 2];
+                    csr_rd_data = desc_staging[((csr_addr - CSR_DESC_BASE) >> 2) & 15];
             end
         endcase
     end
@@ -185,7 +185,7 @@ module command_processor #(
                 default: begin
                     if (csr_addr >= CSR_DESC_BASE &&
                         csr_addr < (CSR_DESC_BASE + DESC_WORDS * 4))
-                        desc_staging[(csr_addr - CSR_DESC_BASE) >> 2] <= csr_wr_data;
+                        desc_staging[((csr_addr - CSR_DESC_BASE) >> 2) & 15] <= csr_wr_data;
                 end
             endcase
         end
