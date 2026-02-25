@@ -57,3 +57,7 @@
 | progress.md | 进度跟踪文档 | Coders | Coders | progress |
 | research-149.md | Issue #149 调研报告 | Coders | Coders | research, 149 |
 | task_plan.md | PTX 测试套件任务计划 | Coders | Coders | task, ptx, test |
+| DESIGN_REPLAY.md | Pipeline Replay è®¾è®¡å®žçŽ° | Coders | Coders | è¯»å†…å­˜æ—¶ | replay, pipeline |
+| fpga-prototype-feasibility.md | FPGA åŽŸåž‹å¯å¡Œæ€§åˆ†æž | Coders | Jerry/Lily | é¡¹ç›®å¼€å§‹å‰ | fpga, feasibility |
+| issue-151-command-processor-plan.md | Command Processor å®žçŽ°è®¡åˆ’ | Coders | Coders | å®žçŽ°å‘½ä»¤å¤„ç††å™¨æ—¶ | command-processor, dispatch |
+| memory_coalescing_unit_design.md | å†…å­˜åˆå¹¶å•å…ƒè®¾è®¡ | Coders | Coders | å†…å­˜ç³»ç»Ÿä¼˜åŒ–æ—¶ | memory, coalescing |

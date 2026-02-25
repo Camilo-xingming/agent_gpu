@@ -396,10 +396,17 @@ module ralph_gpu_top #(
                     .req_write      (sm_l1d_req_write),
                     .req_addr       (sm_l1d_req_addr),
                     .req_wdata      (sm_l1d_req_wdata),
-                    .req_mask       (sm_l1d_req_mask),.req_pc         (32'b0),
+                    .req_mask       (sm_l1d_req_mask),
+                    .req_pc         (32'b0),
+                    .req_warp_id    (5'b0),
+                    .req_rd         (5'b0),
                     .resp_rdata     (sm_l1d_resp_rdata),
                     .resp_valid     (sm_l1d_resp_valid),
-                    .resp_hit       (sm_l1d_resp_hit),.resp_replay    (),.resp_pc        (),
+                    .resp_hit       (sm_l1d_resp_hit),
+                    .resp_replay    (),
+                    .resp_pc        (),
+                    .resp_warp_id   (),
+                    .resp_rd        (),
                     .mem_req        (l1d_mem_req),
                     .mem_write      (l1d_mem_write),
                     .mem_addr       (l1d_mem_addr),
@@ -1121,30 +1128,33 @@ module ralph_gpu_top #(
         .csr_addr           (csr_addr),
         .csr_wr_data        (csr_wr_data),
         .csr_rd_data        (csr_rd_data),
+        .csr_rd_valid       (),
 
-        .irq_kernel_done    (irq_kernel_done),
-        .kernel_start_out   (kernel_start_reg),
+        .legacy_kernel_start(1'b0),
+        .legacy_kernel_pc   (32'b0),
+        .legacy_grid_dim_x  (32'b0),
+        .legacy_grid_dim_y  (32'b0),
+        .legacy_grid_dim_z  (32'b0),
+        .legacy_block_dim_x (32'b0),
+        .legacy_block_dim_y (32'b0),
+        .legacy_block_dim_z (32'b0),
 
         .sm_kernel_start    (sm_kernel_start),
-        .sm_done            (sm_done),
+        .sm_kernel_pc       (kernel_pc_reg),
         .sm_block_id_x      (sm_block_id_x),
         .sm_block_id_y      (sm_block_id_y),
         .sm_block_id_z      (sm_block_id_z),
-        .kernel_pc          (kernel_pc_reg),
-        .grid_dim_x_out     (grid_dim_x),
-        .grid_dim_y_out     (grid_dim_y),
-        .grid_dim_z_out     (grid_dim_z),
-        .block_dim_x_out    (block_dim_x),
-        .block_dim_y_out    (block_dim_y),
-        .block_dim_z_out    (block_dim_z),
+        .sm_block_dim_x     (block_dim_x),
+        .sm_block_dim_y     (block_dim_y),
+        .sm_block_dim_z     (block_dim_z),
+        .sm_grid_dim_x      (grid_dim_x),
+        .sm_grid_dim_y      (grid_dim_y),
+        .sm_grid_dim_z      (grid_dim_z),
 
-        .sm_exception_valid (sm_exception_valid),
-        .sm_exception_code  (sm_exception_code),
-        .sm_exception_warp_id(sm_exception_warp_id),
-        .sm_exception_info  (sm_exception_info),
-        .sm_warp_error_mask (sm_warp_error_mask),
-
-        .gpu_busy_out       (gpu_busy),
+        .sm_done            (sm_done),
+        .gpu_busy           (gpu_busy),
+        .irq_kernel_done    (irq_kernel_done),
+        .fence_value        (),
 
         .m_axi_arvalid      (cp_axi_arvalid),
         .m_axi_araddr       (cp_axi_araddr),
@@ -1153,6 +1163,9 @@ module ralph_gpu_top #(
         .m_axi_rvalid       (cp_axi_rvalid), 
         .m_axi_rready       (cp_axi_rready)
     );
+
+    // kernel_start_reg legacy handling: pulse when any SM starts
+    assign kernel_start_reg = |sm_kernel_start;
 
     //------------------------------------------------------------------------
     wire [47:0] perf_counter_value;

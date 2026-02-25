@@ -53,7 +53,14 @@ module command_processor #(
     // Status
     output wire        gpu_busy,
     output wire        irq_kernel_done,
-    output wire [31:0] fence_value
+    output wire [31:0] fence_value ,
+    // AXI Master for Command Queue (Phase 2 stubs)
+    output wire        m_axi_arvalid,
+    output wire [31:0] m_axi_araddr,
+    input  wire        m_axi_arready,
+    input  wire [31:0] m_axi_rdata,
+    input  wire        m_axi_rvalid,
+    output wire        m_axi_rready
 );
 
     // Pointer width for ring buffer
@@ -325,5 +332,8 @@ module command_processor #(
     assign gpu_busy = (cp_state != CP_IDLE);
     assign irq_kernel_done = kernel_done_irq;
     assign fence_value = fence_value_reg;
+    assign m_axi_arvalid = 1'b0;
+    assign m_axi_araddr  = 32'b0;
+    assign m_axi_rready  = 1'b0;
 
 endmodule
