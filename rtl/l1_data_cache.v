@@ -121,6 +121,8 @@ module l1_data_cache #(
     reg [31:0]          saved_addr [0:THREADS-1];
     reg [31:0]          saved_wdata [0:THREADS-1];
     reg [THREADS-1:0]   saved_mask;
+    reg [1:0] saved_hit_way;
+    reg [INDEX_BITS-1:0] saved_index;
 
     // 主地址 (用第一个活跃线程的地址作为代表)
     wire [31:0]         primary_addr;
@@ -160,8 +162,8 @@ module l1_data_cache #(
         cache_hit = 0;
 
         for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
-            if (valid_array[w][primary_index] &&
-                tag_array[w][primary_index] == primary_tag) begin
+            if (valid_array[w][saved_index] &&
+                tag_array[w][saved_index] == primary_tag) begin
                 way_hit[w] = 1;
                 hit_way = w[1:0];
                 cache_hit = 1;
@@ -176,11 +178,11 @@ module l1_data_cache #(
 
     always @(*) begin
         // 简单LRU: 选择最近最少使用的way
-        replace_way = lru_array[primary_index];
+        replace_way = lru_array[saved_index];
 
         // 如果有无效行，优先使用
         for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
-            if (!valid_array[w][primary_index]) begin
+            if (!valid_array[w][saved_index]) begin
                 replace_way = w[1:0];
             end
         end
@@ -217,8 +219,8 @@ module l1_data_cache #(
                     next_state = ST_HIT;
                 end else begin
                     // Miss: 检查是否需要写回
-                    if (dirty_array[replace_way][primary_index] &&
-                        valid_array[replace_way][primary_index]) begin
+                    if (dirty_array[replace_way][saved_index] &&
+                        valid_array[replace_way][saved_index]) begin
                         next_state = ST_WRITEBACK;
                     end else begin
                         next_state = ST_FILL;
@@ -321,7 +323,7 @@ module l1_data_cache #(
                     if (req_valid) begin
                         // 保存请求
                         saved_write <= req_write;
-                        saved_mask  <= req_mask;
+                        saved_mask  <= req_mask; saved_index <= primary_index; saved_hit_way <= hit_way;
                         for (i = 0; i < THREADS; i = i + 1) begin
                             saved_addr[i]  <= req_addr[i*32 +: 32];
                             saved_wdata[i] <= req_wdata[i*32 +: 32];
@@ -353,23 +355,23 @@ module l1_data_cache #(
                             // 写操作
                             for (i = 0; i < THREADS; i = i + 1) begin
                                 if (saved_mask[i]) begin
-                                    data_array[hit_way][primary_index][saved_addr[i][OFFSET_BITS-1:2]] <= saved_wdata[i];
+                                    data_array[saved_hit_way][saved_index][saved_addr[i][OFFSET_BITS-1:2]] <= saved_wdata[i];
                                 end
                             end
-                            dirty_array[hit_way][primary_index] <= 1;
+                            dirty_array[saved_hit_way][saved_index] <= 1;
                         end else begin
                             // 读操作
                             for (i = 0; i < THREADS; i = i + 1) begin
                                 if (saved_mask[i]) begin
-                                    resp_rdata[i*32 +: 32] <= data_array[hit_way][primary_index][saved_addr[i][OFFSET_BITS-1:2]];
+                                    resp_rdata[i*32 +: 32] <= data_array[saved_hit_way][saved_index][saved_addr[i][OFFSET_BITS-1:2]];
                                 end
                             end
                         end
 
                         // 更新LRU
-                        lru_array[primary_index] <= (hit_way == 0) ? 2'd1 :
-                                                    (hit_way == 1) ? 2'd2 :
-                                                    (hit_way == 2) ? 2'd3 : 2'd0;
+                        lru_array[saved_index] <= (saved_hit_way == 0) ? 2'd1 :
+                                                    (saved_hit_way == 1) ? 2'd2 :
+                                                    (saved_hit_way == 2) ? 2'd3 : 2'd0;
                     end
                 end
 
@@ -377,11 +379,11 @@ module l1_data_cache #(
                     // 写回脏行
                     mem_req   <= 1;
                     mem_write <= 1;
-                    mem_addr  <= {tag_array[replace_way][primary_index], primary_index, {OFFSET_BITS{1'b0}}};
+                    mem_addr  <= {tag_array[replace_way][saved_index], primary_index, {OFFSET_BITS{1'b0}}};
 
                     // 打包整行数据
                     for (i = 0; i < WORDS_PER_LINE; i = i + 1) begin
-                        mem_wdata[i*32 +: 32] <= data_array[replace_way][primary_index][i];
+                        mem_wdata[i*32 +: 32] <= data_array[replace_way][saved_index][i];
                     end
                 end
 
@@ -399,12 +401,12 @@ module l1_data_cache #(
                         resp_valid  <= 1;
 
                         // 填充cache行
-                        tag_array[replace_way][primary_index]   <= primary_tag;
-                        valid_array[replace_way][primary_index] <= 1;
-                        dirty_array[replace_way][primary_index] <= saved_write;
+                        tag_array[replace_way][saved_index]   <= primary_tag;
+                        valid_array[replace_way][saved_index] <= 1;
+                        dirty_array[replace_way][saved_index] <= saved_write;
 
                         for (i = 0; i < WORDS_PER_LINE; i = i + 1) begin
-                            data_array[replace_way][primary_index][i] <= mem_rdata[i*32 +: 32];
+                            data_array[replace_way][saved_index][i] <= mem_rdata[i*32 +: 32];
                         end
 
                         // 处理原始请求
@@ -412,7 +414,7 @@ module l1_data_cache #(
                             // 写入新数据
                             for (i = 0; i < THREADS; i = i + 1) begin
                                 if (saved_mask[i]) begin
-                                    data_array[replace_way][primary_index][saved_addr[i][OFFSET_BITS-1:2]] <= saved_wdata[i];
+                                    data_array[replace_way][saved_index][saved_addr[i][OFFSET_BITS-1:2]] <= saved_wdata[i];
                                 end
                             end
                         end else begin
@@ -425,7 +427,7 @@ module l1_data_cache #(
                         end
 
                         // 更新LRU
-                        lru_array[primary_index] <= (replace_way == 0) ? 2'd1 :
+                        lru_array[saved_index] <= (replace_way == 0) ? 2'd1 :
                                                     (replace_way == 1) ? 2'd2 :
                                                     (replace_way == 2) ? 2'd3 : 2'd0;
                     end
