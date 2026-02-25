@@ -2111,10 +2111,6 @@ module streaming_multiprocessor_v2 #(
                     dec0_instruction <= sched_issue_inst[0];
                     dec0_pc <= warp_pc[sched_issue_warp_id[0]]; // Capture current PC
                     dec0_isn <= sched_issue_seq[sched_issue_warp_id[0]];
-                    // Advance PC at scheduling time for non-branch instructions
-                    // (branches will override PC when they resolve)
-                    if (!pd_is_branch[sched_issue_warp_id[0]] &&
-                    // Note: warp_stalled_branch is set in main always block for branch scheduling
                 end
             end
 
@@ -2128,8 +2124,6 @@ module streaming_multiprocessor_v2 #(
                     dec1_instruction <= sched_issue_inst[1];
                     if (issue0_fire && (sched_issue_warp_id[0] == sched_issue_warp_id[1])) dec1_pc <= warp_pc[sched_issue_warp_id[1]] + 4; else dec1_pc <= warp_pc[sched_issue_warp_id[1]];
                     dec1_isn <= sched_issue_seq[sched_issue_warp_id[1]];
-                    if (!pd_is_branch[sched_issue_warp_id[1]] &&
-                    // Note: warp_stalled_branch is set in main always block for branch scheduling
                 end
             end
         end
