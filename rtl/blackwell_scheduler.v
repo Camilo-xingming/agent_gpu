@@ -130,6 +130,11 @@ module blackwell_scheduler #(
     input  wire [$clog2(NUM_WARPS)-1:0] wgmma_sb_clr_warp,
     input  wire [4:0]               wgmma_sb_clr_rd,
 
+    // Pipeline replay scoreboard rollback (L1 miss → PC rollback)
+    input  wire                     replay_sb_clr_valid,
+    input  wire [$clog2(NUM_WARPS)-1:0] replay_sb_clr_warp,
+    input  wire [4:0]               replay_sb_clr_rd,
+
     input  wire                     wb_valid,
     input  wire [$clog2(NUM_WARPS)-1:0] wb_warp_id,
     input  wire [4:0]               wb_rd,
@@ -553,6 +558,11 @@ end
             // Clear scoreboard on WGMMA completion
             if (wgmma_sb_clr_valid) begin
                 scoreboard[wgmma_sb_clr_warp][wgmma_sb_clr_rd] <= 1'b0;
+            end
+
+            // Clear scoreboard on pipeline replay (L1 miss rollback)
+            if (replay_sb_clr_valid) begin
+                scoreboard[replay_sb_clr_warp][replay_sb_clr_rd] <= 1'b0;
             end
 
             // Clear async MMA pending on completion (from tensor_core)
