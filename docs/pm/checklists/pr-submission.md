@@ -30,4 +30,9 @@
 
 ---
 
-*更新时间: 2026-02-24*
+*更新时间: 2026-02-25*
+
+## merge 后（Lily 执行）
+
+- [ ] merge 后立即检查 master CI 状态：`gh run list --branch master --limit 3`
+- [ ] 若 master CI 失败，立即触发修复（不等下次 standup）

@@ -30,6 +30,7 @@
 |------|------|------|
 | Issue 无 assignee | Planning 时只口头分配 | 当场在 GitHub 设 assignee |
 | Backlog 输入不足 | Triage 未提前做 | 前一天晚上确认 |
+| Research issue 无里程碑 | 只估工时不拆阶段 | research-heavy issue 必须含设计文档 review 检查点 |
 | Carry-over 无限期 open | Review 时没处理 | Planning 前强制清理 |
 | Agent 未确认任务 | 只发了一条消息没 @mention | 用 `<@BOT_ID>` 格式 |
 
