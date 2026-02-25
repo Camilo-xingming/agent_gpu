@@ -95,8 +95,10 @@ module register_file_banked #(
     // This maps each logical register to a stable bank across all lanes.
     function [BANK_BITS-1:0] get_bank;
         input [4:0] reg_addr;
+        reg [31:0] temp_bank;
         begin
-            get_bank = reg_addr % NUM_BANKS;
+            temp_bank = {27'b0, reg_addr} % NUM_BANKS;
+            get_bank = temp_bank[BANK_BITS-1:0];
         end
     endfunction
 

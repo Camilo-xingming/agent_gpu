@@ -279,7 +279,7 @@ module memory_interface #(
                     m_axi_arid    <= burst_read_mode ? 4'd0 : current_lane[3:0];
                     m_axi_araddr  <= burst_read_mode ? lane0_addr :
                                       addr_buf[current_lane*ADDR_WIDTH +: ADDR_WIDTH];
-                    m_axi_arlen   <= burst_read_mode ? (lane_count - 1'b1) : 8'd0;
+                    m_axi_arlen   <= burst_read_mode ? {2'b0, (lane_count - 6'd1)} : 8'd0;
                     m_axi_arvalid <= 1'b1;
                 end
 

@@ -2089,8 +2089,6 @@ module streaming_multiprocessor_v2 #(
     assign issue1_fire = sched_issue_valid_mask[1] && !decode_stalled_slot1 && !lane_unit_conflict;
 
     // DEBUG: Scheduler output
-    always @(posedge clk) begin
-    end
 
     // We reuse the 'dec0' pipeline registers to hold the scheduled instructions
     // effectively merging Decode/Issue stages into one logical flow handled by scheduler+decoder
@@ -2113,13 +2111,6 @@ module streaming_multiprocessor_v2 #(
                     dec0_instruction <= sched_issue_inst[0];
                     dec0_pc <= warp_pc[sched_issue_warp_id[0]]; // Capture current PC
                     dec0_isn <= sched_issue_seq[sched_issue_warp_id[0]];
-                    // Advance PC at scheduling time for non-branch instructions
-                    // (branches will override PC when they resolve)
-                    if (!pd_is_branch[sched_issue_warp_id[0]] &&
-                        warp_inst_consume[sched_issue_warp_id[0]]) begin
-                        warp_pc[sched_issue_warp_id[0]] <= warp_pc[sched_issue_warp_id[0]] + 4;
-                    end
-                    // Note: warp_stalled_branch is set in main always block for branch scheduling
                 end
             end
 
@@ -2131,13 +2122,8 @@ module streaming_multiprocessor_v2 #(
                 if (issue1_fire) begin
                     dec1_warp_id <= sched_issue_warp_id[1];
                     dec1_instruction <= sched_issue_inst[1];
-                    dec1_pc <= warp_pc[sched_issue_warp_id[1]];
+                    if (issue0_fire && (sched_issue_warp_id[0] == sched_issue_warp_id[1])) dec1_pc <= warp_pc[sched_issue_warp_id[1]] + 4; else dec1_pc <= warp_pc[sched_issue_warp_id[1]];
                     dec1_isn <= sched_issue_seq[sched_issue_warp_id[1]];
-                    if (!pd_is_branch[sched_issue_warp_id[1]] &&
-                        warp_inst_consume[sched_issue_warp_id[1]]) begin
-                        warp_pc[sched_issue_warp_id[1]] <= warp_pc[sched_issue_warp_id[1]] + 4;
-                    end
-                    // Note: warp_stalled_branch is set in main always block for branch scheduling
                 end
             end
         end
@@ -5400,7 +5386,20 @@ module streaming_multiprocessor_v2 #(
                 warp_error_mask <= {NUM_WARPS{1'b0}};
             end
 
-            // NOTE: Fetch PC is advanced in the instruction buffer fill logic (line 1083)
+
+            
+            // Integrated PC advancement for non-branches (consolidated here for single-driver)
+            if (issue0_fire && !pd_is_branch[sched_issue_warp_id[0]] && warp_inst_consume[sched_issue_warp_id[0]]) begin
+                if (issue1_fire && (sched_issue_warp_id[0] == sched_issue_warp_id[1]) && !pd_is_branch[sched_issue_warp_id[1]] && warp_inst_consume[sched_issue_warp_id[1]])
+                    warp_pc[sched_issue_warp_id[0]] <= warp_pc[sched_issue_warp_id[0]] + 8;
+                else
+                    warp_pc[sched_issue_warp_id[0]] <= warp_pc[sched_issue_warp_id[0]] + 4;
+            end
+            if (issue1_fire && (sched_issue_warp_id[0] != sched_issue_warp_id[1]) && !pd_is_branch[sched_issue_warp_id[1]] && warp_inst_consume[sched_issue_warp_id[1]]) begin
+                warp_pc[sched_issue_warp_id[1]] <= warp_pc[sched_issue_warp_id[1]] + 4;
+            end
+
+// NOTE: Fetch PC is advanced in the instruction buffer fill logic (line 1083)
             // when icache returns valid data. Don't advance here on fetch_fire to avoid
             // double-counting. The fetch_fire signal is used for other purposes (arbitration).
 
@@ -5472,8 +5471,8 @@ module streaming_multiprocessor_v2 #(
                 end else begin
                     // Execute not-taken threads first (fall-through)
                     warp_mask[issue_warp_id] <= not_taken_lanes;
-                    warp_pc[issue_warp_id] <= issue_pc + 32'd4;
                     warp_fetch_pc[issue_warp_id] <= issue_pc + 32'd4;
+                    warp_pc[issue_warp_id] <= issue_pc + 32'd4;
                 end
 
                 // Flush instruction buffer and pipeline to ensure next fetch uses new mask
@@ -5536,8 +5535,8 @@ module streaming_multiprocessor_v2 #(
                 end else begin
                     // Execute not-taken threads first (fall-through)
                     warp_mask[issue1_warp_id] <= not_taken1_lanes;
-                    warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
                     warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                    warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
                 end
 
                 // Flush instruction buffer and pipeline
@@ -5550,8 +5549,6 @@ module streaming_multiprocessor_v2 #(
             // Handle SM-level reconvergence (when PC matches stacked reconverge_pc)
             // Note: Reconvergence is now handled at decode stage (dec0_at_reconverge)
             // to ensure the instruction uses the merged mask
-            if (sm_at_reconverge) begin
-            end
 
             // Branch predictor update (when branch resolves)
             // Priority: lane 0, then lane 1 (only one update per cycle)
@@ -5671,8 +5668,8 @@ module streaming_multiprocessor_v2 #(
 
                 // Advance PC past the barrier instruction
                 warp_stalled_branch[issue_warp_id] <= 1'b0;
-                warp_pc[issue_warp_id] <= issue_pc + 32'd4;
                 warp_fetch_pc[issue_warp_id] <= issue_pc + 32'd4;
+                warp_pc[issue_warp_id] <= issue_pc + 32'd4;
                 branch_flush_mask[issue_warp_id] <= 1'b1;
             end
             
@@ -5683,8 +5680,8 @@ module streaming_multiprocessor_v2 #(
                 
                 // Advance PC past the barrier instruction
                 warp_stalled_branch[issue1_warp_id] <= 1'b0;
-                warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
                 warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
                 branch_flush_mask[issue1_warp_id] <= 1'b1;
                 
             end

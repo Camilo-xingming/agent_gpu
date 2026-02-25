@@ -285,8 +285,9 @@ module shared_memory #(
     genvar ace_gi;
     generate
         for (ace_gi = 0; ace_gi < 4; ace_gi = ace_gi + 1) begin : gen_ace_addr
-            assign ace_bank[ace_gi]  = (ace_rd_addr + ace_gi * 4) >> 2;  // word addr bank select
-            assign ace_baddr[ace_gi] = (ace_rd_addr + ace_gi * 4) >> (2 + BANK_SEL_W);
+            wire [ADDR_WIDTH-1:0] full_addr = ace_rd_addr + (ace_gi * 4);
+            assign ace_bank[ace_gi]  = full_addr[BANK_SEL_W+2-1:2];
+            assign ace_baddr[ace_gi] = full_addr[BANK_ADDR_W+BANK_SEL_W+2-1:BANK_SEL_W+2];
         end
     endgenerate
 
