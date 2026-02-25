@@ -69,15 +69,17 @@ module tb_sm_v2_integration;
     // L1D cache interface
     wire        l1d_req_valid;
     wire        l1d_req_write;
-    wire [31:0] l1d_req_addr [0:NUM_LANES-1];
-    wire [31:0] l1d_req_wdata [0:NUM_LANES-1];
+    wire [NUM_LANES*32-1:0] l1d_req_addr;
+    wire [NUM_LANES*32-1:0] l1d_req_wdata;
     wire [NUM_LANES-1:0] l1d_req_mask;
-    reg  [31:0] l1d_resp_rdata [0:NUM_LANES-1];
+    reg [NUM_LANES*32-1:0] l1d_resp_rdata;
     reg         l1d_resp_valid;
     reg         l1d_resp_hit;
 
     //------------------------------------------------------------------------
     // Performance Counters
+    real ipc;
+
     //------------------------------------------------------------------------
     integer cycle_count;
     integer instruction_count;
@@ -85,52 +87,6 @@ module tb_sm_v2_integration;
     integer stall_cycles_fu;
     integer stall_cycles_mem;
     integer warp_switch_count;
-    real    ipc;
-
-`ifdef DEBUG_SM_V2
-    integer dbg_cycle;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            dbg_cycle <= 0;
-        end else begin
-            dbg_cycle <= dbg_cycle + 1;
-            // Trace fetch/scheduler pipeline
-            if (dbg_cycle < 50) begin
-                $display("[DBG] C%0d: warp_valid=%b fetch_req=%b icache_state=%0d icache_ready=%b icache_valid=%b",
-                         dbg_cycle, dut.warp_valid, dut.fetch_req, dut.u_icache.state, dut.icache_ready, dut.icache_valid);
-                $display("[DBG] C%0d:   fetch_inflight_valid=%b inst_buf_valid=%b sched_issue=%b dec0_valid=%b warp_consume=%b",
-                         dbg_cycle, dut.fetch_inflight_valid, dut.warp_inst_buf_valid, dut.sched_issue_valid_mask, dut.dec0_valid, dut.warp_inst_consume);
-                $display("[DBG] C%0d:   dec_valid=%b alu_issue=%b alu_valid_pipe=%b wb_valid=%b sb[0]=%h sched_sb[0]=%h",
-                         dbg_cycle, dut.dec_valid, dut.alu_issue, dut.alu_valid_pipe, dut.wb_valid, dut.scoreboard_busy[0], dut.u_scheduler.scoreboard[0]);
-                // Show pre-decode info for warp 0 when buffer is valid
-                if (dut.warp_inst_buf_valid[0]) begin
-                    $display("[DBG] C%0d:   pd[0] inst=%h rd=%0d rs1=%0d rs2=%0d rs3=%0d is_compute=%b",
-                             dbg_cycle, dut.warp_inst_buf[0], dut.pd_rd[0], dut.pd_rs1[0], dut.pd_rs2[0], dut.pd_rs3[0],
-                             dut.pd_is_compute[0]);
-                    $display("[DBG] C%0d:   sched: schedulable=%b has_hazard=%b warp_eligible=%b compute_elig=%b",
-                             dbg_cycle, dut.u_scheduler.warp_schedulable[0], dut.u_scheduler.warp_has_hazard[0],
-                             dut.u_scheduler.warp_eligible[0], dut.u_scheduler.compute_eligible[0]);
-                    $display("[DBG] C%0d:   warp_ready=%b warp_valid=%b warp_at_barrier=%b",
-                             dbg_cycle, dut.warp_ready[0], dut.warp_valid[0], dut.warp_stalled_sync[0]);
-                    $display("[DBG] C%0d:   sb_full[0]=%h warp_rs1[0]=%0d warp_rs2[0]=%0d warp_rs3[0]=%0d warp_rd[0]=%0d",
-                             dbg_cycle, dut.u_scheduler.scoreboard[0],
-                             dut.u_scheduler.warp_rs1[0], dut.u_scheduler.warp_rs2[0],
-                             dut.u_scheduler.warp_rs3[0], dut.u_scheduler.warp_rd[0]);
-                end
-            end
-            if (dut.issue_valid) begin
-                $display("[DBG] C%0d ISSUE op=0x%02X rd=%0d ra=%0d rb=%0d exit=%0b alu=%b",
-                         dbg_cycle, dut.issue_opcode, dut.issue_rd, dut.issue_ra, dut.issue_rb, dut.issue_exit_op, dut.issue_alu_op);
-            end
-            if (dut.wb_valid) begin
-                $display("[DBG] C%0d WB warp=%0d rd=%0d", dbg_cycle, dut.wb_warp_id, dut.wb_rd);
-            end
-            if (kernel_done && dbg_cycle > 10) begin
-                $display("[DBG] C%0d kernel_done warp_valid=%b", dbg_cycle, dut.warp_valid);
-            end
-        end
-    end
-`endif
 
     //------------------------------------------------------------------------
     // Instruction Memory (ROM)
@@ -373,6 +329,7 @@ module tb_sm_v2_integration;
         begin
             $display("\n[TEST 5] Memory Latency Hiding");
             imem[0] = encode_load(5'd1, 5'd0, 16'h0000);  // LOAD R1 (20 cycles)
+
             imem[1] = encode_alu(5'd2, 5'd0, 5'd0, 6'h00);
             imem[2] = encode_alu(5'd3, 5'd0, 5'd0, 6'h00);
             imem[3] = encode_alu(5'd4, 5'd1, 5'd0, 6'h00);  // Use loaded value
@@ -384,7 +341,7 @@ module tb_sm_v2_integration;
     // Performance Tracking
     //------------------------------------------------------------------------
     always @(posedge clk) begin
-        if (rst_n && kernel_start && !kernel_done) begin
+        if (rst_n && (kernel_start || !kernel_done && cycle_count > 0)) begin
             cycle_count <= cycle_count + 1;
         end
     end
@@ -456,6 +413,12 @@ module tb_sm_v2_integration;
         run_kernel(100);
         report_test(4, "Writeback Arbitration");
 
+        // Test 5: Memory Replay
+        load_test_mem_latency();
+        run_kernel(200);
+        report_test(5, "Memory Replay");
+
+
         //--------------------------------------------------------------------
         // Summary
         //--------------------------------------------------------------------
@@ -470,36 +433,20 @@ module tb_sm_v2_integration;
 
     //------------------------------------------------------------------------
     // Helper Tasks
-    //------------------------------------------------------------------------
-
     task run_kernel;
-        input integer max_cycles;
+        input integer timeout;
         begin
+            rst_n = 0; repeat(10) @(posedge clk); rst_n = 1; repeat(5) @(posedge clk);
             cycle_count = 0;
             instruction_count = 0;
-
-            @(posedge clk);
             kernel_start = 1;
-            kernel_pc = 32'h0000_0000;
             @(posedge clk);
             kernel_start = 0;
-
-            // Wait for completion or timeout
-            fork
-                begin
-                    wait(kernel_done);
-                end
-                begin
-                    repeat(max_cycles) @(posedge clk);
-                    $display("  WARNING: Kernel timeout after %0d cycles", max_cycles);
-                end
-            join_any
-            disable fork;
-
-            repeat(5) @(posedge clk);
+            while (!kernel_done && cycle_count < timeout) begin
+                @(posedge clk);
+            end
         end
     endtask
-
     task report_test;
         input integer num;
         input [255:0] name;

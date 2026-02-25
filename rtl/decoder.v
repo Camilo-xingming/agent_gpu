@@ -13,10 +13,12 @@ module decoder (
 
     // 指令输入
     input  wire [31:0] instruction,
+    input  wire [31:0] pc_in,
     input  wire        valid_in,
 
     // 解码结果
     output reg         valid_out,
+    output reg  [31:0] pc_out,
     output reg  [5:0]  opcode,
     output reg  [4:0]  rd,          // 目标寄存器
     output reg  [4:0]  ra,          // 源寄存器A
@@ -156,6 +158,7 @@ module decoder (
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             valid_out   <= 1'b0;
+            pc_out      <= 32'b0;
             opcode      <= 6'b0;
             rd          <= 5'b0;
             ra          <= 5'b0;
@@ -242,6 +245,7 @@ module decoder (
             illegal_inst <= 1'b0;
         end else if (valid_in) begin
             valid_out <= 1'b1;
+            pc_out <= pc_in;
 
             // 基本字段
             opcode <= inst_opcode;

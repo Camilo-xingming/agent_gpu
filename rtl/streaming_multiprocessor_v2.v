@@ -492,6 +492,7 @@ module streaming_multiprocessor_v2 #(
     // Decoder Signals
     //========================================================================
     wire                 dec_valid;
+    wire [31:0]           dec_pc_out;
     wire [5:0]           dec_opcode;
     wire [4:0]           dec_rd, dec_ra, dec_rb, dec_rc;
     wire [5:0]           dec_func;
@@ -764,6 +765,10 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_LANES*32-1:0] l1_cache_resp_rdata_flat;
     wire                  l1_cache_resp_valid;
     wire                  l1_cache_resp_hit;
+    wire                  l1_cache_resp_replay;
+    wire [31:0]           l1_cache_resp_pc;
+    wire [4:0]            l1_cache_resp_warp_id;
+    wire [4:0]            l1_cache_resp_rd;
     wire                  l1_mem_req;
     wire                  l1_mem_write;
     wire [31:0]           l1_mem_addr;
@@ -1149,7 +1154,7 @@ module streaming_multiprocessor_v2 #(
                              fp16_fu_conflict || sfu_fu_conflict ||
                              shfl_fu_conflict || video_fu_conflict ||
                              special_fu_conflict;
-    wire fu_conflict_sb_clr_valid = issue_fu_conflict && issue1_valid && issue1_reg_write;
+    wire fu_conflict_sb_clr_valid = (issue_fu_conflict && issue1_valid && issue1_reg_write) || (l1_cache_resp_valid && l1_cache_resp_replay);
 
     `ifdef SIMULATION
     always @(posedge clk) begin
@@ -1301,9 +1306,16 @@ module streaming_multiprocessor_v2 #(
         .req_addr           (l1_cache_req_addr_flat),
         .req_wdata          (l1_cache_req_wdata_flat),
         .req_mask           (issue_mask),
+        .req_pc             (issue_pc),
+        .req_warp_id       (issue_warp_id), 
+        .req_rd            (issue_rd),
         .resp_rdata         (l1_cache_resp_rdata_flat),
         .resp_valid         (l1_cache_resp_valid),
         .resp_hit           (l1_cache_resp_hit),
+        .resp_replay        (l1_cache_resp_replay),
+        .resp_pc            (l1_cache_resp_pc),
+        .resp_warp_id       (l1_cache_resp_warp_id), 
+        .resp_rd            (l1_cache_resp_rd),
         .mem_req            (l1_mem_req),
         .mem_write          (l1_mem_write),
         .mem_addr           (l1_mem_addr),
@@ -1971,8 +1983,8 @@ module streaming_multiprocessor_v2 #(
         .pipeline_stall(decode_stalled_slot0),
         .pipeline_stall_slot1(decode_stalled_slot1),
         .fu_conflict_sb_clr_valid(fu_conflict_sb_clr_valid),
-        .fu_conflict_sb_clr_warp(issue1_warp_id),
-        .fu_conflict_sb_clr_rd(issue1_rd),
+        .fu_conflict_sb_clr_warp((l1_cache_resp_valid && l1_cache_resp_replay) ? l1_cache_resp_warp_id[WARP_ID_W-1:0] : issue1_warp_id),
+        .fu_conflict_sb_clr_rd((l1_cache_resp_valid && l1_cache_resp_replay) ? l1_cache_resp_rd : issue1_rd),
         // Deferred tensor scoreboard SET: only set when tensor push actually succeeds
         .tensor_sb_set_valid(tensor_issue_push_fire),
         .tensor_sb_set_warp(tensor_push_lane0 ? issue_warp_id : issue1_warp_id),
@@ -2099,7 +2111,6 @@ module streaming_multiprocessor_v2 #(
                     // (branches will override PC when they resolve)
                     if (!pd_is_branch[sched_issue_warp_id[0]] &&
                         warp_inst_consume[sched_issue_warp_id[0]]) begin
-                        warp_pc[sched_issue_warp_id[0]] <= warp_pc[sched_issue_warp_id[0]] + 4;
                     end
                     // Note: warp_stalled_branch is set in main always block for branch scheduling
                 end
@@ -2193,9 +2204,10 @@ module streaming_multiprocessor_v2 #(
     decoder u_decoder0 (
         .clk         (clk),
         .rst_n       (rst_n),
-        .instruction (dec0_instruction),
+        .instruction (dec0_instruction), .pc_in (dec0_pc),
         .valid_in    (dec0_fire),
         .valid_out   (dec_valid),
+        .pc_out      (dec_pc_out),
         .opcode      (dec_opcode),
         .rd          (dec_rd),
         .ra          (dec_ra),
@@ -2268,13 +2280,15 @@ module streaming_multiprocessor_v2 #(
     // Instruction Decoder (lane 1)
     //------------------------------------------------------------------------
     wire dec1_dec_valid;
+    wire [31:0]           dec1_pc_out;
     /* verilator lint_off PINMISSING */
     decoder u_decoder1 (
         .clk         (clk),
         .rst_n       (rst_n),
-        .instruction (dec1_instruction),
+        .instruction (dec1_instruction), .pc_in (dec1_pc),
         .valid_in    (dec1_fire),
         .valid_out   (dec1_dec_valid),
+        .pc_out      (dec1_pc_out),
         .opcode      (dec1_opcode),
         .rd          (dec1_rd),
         .ra          (dec1_ra),
@@ -2458,7 +2472,7 @@ module streaming_multiprocessor_v2 #(
                 // (the old lane0_ready-based selection doesn't apply here)
                 begin
                     issue_warp_id <= dec0_warp_id;
-                    issue_pc <= dec0_pc;
+                    issue_pc <= dec_pc_out;
                     issue_isn <= dec0_isn;
                     issue_opcode <= dec_opcode;
                     issue_rd <= dec_rd;
@@ -2518,7 +2532,7 @@ module streaming_multiprocessor_v2 #(
             // This matches the timing of issue1_valid which is set from dec1_dec_valid
             if (dec1_dec_valid && !branch_flush_dec1) begin
                 issue1_warp_id <= dec1_warp_id;
-                issue1_pc <= dec1_pc;
+                issue1_pc <= dec1_pc_out;
                 issue1_isn <= dec1_isn;
                 issue1_opcode <= dec1_opcode;
                 issue1_rd <= dec1_rd;
@@ -5551,7 +5565,8 @@ module streaming_multiprocessor_v2 #(
                 warp_valid[issue_warp_id] <= 1'b0;
                 warp_active[issue_warp_id] <= 1'b0;
                 warp_exit_pending[issue_warp_id] <= 1'b0;
-                warp_stalled_mem[issue_warp_id] <= 1'b0;
+                warp_stalled_mem[l1_cache_resp_warp_id] <= 1'b0; 
+                branch_flush_mask[l1_cache_resp_warp_id] <= 1'b1;
                 warp_stalled_fu[issue_warp_id] <= 1'b0;
                 warp_stalled_sync[issue_warp_id] <= 1'b0;
                 warp_stalled_async[issue_warp_id] <= 1'b0;
@@ -5590,7 +5605,7 @@ module streaming_multiprocessor_v2 #(
 
             // Memory stall handling
             if (issue_valid && issue_mem_read && !issue_atomic_op && !issue_addr_oob_exc && !issue_illegal_exc) begin
-                warp_stalled_mem[issue_warp_id] <= 1'b1;
+                if (!(l1_cache_resp_valid && l1_cache_resp_replay)) warp_stalled_mem[issue_warp_id] <= 1'b1;
             end
             if (smem_resp_valid && smem_pending_valid) begin
                 warp_stalled_mem[smem_warp_pending] <= 1'b0;
@@ -5792,6 +5807,15 @@ module streaming_multiprocessor_v2 #(
             end
             if (issue1_valid && issue1_exit_op) begin
                 warp_exit_pending[issue1_warp_id] <= 1'b1;
+            end
+
+            // Pipeline Replay Handling (Rollback PC and clear stalls)
+            if (l1_cache_resp_valid && l1_cache_resp_replay) begin
+                warp_pc[l1_cache_resp_warp_id] <= l1_cache_resp_pc;
+                warp_fetch_pc[l1_cache_resp_warp_id] <= l1_cache_resp_pc;
+                warp_stalled_mem[l1_cache_resp_warp_id] <= 1'b0; 
+                branch_flush_mask[l1_cache_resp_warp_id] <= 1'b1;
+                $display("[%0t SM%0d] REPLAY: warp=%0d pc=%h", $time, SM_ID, l1_cache_resp_warp_id, l1_cache_resp_pc);
             end
 
             for (w = 0; w < NUM_WARPS; w = w + 1) begin

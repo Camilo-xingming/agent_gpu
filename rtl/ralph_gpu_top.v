@@ -45,7 +45,7 @@ module ralph_gpu_top #(
     input  wire                         csr_wr_en,
     input  wire [11:0]                  csr_addr,
     input  wire [31:0]                  csr_wr_data,
-    output reg  [31:0]                  csr_rd_data,
+    output wire [31:0]                  csr_rd_data,
 
     // 中断
     output wire                         irq_kernel_done,
@@ -102,7 +102,7 @@ module ralph_gpu_top #(
 );
 
     localparam NUM_LANES = `THREADS_PER_WARP;
-    localparam SM_ID_W = (NUM_SM > 1) ? $clog2(NUM_SM) : 1;
+    localparam SM_ID_W = $clog2(NUM_SM + 1);
     localparam TLB_VADDR_WIDTH = 48;
     localparam TLB_PADDR_WIDTH = 40;
 
@@ -112,54 +112,29 @@ module ralph_gpu_top #(
     // 地址映射:
     // 0x000 - GPU_STATUS     : 状态寄存器 (RO)
     // 0x004 - GPU_CONTROL    : 控制寄存器 (RW)
-    // 0x008 - KERNEL_PC      : Kernel起始PC (RW)
-    // 0x00C - GRID_DIM_X     : Grid X维度 (RW)
-    // 0x010 - GRID_DIM_Y     : Grid Y维度 (RW)
-    // 0x014 - GRID_DIM_Z     : Grid Z维度 (RW)
-    // 0x018 - BLOCK_DIM_X    : Block X维度 (RW)
-    // 0x01C - BLOCK_DIM_Y    : Block Y维度 (RW)
-    // 0x020 - BLOCK_DIM_Z    : Block Z维度 (RW)
-    // 0x100 - SM0_STATUS     : SM0状态 (RO)
-    // ...
-
-    localparam CSR_GPU_STATUS   = 12'h000;
-    localparam CSR_GPU_CONTROL  = 12'h004;
-    localparam CSR_KERNEL_PC    = 12'h008;
-    localparam CSR_GRID_DIM_X   = 12'h00C;
-    localparam CSR_GRID_DIM_Y   = 12'h010;
-    localparam CSR_GRID_DIM_Z   = 12'h014;
-    localparam CSR_BLOCK_DIM_X  = 12'h018;
-    localparam CSR_BLOCK_DIM_Y  = 12'h01C;
-    localparam CSR_BLOCK_DIM_Z  = 12'h020;
-    localparam CSR_ERROR_STATUS = 12'h024;
-    localparam CSR_ERROR_WARP_MASK = 12'h028;
-    localparam CSR_ERROR_INFO   = 12'h02C;
-
     //------------------------------------------------------------------------
-    // CSR存储
+    // Command Processor (CP) Signals
     //------------------------------------------------------------------------
-    reg         gpu_busy;
-    reg         kernel_start_reg;
-    reg [31:0]  kernel_pc_reg;
-    reg [31:0]  grid_dim_x, grid_dim_y, grid_dim_z;
-    reg [31:0]  block_dim_x, block_dim_y, block_dim_z;
-    reg         error_pending;
-    reg  [3:0]  error_code;
-    reg  [7:0]  error_sm_id;
-    reg  [7:0]  error_warp_id;
-    reg  [31:0] error_info;
-    reg  [31:0] error_warp_mask_global;
-
-    //------------------------------------------------------------------------
-    // Block分配器状态
-    //------------------------------------------------------------------------
-    reg [31:0]  sm_block_id_x [0:NUM_SM-1];
-    reg [31:0]  sm_block_id_y [0:NUM_SM-1];
-    reg [31:0]  sm_block_id_z [0:NUM_SM-1];
-    reg [NUM_SM-1:0] sm_busy;
+    wire        gpu_busy;
+    wire        kernel_start_reg;
+    wire [31:0] kernel_pc_reg;
+    wire [31:0] grid_dim_x, grid_dim_y, grid_dim_z;
+    wire [31:0] block_dim_x, block_dim_y, block_dim_z;
+    wire [31:0] sm_block_id_x [0:NUM_SM-1];
+    wire [31:0] sm_block_id_y [0:NUM_SM-1];
+    wire [31:0] sm_block_id_z [0:NUM_SM-1];
+    wire [NUM_SM-1:0] sm_kernel_start;
     wire [NUM_SM-1:0] sm_done;
-    reg [NUM_SM-1:0] sm_kernel_start;
-    wire [NUM_SM-1:0] sm_active = sm_kernel_start & ~sm_done;  // SM active when started but not done
+    wire [NUM_SM-1:0] sm_active = sm_kernel_start & ~sm_done;
+    // CP AXI Signals
+    wire        cp_axi_arvalid;
+    wire [31:0] cp_axi_araddr;
+    wire        cp_axi_arready;
+    wire [31:0] cp_axi_rdata;
+    wire        cp_axi_rvalid;
+    wire        cp_axi_rready;
+
+
 
     //------------------------------------------------------------------------
     // SM实例化
@@ -421,10 +396,10 @@ module ralph_gpu_top #(
                     .req_write      (sm_l1d_req_write),
                     .req_addr       (sm_l1d_req_addr),
                     .req_wdata      (sm_l1d_req_wdata),
-                    .req_mask       (sm_l1d_req_mask),
+                    .req_mask       (sm_l1d_req_mask),.req_pc         (32'b0),
                     .resp_rdata     (sm_l1d_resp_rdata),
                     .resp_valid     (sm_l1d_resp_valid),
-                    .resp_hit       (sm_l1d_resp_hit),
+                    .resp_hit       (sm_l1d_resp_hit),.resp_replay    (),.resp_pc        (),
                     .mem_req        (l1d_mem_req),
                     .mem_write      (l1d_mem_write),
                     .mem_addr       (l1d_mem_addr),
@@ -997,7 +972,7 @@ module ralph_gpu_top #(
     // AXI Round-Robin Arbiter with SM ID encoding
     // High bits of AXI ID = SM index for correct response routing
     //------------------------------------------------------------------------
-    localparam AXI_ARB_W = (NUM_SM > 1) ? $clog2(NUM_SM) : 1;
+    localparam AXI_ARB_W = $clog2(NUM_SM + 1);
     reg [AXI_ARB_W-1:0] axi_rr_ptr;
     integer i;
 
@@ -1018,19 +993,29 @@ module ralph_gpu_top #(
         end
     end
 
-    // Read address channel round-robin
+        // Read address channel round-robin (SMs + CP)
     reg [AXI_ARB_W-1:0] axi_ar_sel;
     reg axi_ar_valid;
     always @(*) begin
         axi_ar_sel = axi_rr_ptr;
         axi_ar_valid = 1'b0;
-        for (i = 0; i < NUM_SM; i = i + 1) begin : ar_arb_loop
+        for (i = 0; i < NUM_SM + 1; i = i + 1) begin : ar_arb_loop
             integer idx_ar;
             idx_ar = ({{(32-AXI_ARB_W){1'b0}}, axi_rr_ptr} + i + 1);
-            if (idx_ar >= NUM_SM) idx_ar = idx_ar - NUM_SM;
-            if (!axi_ar_valid && sm_axi_arvalid[idx_ar]) begin
-                axi_ar_sel = idx_ar[AXI_ARB_W-1:0];
-                axi_ar_valid = 1'b1;
+            if (idx_ar >= NUM_SM + 1) idx_ar = idx_ar - (NUM_SM + 1);
+            
+            if (!axi_ar_valid) begin
+                if (idx_ar < NUM_SM) begin
+                    if (sm_axi_arvalid[idx_ar]) begin
+                        axi_ar_sel = idx_ar[AXI_ARB_W-1:0];
+                        axi_ar_valid = 1'b1;
+                    end
+                end else begin
+                    if (cp_axi_arvalid) begin
+                        axi_ar_sel = idx_ar[AXI_ARB_W-1:0];
+                        axi_ar_valid = 1'b1;
+                    end
+                end
             end
         end
     end
@@ -1090,25 +1075,30 @@ module ralph_gpu_top #(
     assign m_axi_wvalid  = (axi_w_active || axi_aw_valid) ? sm_axi_wvalid[axi_w_sel] : 1'b0;
 
     // Read channel output: encode SM ID in upper AXI ID bits
-    assign m_axi_arid    = {axi_ar_sel[SM_ID_W-1:0], sm_axi_arid[axi_ar_sel][AXI_ID_WIDTH-SM_ID_W-1:0]};
-    assign m_axi_araddr  = sm_axi_araddr[axi_ar_sel];
-    assign m_axi_arlen   = sm_axi_arlen[axi_ar_sel];
-    assign m_axi_arsize  = sm_axi_arsize[axi_ar_sel];
-    assign m_axi_arburst = sm_axi_arburst[axi_ar_sel];
-    assign m_axi_arvalid = axi_ar_valid ? sm_axi_arvalid[axi_ar_sel] : 1'b0;
+    assign m_axi_arid    = (axi_ar_sel < NUM_SM) ? {axi_ar_sel[SM_ID_W-1:0], sm_axi_arid[axi_ar_sel][AXI_ID_WIDTH-SM_ID_W-1:0]} : {axi_ar_sel[SM_ID_W-1:0], {(AXI_ID_WIDTH-SM_ID_W){1'b0}}};
+    assign m_axi_araddr  = (axi_ar_sel < NUM_SM) ? sm_axi_araddr[axi_ar_sel] : cp_axi_araddr;
+    assign m_axi_arlen   = (axi_ar_sel < NUM_SM) ? sm_axi_arlen[axi_ar_sel] : 8'd7;
+    assign m_axi_arsize  = (axi_ar_sel < NUM_SM) ? sm_axi_arsize[axi_ar_sel] : 3'b010;
+    assign m_axi_arburst = (axi_ar_sel < NUM_SM) ? sm_axi_arburst[axi_ar_sel] : 2'b01;
+    assign m_axi_arvalid = axi_ar_valid;
 
     // Response routing: extract SM ID from AXI ID high bits
-    wire [SM_ID_W-1:0] resp_rd_sm = m_axi_rid[AXI_ID_WIDTH-1 -: SM_ID_W];
+    wire [SM_ID_W-1:0] resp_rd_id = m_axi_rid[AXI_ID_WIDTH-1 -: SM_ID_W];
     wire [SM_ID_W-1:0] resp_wr_sm = m_axi_bid[AXI_ID_WIDTH-1 -: SM_ID_W];
+
+    
+    assign cp_axi_rvalid = m_axi_rvalid && (resp_rd_id == NUM_SM[SM_ID_W-1:0]);
+    assign cp_axi_rdata  = m_axi_rdata;
+    assign cp_axi_arready = (axi_ar_sel == NUM_SM[AXI_ARB_W-1:0] && axi_ar_valid) ? m_axi_arready : 1'b0;
 
     // bready/rready: route to target SM
     assign m_axi_bready = sm_axi_bready[resp_wr_sm];
-    assign m_axi_rready = sm_axi_rready[resp_rd_sm];
+    assign m_axi_rready = (resp_rd_id < NUM_SM) ? sm_axi_rready[resp_rd_id] : cp_axi_rready;
 
     // Response demux: gate valid signals to target SM only
     generate
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_resp_demux
-            assign sm_resp_rvalid[sm] = m_axi_rvalid && (resp_rd_sm == sm[SM_ID_W-1:0]);
+            assign sm_resp_rvalid[sm] = m_axi_rvalid && (resp_rd_id == sm[SM_ID_W-1:0]);
             assign sm_resp_rid[sm]    = {{SM_ID_W{1'b0}}, m_axi_rid[AXI_ID_WIDTH-SM_ID_W-1:0]};
             assign sm_resp_rdata[sm]  = m_axi_rdata;
             assign sm_resp_rresp[sm]  = m_axi_rresp;
@@ -1119,195 +1109,52 @@ module ralph_gpu_top #(
         end
     endgenerate
     //------------------------------------------------------------------------
-    // Kernel调度状态机
     //------------------------------------------------------------------------
-    localparam SCHED_IDLE     = 2'd0;
-    localparam SCHED_DISPATCH = 2'd1;
-    localparam SCHED_WAIT     = 2'd2;
-    localparam SCHED_DONE     = 2'd3;
-
-    reg [1:0] sched_state;
-    reg [31:0] total_blocks;
-    reg [31:0] dispatched_blocks;
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            sched_state       <= SCHED_IDLE;
-            dispatched_blocks <= 0;
-            total_blocks      <= 0;
-            gpu_busy          <= 0;
-            sm_busy           <= 0;
-            sm_kernel_start   <= 0;
-            for (i = 0; i < NUM_SM; i = i + 1) begin
-                sm_block_id_x[i] <= 32'b0;
-                sm_block_id_y[i] <= 32'b0;
-                sm_block_id_z[i] <= 32'b0;
-            end
-        end else begin
-            sm_kernel_start <= 0;
-            case (sched_state)
-                SCHED_IDLE: begin
-                    if (kernel_start_reg) begin
-                        sched_state       <= SCHED_DISPATCH;
-                        total_blocks      <= grid_dim_x * grid_dim_y * grid_dim_z;
-                        dispatched_blocks <= 0;
-                        gpu_busy          <= 1;
-                        sm_busy           <= 0;
-                    end
-                end
-
-                SCHED_DISPATCH: begin
-                    // 为空闲SM分配Block
-                    integer next_block;
-                    next_block = dispatched_blocks;
-                    for (i = 0; i < NUM_SM; i = i + 1) begin
-                        if (!sm_busy[i] && (next_block < total_blocks)) begin
-                            sm_busy[i] <= 1'b1;
-                            sm_kernel_start[i] <= 1'b1;
-                            sm_block_id_x[i] <= next_block % grid_dim_x;
-                            sm_block_id_y[i] <= (next_block / grid_dim_x) % grid_dim_y;
-                            sm_block_id_z[i] <= next_block / (grid_dim_x * grid_dim_y);
-                            next_block = next_block + 1;
-                        end
-                    end
-                    dispatched_blocks <= next_block;
-                    sched_state <= SCHED_WAIT;
-                end
-
-                SCHED_WAIT: begin
-                    // 更新SM完成状态
-                    for (i = 0; i < NUM_SM; i = i + 1) begin
-                        if (sm_busy[i] && sm_done[i]) begin
-                            sm_busy[i] <= 0;
-                        end
-                    end
-
-                    // 如果还有未分配的Block，继续分配
-                    if (dispatched_blocks < total_blocks) begin
-                        sched_state <= SCHED_DISPATCH;
-                    end else if (sm_busy == 0) begin
-                        sched_state <= SCHED_DONE;
-                    end
-                end
-
-                SCHED_DONE: begin
-                    gpu_busy    <= 0;
-                    sched_state <= SCHED_IDLE;
-                end
-            endcase
-        end
-    end
-
+    // Command Processor (CP) Instantiation
     //------------------------------------------------------------------------
-    // CSR读写
-    //------------------------------------------------------------------------
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            kernel_start_reg <= 0;
-            kernel_pc_reg    <= 0;
-            grid_dim_x       <= 1;
-            grid_dim_y       <= 1;
-            grid_dim_z       <= 1;
-            block_dim_x      <= 32;
-            block_dim_y      <= 1;
-            block_dim_z      <= 1;
-        end else begin
-            // 自动清除启动标志
-            if (kernel_start_reg && sched_state != SCHED_IDLE) begin
-                kernel_start_reg <= 0;
-            end
+    command_processor #(
+        .NUM_SM(NUM_SM)
+    ) u_command_processor (
+        .clk                (clk),
+        .rst_n              (rst_n),
 
-            if (csr_wr_en) begin
-                case (csr_addr)
-                    CSR_GPU_CONTROL: kernel_start_reg <= csr_wr_data[0];
-                    CSR_KERNEL_PC:   kernel_pc_reg    <= csr_wr_data;
-                    CSR_GRID_DIM_X:  grid_dim_x       <= csr_wr_data;
-                    CSR_GRID_DIM_Y:  grid_dim_y       <= csr_wr_data;
-                    CSR_GRID_DIM_Z:  grid_dim_z       <= csr_wr_data;
-                    CSR_BLOCK_DIM_X: block_dim_x      <= csr_wr_data;
-                    CSR_BLOCK_DIM_Y: block_dim_y      <= csr_wr_data;
-                    CSR_BLOCK_DIM_Z: block_dim_z      <= csr_wr_data;
-                    default: ; // lint: CASEINCOMPLETE
-                endcase
-            end
-        end
-    end
+        .csr_wr_en          (csr_wr_en),
+        .csr_addr           (csr_addr),
+        .csr_wr_data        (csr_wr_data),
+        .csr_rd_data        (csr_rd_data),
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            l2_stat_hits_prev <= 32'b0;
-            l2_stat_misses_prev <= 32'b0;
-        end else begin
-            l2_stat_hits_prev <= l2_stat_hits_perf;
-            l2_stat_misses_prev <= l2_stat_misses_perf;
-        end
-    end
+        .irq_kernel_done    (irq_kernel_done),
+        .kernel_start_out   (kernel_start_reg),
 
-    // Latch first exception from SMs into host-readable error CSRs
-    integer exc_sm_i;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            error_pending <= 1'b0;
-            error_code <= 4'b0;
-            error_sm_id <= 8'b0;
-            error_warp_id <= 8'b0;
-            error_info <= 32'b0;
-            error_warp_mask_global <= 32'b0;
-        end else begin
-            if ((csr_wr_en && csr_addr == CSR_ERROR_STATUS && csr_wr_data[0]) || kernel_start_reg) begin
-                error_pending <= 1'b0;
-                error_code <= 4'b0;
-                error_sm_id <= 8'b0;
-                error_warp_id <= 8'b0;
-                error_info <= 32'b0;
-                error_warp_mask_global <= 32'b0;
-            end
+        .sm_kernel_start    (sm_kernel_start),
+        .sm_done            (sm_done),
+        .sm_block_id_x      (sm_block_id_x),
+        .sm_block_id_y      (sm_block_id_y),
+        .sm_block_id_z      (sm_block_id_z),
+        .kernel_pc          (kernel_pc_reg),
+        .grid_dim_x_out     (grid_dim_x),
+        .grid_dim_y_out     (grid_dim_y),
+        .grid_dim_z_out     (grid_dim_z),
+        .block_dim_x_out    (block_dim_x),
+        .block_dim_y_out    (block_dim_y),
+        .block_dim_z_out    (block_dim_z),
 
-            for (exc_sm_i = 0; exc_sm_i < NUM_SM; exc_sm_i = exc_sm_i + 1) begin
-                if (sm_exception_valid[exc_sm_i]) begin
-                    error_warp_mask_global[exc_sm_i*4 +: 4] <=
-                        error_warp_mask_global[exc_sm_i*4 +: 4] | sm_warp_error_mask[exc_sm_i*4 +: 4];
-                    if (!error_pending) begin
-                        error_pending <= 1'b1;
-                        error_code <= sm_exception_code[exc_sm_i*4 +: 4];
-                        error_sm_id <= exc_sm_i[7:0];
-                        error_warp_id <= {4'b0, sm_exception_warp_id[exc_sm_i*4 +: 4]};
-                        error_info <= sm_exception_info[exc_sm_i*32 +: 32];
-                    end
-                end
-            end
-        end
-    end
+        .sm_exception_valid (sm_exception_valid),
+        .sm_exception_code  (sm_exception_code),
+        .sm_exception_warp_id(sm_exception_warp_id),
+        .sm_exception_info  (sm_exception_info),
+        .sm_warp_error_mask (sm_warp_error_mask),
 
-    // CSR读取
-    always @(*) begin
-        case (csr_addr)
-            CSR_GPU_STATUS:  csr_rd_data = {29'b0, error_pending, gpu_busy, 1'b1};  // bit2=error, bit1=busy, bit0=ready
-            CSR_GPU_CONTROL: csr_rd_data = {31'b0, kernel_start_reg};
-            CSR_KERNEL_PC:   csr_rd_data = kernel_pc_reg;
-            CSR_GRID_DIM_X:  csr_rd_data = grid_dim_x;
-            CSR_GRID_DIM_Y:  csr_rd_data = grid_dim_y;
-            CSR_GRID_DIM_Z:  csr_rd_data = grid_dim_z;
-            CSR_BLOCK_DIM_X: csr_rd_data = block_dim_x;
-            CSR_BLOCK_DIM_Y: csr_rd_data = block_dim_y;
-            CSR_BLOCK_DIM_Z: csr_rd_data = block_dim_z;
-            CSR_ERROR_STATUS: csr_rd_data = {11'b0, error_warp_id, error_sm_id, error_code, error_pending};
-            CSR_ERROR_WARP_MASK: csr_rd_data = error_warp_mask_global;
-            CSR_ERROR_INFO: csr_rd_data = error_info;
-            default: begin
-                // Performance counter read: CSR address 0x100-0x13F
-                if (csr_addr >= 12'h100 && csr_addr <= 12'h13F)
-                    csr_rd_data = perf_counter_value[31:0];  // Lower 32 bits
-                else if (csr_addr >= 12'h140 && csr_addr <= 12'h17F)
-                    csr_rd_data = {{16{1'b0}}, perf_counter_value[47:32]};  // Upper 16 bits
-                else
-                    csr_rd_data = 32'b0;
-            end
-        endcase
-    end
+        .gpu_busy_out       (gpu_busy),
 
-    //------------------------------------------------------------------------
-    // Performance Counters (RALPH-7)
+        .m_axi_arvalid      (cp_axi_arvalid),
+        .m_axi_araddr       (cp_axi_araddr),
+        .m_axi_arready      (cp_axi_arready), 
+        .m_axi_rdata        (cp_axi_rdata),
+        .m_axi_rvalid       (cp_axi_rvalid), 
+        .m_axi_rready       (cp_axi_rready)
+    );
+
     //------------------------------------------------------------------------
     wire [47:0] perf_counter_value;
     wire        perf_counter_enable = gpu_busy;  // Count while kernel running
@@ -1367,24 +1214,6 @@ module ralph_gpu_top #(
         .total_memory_bytes ()
     );
 
-    //------------------------------------------------------------------------
-    // 中断
-    //------------------------------------------------------------------------
-    reg kernel_done_latch;
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            kernel_done_latch <= 0;
-        end else begin
-            if (sched_state == SCHED_DONE) begin
-                kernel_done_latch <= 1;
-            end else if (csr_wr_en && csr_addr == CSR_GPU_STATUS) begin
-                kernel_done_latch <= 0;  // 写状态寄存器清除中断
-            end
-        end
-    end
-
-    assign irq_kernel_done = kernel_done_latch;
 
     //========================================================================
     // Advanced Memory Subsystem Integration (NVIDIA Hopper-Class)
@@ -1701,5 +1530,12 @@ module ralph_gpu_top #(
     wire feature_icache         = 1'b1;      // Instruction Cache available
     wire feature_reconvergence  = 1'b1;      // Reconvergence Stack available
     wire feature_banked_rf      = 1'b1;      // Banked Register File available
+
+
+    always @(posedge clk) begin
+        if (m_axi_rvalid)
+            $display("[TOP-AXI] RVALID=1 rid=%h resp_rd_id=%d NUM_SM=%d cp_rvalid=%b", 
+                     m_axi_rid, resp_rd_id, NUM_SM, cp_axi_rvalid);
+    end
 
 endmodule
