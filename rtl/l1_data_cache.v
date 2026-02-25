@@ -72,22 +72,21 @@ module l1_data_cache #(
     reg [1:0] lru_array [0:NUM_SETS-1];
 
     localparam ST_IDLE      = 3'd0;
-    localparam ST_TAG_CHECK = 3'd1;
     localparam ST_HIT       = 3'd2;
     localparam ST_MISS      = 3'd3;
     localparam ST_WRITEBACK = 3'd4;
     localparam ST_FILL      = 3'd5;
     localparam ST_FILL_WAIT = 3'd6;
-    localparam ST_DONE      = 3'd7;
 
     reg [2:0] state;
     reg [31:0] saved_pc;
     reg [4:0]  saved_warp_id;
     reg [4:0]  saved_rd;
     reg [31:0] saved_addr [0:THREADS-1];
-    reg [31:0] saved_wdata [0:THREADS-1];
     reg [THREADS-1:0] saved_mask;
-    reg saved_write;
+    reg [INDEX_BITS-1:0] saved_index;
+    reg [TAG_BITS-1:0] saved_tag;
+    reg [1:0] saved_way;
     reg [2:0] latency_counter;
 
     wire [31:0] primary_addr = req_addr[31:0];
@@ -116,11 +115,11 @@ module l1_data_cache #(
     assign resp_warp_id = resp_replay ? req_warp_id : saved_warp_id;
     assign resp_rd = resp_replay ? req_rd : saved_rd;
 
-    reg [1:0] replace_way;
+    reg [1:0] replace_way_comb;
     always @(*) begin
-        replace_way = lru_array[primary_index];
+        replace_way_comb = lru_array[primary_index];
         for (integer w = 0; w < NUM_WAYS; w = w + 1) begin
-            if (!valid_array[w][primary_index]) replace_way = w[1:0];
+            if (!valid_array[w][primary_index]) replace_way_comb = w[1:0];
         end
     end
 
@@ -131,6 +130,9 @@ module l1_data_cache #(
             resp_valid_reg <= 0;
             resp_hit <= 0;
             saved_pc <= 0;
+            saved_index <= 0;
+            saved_tag <= 0;
+            saved_way <= 0;
             mem_req <= 0;
             mem_write <= 0;
             stat_hits <= 0;
@@ -149,11 +151,12 @@ module l1_data_cache #(
                         saved_pc <= req_pc;
                         saved_warp_id <= req_warp_id;
                         saved_rd <= req_rd;
-                        saved_write <= req_write;
                         saved_mask <= req_mask;
+                        saved_index <= primary_index;
+                        saved_tag <= primary_tag;
+                        saved_way <= replace_way_comb;
                         for (i=0; i<THREADS; i=i+1) begin
                             saved_addr[i] <= req_addr[i*32 +: 32];
-                            saved_wdata[i] <= req_wdata[i*32 +: 32];
                         end
 
                         if (cache_hit_comb) begin
@@ -161,7 +164,6 @@ module l1_data_cache #(
                             latency_counter <= HIT_LATENCY - 1;
                         end else begin
                             state <= ST_MISS;
-                            // resp_valid and resp_replay handled combinationally
                             stat_misses <= stat_misses + 1;
                         end
                     end
@@ -174,7 +176,7 @@ module l1_data_cache #(
                         stat_hits <= stat_hits + 1;
                         for (i=0; i<THREADS; i=i+1) begin
                             if (saved_mask[i])
-                                resp_rdata[i*32 +: 32] <= data_array[hit_way_comb][primary_index][saved_addr[i][OFFSET_BITS-1:2]];
+                                resp_rdata[i*32 +: 32] <= data_array[hit_way_comb][saved_index][saved_addr[i][OFFSET_BITS-1:2]];
                         end
                         state <= ST_IDLE;
                     end else begin
@@ -183,7 +185,7 @@ module l1_data_cache #(
                 end
 
                 ST_MISS: begin
-                    if (dirty_array[replace_way][primary_index] && valid_array[replace_way][primary_index])
+                    if (dirty_array[saved_way][saved_index] && valid_array[saved_way][saved_index])
                         state <= ST_WRITEBACK;
                     else
                         state <= ST_FILL;
@@ -192,26 +194,26 @@ module l1_data_cache #(
                 ST_WRITEBACK: begin
                     mem_req <= 1;
                     mem_write <= 1;
-                    mem_addr <= {tag_array[replace_way][primary_index], primary_index, {OFFSET_BITS{1'b0}}};
+                    mem_addr <= {tag_array[saved_way][saved_index], saved_index, {OFFSET_BITS{1'b0}}};
                     for (i=0; i<WORDS_PER_LINE; i=i+1)
-                        mem_wdata[i*32 +: 32] <= data_array[replace_way][primary_index][i];
+                        mem_wdata[i*32 +: 32] <= data_array[saved_way][saved_index][i];
                     if (mem_ready) state <= ST_FILL;
                 end
 
                 ST_FILL: begin
                     mem_req <= 1;
                     mem_write <= 0;
-                    mem_addr <= {primary_tag, primary_index, {OFFSET_BITS{1'b0}}};
+                    mem_addr <= {saved_tag, saved_index, {OFFSET_BITS{1'b0}}};
                     if (mem_ready) state <= ST_FILL_WAIT;
                 end
 
                 ST_FILL_WAIT: begin
                     if (mem_valid) begin
-                        tag_array[replace_way][primary_index] <= primary_tag;
-                        valid_array[replace_way][primary_index] <= 1;
-                        dirty_array[replace_way][primary_index] <= 0;
+                        tag_array[saved_way][saved_index] <= saved_tag;
+                        valid_array[saved_way][saved_index] <= 1;
+                        dirty_array[saved_way][saved_index] <= 0;
                         for (i=0; i<WORDS_PER_LINE; i=i+1)
-                            data_array[replace_way][primary_index][i] <= mem_rdata[i*32 +: 32];
+                            data_array[saved_way][saved_index][i] <= mem_rdata[i*32 +: 32];
                         state <= ST_IDLE;
                     end
                 end

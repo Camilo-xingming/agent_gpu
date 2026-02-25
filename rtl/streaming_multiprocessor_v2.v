@@ -1227,7 +1227,17 @@ module streaming_multiprocessor_v2 #(
     assign l1_mem_rdata = gmem_resp_rdata;
     assign l1_mem_valid = gmem_resp_valid && l1_miss_pending;
     assign l1_miss_line_base_addr = {l1_mem_addr[31:7], 7'b0};
-    assign gmem_load_resp_valid = l1_cache_resp_valid;
+    always @(posedge clk) begin 
+        if (l1_mem_valid) 
+            $display("[%0t SM%0d] L1_MEM_VALID=1 addr=%h", $time, SM_ID, l1_mem_addr); 
+    end 
+
+    always @(posedge clk) begin 
+        if (l1_miss_req_valid || gmem_resp_valid || l1_miss_pending) 
+            $display("[%0t SM%0d] L1_MISS: req=%b ready=%b pending=%b resp_valid=%b", $time, SM_ID, l1_miss_req_valid, gmem_req_ready, l1_miss_pending, gmem_resp_valid); 
+    end 
+
+    assign gmem_load_resp_valid = l1_cache_resp_valid && !l1_cache_resp_replay;
     assign gmem_load_resp_rdata = l1_cache_resp_rdata_packed;
 
     generate
@@ -2067,6 +2077,11 @@ module streaming_multiprocessor_v2 #(
     // Decode stall: when the decode stage has a valid instruction that can't proceed
     // (e.g., tensor queue full), prevent the scheduler from overwriting it
     // Per-warp decode stall tracking
+    always @(posedge clk) begin 
+        if (warp_valid[0]) 
+            $display("[%0t SM0] WARP0: pc=%h ready=%b stalled_mem=%b buffer_valid=%b issue=%b consume=%b hazard=%b", $time, warp_pc[0], warp_ready[0], warp_stalled_mem[0], warp_inst_buf_valid[0], sched_issue_valid_mask[0], warp_inst_consume[0], u_scheduler.warp_has_hazard[0]); 
+    end 
+
     wire decode_stalled_any = dec0_valid && !lane0_ready;
     wire decode_stalled_slot0 = dec0_valid && !lane0_ready;
     wire lane1_tensor_can_push = dec1_valid && dec1_tensor_op && !tensor_issue_full_next;
@@ -2111,6 +2126,7 @@ module streaming_multiprocessor_v2 #(
                     // (branches will override PC when they resolve)
                     if (!pd_is_branch[sched_issue_warp_id[0]] &&
                         warp_inst_consume[sched_issue_warp_id[0]]) begin
+                        warp_pc[sched_issue_warp_id[0]] <= warp_pc[sched_issue_warp_id[0]] + 4;
                     end
                     // Note: warp_stalled_branch is set in main always block for branch scheduling
                 end
@@ -4768,6 +4784,11 @@ module streaming_multiprocessor_v2 #(
         .m_axi_rvalid(m_axi_rvalid),
         .m_axi_rready(m_axi_rready)
     );
+    always @(posedge clk) begin 
+        if (m_axi_rvalid) 
+            $display("[%0t SM%0d-AXI] RVALID=1 rid=%h rdata=%h rlast=%b", $time, SM_ID, m_axi_rid, m_axi_rdata, m_axi_rlast); 
+    end 
+
 
     //------------------------------------------------------------------------
     // Combinational Branch Logic with Divergence Detection
@@ -5244,6 +5265,11 @@ module streaming_multiprocessor_v2 #(
     // Register file write
     // Note: PTX/CUDA allows writes to R0 (unlike RISC-V where R0 is hardwired to 0)
     assign rf_wr_en = wb_valid;
+    always @(posedge clk) begin 
+        if (wb_valid) 
+            $display("[%0t SM%0d] WB: warp=%d rd=%d", $time, SM_ID, wb_warp_id, wb_rd); 
+    end 
+
     assign rf_wr_data = wb_data;
     assign rf_wr_mask = wb_mask;
 
@@ -5911,6 +5937,7 @@ module simd_fp16 #(
     generate
         for (j = 0; j < NUM_LANES; j = j + 1) begin : result_collect
             assign result[j*DATA_WIDTH +: DATA_WIDTH] = lane_result[j];
+
         end
     endgenerate
 

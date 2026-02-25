@@ -203,7 +203,7 @@ module tb_command_queue;
         join
 
         // Verify result
-        ("C[31] = %0d (expected %0d)", data_memory[2048+31], 31*15); if (data_memory[2048+31] == 31*15) $display("*** COMMAND QUEUE TEST PASSED ***");
+$display("C[31] = %0d (expected %0d)", data_memory[2048+31], 31*15); if (data_memory[2048+31] == 31*15) $display("*** COMMAND QUEUE TEST PASSED ***");
         else $display("*** COMMAND QUEUE TEST FAILED: C[31]=%0d ***", data_memory[2048+31]);
 
         $finish;

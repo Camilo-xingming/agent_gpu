@@ -667,4 +667,16 @@ end
         end
     endgenerate
 
+    always @(posedge clk) begin 
+        if (warp_valid[0]) 
+            $display("[%0t SM0-SB] scoreboard[0]=%h fu_clr_v=%b fu_clr_rd=%d", $time, scoreboard[0], fu_conflict_sb_clr_valid, fu_conflict_sb_clr_rd); 
+    end 
+
+    always @(posedge clk) begin 
+        for (integer ds_s = 0; ds_s < NUM_SCHEDULERS; ds_s = ds_s + 1) begin 
+            if (issue_valid_r[ds_s] && warp_writes_reg[issue_warp_r[ds_s]]) 
+                $display("[%0t SM0-SCHED] Issue warp=%d pc=%h rd=%d pipe=%d", $time, issue_warp_r[ds_s], warp_inst[issue_warp_r[ds_s]*INST_WIDTH +: INST_WIDTH], warp_rd[issue_warp_r[ds_s]*5 +: 5], issue_pipe_r[ds_s]); 
+        end 
+    end 
+
 endmodule
