@@ -1,7 +1,12 @@
 //============================================================================
 // RalphGPU - Instruction Cache (I-Cache)
 // Direct-mapped or N-way set-associative instruction cache
-// Supports prefetch and fetch buffer
+// Supports prefetch, fetch buffer, and DUAL-PORT fetch (Port A + Port B)
+//
+// Port B: Second read port for dual-issue fetch pipeline.
+// - Combinational hit on Port B when no bank conflict with Port A
+// - Bank conflict = same set index on both ports -> Port B stalls
+// - Port B misses are queued and serviced after Port A miss completes
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -20,7 +25,7 @@ module icache #(
     input  wire                     rst_n,
 
     //------------------------------------------------------------------------
-    // Fetch Interface (from SM)
+    // Fetch Interface — Port A (from SM, slot 0 / even warps)
     //------------------------------------------------------------------------
     input  wire                     fetch_req,
     input  wire [ADDR_WIDTH-1:0]    fetch_addr,
@@ -33,6 +38,16 @@ module icache #(
     output wire                     fetch_hit_bypass,
     output wire [DATA_WIDTH-1:0]    fetch_hit_bypass_data,
     output wire [LINE_SIZE*8-1:0]   fetch_hit_bypass_line_data,
+
+    //------------------------------------------------------------------------
+    // Fetch Interface — Port B (slot 1 / odd warps) — #148 dual-port
+    //------------------------------------------------------------------------
+    input  wire                     fetch_req_b,
+    input  wire [ADDR_WIDTH-1:0]    fetch_addr_b,
+    output wire                     fetch_ready_b,
+    output wire [DATA_WIDTH-1:0]    fetch_data_b,
+    output wire [LINE_SIZE*8-1:0]   fetch_line_data_b,
+    output wire                     fetch_valid_b,
 
     //------------------------------------------------------------------------
     // Invalidation Interface
@@ -75,16 +90,13 @@ module icache #(
     //------------------------------------------------------------------------
     // Cache Storage
     //------------------------------------------------------------------------
-    // Tag array: valid + tag
     reg [TAG_BITS-1:0]      tag_array   [0:NUM_SETS-1][0:NUM_WAYS-1];
     reg [NUM_WAYS-1:0]      valid_array [0:NUM_SETS-1];
     reg [LINE_BITS-1:0]     data_array  [0:NUM_SETS-1][0:NUM_WAYS-1];
-
-    // LRU tracking (pseudo-LRU for >2 ways)
     reg [WAY_BITS-1:0]      lru_array   [0:NUM_SETS-1];
 
     //------------------------------------------------------------------------
-    // Address Decoding
+    // Port A Address Decoding
     //------------------------------------------------------------------------
     wire [OFFSET_BITS-1:0]  req_offset  = fetch_addr[OFFSET_BITS-1:0];
     wire [INDEX_BITS-1:0]   req_index   = fetch_addr[OFFSET_BITS +: INDEX_BITS];
@@ -92,7 +104,15 @@ module icache #(
     wire [WORD_BITS-1:0]    req_word    = fetch_addr[2 +: WORD_BITS];
 
     //------------------------------------------------------------------------
-    // Tag Comparison
+    // Port B Address Decoding (#148)
+    //------------------------------------------------------------------------
+    wire [OFFSET_BITS-1:0]  req_offset_b  = fetch_addr_b[OFFSET_BITS-1:0];
+    wire [INDEX_BITS-1:0]   req_index_b   = fetch_addr_b[OFFSET_BITS +: INDEX_BITS];
+    wire [TAG_BITS-1:0]     req_tag_b     = fetch_addr_b[ADDR_WIDTH-1 -: TAG_BITS];
+    wire [WORD_BITS-1:0]    req_word_b    = fetch_addr_b[2 +: WORD_BITS];
+
+    //------------------------------------------------------------------------
+    // Port A Tag Comparison
     //------------------------------------------------------------------------
     wire [NUM_WAYS-1:0] way_hit;
     wire                cache_hit;
@@ -108,7 +128,6 @@ module icache #(
 
     assign cache_hit = |way_hit;
 
-    // Priority encoder for hit way
     integer hit_i;
     always @(*) begin
         hit_way = 0;
@@ -118,13 +137,50 @@ module icache #(
     end
 
     //------------------------------------------------------------------------
-    // Cache Line Data Selection
+    // Port B Tag Comparison (#148)
+    //------------------------------------------------------------------------
+    wire [NUM_WAYS-1:0] way_hit_b;
+    wire                cache_hit_b;
+    reg  [WAY_BITS-1:0] hit_way_b;
+
+    generate
+        for (w = 0; w < NUM_WAYS; w = w + 1) begin : gen_way_hit_b
+            assign way_hit_b[w] = valid_array[req_index_b][w] &&
+                                 (tag_array[req_index_b][w] == req_tag_b);
+        end
+    endgenerate
+
+    assign cache_hit_b = |way_hit_b;
+
+    integer hit_i_b;
+    always @(*) begin
+        hit_way_b = 0;
+        for (hit_i_b = 0; hit_i_b < NUM_WAYS; hit_i_b = hit_i_b + 1) begin
+            if (way_hit_b[hit_i_b]) hit_way_b = hit_i_b[WAY_BITS-1:0];
+        end
+    end
+
+    //------------------------------------------------------------------------
+    // Bank Conflict Detection (#148)
+    // Both ports accessing the same set index -> conflict
+    // Port A always wins; Port B stalls
+    //------------------------------------------------------------------------
+    wire bank_conflict = fetch_req && fetch_req_b && (req_index == req_index_b);
+
+    //------------------------------------------------------------------------
+    // Cache Line Data Selection — Port A
     //------------------------------------------------------------------------
     wire [LINE_BITS-1:0]    hit_line    = data_array[req_index][hit_way];
     wire [DATA_WIDTH-1:0]   hit_data    = hit_line[req_word * DATA_WIDTH +: DATA_WIDTH];
 
     //------------------------------------------------------------------------
-    // Prefetch Buffer
+    // Cache Line Data Selection — Port B (#148)
+    //------------------------------------------------------------------------
+    wire [LINE_BITS-1:0]    hit_line_b    = data_array[req_index_b][hit_way_b];
+    wire [DATA_WIDTH-1:0]   hit_data_b    = hit_line_b[req_word_b * DATA_WIDTH +: DATA_WIDTH];
+
+    //------------------------------------------------------------------------
+    // Prefetch Buffer (shared, Port A only for simplicity)
     //------------------------------------------------------------------------
     reg [ADDR_WIDTH-1:0]    prefetch_addr [0:PREFETCH_DEPTH-1];
     reg [LINE_BITS-1:0]     prefetch_data [0:PREFETCH_DEPTH-1];
@@ -132,7 +188,6 @@ module icache #(
     reg [$clog2(PREFETCH_DEPTH)-1:0] prefetch_head;
     reg [$clog2(PREFETCH_DEPTH)-1:0] prefetch_tail;
 
-    // Check if address is in prefetch buffer
     wire [PREFETCH_DEPTH-1:0] prefetch_hit_vec;
     wire prefetch_buffer_hit;
     reg [$clog2(PREFETCH_DEPTH)-1:0] prefetch_hit_idx;
@@ -157,8 +212,33 @@ module icache #(
 
     wire [DATA_WIDTH-1:0] prefetch_hit_data = prefetch_data[prefetch_hit_idx][req_word * DATA_WIDTH +: DATA_WIDTH];
 
+    // Port B prefetch check (#148)
+    wire [PREFETCH_DEPTH-1:0] prefetch_hit_vec_b;
+    wire prefetch_buffer_hit_b;
+    reg [$clog2(PREFETCH_DEPTH)-1:0] prefetch_hit_idx_b;
+
+    generate
+        for (w = 0; w < PREFETCH_DEPTH; w = w + 1) begin : gen_prefetch_hit_b
+            wire [ADDR_WIDTH-1:0] pf_line_addr_b = {prefetch_addr[w][ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
+            wire [ADDR_WIDTH-1:0] fetch_line_addr_b = {fetch_addr_b[ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
+            assign prefetch_hit_vec_b[w] = prefetch_valid[w] && (pf_line_addr_b == fetch_line_addr_b);
+        end
+    endgenerate
+
+    assign prefetch_buffer_hit_b = |prefetch_hit_vec_b;
+
+    integer pf_i_b;
+    always @(*) begin
+        prefetch_hit_idx_b = 0;
+        for (pf_i_b = 0; pf_i_b < PREFETCH_DEPTH; pf_i_b = pf_i_b + 1) begin
+            if (prefetch_hit_vec_b[pf_i_b]) prefetch_hit_idx_b = pf_i_b[$clog2(PREFETCH_DEPTH)-1:0];
+        end
+    end
+
+    wire [DATA_WIDTH-1:0] prefetch_hit_data_b = prefetch_data[prefetch_hit_idx_b][req_word_b * DATA_WIDTH +: DATA_WIDTH];
+
     //------------------------------------------------------------------------
-    // FSM States
+    // FSM States (Port A miss handling — Port B misses queued)
     //------------------------------------------------------------------------
     localparam ST_IDLE          = 3'd0;
     localparam ST_TAG_CHECK     = 3'd1;
@@ -170,20 +250,26 @@ module icache #(
 
     reg [2:0] state;
     reg [ADDR_WIDTH-1:0] miss_addr;
-    reg [WORD_BITS-1:0] miss_word;  // Word offset within line for miss handling
+    reg [WORD_BITS-1:0] miss_word;
     reg [WAY_BITS-1:0] replace_way;
     reg is_prefetch_miss;
+    // #148: Track whether current miss is for Port B
+    reg miss_is_port_b;
 
-    // RALPH-8 P3: Deferred prefetch — set after demand miss fill, serviced in IDLE
     reg prefetch_pending;
     reg [ADDR_WIDTH-1:0] prefetch_pending_addr;
 
+    // #148: Port B miss queue (1-deep: queue Port B miss while Port A miss in flight)
+    reg portb_miss_pending;
+    reg [ADDR_WIDTH-1:0] portb_miss_addr;
+    reg [WORD_BITS-1:0] portb_miss_word;
+
     //------------------------------------------------------------------------
-    // Replacement Policy (Pseudo-LRU)
+    // Replacement Policy
     //------------------------------------------------------------------------
     wire [WAY_BITS-1:0] victim_way = lru_array[req_index];
+    wire [WAY_BITS-1:0] victim_way_b = lru_array[req_index_b];
 
-    // Update LRU on hit
     task update_lru;
         input [INDEX_BITS-1:0] index;
         input [WAY_BITS-1:0] accessed_way;
@@ -191,14 +277,13 @@ module icache #(
             if (NUM_WAYS == 2) begin
                 lru_array[index] <= ~accessed_way;
             end else begin
-                // Simple round-robin for >2 ways
                 lru_array[index] <= accessed_way + 1'b1;
             end
         end
     endtask
 
     //------------------------------------------------------------------------
-    // Statistics Counters
+    // Statistics
     //------------------------------------------------------------------------
     reg [31:0] hit_count;
     reg [31:0] miss_count;
@@ -209,23 +294,26 @@ module icache #(
     assign stat_prefetch_hits = prefetch_hit_count;
 
     //------------------------------------------------------------------------
-    // Main FSM
+    // Registered outputs
     //------------------------------------------------------------------------
     reg fetch_valid_r;
     reg [DATA_WIDTH-1:0] fetch_data_r;
     reg [LINE_BITS-1:0] fetch_line_data_r;
     reg mem_req_valid_r;
     reg [ADDR_WIDTH-1:0] mem_req_addr_r;
-    reg [ADDR_WIDTH-1:0] fetch_addr_latched;  // Latch on miss
+    reg [ADDR_WIDTH-1:0] fetch_addr_latched;
     reg invalidate_done_r;
     reg fetch_ready_r;
 
-    // RALPH-8 P3: Next-line prefetch after demand miss fill.
-    // After filling a demand miss, prefetch miss_addr + LINE_SIZE if not cached.
-    // P2 hit-bypass allows serving cache hits while the prefetch is in flight.
+    // #148: Port B registered outputs
+    reg fetch_valid_b_r;
+    reg [DATA_WIDTH-1:0] fetch_data_b_r;
+    reg [LINE_BITS-1:0] fetch_line_data_b_r;
+    reg fetch_ready_b_r;
+
+    // Prefetch next-line
     wire [ADDR_WIDTH-1:0] miss_next_line_addr = {miss_addr[ADDR_WIDTH-1:OFFSET_BITS] + 1'b1, {OFFSET_BITS{1'b0}}};
 
-    // Check if next line after miss is already cached
     wire [INDEX_BITS-1:0]   next_index   = miss_next_line_addr[OFFSET_BITS +: INDEX_BITS];
     wire [TAG_BITS-1:0]     next_tag     = miss_next_line_addr[ADDR_WIDTH-1 -: TAG_BITS];
     wire [NUM_WAYS-1:0] next_way_hit;
@@ -239,7 +327,6 @@ module icache #(
 
     wire next_line_cached = |next_way_hit;
 
-    // Check prefetch buffer for next line
     wire [PREFETCH_DEPTH-1:0] next_prefetch_hit_vec;
     generate
         for (w = 0; w < PREFETCH_DEPTH; w = w + 1) begin : gen_next_prefetch
@@ -249,9 +336,11 @@ module icache #(
     endgenerate
 
     wire next_line_prefetched = |next_prefetch_hit_vec;
-    // Prefetch triggers on demand miss fill when next line isn't already available
     wire need_prefetch = !next_line_cached && !next_line_prefetched;
 
+    //------------------------------------------------------------------------
+    // Main FSM
+    //------------------------------------------------------------------------
     integer rst_i, rst_j;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -260,6 +349,10 @@ module icache #(
             fetch_data_r <= 0;
             fetch_line_data_r <= 0;
             fetch_ready_r <= 1'b1;
+            fetch_valid_b_r <= 1'b0;
+            fetch_data_b_r <= 0;
+            fetch_line_data_b_r <= 0;
+            fetch_ready_b_r <= 1'b1;
             mem_req_valid_r <= 1'b0;
             mem_req_addr_r <= 0;
             invalidate_done_r <= 1'b0;
@@ -270,70 +363,150 @@ module icache #(
             miss_word <= 0;
             replace_way <= 0;
             is_prefetch_miss <= 1'b0;
+            miss_is_port_b <= 1'b0;
             prefetch_pending <= 1'b0;
             prefetch_pending_addr <= 0;
             prefetch_valid <= 0;
             prefetch_head <= 0;
             prefetch_tail <= 0;
+            portb_miss_pending <= 1'b0;
+            portb_miss_addr <= 0;
+            portb_miss_word <= 0;
 
-            // Reset valid bits
             for (rst_i = 0; rst_i < NUM_SETS; rst_i = rst_i + 1) begin
                 valid_array[rst_i] <= 0;
                 lru_array[rst_i] <= 0;
             end
         end else begin
             fetch_valid_r <= 1'b0;
+            fetch_valid_b_r <= 1'b0;
             invalidate_done_r <= 1'b0;
 
             case (state)
                 ST_IDLE: begin
                     fetch_ready_r <= 1'b1;
+                    fetch_ready_b_r <= 1'b1;
 
                     if (invalidate_req) begin
                         state <= ST_INVALIDATE;
                         fetch_ready_r <= 1'b0;
+                        fetch_ready_b_r <= 1'b0;
                         prefetch_pending <= 1'b0;
-                    end else if (fetch_req) begin
-                        // Demand fetch takes priority — cancel any pending prefetch
-                        prefetch_pending <= 1'b0;
+                    end else begin
+                        // === Port A handling (priority) ===
+                        if (fetch_req) begin
+                            prefetch_pending <= 1'b0;
 
-                        // Single-cycle hit path: check hit combinatorially
-                        if (cache_hit) begin
-                            // Cache hit - combinatorial output handles valid/data
-                            // Just update LRU and stats, don't set fetch_valid_r
-                            // (combo_hit output provides instant response)
-                            hit_count <= hit_count + 1;
-                            update_lru(req_index, hit_way);
-                            // Stay in IDLE, ready for next request
-                        end else if (prefetch_buffer_hit) begin
-                            // Prefetch hit - combinatorial output handles valid/data
-                            prefetch_hit_count <= prefetch_hit_count + 1;
-                            // Write prefetch data to cache
-                            tag_array[req_index][victim_way] <= req_tag;
-                            data_array[req_index][victim_way] <= prefetch_data[prefetch_hit_idx];
-                            valid_array[req_index][victim_way] <= 1'b1;
-                            update_lru(req_index, victim_way);
-                            prefetch_valid[prefetch_hit_idx] <= 1'b0;
-                            // Stay in IDLE
-                        end else begin
-                            // Cache miss - latch addr, go to TAG_CHECK
-                            fetch_addr_latched <= fetch_addr;
-                            state <= ST_TAG_CHECK;
-                            fetch_ready_r <= 1'b0;
+                            if (cache_hit) begin
+                                hit_count <= hit_count + 1;
+                                update_lru(req_index, hit_way);
+                            end else if (prefetch_buffer_hit) begin
+                                prefetch_hit_count <= prefetch_hit_count + 1;
+                                tag_array[req_index][victim_way] <= req_tag;
+                                data_array[req_index][victim_way] <= prefetch_data[prefetch_hit_idx];
+                                valid_array[req_index][victim_way] <= 1'b1;
+                                update_lru(req_index, victim_way);
+                                prefetch_valid[prefetch_hit_idx] <= 1'b0;
+                            end else begin
+                                // Port A miss
+                                fetch_addr_latched <= fetch_addr;
+                                state <= ST_TAG_CHECK;
+                                fetch_ready_r <= 1'b0;
+                                fetch_ready_b_r <= 1'b0;
+                                miss_is_port_b <= 1'b0;
+                            end
                         end
-                    end else if (prefetch_pending) begin
-                        // RALPH-8 P3: No demand fetch — issue deferred prefetch
-                        prefetch_pending <= 1'b0;
-                        miss_addr <= prefetch_pending_addr;
-                        is_prefetch_miss <= 1'b1;
-                        state <= ST_PREFETCH;
-                        fetch_ready_r <= 1'b0;
+
+                        // === Port B handling (concurrent with Port A hits) ===
+                        // Port B can be served in same cycle if:
+                        // 1. No bank conflict with Port A
+                        // 2. Port A didn't miss (we're still in IDLE)
+                        // 3. Port B hits in cache or prefetch buffer
+                        if (fetch_req_b && !bank_conflict) begin
+                            if (cache_hit_b) begin
+                                hit_count <= hit_count + 1;
+                                // Only update LRU if not conflicting with Port A's LRU update
+                                if (!fetch_req || req_index != req_index_b)
+                                    update_lru(req_index_b, hit_way_b);
+                            end else if (prefetch_buffer_hit_b) begin
+                                prefetch_hit_count <= prefetch_hit_count + 1;
+                                tag_array[req_index_b][victim_way_b] <= req_tag_b;
+                                data_array[req_index_b][victim_way_b] <= prefetch_data[prefetch_hit_idx_b];
+                                valid_array[req_index_b][victim_way_b] <= 1'b1;
+                                update_lru(req_index_b, victim_way_b);
+                                // Don't invalidate same prefetch entry if Port A also hit it
+                                if (prefetch_hit_idx_b != prefetch_hit_idx || !prefetch_buffer_hit)
+                                    prefetch_valid[prefetch_hit_idx_b] <= 1'b0;
+                            end else if (state == ST_IDLE) begin
+                                // Port B miss — if Port A didn't also miss, handle Port B miss
+                                if (!fetch_req || cache_hit || prefetch_buffer_hit) begin
+                                    fetch_addr_latched <= fetch_addr_b;
+                                    state <= ST_TAG_CHECK;
+                                    fetch_ready_r <= 1'b0;
+                                    fetch_ready_b_r <= 1'b0;
+                                    miss_is_port_b <= 1'b1;
+                                end else begin
+                                    // Both ports missed — queue Port B
+                                    portb_miss_pending <= 1'b1;
+                                    portb_miss_addr <= {fetch_addr_b[ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
+                                    portb_miss_word <= fetch_addr_b[2 +: WORD_BITS];
+                                end
+                            end
+                        end else if (fetch_req_b && bank_conflict) begin
+                            // Bank conflict: Port B miss on cache check, queue if not a hit
+                            // Actually re-check: bank_conflict means same index, so tag arrays
+                            // read the same set. Port B can still detect a hit in the same set.
+                            // But the LRU/fill conflict makes it unsafe to modify same set.
+                            // For safety, if bank conflict AND Port A missed: queue Port B.
+                            if (!fetch_req || cache_hit || prefetch_buffer_hit) begin
+                                // Port A hit or not requesting — Port B can still check tags
+                                // (same set, different tag is fine for read)
+                                if (cache_hit_b) begin
+                                    hit_count <= hit_count + 1;
+                                    // Skip LRU update to avoid conflict with Port A
+                                end
+                                // Port B miss with bank conflict: queue it
+                                else if (!cache_hit_b && !prefetch_buffer_hit_b) begin
+                                    if (state == ST_IDLE) begin
+                                        fetch_addr_latched <= fetch_addr_b;
+                                        state <= ST_TAG_CHECK;
+                                        fetch_ready_r <= 1'b0;
+                                        fetch_ready_b_r <= 1'b0;
+                                        miss_is_port_b <= 1'b1;
+                                    end
+                                end
+                            end else begin
+                                // Port A also missed — queue Port B
+                                portb_miss_pending <= 1'b1;
+                                portb_miss_addr <= {fetch_addr_b[ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
+                                portb_miss_word <= fetch_addr_b[2 +: WORD_BITS];
+                            end
+                        end
+
+                        // Service queued Port B miss (when no new requests)
+                        if (!fetch_req && !fetch_req_b && portb_miss_pending && state == ST_IDLE) begin
+                            miss_addr <= portb_miss_addr;
+                            miss_word <= portb_miss_word;
+                            miss_is_port_b <= 1'b1;
+                            portb_miss_pending <= 1'b0;
+                            is_prefetch_miss <= 1'b0;
+                            miss_count <= miss_count + 1;
+                            state <= ST_MISS_REQ;
+                            fetch_ready_r <= 1'b0;
+                            fetch_ready_b_r <= 1'b0;
+                        end else if (!fetch_req && !fetch_req_b && !portb_miss_pending &&
+                                     prefetch_pending && state == ST_IDLE) begin
+                            prefetch_pending <= 1'b0;
+                            miss_addr <= prefetch_pending_addr;
+                            is_prefetch_miss <= 1'b1;
+                            state <= ST_PREFETCH;
+                            fetch_ready_r <= 1'b0;
+                            fetch_ready_b_r <= 1'b0;
+                        end
                     end
                 end
 
                 ST_TAG_CHECK: begin
-                    // This state is now only entered on cache miss from IDLE
-                    // Start the miss handling
                     miss_count <= miss_count + 1;
                     miss_addr <= {fetch_addr_latched[ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
                     miss_word <= fetch_addr_latched[2 +: WORD_BITS];
@@ -355,27 +528,43 @@ module icache #(
                 ST_MISS_WAIT: begin
                     if (mem_resp_valid) begin
                         if (!is_prefetch_miss) begin
-                            // Fill cache line directly (same cycle as response)
+                            // Fill cache
                             tag_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= miss_addr[ADDR_WIDTH-1 -: TAG_BITS];
                             data_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= mem_resp_data;
                             valid_array[miss_addr[OFFSET_BITS +: INDEX_BITS]][replace_way] <= 1'b1;
                             update_lru(miss_addr[OFFSET_BITS +: INDEX_BITS], replace_way);
 
-                            // Return data immediately
-                            fetch_data_r <= mem_resp_data[miss_word * DATA_WIDTH +: DATA_WIDTH];
-                            fetch_line_data_r <= mem_resp_data;
-                            fetch_valid_r <= 1'b1;
+                            // Return data to correct port
+                            if (miss_is_port_b) begin
+                                fetch_data_b_r <= mem_resp_data[miss_word * DATA_WIDTH +: DATA_WIDTH];
+                                fetch_line_data_b_r <= mem_resp_data;
+                                fetch_valid_b_r <= 1'b1;
+                            end else begin
+                                fetch_data_r <= mem_resp_data[miss_word * DATA_WIDTH +: DATA_WIDTH];
+                                fetch_line_data_r <= mem_resp_data;
+                                fetch_valid_r <= 1'b1;
+                            end
 
-                            // RALPH-8 P3: Defer prefetch — return to IDLE immediately.
-                            // Prefetch will be issued from IDLE if no demand fetch arrives.
-                            if (need_prefetch) begin
+                            if (need_prefetch && !portb_miss_pending) begin
                                 prefetch_pending <= 1'b1;
                                 prefetch_pending_addr <= miss_next_line_addr;
                             end
+
+                            // Check if queued Port B miss is now satisfied by this fill
+                            if (portb_miss_pending &&
+                                portb_miss_addr[ADDR_WIDTH-1:OFFSET_BITS] == miss_addr[ADDR_WIDTH-1:OFFSET_BITS]) begin
+                                // Same line — serve from fill data
+                                fetch_data_b_r <= mem_resp_data[portb_miss_word * DATA_WIDTH +: DATA_WIDTH];
+                                fetch_line_data_b_r <= mem_resp_data;
+                                fetch_valid_b_r <= 1'b1;
+                                portb_miss_pending <= 1'b0;
+                            end
+
                             state <= ST_IDLE;
                             fetch_ready_r <= 1'b1;
+                            fetch_ready_b_r <= 1'b1;
                         end else begin
-                            // Fill prefetch buffer
+                            // Prefetch fill
                             prefetch_addr[prefetch_head] <= miss_addr;
                             prefetch_data[prefetch_head] <= mem_resp_data;
                             prefetch_valid[prefetch_head] <= 1'b1;
@@ -383,18 +572,18 @@ module icache #(
 
                             state <= ST_IDLE;
                             fetch_ready_r <= 1'b1;
+                            fetch_ready_b_r <= 1'b1;
                         end
                     end
                 end
 
                 ST_FILL: begin
-                    // Unused - fill merged into ST_MISS_WAIT
                     state <= ST_IDLE;
                     fetch_ready_r <= 1'b1;
+                    fetch_ready_b_r <= 1'b1;
                 end
 
                 ST_PREFETCH: begin
-                    // Issue prefetch request (same handshake as ST_MISS_REQ)
                     mem_req_valid_r <= 1'b1;
                     mem_req_addr_r <= miss_addr;
 
@@ -406,13 +595,11 @@ module icache #(
 
                 ST_INVALIDATE: begin
                     if (invalidate_all) begin
-                        // Invalidate entire cache
                         for (rst_i = 0; rst_i < NUM_SETS; rst_i = rst_i + 1) begin
                             valid_array[rst_i] <= 0;
                         end
                         prefetch_valid <= 0;
                     end else begin
-                        // Invalidate specific line
                         for (rst_j = 0; rst_j < NUM_WAYS; rst_j = rst_j + 1) begin
                             if (valid_array[req_index][rst_j] &&
                                 tag_array[req_index][rst_j] == req_tag) begin
@@ -422,83 +609,82 @@ module icache #(
                     end
                     invalidate_done_r <= 1'b1;
                     state <= ST_IDLE;
-                    fetch_ready_r <= 1'b1;  // Ready for next request immediately
+                    fetch_ready_r <= 1'b1;
+                    fetch_ready_b_r <= 1'b1;
                 end
 
                 default: begin
                     state <= ST_IDLE;
-                    fetch_ready_r <= 1'b1;  // Ready for next request immediately
+                    fetch_ready_r <= 1'b1;
+                    fetch_ready_b_r <= 1'b1;
                 end
             endcase
         end
     end
 
     //------------------------------------------------------------------------
-    // Output Assignments
+    // Port A Output — combinational hit bypass
     //------------------------------------------------------------------------
-    // Combinatorial hit bypass: return data in same cycle as request
     wire combo_hit = (state == ST_IDLE) && fetch_req && cache_hit;
     wire combo_prefetch_hit = (state == ST_IDLE) && fetch_req && !cache_hit && prefetch_buffer_hit;
 
     assign fetch_ready     = fetch_ready_r;
-    // Combinatorial data path for zero-latency cache hit
     assign fetch_data      = combo_hit ? hit_data :
                             combo_prefetch_hit ? prefetch_hit_data :
                             fetch_data_r;
-    // Full cache line data for NIB (RALPH-8 P1)
     assign fetch_line_data = combo_hit ? hit_line :
                             combo_prefetch_hit ? prefetch_data[prefetch_hit_idx] :
                             fetch_line_data_r;
-    // Combinatorial valid for zero-latency cache hit
     assign fetch_valid     = combo_hit || combo_prefetch_hit || fetch_valid_r;
     assign mem_req_valid   = mem_req_valid_r;
     assign mem_req_addr    = mem_req_addr_r;
     assign invalidate_done = invalidate_done_r;
 
-    // RALPH-8 P2: Hit-bypass during miss — allows serving cache hits
-    // while FSM is blocked handling a miss for a different line.
-    // Only fires when FSM is NOT idle (miss in flight) and fetch_req sees a cache hit.
-    // RALPH-8 P3: Include ST_PREFETCH so hit-bypass works during prefetch too
+    // Port A hit-bypass during miss
     wire miss_pending = (state == ST_TAG_CHECK) || (state == ST_MISS_REQ) || (state == ST_MISS_WAIT) || (state == ST_PREFETCH);
     assign fetch_hit_bypass           = miss_pending && fetch_req && cache_hit;
     assign fetch_hit_bypass_data      = hit_data;
     assign fetch_hit_bypass_line_data = hit_line;
 
+    //------------------------------------------------------------------------
+    // Port B Output — combinational hit bypass (#148)
+    //------------------------------------------------------------------------
+    wire combo_hit_b = (state == ST_IDLE) && fetch_req_b && cache_hit_b && !bank_conflict;
+    wire combo_prefetch_hit_b = (state == ST_IDLE) && fetch_req_b && !cache_hit_b && prefetch_buffer_hit_b && !bank_conflict;
+    // Bank conflict but still a cache hit (same set, different tag match is possible)
+    wire combo_hit_b_banked = (state == ST_IDLE) && fetch_req_b && bank_conflict && cache_hit_b;
+
+    assign fetch_ready_b     = fetch_ready_b_r;
+    assign fetch_data_b      = (combo_hit_b || combo_hit_b_banked) ? hit_data_b :
+                              combo_prefetch_hit_b ? prefetch_hit_data_b :
+                              fetch_data_b_r;
+    assign fetch_line_data_b = (combo_hit_b || combo_hit_b_banked) ? hit_line_b :
+                              combo_prefetch_hit_b ? prefetch_data[prefetch_hit_idx_b] :
+                              fetch_line_data_b_r;
+    assign fetch_valid_b     = combo_hit_b || combo_hit_b_banked || combo_prefetch_hit_b || fetch_valid_b_r;
+
 endmodule
 
 
 //============================================================================
-// Instruction Prefetch Unit
-// Maintains a stream of prefetched instructions
+// Instruction Prefetch Unit (unchanged)
 //============================================================================
 module instruction_prefetch_unit #(
-    parameter PREFETCH_DEPTH = 8,           // Number of instructions to prefetch
+    parameter PREFETCH_DEPTH = 8,
     parameter ADDR_WIDTH     = 32,
     parameter DATA_WIDTH     = 32
 )(
     input  wire                     clk,
     input  wire                     rst_n,
-
-    //------------------------------------------------------------------------
-    // Control Interface
-    //------------------------------------------------------------------------
     input  wire                     enable,
-    input  wire [ADDR_WIDTH-1:0]    base_addr,      // Starting address
-    input  wire                     flush,           // Flush prefetch buffer
-    input  wire                     branch_taken,    // Branch misprediction
+    input  wire [ADDR_WIDTH-1:0]    base_addr,
+    input  wire                     flush,
+    input  wire                     branch_taken,
     input  wire [ADDR_WIDTH-1:0]    branch_target,
-
-    //------------------------------------------------------------------------
-    // Consumer Interface (to Decode)
-    //------------------------------------------------------------------------
     output wire [DATA_WIDTH-1:0]    prefetch_data,
     output wire [ADDR_WIDTH-1:0]    prefetch_addr,
     output wire                     prefetch_valid,
     input  wire                     prefetch_consume,
-
-    //------------------------------------------------------------------------
-    // I-Cache Interface
-    //------------------------------------------------------------------------
     output wire                     icache_req,
     output wire [ADDR_WIDTH-1:0]    icache_addr,
     input  wire                     icache_ready,
@@ -509,37 +695,25 @@ module instruction_prefetch_unit #(
     localparam PTR_W = $clog2(PREFETCH_DEPTH);
     localparam CNT_W = $clog2(PREFETCH_DEPTH + 1);
 
-    //------------------------------------------------------------------------
-    // Prefetch Buffer
-    //------------------------------------------------------------------------
     reg [DATA_WIDTH-1:0] buffer_data [0:PREFETCH_DEPTH-1];
     reg [ADDR_WIDTH-1:0] buffer_addr [0:PREFETCH_DEPTH-1];
     reg [PREFETCH_DEPTH-1:0] buffer_valid;
-    reg [PTR_W-1:0] head_ptr;  // Next to consume
-    reg [PTR_W-1:0] tail_ptr;  // Next to fill
+    reg [PTR_W-1:0] head_ptr;
+    reg [PTR_W-1:0] tail_ptr;
     reg [CNT_W-1:0] count;
 
     wire buffer_empty = (count == 0);
     wire buffer_full  = (count == PREFETCH_DEPTH);
 
-    //------------------------------------------------------------------------
-    // Fetch Address Tracking
-    //------------------------------------------------------------------------
     reg [ADDR_WIDTH-1:0] next_fetch_addr;
     reg fetch_pending;
 
-    //------------------------------------------------------------------------
-    // State Machine
-    //------------------------------------------------------------------------
     localparam ST_IDLE     = 2'd0;
     localparam ST_FETCH    = 2'd1;
     localparam ST_WAIT     = 2'd2;
 
     reg [1:0] state;
 
-    //------------------------------------------------------------------------
-    // Main Logic
-    //------------------------------------------------------------------------
     integer rst_i;
 
     always @(posedge clk or negedge rst_n) begin
@@ -552,7 +726,6 @@ module instruction_prefetch_unit #(
             next_fetch_addr <= 0;
             fetch_pending <= 1'b0;
         end else begin
-            // Handle flush or branch
             if (flush || branch_taken) begin
                 head_ptr <= 0;
                 tail_ptr <= 0;
@@ -562,14 +735,12 @@ module instruction_prefetch_unit #(
                 fetch_pending <= 1'b0;
                 state <= ST_IDLE;
             end else begin
-                // Consumer takes an entry
                 if (prefetch_consume && !buffer_empty) begin
                     buffer_valid[head_ptr] <= 1'b0;
                     head_ptr <= (head_ptr + 1) % PREFETCH_DEPTH;
                     count <= count - 1;
                 end
 
-                // State machine for prefetching
                 case (state)
                     ST_IDLE: begin
                         if (enable && !buffer_full && !fetch_pending) begin
@@ -586,18 +757,13 @@ module instruction_prefetch_unit #(
 
                     ST_WAIT: begin
                         if (icache_valid) begin
-                            // Store in buffer
                             buffer_data[tail_ptr] <= icache_data;
                             buffer_addr[tail_ptr] <= next_fetch_addr;
                             buffer_valid[tail_ptr] <= 1'b1;
                             tail_ptr <= (tail_ptr + 1) % PREFETCH_DEPTH;
                             count <= count + 1;
-
-                            // Advance to next address
                             next_fetch_addr <= next_fetch_addr + 4;
                             fetch_pending <= 1'b0;
-
-                            // Continue prefetching if not full
                             if (count + 1 < PREFETCH_DEPTH) begin
                                 state <= ST_FETCH;
                             end else begin
@@ -612,9 +778,6 @@ module instruction_prefetch_unit #(
         end
     end
 
-    //------------------------------------------------------------------------
-    // Output Assignments
-    //------------------------------------------------------------------------
     assign prefetch_data  = buffer_data[head_ptr];
     assign prefetch_addr  = buffer_addr[head_ptr];
     assign prefetch_valid = buffer_valid[head_ptr] && !buffer_empty;

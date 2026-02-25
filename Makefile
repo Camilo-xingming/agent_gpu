@@ -779,3 +779,15 @@ $(BUILD_DIR)/tb_command_processor.vvp: $(RTL_DIR)/command_processor.v $(RTL_DIR)
 
 # Optional FPGA vendor-flow targets
 -include fpga/Makefile.fpga
+
+# Dual-fetch test (#226 True Dual-Issue)
+TB_DUAL_FETCH = $(TB_DIR)/tb_dual_fetch.v
+
+test_dual_fetch: $(BUILD_DIR)/tb_dual_fetch.vvp
+	@echo "========================================"
+	@echo "Running Dual-Fetch Test (#226)"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_dual_fetch.vvp
+
+$(BUILD_DIR)/tb_dual_fetch.vvp: $(SM_V2_SRCS) $(TB_DUAL_FETCH) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(SM_V2_DEFINES) -o $@ $(TB_DUAL_FETCH) $(filter %.v,$(SM_V2_SRCS))
