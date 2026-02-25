@@ -36,3 +36,9 @@
 
 - [ ] merge 后立即检查 master CI 状态：`gh run list --branch master --limit 3`
 - [ ] 若 master CI 失败，立即触发修复（不等下次 standup）
+
+## post-merge 验证（Coder 执行）
+
+- [ ] PR merge 后，coder 在 issue comment 贴 `make regression` + `make lint` 结果
+- [ ] 结果格式：`Post-merge verify: regression ✅ / lint ✅ | SHA: <head_sha>`
+- [ ] 若任一失败，立即开新 PR 修复，不关闭 issue
