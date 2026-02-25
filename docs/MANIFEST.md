@@ -57,6 +57,7 @@
 | plan-149.md | Issue #149 实现计划 | Coders | Coders | plan, 149, scheduler |
 | progress.md | 进度跟踪文档 | Coders | Coders | progress |
 | research-149.md | Issue #149 调研报告 | Coders | Coders | research, 149 |
+| issue-148-true-dual-issue-research-2026-02-25.md | Issue #148 True dual-issue 2h 研究草稿 | Coders | Coders/Lily | issue-148, dual-issue, fetch |
 | task_plan.md | PTX 测试套件任务计划 | Coders | Coders | task, ptx, test |
 | DESIGN_REPLAY.md | Pipeline Replay è®¾è®¡å®žçŽ° | Coders | Coders | è¯»å†…å­˜æ—¶ | replay, pipeline |
 | fpga-prototype-feasibility.md | FPGA åŽŸåž‹å¯å¡Œæ€§åˆ†æž | Coders | Jerry/Lily | é¡¹ç›®å¼€å§‹å‰ | fpga, feasibility |
