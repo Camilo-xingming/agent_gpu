@@ -5472,6 +5472,7 @@ module streaming_multiprocessor_v2 #(
                     // Execute not-taken threads first (fall-through)
                     warp_mask[issue_warp_id] <= not_taken_lanes;
                     warp_fetch_pc[issue_warp_id] <= issue_pc + 32'd4;
+                    warp_pc[issue_warp_id] <= issue_pc + 32'd4;
                 end
 
                 // Flush instruction buffer and pipeline to ensure next fetch uses new mask
@@ -5535,6 +5536,7 @@ module streaming_multiprocessor_v2 #(
                     // Execute not-taken threads first (fall-through)
                     warp_mask[issue1_warp_id] <= not_taken1_lanes;
                     warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                    warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
                 end
 
                 // Flush instruction buffer and pipeline
@@ -5667,6 +5669,7 @@ module streaming_multiprocessor_v2 #(
                 // Advance PC past the barrier instruction
                 warp_stalled_branch[issue_warp_id] <= 1'b0;
                 warp_fetch_pc[issue_warp_id] <= issue_pc + 32'd4;
+                warp_pc[issue_warp_id] <= issue_pc + 32'd4;
                 branch_flush_mask[issue_warp_id] <= 1'b1;
             end
             
@@ -5678,6 +5681,7 @@ module streaming_multiprocessor_v2 #(
                 // Advance PC past the barrier instruction
                 warp_stalled_branch[issue1_warp_id] <= 1'b0;
                 warp_fetch_pc[issue1_warp_id] <= issue1_pc + 32'd4;
+                warp_pc[issue1_warp_id] <= issue1_pc + 32'd4;
                 branch_flush_mask[issue1_warp_id] <= 1'b1;
                 
             end
