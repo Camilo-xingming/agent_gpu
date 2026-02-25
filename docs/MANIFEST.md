@@ -17,6 +17,7 @@
 | memory-optimization-reference.md | 内存优化参考 | Coders | Coders | 内存子系统优化时 | memory, optimization |
 | performance-verification-plan.md | 性能验证计划 | Coders | Coders/Jerry | 性能相关 sprint | performance, verification |
 | plan-150-multi-sm.md | Multi-SM 实现计划 (#150) | Coders | Coders | 多 SM 架构时 | multi-sm, axi, plan |
+| fpga-prototype-feasibility.md | FPGA 原型可行性评估 | Coders | Jerry/Lily | 做 FPGA 相关决策前 | fpga, prototype, feasibility |
 
 ## pm/ 子目录 — 项目管理文档
 
