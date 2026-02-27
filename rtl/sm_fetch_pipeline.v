@@ -349,6 +349,7 @@ module sm_fetch_pipeline #(
             if (icache_valid_b && !fetch_fire_b) begin
                 // Port B miss response — pending was already set
                 // The icache returns valid_b when a queued Port B miss completes
+                warp_fetch_pending[fetch_warp_id_b] <= 1'b0;
             end
         end
     end
