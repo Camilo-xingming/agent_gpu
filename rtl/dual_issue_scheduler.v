@@ -305,10 +305,10 @@ module ilp_analyzer #(
     generate
         genvar g;
         for (g = 0; g < WINDOW_SIZE; g = g + 1) begin : gen_decode
-            wire [INST_WIDTH-1:0] inst = inst_window[g*INST_WIDTH +: INST_WIDTH];
-            assign rd[g] = inst[25:21];
-            assign rs1[g] = inst[20:16];
-            assign rs2[g] = inst[15:11];
+            wire [INST_WIDTH-1:0] inst_g = inst_window[g*INST_WIDTH +: INST_WIDTH];
+            assign rd[g]  = inst_g[11:7];
+            assign rs1[g] = inst_g[19:15];
+            assign rs2[g] = inst_g[24:20];
         end
     endgenerate
 

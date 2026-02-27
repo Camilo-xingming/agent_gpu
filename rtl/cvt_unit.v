@@ -1,7 +1,7 @@
 //============================================================================
 // RalphGPU - CVT Unit (Type Conversion Unit)
-// å®Œæ•´çš„PTXç±»åž‹è½¬æ¢æ”¯æŒ
-// æ”¯æŒ: æ‰€æœ‰æ•´æ•°/æµ®ç‚¹ç±»åž‹è½¬æ¢ï¼Œé¥±å’Œï¼Œèˆå…¥æ¨¡å¼
+// Complete PTX type conversion support.
+// Supports: All integer/float conversions, saturation, and rounding modes.
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -11,18 +11,18 @@ module cvt_unit (
     input  wire        clk,
     input  wire        rst_n,
 
-    // æŽ§åˆ¶
-    input  wire [5:0]  func,            // è½¬æ¢ç±»åž‹
-    input  wire [1:0]  rnd_mode,        // èˆå…¥æ¨¡å¼
-    input  wire        saturate,        // é¥±å’Œæ¨¡å¼
+    // Control
+    input  wire [5:0]  func,            // Conversion type
+    input  wire [1:0]  rnd_mode,        // Rounding mode
+    input  wire        saturate,        // Saturation mode
     input  wire        ftz,             // Flush to zero
     input  wire        valid_in,
 
-    // æº•°æ® (æœ€å¤§64ä½)
+    // Source data (max 64-bit)
     input  wire [63:0] src,
-    input  wire [2:0]  src_type,        // æº±»åž‹
+    input  wire [2:0]  src_type,        // Source type
 
-    // ç›®æ ‡æ•°æ®
+    // Destination data
     output reg  [63:0] dst,
     output reg         valid_out,
     output reg         overflow,
@@ -30,7 +30,7 @@ module cvt_unit (
 );
 
     //------------------------------------------------------------------------
-    // ç±»åž‹ç¼–ç 
+    // Type encoding
     //------------------------------------------------------------------------
     localparam TYPE_S8   = 3'd0;
     localparam TYPE_U8   = 3'd1;
@@ -42,7 +42,7 @@ module cvt_unit (
     localparam TYPE_U64  = 3'd7;
 
     //------------------------------------------------------------------------
-    // FP32 <-> æ•´æ•°è½¬æ¢
+    // FP32 <-> Integer conversion
     //------------------------------------------------------------------------
     wire [31:0] fp32_src = src[31:0];
     wire fp32_sign = fp32_src[31];
@@ -50,7 +50,7 @@ module cvt_unit (
     wire [22:0] fp32_man = fp32_src[22:0];
     wire [23:0] fp32_sig = {1'b1, fp32_man};
 
-    // FP32 -> S32 (å¸¦èˆå…¥)
+    // FP32 -> S32 ()
     wire signed [31:0] fp32_to_s32;
     wire fp32_to_s32_ovf;
 
@@ -91,7 +91,7 @@ module cvt_unit (
     );
 
     //------------------------------------------------------------------------
-    // FP64 <-> æ•´æ•°è½¬æ¢
+    // FP64 <-> 
     //------------------------------------------------------------------------
     wire [63:0] fp64_src = src;
     wire fp64_sign = fp64_src[63];
@@ -139,7 +139,7 @@ module cvt_unit (
     );
 
     //------------------------------------------------------------------------
-    // FP32 <-> FP64 è½¬æ¢
+    // FP32 <-> FP64 
     //------------------------------------------------------------------------
     wire [31:0] fp64_to_fp32;
     wire fp64_to_fp32_inx;
@@ -159,7 +159,7 @@ module cvt_unit (
     );
 
     //------------------------------------------------------------------------
-    // FP16 <-> FP32 è½¬æ¢
+    // FP16 <-> FP32 
     //------------------------------------------------------------------------
     wire [15:0] fp16_src = src[15:0];
     wire [31:0] fp16_to_fp32;
@@ -180,7 +180,7 @@ module cvt_unit (
     );
 
     //------------------------------------------------------------------------
-    // æ•´æ•°ç±»åž‹è½¬æ¢ (ç¬¦å·æ‰©å±•/æˆªæ–­/é¥±å’Œ)
+    //  (//)
     //------------------------------------------------------------------------
     wire [63:0] int_cvt_result;
     wire int_cvt_ovf;
@@ -195,7 +195,7 @@ module cvt_unit (
     );
 
     //------------------------------------------------------------------------
-    // ç»“æžœé€‰æ‹©
+    // 
     //------------------------------------------------------------------------
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -264,7 +264,7 @@ module cvt_unit (
                 end
 
                 default: begin
-                    // æ•´æ•°ç±»åž‹è½¬æ¢
+                    // 
                     dst <= int_cvt_result;
                     overflow <= int_cvt_ovf;
                 end
@@ -278,7 +278,7 @@ endmodule
 
 
 //============================================================================
-// FP32 -> æ•´æ•°è½¬æ¢
+// FP32 -> 
 //============================================================================
 module fp32_to_int #(
     parameter SIGNED = 1,
@@ -302,18 +302,18 @@ module fp32_to_int #(
     wire is_inf = (exp == 8'hFF) && (man == 0);
     wire is_nan = (exp == 8'hFF) && (man != 0);
 
-    // è®¡ç®—å®žé™…æŒ‡æ•°
+    // 
     wire signed [8:0] real_exp = {1'b0, exp} - EXP_BIAS;
 
-    // ç§»ä½é‡
+    // 
     wire [5:0] shift_right = (real_exp < 23) ? (6'd23 - real_exp[5:0]) : 6'd0;
     wire [5:0] shift_left = (real_exp > 23) ? (real_exp[5:0] - 6'd23) : 6'd0;
 
-    // åŸºç¡€ç»“æžœ
+    // 
     wire [63:0] shifted_sig = (real_exp < 23) ? ({40'b0, sig} >> shift_right) :
                                                 ({40'b0, sig} << shift_left);
 
-    // èˆå…¥
+    // 
     wire [63:0] rounded;
     wire round_bit;
 
@@ -326,11 +326,11 @@ module fp32_to_int #(
                      (rnd_mode == 2'b11 && !sign) ? shifted_sig + 1 : // Round toward +inf
                      shifted_sig;
 
-    // æœ€ç»ˆç»“æžœ
+    // 
     wire [WIDTH-1:0] unsigned_result = rounded[WIDTH-1:0];
     wire signed [WIDTH-1:0] signed_result = sign ? -unsigned_result : unsigned_result;
 
-    // æº¢å‡ºæ£€æµ‹
+    // 
     wire positive_overflow = !sign && (real_exp >= WIDTH);
     wire negative_overflow = SIGNED && sign && (real_exp >= WIDTH-1);
 
@@ -372,7 +372,7 @@ endmodule
 
 
 //============================================================================
-// æ•´æ•° -> FP32 è½¬æ¢
+//  -> FP32 
 //============================================================================
 module int_to_fp32 #(
     parameter SIGNED = 1
@@ -385,7 +385,7 @@ module int_to_fp32 #(
     wire sign = SIGNED && int_val[31];
     wire [31:0] abs_val = (SIGNED && int_val[31]) ? -int_val : int_val;
 
-    // å‰å¯¼é›¶è®¡æ•°
+    // 
     function [4:0] clz32;
         input [31:0] val;
         integer i;
@@ -419,7 +419,7 @@ endmodule
 
 
 //============================================================================
-// FP64 -> æ•´æ•°è½¬æ¢
+// FP64 -> 
 //============================================================================
 module fp64_to_int #(
     parameter SIGNED = 1
@@ -480,7 +480,7 @@ endmodule
 
 
 //============================================================================
-// æ•´æ•°64 -> FP64 è½¬æ¢
+// 64 -> FP64 
 //============================================================================
 module int64_to_fp64 #(
     parameter SIGNED = 1
@@ -493,7 +493,7 @@ module int64_to_fp64 #(
     wire sign = SIGNED && int_val[63];
     wire [63:0] abs_val = (SIGNED && int_val[63]) ? -int_val : int_val;
 
-    // å‰å¯¼é›¶è®¡æ•°
+    // 
     function [5:0] clz64;
         input [63:0] val;
         integer i;
@@ -522,7 +522,7 @@ endmodule
 
 
 //============================================================================
-// FP64 -> FP32 è½¬æ¢
+// FP64 -> FP32 
 //============================================================================
 module fp64_to_fp32_cvt (
     input  wire [63:0] fp64,
@@ -540,15 +540,15 @@ module fp64_to_fp32_cvt (
     wire is_inf = (exp64 == 11'h7FF) && (man64 == 0);
     wire is_nan = (exp64 == 11'h7FF) && (man64 != 0);
 
-    // æŒ‡æ•°è½¬æ¢: bias 1023 -> 127
+    // : bias 1023 -> 127
     wire signed [11:0] real_exp = {1'b0, exp64} - 12'd1023;
     wire [7:0] exp32 = real_exp[7:0] + 8'd127;
 
-    // å°¾æ•°æˆªæ–­
+    // 
     wire [22:0] man32 = man64[51:29];
     wire round_bit = man64[28];
 
-    // æº¢å‡º/ä¸‹æº¢
+    // /
     wire overflow = (real_exp > 127);
     wire underflow = (real_exp < -126);
 
@@ -572,7 +572,7 @@ endmodule
 
 
 //============================================================================
-// FP32 -> FP64 è½¬æ¢
+// FP32 -> FP64 
 //============================================================================
 module fp32_to_fp64_cvt (
     input  wire [31:0] fp32,
@@ -587,10 +587,10 @@ module fp32_to_fp64_cvt (
     wire is_inf = (exp32 == 8'hFF) && (man32 == 0);
     wire is_nan = (exp32 == 8'hFF) && (man32 != 0);
 
-    // æŒ‡æ•°è½¬æ¢: bias 127 -> 1023
+    // : bias 127 -> 1023
     wire [10:0] exp64 = {3'b0, exp32} + 11'd896;  // 1023 - 127
 
-    // å°¾æ•°æ‰©å±•
+    // 
     wire [51:0] man64 = {man32, 29'b0};
 
     always @(*) begin
@@ -609,7 +609,7 @@ endmodule
 
 
 //============================================================================
-// FP16 -> FP32 è½¬æ¢
+// FP16 -> FP32 
 //============================================================================
 module fp16_to_fp32_cvt (
     input  wire [15:0] fp16,
@@ -624,10 +624,10 @@ module fp16_to_fp32_cvt (
     wire is_inf = (exp16 == 5'h1F) && (man16 == 0);
     wire is_nan = (exp16 == 5'h1F) && (man16 != 0);
 
-    // æŒ‡æ•°è½¬æ¢: bias 15 -> 127
+    // : bias 15 -> 127
     wire [7:0] exp32 = {3'b0, exp16} + 8'd112;  // 127 - 15
 
-    // å°¾æ•°æ‰©å±•
+    // 
     wire [22:0] man32 = {man16, 13'b0};
 
     always @(*) begin
@@ -646,7 +646,7 @@ endmodule
 
 
 //============================================================================
-// FP32 -> FP16 è½¬æ¢
+// FP32 -> FP16 
 //============================================================================
 module fp32_to_fp16_cvt (
     input  wire [31:0] fp32,
@@ -663,14 +663,14 @@ module fp32_to_fp16_cvt (
     wire is_inf = (exp32 == 8'hFF) && (man32 == 0);
     wire is_nan = (exp32 == 8'hFF) && (man32 != 0);
 
-    // æŒ‡æ•°è½¬æ¢
+    // 
     wire signed [8:0] real_exp = {1'b0, exp32} - 9'd127;
     wire [4:0] exp16 = real_exp[4:0] + 5'd15;
 
-    // å°¾æ•°æˆªæ–­
+    // 
     wire [9:0] man16 = man32[22:13];
 
-    // æº¢å‡º/ä¸‹æº¢
+    // /
     wire overflow = (real_exp > 15);
     wire underflow = (real_exp < -14);
 
@@ -694,7 +694,7 @@ endmodule
 
 
 //============================================================================
-// æ•´æ•°ç±»åž‹è½¬æ¢
+// 
 //============================================================================
 module integer_cvt (
     input  wire [63:0] src,
@@ -714,7 +714,7 @@ module integer_cvt (
     localparam TYPE_S64 = 3'd6;
     localparam TYPE_U64 = 3'd7;
 
-    // ç¬¦å·æ‰©å±•æº€¼åˆ°64ä½
+    // 64
     reg signed [63:0] src_signed;
     reg [63:0] src_unsigned;
 
@@ -733,7 +733,7 @@ module integer_cvt (
         src_unsigned = src_signed;
     end
 
-    // ç›®æ ‡èŒƒå›´æ£€æŸ¥å’Œé¥±å’Œ
+    // 
     always @(*) begin
         overflow = 1'b0;
 

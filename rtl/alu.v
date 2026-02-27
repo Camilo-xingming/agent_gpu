@@ -1,29 +1,29 @@
 //============================================================================
 // RalphGPU - ALU (Arithmetic Logic Unit)
-// 32ä½ç®—æœ¯é€»è¾‘å•å…ƒï¼Œæ”¯æŒå®Œæ•´PTXæ•´æ•°è¿®—æŒ‡ä»¤é›†
-// æ”¯æŒ: åŸºç¡€ç®—æœ¯ã€ä½æ“ä½œã€ä½åŸŸæ“ä½œã€é€‰æ‹©æ“ä½œ
+// 32-bit Arithmetic and Logic Unit, supports full PTX integer ISA.
+// Supports: Basic arithmetic, bitwise ops, bitfield, select, etc.
 //============================================================================
 
 `timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module alu (
-    input  wire [5:0]  func,        // åŠŸèƒ½ç 
-    input  wire [31:0] operand_a,   // æ“ä½œæ•°A
-    input  wire [31:0] operand_b,   // æ“ä½œæ•°B
-    input  wire [31:0] operand_c,   // æ“ä½œæ•°C (ç”¨äºŽBFI, PRMT, SAD, SELP)
-    input  wire        pred_in,     // è°“è¯è¾“å…¥ (ç”¨äºŽSELP)
-    input  wire        carry_in,    // è¿›ä½è¾“å…¥ (ç”¨äºŽaddc, subc)
-    output reg  [31:0] result,      // ç»“æžœ
-    output reg  [31:0] result_hi,   // é«˜32ä½ç»“æžœ (ç”¨äºŽmul.wide)
-    output wire        zero,        // é›¶æ ‡å¿—
-    output wire        negative,    // è´Ÿæ•°æ ‡å¿—
-    output wire        overflow,    // æº¢å‡ºæ ‡å¿—
-    output reg         carry_out    // è¿›ä½è¾“å‡º (ç”¨äºŽadd.cc, sub.cc)
+    input  wire [5:0]  func,        // Function code
+    input  wire [31:0] operand_a,   // Operand A
+    input  wire [31:0] operand_b,   // Operand B
+    input  wire [31:0] operand_c,   // Operand C (used for BFI, PRMT, SAD, SELP)
+    input  wire        pred_in,     // Predicate input (used for SELP)
+    input  wire        carry_in,    // Carry input (used for addc, subc)
+    output reg  [31:0] result,      // Result
+    output reg  [31:0] result_hi,   // High 32-bit result (used for mul.wide)
+    output wire        zero,        // Zero flag
+    output wire        negative,    // Negative flag
+    output wire        overflow,    // Overflow flag
+    output reg         carry_out    // Carry output (used for add.cc, sub.cc)
 );
 
     //------------------------------------------------------------------------
-    // å†…éƒ¨ä¿¡å·
+    // 
     //------------------------------------------------------------------------
     wire [32:0] add_result;
     wire [32:0] sub_result;
@@ -46,7 +46,7 @@ module alu (
     wire signed [63:0] mul_wide_s = signed_a * signed_b;
 
     //------------------------------------------------------------------------
-    // POPC (Population Count) - è®¡ç®—1çš„ä¸ªæ•°
+    // POPC (Population Count) - Count number of set bits (1s)
     //------------------------------------------------------------------------
     function [5:0] popc32;
         input [31:0] val;
@@ -79,7 +79,7 @@ module alu (
     endfunction
 
     //------------------------------------------------------------------------
-    // BFIND (Find Most Significant Bit) - è¿”å›žMSBä½ç½®
+    // BFIND (Find Most Significant Bit) - Returns MSB position
     //------------------------------------------------------------------------
     function [31:0] bfind32;
         input [31:0] val;
@@ -88,9 +88,9 @@ module alu (
         integer i;
         reg found;
         begin
-            // å¯¹äºŽæœ‰ç¬¦å·æ•°ï¼Œå¦‚æžœæ˜¯è´Ÿæ•°ï¼Œå…ˆå–å
+            // For signed numbers, if negative, search for first zero
             search_val = (is_signed && val[31]) ? ~val : val;
-            bfind32 = 32'hFFFFFFFF;  // -1 è¡¨ç¤ºæœªæ‰¾åˆ°
+            bfind32 = 32'hFFFFFFFF;  // -1 indicates not found
             found = 0;
             for (i = 31; i >= 0; i = i - 1) begin
                 if (!found && search_val[i]) begin
@@ -116,7 +116,7 @@ module alu (
 
     //------------------------------------------------------------------------
     // BFE (Bit Field Extract)
-    // ä»Žoperand_aä¸­æ–ä»Žä½ç½®poså¼€å§‹çš„lenä½
+    // Extracts bits from operand_a starting at pos with length len.
     // operand_b[7:0] = pos, operand_b[15:8] = len
     //------------------------------------------------------------------------
     wire [4:0] bfe_pos = operand_b[4:0];
@@ -124,7 +124,7 @@ module alu (
     wire [31:0] bfe_mask = (bfe_len == 0) ? 32'b0 : ((32'hFFFFFFFF >> (32 - bfe_len)));
     wire [31:0] bfe_shifted = operand_a >> bfe_pos;
     wire [31:0] bfe_result_u = bfe_shifted & bfe_mask;
-    // æœ‰ç¬¦å·æ‰©å±•
+    // Signed extension
     wire bfe_sign_bit = (bfe_len > 0) ? bfe_shifted[bfe_len-1] : 1'b0;
     wire [31:0] bfe_sign_extend = (bfe_sign_bit && bfe_len > 0) ?
                                   (~bfe_mask) : 32'b0;
@@ -132,7 +132,7 @@ module alu (
 
     //------------------------------------------------------------------------
     // BFI (Bit Field Insert)
-    // å°†operand_açš„ä½Žlenä½æ’å…¥operand_bçš„posä½ç½®
+    // Inserts bits of length len from operand_a into operand_b starting at pos.
     // operand_c[7:0] = pos, operand_c[15:8] = len
     //------------------------------------------------------------------------
     wire [4:0] bfi_pos = operand_c[4:0];
@@ -143,7 +143,7 @@ module alu (
     wire [31:0] bfi_result = (operand_b & ~bfi_mask) | bfi_insert;
 
     //------------------------------------------------------------------------
-    // æ–°å¢žï¼šä½æŽ©ç /æ‰©å±•/æŸ¥æ‰¾/æ¼æ–—ç§»ä½/ä¸‰è¾“å…¥é€»è¾‘
+    // Bit mask, extension, find, funnel shift, and 3-input logic ops
     //------------------------------------------------------------------------
     wire [4:0] bmsk_pos = operand_a[4:0];
     wire [5:0] bmsk_len_ext = {1'b0, operand_b[4:0]};
@@ -427,9 +427,9 @@ module alu (
 
     //------------------------------------------------------------------------
     // PRMT (Permute Bytes)
-    // æ ¹æ®operand_cé€‰æ‹©operand_aå’Œoperand_bçš„å­—èŠ‚
+    // operand_coperand_aoperand_b
     //------------------------------------------------------------------------
-    wire [63:0] prmt_src = {operand_b, operand_a};  // 8ä¸ªæº­—èŠ‚
+    wire [63:0] prmt_src = {operand_b, operand_a};  // 8
     wire [31:0] prmt_result;
     wire [2:0] prmt_sel0 = operand_c[2:0];
     wire [2:0] prmt_sel1 = operand_c[6:4];
@@ -450,7 +450,7 @@ module alu (
     wire [31:0] sad_result = sad_abs + operand_c;
 
     //------------------------------------------------------------------------
-    // ALU æ“ä½œé€‰æ‹©
+    // ALU 
     //------------------------------------------------------------------------
     always @(*) begin
         result_hi = 32'b0;
@@ -458,7 +458,7 @@ module alu (
 
         /* verilator lint_off CASEOVERLAP */
         case (func)
-            // åŸºç¡€è¿®—
+            // 
             `FUNC_ADD:   begin
                 result = add_result[31:0];
             end
@@ -473,7 +473,7 @@ module alu (
             `FUNC_SHR_U: result = operand_a >> operand_b[4:0];
             `FUNC_SHR_S: result = signed_a >>> operand_b[4:0];
 
-            // PTXæ‰©å±•æ•´æ•°è¿®—
+            // PTX
             `FUNC_ABS:   result = signed_a[31] ? (-signed_a) : signed_a;
             `FUNC_NEG:   result = -signed_a;
             `FUNC_MIN_S: result = (signed_a < signed_b) ? operand_a : operand_b;
@@ -481,19 +481,19 @@ module alu (
             `FUNC_MAX_S: result = (signed_a > signed_b) ? operand_a : operand_b;
             `FUNC_MAX_U: result = (operand_a > operand_b) ? operand_a : operand_b;
 
-            // ä½æ“ä½œæŒ‡ä»¤
+            // 
             `FUNC_POPC:  result = {26'b0, popc32(operand_a)};
             `FUNC_CLZ:   result = {26'b0, clz32(operand_a)};
-            `FUNC_BFIND: result = bfind32(operand_a, 1'b1);  // æœ‰ç¬¦å·ç‰ˆæœ¬
+            `FUNC_BFIND: result = bfind32(operand_a, 1'b1);  // 
             `FUNC_BREV:  result = brev32(operand_a);
 
-            // ä½åŸŸæ“ä½œ
+            // 
             `FUNC_BFE_S: result = bfe_result_s;
             `FUNC_BFE_U: result = bfe_result_u;
             `FUNC_BFI:   result = bfi_result;
             `FUNC_PRMT:  result = prmt_result;
 
-            // ç‰¹æ®Šè¿®—
+            // 
             `FUNC_SAD:   result = sad_result;
             `FUNC_CNOT:  result = cnot_res;
             `FUNC_BMSK:  result = bmsk_result;
@@ -505,11 +505,11 @@ module alu (
             `VIDEO_DP4A_ALU: result = dp4a_sum;
             `VIDEO_DP2A_ALU: result = dp2a_sum;
 
-            // é€‰æ‹©æ“ä½œ
+            // 
             `FUNC_SELP:  result = pred_in ? operand_a : operand_b;
-            `FUNC_SLCT:  result = signed_b[31] ? operand_a : operand_b;  // æ ¹æ®cçš„ç¬¦å·é€‰æ‹©
+            `FUNC_SLCT:  result = signed_b[31] ? operand_a : operand_b;  // c
 
-            // è¿›ä½è¿®— (add.cc, addc, sub.cc, subc)
+            //  (add.cc, addc, sub.cc, subc)
             `FUNC_ADD_CC: begin
                 result = add_result[31:0];
                 carry_out = add_result[32];
@@ -527,7 +527,7 @@ module alu (
                 carry_out = subc_result[32];  // borrow
             end
 
-            // å®½ä¹˜æ³• (mul.wide: 32x32 -> 64)
+            //  (mul.wide: 32x32 -> 64)
             `FUNC_MUL_WIDE: begin
                 result = mul_wide_u[31:0];
                 result_hi = mul_wide_u[63:32];
@@ -565,7 +565,7 @@ module alu (
     end
 
     //------------------------------------------------------------------------
-    // æ ‡å¿—ä½ç”Ÿæˆ
+    // 
     assign zero     = (result == 32'b0);
     assign negative = result[31];
     assign overflow = 1'b0; // TODO: Implement integer overflow flags
@@ -574,7 +574,7 @@ endmodule
 
 
 //============================================================================
-// SIMD ALU - 32ä¸ªå¹¶è¡ŒALUç”¨äºŽWarpæ‰§è¡Œ
+// SIMD ALU - 32ALUWarp
 //============================================================================
 module simd_alu #(
     parameter LANES = 32
