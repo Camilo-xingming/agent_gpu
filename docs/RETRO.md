@@ -1,3 +1,46 @@
+# Sprint Retrospective 2026-02-27
+
+## ✅ Went Well
+- **Sprint 5 velocity 100% (6/6)**：#148, #221, #222, #223, #227, #228 全部关闭，完美收尾
+- **Gemini 独扛 PR #231**：rebase + mojibake 清理 + CVT 单测 12/12 全绿，单 coder 完整交付
+- **PR #230 cross-review 完成**：Gemini 完成 `sm_fetch_pipeline.v` 双发射审查，PASS ✅ + SHA 绑定
+- **Master CI 全天绿**：Nightly Regression + 2x CI runs on master 全部 success
+- **Network anomaly 主动上报**：ist-mac-01/02 unreachable from ist-mac-s 被检测并升级给 Jerry
+- **Codex 回来后给出实质性 retro 建议**：超时升级机制方向明确
+
+## ❌ Didn't Go Well
+- **Codex 10h+ 失联**：PR #230 和 #231 review 队列全天被阻塞，Lily 未在 30min 内升级（直到 Jerry 主动问才处理）
+- **Sprint Planning 断档**：Sprint 4 结束到 Sprint 5 milestone 创建之间出现 gap，多条 "No active Sprint milestone" 告警，cron 报错循环
+- **Sprint 2026-02-27 milestone（M#12）空创建**：0 item，Planning 未正确填充 backlog
+- **scrum-health cron 错误**：上次运行 16h 前，error 状态，未修复
+- **每日经济要闻 cron 错误**：持续 error 状态，未排查
+- **ist-mac-s 代理异常**：curl/gh 从 ist-mac-s 出站走 Clash 7897 端口被拒，影响 GitHub CLI 操作
+- **前两次 Retro action items 执行率低**：长任务心跳、同步消息模板、Post-merge SOP 连续 2 Sprint 未落地
+- **PR #231 feature branch CI 仍 fail**：issue-131/gemini branch 未清理或修复
+
+## 💬 Coder Feedback
+- **CoderCodex**：好 — Lily 及时识别并公开同步了 Codex 失联风险；需改进 — 加"等待依赖超 30 分钟自动升级并切换 owner"机制，避免任务再卡 10h+
+- **CoderGemini**：无回复
+- **CoderClaude**：已移除（2026-02-27），不再可用
+
+## 🔧 Action Items (下次 Planning 必须参考)
+- [ ] **Codex 超时升级 SOP（30min 规则）**：coder 无响应 30min → Lily 自动重新分配，不等 10h（基于 Codex 建议）
+- [ ] **Sprint Review → Planning 零延迟**：Sprint Review 触发后立即运行 Planning cron，不允许 milestone gap
+- [ ] **scrum-health cron 修复**：检查错误原因，恢复正常运行
+- [ ] **每日经济要闻 cron 修复**：检查 error，修复或禁用
+- [ ] **ist-mac-s 代理修复**：为 GitHub CLI 配置显式 proxy（`HTTPS_PROXY=http://127.0.0.1:7897`）或排查 TUN 出站路由
+- [ ] **长任务心跳（第 3 次提出 — 强制执行或移除）**：本次 Sprint 必须上线或永久关闭此 item
+- [ ] **Post-merge SOP（Checklist 条目）**：追加到 pr-submission.md — 合并后必须跑 `make regression` + `make lint` 并 comment 结果
+- [ ] **stale branch 清理**：关闭 issue-131/gemini CI fail 的 stale branch，避免持续报警
+- [ ] **Jerry escalation 阈值**：Lily 必须在 agent 下线 30min（不是 10h+）时主动告警
+
+## 📈 Velocity
+- Sprint 5：6/6 (100%) 🎉 — #148 #221 #222 #223 #227 #228
+- Sprint 2026-02-27（M#12）：0/0（空 milestone，Planning 未执行）
+- 趋势：连续 3 Sprint velocity 100%，但 Sprint Planning 质量下降（空 milestone、无 item 分配）
+
+---
+
 # Sprint Retrospective 2026-02-25
 
 ## ✅ Went Well
