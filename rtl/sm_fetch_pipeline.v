@@ -1,7 +1,8 @@
 //============================================================================
-// RalphGPU - SM Fetch Pipeline (Extracted from streaming_multiprocessor_v2)
+// RalphGPU - SM Fetch Pipeline (Dual-Port for True Dual-Issue)
 //
-// RALPH-6 Phase 2: Fetch arbitration, instruction buffer, and icache interface.
+// #148: Port A serves even warps (scheduler 0), Port B serves odd warps (scheduler 1).
+// Each port has independent round-robin arbitration and fetch tracking.
 // PC management remains in the parent SM module.
 //============================================================================
 
@@ -23,13 +24,13 @@ module sm_fetch_pipeline #(
     input  wire [NUM_WARPS-1:0]     warp_inst_consume,
     input  wire [NUM_WARPS-1:0]     decode_stalled_per_warp,
 
-    // Branch flush: SM sets bit when warp takes a branch (clear buffer + pending)
+    // Branch flush
     input  wire [NUM_WARPS-1:0]     branch_flush_mask,
 
     // Per-warp fetch PC (from SM, read-only here)
     input  wire [32*NUM_WARPS-1:0]  warp_fetch_pc_flat,
 
-    // Instruction memory interface
+    // Instruction memory interface — Port A (even warps)
     output wire                     imem_req,
     output wire [31:0]              imem_addr,
     input  wire                     imem_ready,
@@ -40,7 +41,6 @@ module sm_fetch_pipeline #(
     output reg  [NUM_WARPS-1:0]     warp_inst_buf_valid,
     output reg  [NUM_WARPS-1:0]     warp_inst_valid_d1,
     output wire [NUM_WARPS-1:0]     warp_inst_consume_gated,
-    // RALPH-10c: Combinational bypass outputs — same-cycle fill visibility
     output wire [NUM_WARPS-1:0]     warp_inst_valid_fast,
     output wire [32*NUM_WARPS-1:0]  warp_inst_buf_fast_flat,
     output wire [32*NUM_WARPS-1:0]  warp_inst_buf_flat,
@@ -49,8 +49,8 @@ module sm_fetch_pipeline #(
     output wire [WARP_ID_W-1:0]     fetch_warp_id_out,
 
     // PC advance requests (SM applies these)
-    output reg  [NUM_WARPS-1:0]     fetch_pc_advance,      // advance by 4 on committed fill
-    output reg  [NUM_WARPS-1:0]     nib_pc_advance,        // advance by 4 on NIB hit
+    output reg  [NUM_WARPS-1:0]     fetch_pc_advance,
+    output reg  [NUM_WARPS-1:0]     nib_pc_advance,
 
     // Status outputs
     output wire [NUM_WARPS-1:0]     warp_next_inst_hit,
@@ -79,53 +79,6 @@ module sm_fetch_pipeline #(
         end
     endgenerate
 
-    // ---- RALPH-10c: Combinational fill bypass ----
-    // Exposes fill data in the same cycle as ICache hit / NIB hit so the
-    // scheduler can pick the warp without waiting for the register edge.
-    // This eliminates the 1-cycle IFetch bubble on non-NIB cache hits.
-
-    // NIB hit/consume handshake (combinational, shared by state + PC advance)
-    wire [NUM_WARPS-1:0] nib_take;
-
-    // NIB hit condition (combinational, mirrors the registered block)
-    wire [NUM_WARPS-1:0] nib_will_serve;
-    generate
-        for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_nib_serve
-            // Keep nib_take independent from same-cycle consume to avoid
-            // combinational loop: fast_valid -> scheduler -> consume -> nib_take.
-            assign nib_take[upi] = warp_next_inst_hit[upi]
-                                && !warp_inst_buf_valid[upi]
-                                && !warp_fill[upi]
-                                && !warp_fetch_pending[upi]
-                                && !branch_flush_mask[upi];
-            assign nib_will_serve[upi] = nib_take[upi];
-        end
-    endgenerate
-
-    // Fast valid: registered | NIB_this_cycle | fill_into_empty_buffer.
-    // RALPH-10c-v2: Full fill bypass when buffer was empty (registered).
-    // Suppressed by fill_bypass_consumed_r (1-cycle pulse) to prevent re-issue
-    // of an instruction that was already consumed via bypass on the prior cycle.
-    generate
-        for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_fast_valid
-            wire fill_into_empty = warp_fill[upi] & ~warp_inst_buf_valid[upi];
-            assign warp_inst_valid_fast[upi] = warp_inst_buf_valid[upi]
-                                             | nib_will_serve[upi]
-                                             | fill_into_empty;
-        end
-    endgenerate
-
-    // Fast data mux: fill_into_empty > NIB > registered buffer
-    generate
-        for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_fast_data
-            wire fill_into_empty = warp_fill[upi] & ~warp_inst_buf_valid[upi];
-            assign warp_inst_buf_fast_flat[32*upi +: 32] =
-                fill_into_empty      ? fill_data :
-                nib_will_serve[upi]  ? warp_next_inst[upi] :
-                                       warp_inst_buf[upi];
-        end
-    endgenerate
-
     // ---- Gated consume ----
     assign warp_inst_consume_gated = warp_inst_consume & ~decode_stalled_per_warp;
     assign warp_buf_will_be_empty = ~warp_inst_buf_valid | warp_inst_consume_gated;
@@ -146,57 +99,119 @@ module sm_fetch_pipeline #(
     reg [NUM_WARPS-1:0] warp_fetch_pending;
     assign warp_fetch_pending_out = warp_fetch_pending;
 
-
     wire [NUM_WARPS-1:0] warp_needs_fetch = warp_buf_will_be_empty & ~warp_fetch_pending & ~warp_next_inst_hit;
 
-    // ---- Fetch arbitration (round-robin) ----
-    reg [WARP_ID_W-1:0] fetch_arb_ptr;
-    reg [WARP_ID_W-1:0] fetch_warp_id_r;
-    reg                  fetch_valid_arb;
+    // ---- NIB take logic (combinational) ----
+    wire [NUM_WARPS-1:0] nib_take;
+    wire [NUM_WARPS-1:0] nib_will_serve;
+    generate
+        for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_nib_serve
+            assign nib_take[upi] = warp_next_inst_hit[upi]
+                                && !warp_inst_buf_valid[upi]
+                                && !warp_fill[upi]
+                                && !warp_fetch_pending[upi]
+                                && !branch_flush_mask[upi];
+            assign nib_will_serve[upi] = nib_take[upi];
+        end
+    endgenerate
 
-    integer f_i;
+    // ---- #148: Even/odd warp masks for dual-port partitioning ----
+    wire [NUM_WARPS-1:0] even_warp_mask;
+    wire [NUM_WARPS-1:0] odd_warp_mask;
+    generate
+        for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_warp_parity
+            assign even_warp_mask[upi] = (upi % 2 == 0);
+            assign odd_warp_mask[upi]  = (upi % 2 == 1);
+        end
+    endgenerate
+
+    // ---- Port A fetch arbitration (even warps only) ----
+    reg [WARP_ID_W-1:0] fetch_arb_ptr_a;
+    reg [WARP_ID_W-1:0] fetch_warp_id_a;
+    reg                  fetch_valid_arb_a;
+
+    wire [NUM_WARPS-1:0] warp_needs_fetch_a = warp_needs_fetch & even_warp_mask;
+
+    integer fa_i;
     always @(*) begin
-        fetch_valid_arb = 0;
-        fetch_warp_id_r = 0;
-        for (f_i = 0; f_i < NUM_WARPS; f_i = f_i + 1) begin
-            if (!fetch_valid_arb) begin
-                begin : fetch_arb_check
+        fetch_valid_arb_a = 0;
+        fetch_warp_id_a = 0;
+        for (fa_i = 0; fa_i < NUM_WARPS; fa_i = fa_i + 1) begin
+            if (!fetch_valid_arb_a) begin
+                begin : fetch_arb_check_a
                     reg [WARP_ID_W-1:0] f_idx;
-                    f_idx = fetch_arb_ptr + f_i[WARP_ID_W-1:0];
+                    f_idx = fetch_arb_ptr_a + fa_i[WARP_ID_W-1:0];
                     if (warp_valid[f_idx] &&
-                        warp_needs_fetch[f_idx] &&
+                        warp_needs_fetch_a[f_idx] &&
                         !warp_exit_pending[f_idx]) begin
-                        fetch_valid_arb = 1;
-                        fetch_warp_id_r = f_idx;
+                        fetch_valid_arb_a = 1;
+                        fetch_warp_id_a = f_idx;
                     end
                 end
             end
         end
     end
 
-    // ---- ICache interface ----
-    wire icache_ready;
-    wire [31:0] icache_data;
-    wire icache_valid;
-    wire [63:0] icache_line_data;  // RALPH-8 P1: full cache line for NIB
+    // ---- Port B fetch arbitration (odd warps only) ----
+    reg [WARP_ID_W-1:0] fetch_arb_ptr_b;
+    reg [WARP_ID_W-1:0] fetch_warp_id_b;
+    reg                  fetch_valid_arb_b;
 
-    // RALPH-8 P2: Hit-bypass during miss
-    wire icache_hit_bypass;
-    wire [31:0] icache_hit_bypass_data;
-    wire [63:0] icache_hit_bypass_line_data;
+    wire [NUM_WARPS-1:0] warp_needs_fetch_b = warp_needs_fetch & odd_warp_mask;
+
+    integer fb_i;
+    always @(*) begin
+        fetch_valid_arb_b = 0;
+        fetch_warp_id_b = 0;
+        for (fb_i = 0; fb_i < NUM_WARPS; fb_i = fb_i + 1) begin
+            if (!fetch_valid_arb_b) begin
+                begin : fetch_arb_check_b
+                    reg [WARP_ID_W-1:0] f_idx;
+                    f_idx = fetch_arb_ptr_b + fb_i[WARP_ID_W-1:0];
+                    if (warp_valid[f_idx] &&
+                        warp_needs_fetch_b[f_idx] &&
+                        !warp_exit_pending[f_idx]) begin
+                        fetch_valid_arb_b = 1;
+                        fetch_warp_id_b = f_idx;
+                    end
+                end
+            end
+        end
+    end
+
+    // ---- ICache interface (dual-port) ----
+    wire icache_ready_a;
+    wire [31:0] icache_data_a;
+    wire icache_valid_a;
+    wire [63:0] icache_line_data_a;
+    wire icache_hit_bypass_a;
+    wire [31:0] icache_hit_bypass_data_a;
+    wire [63:0] icache_hit_bypass_line_data_a;
+
+    wire icache_ready_b;
+    wire [31:0] icache_data_b;
+    wire icache_valid_b;
+    wire [63:0] icache_line_data_b;
+
+    wire fetch_req_a = fetch_valid_arb_a;
+    wire fetch_req_b_int = fetch_valid_arb_b;
 
     generate
     if (ICACHE_BYPASS) begin : gen_icache_bypass
-        assign imem_req  = fetch_req;
-        assign imem_addr = warp_fetch_pc[fetch_warp_id_r];
-        assign icache_ready = imem_ready;
-        assign icache_valid = imem_valid;
-        assign icache_data  = imem_data[31:0];
-        assign icache_line_data = imem_data[63:0];
-        // No bypass needed in bypass mode (always ready)
-        assign icache_hit_bypass = 1'b0;
-        assign icache_hit_bypass_data = 32'b0;
-        assign icache_hit_bypass_line_data = 64'b0;
+        assign imem_req  = fetch_req_a;
+        assign imem_addr = warp_fetch_pc[fetch_warp_id_a];
+        assign icache_ready_a = imem_ready;
+        assign icache_valid_a = imem_valid;
+        assign icache_data_a  = imem_data[31:0];
+        assign icache_line_data_a = imem_data[63:0];
+        assign icache_hit_bypass_a = 1'b0;
+        assign icache_hit_bypass_data_a = 32'b0;
+        assign icache_hit_bypass_line_data_a = 64'b0;
+        // Bypass mode: Port B gets same-cycle valid if different address
+        assign icache_ready_b = imem_ready;
+        assign icache_valid_b = 1'b0; // No Port B in bypass mode
+        assign icache_data_b = 32'b0;
+        assign icache_line_data_b = 64'b0;
     end else begin : gen_icache_normal
         icache #(
             .SIZE_KB(4),
@@ -205,15 +220,24 @@ module sm_fetch_pipeline #(
         ) u_icache (
             .clk(clk),
             .rst_n(rst_n),
-            .fetch_req(fetch_req),
-            .fetch_addr(warp_fetch_pc[fetch_warp_id_r]),
-            .fetch_ready(icache_ready),
-            .fetch_data(icache_data),
-            .fetch_line_data(icache_line_data),
-            .fetch_valid(icache_valid),
-            .fetch_hit_bypass(icache_hit_bypass),
-            .fetch_hit_bypass_data(icache_hit_bypass_data),
-            .fetch_hit_bypass_line_data(icache_hit_bypass_line_data),
+            // Port A
+            .fetch_req(fetch_req_a),
+            .fetch_addr(warp_fetch_pc[fetch_warp_id_a]),
+            .fetch_ready(icache_ready_a),
+            .fetch_data(icache_data_a),
+            .fetch_line_data(icache_line_data_a),
+            .fetch_valid(icache_valid_a),
+            .fetch_hit_bypass(icache_hit_bypass_a),
+            .fetch_hit_bypass_data(icache_hit_bypass_data_a),
+            .fetch_hit_bypass_line_data(icache_hit_bypass_line_data_a),
+            // Port B (#148)
+            .fetch_req_b(fetch_req_b_int),
+            .fetch_addr_b(warp_fetch_pc[fetch_warp_id_b]),
+            .fetch_ready_b(icache_ready_b),
+            .fetch_data_b(icache_data_b),
+            .fetch_line_data_b(icache_line_data_b),
+            .fetch_valid_b(icache_valid_b),
+            // Shared
             .invalidate_req(1'b0),
             .invalidate_addr(32'b0),
             .invalidate_all(1'b0),
@@ -230,104 +254,175 @@ module sm_fetch_pipeline #(
     end
     endgenerate
 
-    // ---- Fetch request / fire ----
-    assign fetch_req = fetch_valid_arb;
-    assign fetch_fire = fetch_req && icache_ready;
-    // RALPH-8 P2: Bypass fire — serves a cache hit while miss is in flight
-    wire bypass_fire = fetch_req && icache_hit_bypass;
-    assign fetch_warp_id_out = fetch_warp_id_r;
+    // ---- Port A fetch fire ----
+    assign fetch_req = fetch_req_a;
+    wire fetch_fire_a = fetch_req_a && icache_ready_a;
+    wire bypass_fire_a = fetch_req_a && icache_hit_bypass_a;
+    assign fetch_fire = fetch_fire_a;
+    assign fetch_warp_id_out = fetch_warp_id_a;
 
-    // ---- Fetch pipeline tracking ----
-    reg [WARP_ID_W-1:0] fetch_pipe_warp [0:FETCH_PIPE_DEPTH-1];
-    reg [31:0] fetch_pipe_pc [0:FETCH_PIPE_DEPTH-1];  // RALPH-8 P1: track PC at fetch time
-    reg [FETCH_PIPE_DEPTH-1:0] fetch_pipe_valid;
+    // ---- Port B fetch fire ----
+    wire fetch_fire_b = fetch_req_b_int && icache_ready_b;
 
-    wire same_cycle_hit = fetch_fire && icache_valid && (fetch_pipe_valid == 0);
+    // ---- Port A fetch pipeline tracking ----
+    reg [WARP_ID_W-1:0] fetch_pipe_warp_a [0:FETCH_PIPE_DEPTH-1];
+    reg [31:0] fetch_pipe_pc_a [0:FETCH_PIPE_DEPTH-1];
+    reg [FETCH_PIPE_DEPTH-1:0] fetch_pipe_valid_a;
 
-    // Round-robin pointer
+    wire same_cycle_hit_a = fetch_fire_a && icache_valid_a && (fetch_pipe_valid_a == 0);
+
+    // Port A round-robin pointer
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
-            fetch_arb_ptr <= 0;
-        else if (fetch_fire || bypass_fire)
-            fetch_arb_ptr <= fetch_warp_id_r + 1'b1;
+            fetch_arb_ptr_a <= 0;
+        else if (fetch_fire_a || bypass_fire_a)
+            fetch_arb_ptr_a <= fetch_warp_id_a + 2'd2; // Skip to next even warp
     end
 
-    // Fetch pipeline shift register
+    // Port B round-robin pointer
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            fetch_arb_ptr_b <= 1; // Start at warp 1 (first odd)
+        else if (fetch_fire_b)
+            fetch_arb_ptr_b <= fetch_warp_id_b + 2'd2; // Skip to next odd warp
+    end
+
+    // ---- Port A fetch pipeline shift register ----
+    wire early_response_valid_a = icache_valid_a && fetch_pipe_valid_a[0] && !fetch_pipe_valid_a[FETCH_PIPE_DEPTH-1];
+    wire delayed_response_valid_a = icache_valid_a && fetch_pipe_valid_a[FETCH_PIPE_DEPTH-1];
+
     integer fp_i;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n || kernel_start) begin
             warp_fetch_pending <= 0;
-            fetch_pipe_valid <= 0;
+            fetch_pipe_valid_a <= 0;
             for (fp_i = 0; fp_i < FETCH_PIPE_DEPTH; fp_i = fp_i + 1) begin
-                fetch_pipe_warp[fp_i] <= 0;
-                fetch_pipe_pc[fp_i] <= 0;
+                fetch_pipe_warp_a[fp_i] <= 0;
+                fetch_pipe_pc_a[fp_i] <= 0;
             end
         end else begin
             // Branch flush clears pending
             warp_fetch_pending <= warp_fetch_pending & ~branch_flush_mask;
 
-            if (icache_ready) begin
-                // RALPH-8 P3: When early_response consumes position [0] on the
-                // same cycle as a shift, don't propagate the consumed entry to [1].
-                if (early_response_valid) begin
-                    fetch_pipe_valid[FETCH_PIPE_DEPTH-1:1] <= {(FETCH_PIPE_DEPTH-1){1'b0}};
+            // Port A pipeline
+            if (icache_ready_a) begin
+                if (early_response_valid_a) begin
+                    fetch_pipe_valid_a[FETCH_PIPE_DEPTH-1:1] <= {(FETCH_PIPE_DEPTH-1){1'b0}};
                     for (fp_i = FETCH_PIPE_DEPTH-1; fp_i > 0; fp_i = fp_i - 1) begin
-                        fetch_pipe_warp[fp_i] <= 0;
-                        fetch_pipe_pc[fp_i] <= 0;
+                        fetch_pipe_warp_a[fp_i] <= 0;
+                        fetch_pipe_pc_a[fp_i] <= 0;
                     end
                 end else begin
-                    fetch_pipe_valid[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_valid[FETCH_PIPE_DEPTH-2:0];
+                    fetch_pipe_valid_a[FETCH_PIPE_DEPTH-1:1] <= fetch_pipe_valid_a[FETCH_PIPE_DEPTH-2:0];
                     for (fp_i = FETCH_PIPE_DEPTH-1; fp_i > 0; fp_i = fp_i - 1) begin
-                        fetch_pipe_warp[fp_i] <= fetch_pipe_warp[fp_i-1];
-                        fetch_pipe_pc[fp_i] <= fetch_pipe_pc[fp_i-1];
+                        fetch_pipe_warp_a[fp_i] <= fetch_pipe_warp_a[fp_i-1];
+                        fetch_pipe_pc_a[fp_i] <= fetch_pipe_pc_a[fp_i-1];
                     end
                 end
             end
 
-            if (fetch_fire && !same_cycle_hit) begin
-                fetch_pipe_valid[0] <= 1'b1;
-                fetch_pipe_warp[0] <= fetch_warp_id_r;
-                fetch_pipe_pc[0] <= warp_fetch_pc[fetch_warp_id_r];
-                warp_fetch_pending[fetch_warp_id_r] <= 1'b1;
-            end else if (icache_ready) begin
-                fetch_pipe_valid[0] <= 1'b0;
-                fetch_pipe_warp[0] <= 0;
-                fetch_pipe_pc[0] <= 0;
+            if (fetch_fire_a && !same_cycle_hit_a) begin
+                fetch_pipe_valid_a[0] <= 1'b1;
+                fetch_pipe_warp_a[0] <= fetch_warp_id_a;
+                fetch_pipe_pc_a[0] <= warp_fetch_pc[fetch_warp_id_a];
+                warp_fetch_pending[fetch_warp_id_a] <= 1'b1;
+            end else if (icache_ready_a) begin
+                fetch_pipe_valid_a[0] <= 1'b0;
+                fetch_pipe_warp_a[0] <= 0;
+                fetch_pipe_pc_a[0] <= 0;
             end
 
-            // Clear pending on response
-            if (icache_valid && fetch_pipe_valid[0] && !fetch_pipe_valid[FETCH_PIPE_DEPTH-1])
-                warp_fetch_pending[fetch_pipe_warp[0]] <= 1'b0;
-            else if (icache_valid && fetch_pipe_valid[FETCH_PIPE_DEPTH-1])
-                warp_fetch_pending[fetch_pipe_warp[FETCH_PIPE_DEPTH-1]] <= 1'b0;
+            // Clear pending on Port A response
+            if (icache_valid_a && fetch_pipe_valid_a[0] && !fetch_pipe_valid_a[FETCH_PIPE_DEPTH-1])
+                warp_fetch_pending[fetch_pipe_warp_a[0]] <= 1'b0;
+            else if (icache_valid_a && fetch_pipe_valid_a[FETCH_PIPE_DEPTH-1])
+                warp_fetch_pending[fetch_pipe_warp_a[FETCH_PIPE_DEPTH-1]] <= 1'b0;
+
+            // Port B: same-cycle hit sets and clears pending in same cycle
+            if (fetch_fire_b && icache_valid_b) begin
+                // Same-cycle hit on Port B — no pending needed
+            end else if (fetch_fire_b) begin
+                warp_fetch_pending[fetch_warp_id_b] <= 1'b1;
+            end
+
+            // Port B response clears pending (for misses served later)
+            if (icache_valid_b && !fetch_fire_b) begin
+                // Port B miss response — pending was already set
+                // The icache returns valid_b when a queued Port B miss completes
+                warp_fetch_pending[fetch_warp_id_b] <= 1'b0;
+            end
         end
     end
 
-    // ---- Fill logic ----
-    wire delayed_response_valid = icache_valid && fetch_pipe_valid[FETCH_PIPE_DEPTH-1];
-    wire early_response_valid   = icache_valid && fetch_pipe_valid[0] && !fetch_pipe_valid[FETCH_PIPE_DEPTH-1];
-    wire [WARP_ID_W-1:0] fill_warp_id = bypass_fire ? fetch_warp_id_r :
-                                         same_cycle_hit ? fetch_warp_id_r :
-                                         early_response_valid ? fetch_pipe_warp[0] :
-                                         fetch_pipe_warp[FETCH_PIPE_DEPTH-1];
-    // RALPH-8 P1: PC at fetch time (for NIB address calculation)
-    wire [31:0] fill_fetch_pc = (bypass_fire || same_cycle_hit) ? warp_fetch_pc[fetch_warp_id_r] :
-                                early_response_valid ? fetch_pipe_pc[0] :
-                                fetch_pipe_pc[FETCH_PIPE_DEPTH-1];
-    wire fill_valid = bypass_fire || same_cycle_hit || delayed_response_valid || early_response_valid;
+    // ---- Port A fill logic ----
+    wire [WARP_ID_W-1:0] fill_warp_id_a = bypass_fire_a ? fetch_warp_id_a :
+                                           same_cycle_hit_a ? fetch_warp_id_a :
+                                           early_response_valid_a ? fetch_pipe_warp_a[0] :
+                                           fetch_pipe_warp_a[FETCH_PIPE_DEPTH-1];
+    wire [31:0] fill_fetch_pc_a = (bypass_fire_a || same_cycle_hit_a) ? warp_fetch_pc[fetch_warp_id_a] :
+                                  early_response_valid_a ? fetch_pipe_pc_a[0] :
+                                  fetch_pipe_pc_a[FETCH_PIPE_DEPTH-1];
+    wire fill_valid_a = bypass_fire_a || same_cycle_hit_a || delayed_response_valid_a || early_response_valid_a;
+    wire [31:0] fill_data_a = bypass_fire_a ? icache_hit_bypass_data_a : icache_data_a;
+    wire [63:0] fill_line_data_a = bypass_fire_a ? icache_hit_bypass_line_data_a : icache_line_data_a;
 
-    // RALPH-8 P2: Select data source — bypass uses separate data path
-    wire [31:0] fill_data = bypass_fire ? icache_hit_bypass_data : icache_data;
-    wire [63:0] fill_line_data = bypass_fire ? icache_hit_bypass_line_data : icache_line_data;
+    // ---- Port B fill logic (#148) ----
+    wire same_cycle_hit_b = fetch_fire_b && icache_valid_b;
+    wire fill_valid_b = same_cycle_hit_b || (icache_valid_b && !fetch_fire_b);
+    wire [WARP_ID_W-1:0] fill_warp_id_b = fetch_warp_id_b; // Port B always fills the warp it requested
+    wire [31:0] fill_fetch_pc_b = warp_fetch_pc[fetch_warp_id_b];
+    wire [31:0] fill_data_b = icache_data_b;
+    wire [63:0] fill_line_data_b = icache_line_data_b;
+
+    // ---- Combined fill (Port A + Port B) ----
+    // fill_data used by fast mux needs to be valid for whichever port is filling
+    wire [31:0] fill_data;
+    wire [63:0] fill_line_data;
+    wire fill_valid;
+    wire [WARP_ID_W-1:0] fill_warp_id;
+    wire [31:0] fill_fetch_pc;
+
+    // Port A has priority; both can fill different warps in same cycle
+    assign fill_valid = fill_valid_a || fill_valid_b;
+    assign fill_warp_id = fill_valid_a ? fill_warp_id_a : fill_warp_id_b;
+    assign fill_data = fill_valid_a ? fill_data_a : fill_data_b;
+    assign fill_line_data = fill_valid_a ? fill_line_data_a : fill_line_data_b;
+    assign fill_fetch_pc = fill_valid_a ? fill_fetch_pc_a : fill_fetch_pc_b;
 
     genvar fill_w;
     generate
         for (fill_w = 0; fill_w < NUM_WARPS; fill_w = fill_w + 1) begin : gen_warp_fill
-            assign warp_fill[fill_w] = fill_valid && (fill_warp_id == fill_w);
+            // A warp can be filled by Port A or Port B (they target different warps)
+            assign warp_fill[fill_w] = (fill_valid_a && (fill_warp_id_a == fill_w)) ||
+                                       (fill_valid_b && (fill_warp_id_b == fill_w));
         end
     endgenerate
 
-    // ---- Instruction buffer + valid management ----
+    // ---- Fast valid/data (combinational bypass for scheduler) ----
+    generate
+        for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_fast_valid
+            wire fill_into_empty = warp_fill[upi] & ~warp_inst_buf_valid[upi];
+            assign warp_inst_valid_fast[upi] = warp_inst_buf_valid[upi]
+                                             | nib_will_serve[upi]
+                                             | fill_into_empty;
+        end
+    endgenerate
+
+    generate
+        for (upi = 0; upi < NUM_WARPS; upi = upi + 1) begin : gen_fast_data
+            wire fill_into_empty = warp_fill[upi] & ~warp_inst_buf_valid[upi];
+            // Select fill data from correct port
+            wire [31:0] this_fill_data = (fill_valid_a && fill_warp_id_a == upi) ? fill_data_a :
+                                         (fill_valid_b && fill_warp_id_b == upi) ? fill_data_b :
+                                         32'b0;
+            assign warp_inst_buf_fast_flat[32*upi +: 32] =
+                fill_into_empty      ? this_fill_data :
+                nib_will_serve[upi]  ? warp_next_inst[upi] :
+                                       warp_inst_buf[upi];
+        end
+    endgenerate
+
+    // ---- Instruction buffer management ----
     integer w_buf;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -342,15 +437,8 @@ module sm_fetch_pipeline #(
             // Branch flush clears buffer valid
             warp_inst_buf_valid <= warp_inst_buf_valid & ~branch_flush_mask;
 
-            // Valid bit management (fill/consume, after flush)
-            // RALPH-10c-v2: When fill goes into an empty buffer AND the
-            // scheduler consumed it via bypass, set valid=0 (already served).
-            // When fill arrives but buffer was valid (old instruction present),
-            // DON'T bypass fill data (fast mux shows buffer data) — set valid=1
-            // normally so the fill instruction gets served next cycle.
             for (w_buf = 0; w_buf < NUM_WARPS; w_buf = w_buf + 1) begin
                 if (warp_fill[w_buf] && !warp_inst_buf_valid[w_buf] && warp_inst_consume_gated[w_buf])
-                    // Bypass-consumed: fill was served combinationally, don't buffer it
                     warp_inst_buf_valid[w_buf] <= 1'b0;
                 else if (warp_fill[w_buf])
                     warp_inst_buf_valid[w_buf] <= 1'b1;
@@ -358,21 +446,28 @@ module sm_fetch_pipeline #(
                     warp_inst_buf_valid[w_buf] <= 1'b0;
             end
 
-            // Fill instruction data (RALPH-8 P2: uses fill_data for bypass support)
-            if (bypass_fire || same_cycle_hit)
-                warp_inst_buf[fetch_warp_id_r] <= fill_data;
-            else if (early_response_valid)
-                warp_inst_buf[fetch_pipe_warp[0]] <= fill_data;
-            else if (delayed_response_valid)
-                warp_inst_buf[fetch_pipe_warp[FETCH_PIPE_DEPTH-1]] <= fill_data;
+            // Port A fill data
+            if (bypass_fire_a || same_cycle_hit_a)
+                warp_inst_buf[fetch_warp_id_a] <= fill_data_a;
+            else if (early_response_valid_a)
+                warp_inst_buf[fetch_pipe_warp_a[0]] <= fill_data_a;
+            else if (delayed_response_valid_a)
+                warp_inst_buf[fetch_pipe_warp_a[FETCH_PIPE_DEPTH-1]] <= fill_data_a;
 
-            // RALPH-8 P0+P1+P2: Buffer upper word from 64-bit cache line
-            // Only populate NIB when fetched address is first word of line (bit[2]==0),
-            // meaning the second word (PC+4) is in the same line.
-            if (fill_valid && !fill_fetch_pc[2]) begin
-                warp_next_inst[fill_warp_id] <= fill_line_data[63:32];
-                warp_next_inst_pc[fill_warp_id] <= fill_fetch_pc + 32'd4;
-                warp_next_inst_valid[fill_warp_id] <= 1'b1;
+            // Port B fill data (#148)
+            if (fill_valid_b)
+                warp_inst_buf[fill_warp_id_b] <= fill_data_b;
+
+            // NIB: populate from both ports
+            if (fill_valid_a && !fill_fetch_pc_a[2]) begin
+                warp_next_inst[fill_warp_id_a] <= fill_line_data_a[63:32];
+                warp_next_inst_pc[fill_warp_id_a] <= fill_fetch_pc_a + 32'd4;
+                warp_next_inst_valid[fill_warp_id_a] <= 1'b1;
+            end
+            if (fill_valid_b && !fill_fetch_pc_b[2]) begin
+                warp_next_inst[fill_warp_id_b] <= fill_line_data_b[63:32];
+                warp_next_inst_pc[fill_warp_id_b] <= fill_fetch_pc_b + 32'd4;
+                warp_next_inst_valid[fill_warp_id_b] <= 1'b1;
             end
 
             // NIB hit: serve from buffer
@@ -384,7 +479,6 @@ module sm_fetch_pipeline #(
                 end
             end
 
-            // Branch flush invalidates NIB too
             warp_next_inst_valid <= warp_next_inst_valid & ~branch_flush_mask;
         end
     end
@@ -397,15 +491,20 @@ module sm_fetch_pipeline #(
             warp_inst_valid_d1 <= warp_inst_buf_valid;
     end
 
-    // ---- PC advance requests (combinational outputs to SM) ----
+    // ---- PC advance (both ports) ----
+    integer adv_i;
     always @(*) begin
-        // Advance PC only when an instruction is actually committed to warp buffer.
-        fetch_pc_advance = warp_fill;
+        fetch_pc_advance = {NUM_WARPS{1'b0}};
         nib_pc_advance   = {NUM_WARPS{1'b0}};
 
-        for (f_i = 0; f_i < NUM_WARPS; f_i = f_i + 1) begin
-            if (nib_take[f_i])
-                nib_pc_advance[f_i] = 1'b1;
+        // Port A fills
+        for (adv_i = 0; adv_i < NUM_WARPS; adv_i = adv_i + 1) begin
+            if (fill_valid_a && fill_warp_id_a == adv_i[WARP_ID_W-1:0])
+                fetch_pc_advance[adv_i] = 1'b1;
+            if (fill_valid_b && fill_warp_id_b == adv_i[WARP_ID_W-1:0])
+                fetch_pc_advance[adv_i] = 1'b1;
+            if (nib_take[adv_i])
+                nib_pc_advance[adv_i] = 1'b1;
         end
     end
 endmodule
