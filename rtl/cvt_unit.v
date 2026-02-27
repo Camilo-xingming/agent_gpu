@@ -1,7 +1,7 @@
 //============================================================================
 // RalphGPU - CVT Unit (Type Conversion Unit)
-// 完整的PTX类型转换支持
-// 支持: 所有整数/浮点类型转换，饱和，舍入模式
+// Complete PTX type conversion support.
+// Supports: All integer/float conversions, saturation, and rounding modes.
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -11,18 +11,18 @@ module cvt_unit (
     input  wire        clk,
     input  wire        rst_n,
 
-    // 控制
-    input  wire [5:0]  func,            // 转换类型
-    input  wire [1:0]  rnd_mode,        // 舍入模式
-    input  wire        saturate,        // 饱和模式
+    // Control
+    input  wire [5:0]  func,            // Conversion type
+    input  wire [1:0]  rnd_mode,        // Rounding mode
+    input  wire        saturate,        // Saturation mode
     input  wire        ftz,             // Flush to zero
     input  wire        valid_in,
 
-    // 源数据 (最大64位)
+    // Source data (max 64-bit)
     input  wire [63:0] src,
-    input  wire [2:0]  src_type,        // 源类型
+    input  wire [2:0]  src_type,        // Source type
 
-    // 目标数据
+    // Destination data
     output reg  [63:0] dst,
     output reg         valid_out,
     output reg         overflow,
@@ -30,7 +30,7 @@ module cvt_unit (
 );
 
     //------------------------------------------------------------------------
-    // 类型编码
+    // Type encoding
     //------------------------------------------------------------------------
     localparam TYPE_S8   = 3'd0;
     localparam TYPE_U8   = 3'd1;
@@ -42,7 +42,7 @@ module cvt_unit (
     localparam TYPE_U64  = 3'd7;
 
     //------------------------------------------------------------------------
-    // FP32 <-> 整数转换
+    // FP32 <-> Integer conversion
     //------------------------------------------------------------------------
     wire [31:0] fp32_src = src[31:0];
     wire fp32_sign = fp32_src[31];
@@ -50,7 +50,7 @@ module cvt_unit (
     wire [22:0] fp32_man = fp32_src[22:0];
     wire [23:0] fp32_sig = {1'b1, fp32_man};
 
-    // FP32 -> S32 (带舍入)
+    // FP32 -> S32 ()
     wire signed [31:0] fp32_to_s32;
     wire fp32_to_s32_ovf;
 
@@ -91,7 +91,7 @@ module cvt_unit (
     );
 
     //------------------------------------------------------------------------
-    // FP64 <-> 整数转换
+    // FP64 <-> 
     //------------------------------------------------------------------------
     wire [63:0] fp64_src = src;
     wire fp64_sign = fp64_src[63];
@@ -139,7 +139,7 @@ module cvt_unit (
     );
 
     //------------------------------------------------------------------------
-    // FP32 <-> FP64 转换
+    // FP32 <-> FP64 
     //------------------------------------------------------------------------
     wire [31:0] fp64_to_fp32;
     wire fp64_to_fp32_inx;
@@ -159,7 +159,7 @@ module cvt_unit (
     );
 
     //------------------------------------------------------------------------
-    // FP16 <-> FP32 转换
+    // FP16 <-> FP32 
     //------------------------------------------------------------------------
     wire [15:0] fp16_src = src[15:0];
     wire [31:0] fp16_to_fp32;
@@ -180,7 +180,7 @@ module cvt_unit (
     );
 
     //------------------------------------------------------------------------
-    // 整数类型转换 (符号扩展/截断/饱和)
+    //  (//)
     //------------------------------------------------------------------------
     wire [63:0] int_cvt_result;
     wire int_cvt_ovf;
@@ -195,7 +195,7 @@ module cvt_unit (
     );
 
     //------------------------------------------------------------------------
-    // 结果选择
+    // 
     //------------------------------------------------------------------------
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -237,7 +237,7 @@ module cvt_unit (
                 end
 
                 `CVT_F32_F16: begin
-                    dst <= {48'b0, fp16_to_fp32};
+                    dst <= {32'b0, fp16_to_fp32};
                 end
 
                 `CVT_F16_F32: begin
@@ -264,7 +264,7 @@ module cvt_unit (
                 end
 
                 default: begin
-                    // 整数类型转换
+                    // 
                     dst <= int_cvt_result;
                     overflow <= int_cvt_ovf;
                 end
@@ -278,7 +278,7 @@ endmodule
 
 
 //============================================================================
-// FP32 -> 整数转换
+// FP32 -> 
 //============================================================================
 module fp32_to_int #(
     parameter SIGNED = 1,
@@ -302,18 +302,18 @@ module fp32_to_int #(
     wire is_inf = (exp == 8'hFF) && (man == 0);
     wire is_nan = (exp == 8'hFF) && (man != 0);
 
-    // 计算实际指数
+    // 
     wire signed [8:0] real_exp = {1'b0, exp} - EXP_BIAS;
 
-    // 移位量
+    // 
     wire [5:0] shift_right = (real_exp < 23) ? (6'd23 - real_exp[5:0]) : 6'd0;
     wire [5:0] shift_left = (real_exp > 23) ? (real_exp[5:0] - 6'd23) : 6'd0;
 
-    // 基础结果
+    // 
     wire [63:0] shifted_sig = (real_exp < 23) ? ({40'b0, sig} >> shift_right) :
                                                 ({40'b0, sig} << shift_left);
 
-    // 舍入
+    // 
     wire [63:0] rounded;
     wire round_bit;
 
@@ -326,11 +326,11 @@ module fp32_to_int #(
                      (rnd_mode == 2'b11 && !sign) ? shifted_sig + 1 : // Round toward +inf
                      shifted_sig;
 
-    // 最终结果
+    // 
     wire [WIDTH-1:0] unsigned_result = rounded[WIDTH-1:0];
     wire signed [WIDTH-1:0] signed_result = sign ? -unsigned_result : unsigned_result;
 
-    // 溢出检测
+    // 
     wire positive_overflow = !sign && (real_exp >= WIDTH);
     wire negative_overflow = SIGNED && sign && (real_exp >= WIDTH-1);
 
@@ -372,7 +372,7 @@ endmodule
 
 
 //============================================================================
-// 整数 -> FP32 转换
+//  -> FP32 
 //============================================================================
 module int_to_fp32 #(
     parameter SIGNED = 1
@@ -385,7 +385,7 @@ module int_to_fp32 #(
     wire sign = SIGNED && int_val[31];
     wire [31:0] abs_val = (SIGNED && int_val[31]) ? -int_val : int_val;
 
-    // 前导零计数
+    // 
     function [4:0] clz32;
         input [31:0] val;
         integer i;
@@ -419,7 +419,7 @@ endmodule
 
 
 //============================================================================
-// FP64 -> 整数转换
+// FP64 -> 
 //============================================================================
 module fp64_to_int #(
     parameter SIGNED = 1
@@ -480,7 +480,7 @@ endmodule
 
 
 //============================================================================
-// 整数64 -> FP64 转换
+// 64 -> FP64 
 //============================================================================
 module int64_to_fp64 #(
     parameter SIGNED = 1
@@ -493,7 +493,7 @@ module int64_to_fp64 #(
     wire sign = SIGNED && int_val[63];
     wire [63:0] abs_val = (SIGNED && int_val[63]) ? -int_val : int_val;
 
-    // 前导零计数
+    // 
     function [5:0] clz64;
         input [63:0] val;
         integer i;
@@ -522,7 +522,7 @@ endmodule
 
 
 //============================================================================
-// FP64 -> FP32 转换
+// FP64 -> FP32 
 //============================================================================
 module fp64_to_fp32_cvt (
     input  wire [63:0] fp64,
@@ -540,15 +540,15 @@ module fp64_to_fp32_cvt (
     wire is_inf = (exp64 == 11'h7FF) && (man64 == 0);
     wire is_nan = (exp64 == 11'h7FF) && (man64 != 0);
 
-    // 指数转换: bias 1023 -> 127
+    // : bias 1023 -> 127
     wire signed [11:0] real_exp = {1'b0, exp64} - 12'd1023;
     wire [7:0] exp32 = real_exp[7:0] + 8'd127;
 
-    // 尾数截断
+    // 
     wire [22:0] man32 = man64[51:29];
     wire round_bit = man64[28];
 
-    // 溢出/下溢
+    // /
     wire overflow = (real_exp > 127);
     wire underflow = (real_exp < -126);
 
@@ -572,7 +572,7 @@ endmodule
 
 
 //============================================================================
-// FP32 -> FP64 转换
+// FP32 -> FP64 
 //============================================================================
 module fp32_to_fp64_cvt (
     input  wire [31:0] fp32,
@@ -587,10 +587,10 @@ module fp32_to_fp64_cvt (
     wire is_inf = (exp32 == 8'hFF) && (man32 == 0);
     wire is_nan = (exp32 == 8'hFF) && (man32 != 0);
 
-    // 指数转换: bias 127 -> 1023
+    // : bias 127 -> 1023
     wire [10:0] exp64 = {3'b0, exp32} + 11'd896;  // 1023 - 127
 
-    // 尾数扩展
+    // 
     wire [51:0] man64 = {man32, 29'b0};
 
     always @(*) begin
@@ -609,7 +609,7 @@ endmodule
 
 
 //============================================================================
-// FP16 -> FP32 转换
+// FP16 -> FP32 
 //============================================================================
 module fp16_to_fp32_cvt (
     input  wire [15:0] fp16,
@@ -624,10 +624,10 @@ module fp16_to_fp32_cvt (
     wire is_inf = (exp16 == 5'h1F) && (man16 == 0);
     wire is_nan = (exp16 == 5'h1F) && (man16 != 0);
 
-    // 指数转换: bias 15 -> 127
+    // : bias 15 -> 127
     wire [7:0] exp32 = {3'b0, exp16} + 8'd112;  // 127 - 15
 
-    // 尾数扩展
+    // 
     wire [22:0] man32 = {man16, 13'b0};
 
     always @(*) begin
@@ -646,7 +646,7 @@ endmodule
 
 
 //============================================================================
-// FP32 -> FP16 转换
+// FP32 -> FP16 
 //============================================================================
 module fp32_to_fp16_cvt (
     input  wire [31:0] fp32,
@@ -663,14 +663,14 @@ module fp32_to_fp16_cvt (
     wire is_inf = (exp32 == 8'hFF) && (man32 == 0);
     wire is_nan = (exp32 == 8'hFF) && (man32 != 0);
 
-    // 指数转换
+    // 
     wire signed [8:0] real_exp = {1'b0, exp32} - 9'd127;
     wire [4:0] exp16 = real_exp[4:0] + 5'd15;
 
-    // 尾数截断
+    // 
     wire [9:0] man16 = man32[22:13];
 
-    // 溢出/下溢
+    // /
     wire overflow = (real_exp > 15);
     wire underflow = (real_exp < -14);
 
@@ -694,7 +694,7 @@ endmodule
 
 
 //============================================================================
-// 整数类型转换
+// 
 //============================================================================
 module integer_cvt (
     input  wire [63:0] src,
@@ -714,7 +714,7 @@ module integer_cvt (
     localparam TYPE_S64 = 3'd6;
     localparam TYPE_U64 = 3'd7;
 
-    // 符号扩展源值到64位
+    // 64
     reg signed [63:0] src_signed;
     reg [63:0] src_unsigned;
 
@@ -733,7 +733,7 @@ module integer_cvt (
         src_unsigned = src_signed;
     end
 
-    // 目标范围检查和饱和
+    // 
     always @(*) begin
         overflow = 1'b0;
 
