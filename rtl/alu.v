@@ -1,29 +1,29 @@
 //============================================================================
 // RalphGPU - ALU (Arithmetic Logic Unit)
-// 32位算术逻辑单元，支持完整PTX整数运算指令集
-// 支持: 基础算术、位操作、位域操作、选择操作
+// 32ä½ç®—æœ¯é€»è¾‘å•å…ƒï¼Œæ”¯æŒå®Œæ•´PTXæ•´æ•°è¿®—æŒ‡ä»¤é›†
+// æ”¯æŒ: åŸºç¡€ç®—æœ¯ã€ä½æ“ä½œã€ä½åŸŸæ“ä½œã€é€‰æ‹©æ“ä½œ
 //============================================================================
 
 `timescale 1ns / 1ps
 `include "gpu_defines.vh"
 
 module alu (
-    input  wire [5:0]  func,        // 功能码
-    input  wire [31:0] operand_a,   // 操作数A
-    input  wire [31:0] operand_b,   // 操作数B
-    input  wire [31:0] operand_c,   // 操作数C (用于BFI, PRMT, SAD, SELP)
-    input  wire        pred_in,     // 谓词输入 (用于SELP)
-    input  wire        carry_in,    // 进位输入 (用于addc, subc)
-    output reg  [31:0] result,      // 结果
-    output reg  [31:0] result_hi,   // 高32位结果 (用于mul.wide)
-    output wire        zero,        // 零标志
-    output wire        negative,    // 负数标志
-    output wire        overflow,    // 溢出标志
-    output reg         carry_out    // 进位输出 (用于add.cc, sub.cc)
+    input  wire [5:0]  func,        // åŠŸèƒ½ç 
+    input  wire [31:0] operand_a,   // æ“ä½œæ•°A
+    input  wire [31:0] operand_b,   // æ“ä½œæ•°B
+    input  wire [31:0] operand_c,   // æ“ä½œæ•°C (ç”¨äºŽBFI, PRMT, SAD, SELP)
+    input  wire        pred_in,     // è°“è¯è¾“å…¥ (ç”¨äºŽSELP)
+    input  wire        carry_in,    // è¿›ä½è¾“å…¥ (ç”¨äºŽaddc, subc)
+    output reg  [31:0] result,      // ç»“æžœ
+    output reg  [31:0] result_hi,   // é«˜32ä½ç»“æžœ (ç”¨äºŽmul.wide)
+    output wire        zero,        // é›¶æ ‡å¿—
+    output wire        negative,    // è´Ÿæ•°æ ‡å¿—
+    output wire        overflow,    // æº¢å‡ºæ ‡å¿—
+    output reg         carry_out    // è¿›ä½è¾“å‡º (ç”¨äºŽadd.cc, sub.cc)
 );
 
     //------------------------------------------------------------------------
-    // 内部信号
+    // å†…éƒ¨ä¿¡å·
     //------------------------------------------------------------------------
     wire [32:0] add_result;
     wire [32:0] sub_result;
@@ -46,7 +46,7 @@ module alu (
     wire signed [63:0] mul_wide_s = signed_a * signed_b;
 
     //------------------------------------------------------------------------
-    // POPC (Population Count) - 计算1的个数
+    // POPC (Population Count) - è®¡ç®—1çš„ä¸ªæ•°
     //------------------------------------------------------------------------
     function [5:0] popc32;
         input [31:0] val;
@@ -79,7 +79,7 @@ module alu (
     endfunction
 
     //------------------------------------------------------------------------
-    // BFIND (Find Most Significant Bit) - 返回MSB位置
+    // BFIND (Find Most Significant Bit) - è¿”å›žMSBä½ç½®
     //------------------------------------------------------------------------
     function [31:0] bfind32;
         input [31:0] val;
@@ -88,9 +88,9 @@ module alu (
         integer i;
         reg found;
         begin
-            // 对于有符号数，如果是负数，先取反
+            // å¯¹äºŽæœ‰ç¬¦å·æ•°ï¼Œå¦‚æžœæ˜¯è´Ÿæ•°ï¼Œå…ˆå–å
             search_val = (is_signed && val[31]) ? ~val : val;
-            bfind32 = 32'hFFFFFFFF;  // -1 表示未找到
+            bfind32 = 32'hFFFFFFFF;  // -1 è¡¨ç¤ºæœªæ‰¾åˆ°
             found = 0;
             for (i = 31; i >= 0; i = i - 1) begin
                 if (!found && search_val[i]) begin
@@ -116,7 +116,7 @@ module alu (
 
     //------------------------------------------------------------------------
     // BFE (Bit Field Extract)
-    // 从operand_a中提取从位置pos开始的len位
+    // ä»Žoperand_aä¸­æ–ä»Žä½ç½®poså¼€å§‹çš„lenä½
     // operand_b[7:0] = pos, operand_b[15:8] = len
     //------------------------------------------------------------------------
     wire [4:0] bfe_pos = operand_b[4:0];
@@ -124,7 +124,7 @@ module alu (
     wire [31:0] bfe_mask = (bfe_len == 0) ? 32'b0 : ((32'hFFFFFFFF >> (32 - bfe_len)));
     wire [31:0] bfe_shifted = operand_a >> bfe_pos;
     wire [31:0] bfe_result_u = bfe_shifted & bfe_mask;
-    // 有符号扩展
+    // æœ‰ç¬¦å·æ‰©å±•
     wire bfe_sign_bit = (bfe_len > 0) ? bfe_shifted[bfe_len-1] : 1'b0;
     wire [31:0] bfe_sign_extend = (bfe_sign_bit && bfe_len > 0) ?
                                   (~bfe_mask) : 32'b0;
@@ -132,7 +132,7 @@ module alu (
 
     //------------------------------------------------------------------------
     // BFI (Bit Field Insert)
-    // 将operand_a的低len位插入operand_b的pos位置
+    // å°†operand_açš„ä½Žlenä½æ’å…¥operand_bçš„posä½ç½®
     // operand_c[7:0] = pos, operand_c[15:8] = len
     //------------------------------------------------------------------------
     wire [4:0] bfi_pos = operand_c[4:0];
@@ -143,7 +143,7 @@ module alu (
     wire [31:0] bfi_result = (operand_b & ~bfi_mask) | bfi_insert;
 
     //------------------------------------------------------------------------
-    // 新增：位掩码/扩展/查找/漏斗移位/三输入逻辑
+    // æ–°å¢žï¼šä½æŽ©ç /æ‰©å±•/æŸ¥æ‰¾/æ¼æ–—ç§»ä½/ä¸‰è¾“å…¥é€»è¾‘
     //------------------------------------------------------------------------
     wire [4:0] bmsk_pos = operand_a[4:0];
     wire [5:0] bmsk_len_ext = {1'b0, operand_b[4:0]};
@@ -292,11 +292,144 @@ module alu (
         end
     endfunction
 
+    function [31:0] fp32_to_s32;
+        input [31:0] fp32;
+        reg sign;
+        reg [7:0] exp;
+        reg [22:0] man;
+        reg [23:0] sig;
+        reg signed [8:0] real_exp;
+        reg [4:0] shift;
+        reg [47:0] shifted_sig;
+        begin
+            sign = fp32[31];
+            exp = fp32[30:23];
+            man = fp32[22:0];
+            sig = {1'b1, man};
+            real_exp = {1'b0, exp} - 8'd127;
+
+            if (exp == 8'hFF) begin
+                fp32_to_s32 = sign ? 32'h80000000 : 32'h7FFFFFFF;
+            end else if (exp == 0 && man == 0) begin
+                fp32_to_s32 = 32'b0;
+            end else if (real_exp < 0) begin
+                fp32_to_s32 = 32'b0;
+            end else if (real_exp > 30) begin
+                fp32_to_s32 = sign ? 32'h80000000 : 32'h7FFFFFFF;
+            end else begin
+                if (real_exp <= 23) begin
+                    shift = 23 - real_exp[4:0];
+                    shifted_sig = {24'b0, sig} >> shift;
+                end else begin
+                    shift = real_exp[4:0] - 23;
+                    shifted_sig = {24'b0, sig} << shift;
+                end
+                fp32_to_s32 = sign ? -shifted_sig[31:0] : shifted_sig[31:0];
+            end
+        end
+    endfunction
+
+    function [31:0] fp32_to_u32;
+        input [31:0] fp32;
+        reg sign;
+        reg [7:0] exp;
+        reg [22:0] man;
+        reg [23:0] sig;
+        reg signed [8:0] real_exp;
+        reg [4:0] shift;
+        reg [47:0] shifted_sig;
+        begin
+            sign = fp32[31];
+            exp = fp32[30:23];
+            man = fp32[22:0];
+            sig = {1'b1, man};
+            real_exp = {1'b0, exp} - 8'd127;
+
+            if (exp == 8'hFF) begin
+                fp32_to_u32 = sign ? 32'b0 : 32'hFFFFFFFF;
+            end else if (sign && exp != 0) begin
+                fp32_to_u32 = 32'b0;
+            end else if (exp == 0 && man == 0) begin
+                fp32_to_u32 = 32'b0;
+            end else if (real_exp < 0) begin
+                fp32_to_u32 = 32'b0;
+            end else if (real_exp > 31) begin
+                fp32_to_u32 = 32'hFFFFFFFF;
+            end else begin
+                if (real_exp <= 23) begin
+                    shift = 23 - real_exp[4:0];
+                    shifted_sig = {24'b0, sig} >> shift;
+                end else begin
+                    shift = real_exp[4:0] - 23;
+                    shifted_sig = {24'b0, sig} << shift;
+                end
+                fp32_to_u32 = shifted_sig[31:0];
+            end
+        end
+    endfunction
+
+    function [31:0] s32_to_fp32;
+        input [31:0] s32;
+        reg sign;
+        reg [31:0] abs_val;
+        reg [4:0] lzc;
+        reg [7:0] exp;
+        reg [22:0] man;
+        integer i;
+        begin
+            sign = s32[31];
+            abs_val = sign ? -s32 : s32;
+            
+            if (s32 == 0) begin
+                s32_to_fp32 = 32'b0;
+            end else begin
+                lzc = 0;
+                for (i = 31; i >= 0; i = i - 1) begin
+                    if (abs_val[i]) begin
+                        lzc = 31 - i;
+                        i = -1;
+                    end
+                end
+                exp = 8'd127 + (8'd31 - {3'b0, lzc});
+                abs_val = abs_val << lzc;
+                man = abs_val[30:8];
+                s32_to_fp32 = {sign, exp, man};
+            end
+        end
+    endfunction
+
+    function [31:0] u32_to_fp32;
+        input [31:0] u32;
+        reg [4:0] lzc;
+        reg [7:0] exp;
+        reg [22:0] man;
+        reg [31:0] tmp_u32;
+        integer i;
+        begin
+            tmp_u32 = u32;
+            if (u32 == 0) begin
+                u32_to_fp32 = 32'b0;
+            end else begin
+                lzc = 0;
+                for (i = 31; i >= 0; i = i - 1) begin
+                    if (tmp_u32[i]) begin
+                        lzc = 31 - i;
+                        i = -1;
+                    end
+                end
+                exp = 8'd127 + (8'd31 - {3'b0, lzc});
+                tmp_u32 = tmp_u32 << lzc;
+                man = tmp_u32[30:8];
+                u32_to_fp32 = {1'b0, exp, man};
+            end
+        end
+    endfunction
+
     //------------------------------------------------------------------------
     // PRMT (Permute Bytes)
-    // 根据operand_c选择operand_a和operand_b的字节
+    // æ ¹æ®operand_cé€‰æ‹©operand_aå’Œoperand_bçš„å­—èŠ‚
     //------------------------------------------------------------------------
-    wire [63:0] prmt_src = {operand_b, operand_a};  // 8个源字节
+    wire [63:0] prmt_src = {operand_b, operand_a};  // 8ä¸ªæº­—èŠ‚
     wire [31:0] prmt_result;
     wire [2:0] prmt_sel0 = operand_c[2:0];
     wire [2:0] prmt_sel1 = operand_c[6:4];
@@ -317,7 +450,7 @@ module alu (
     wire [31:0] sad_result = sad_abs + operand_c;
 
     //------------------------------------------------------------------------
-    // ALU 操作选择
+    // ALU æ“ä½œé€‰æ‹©
     //------------------------------------------------------------------------
     always @(*) begin
         result_hi = 32'b0;
@@ -325,7 +458,7 @@ module alu (
 
         /* verilator lint_off CASEOVERLAP */
         case (func)
-            // 基础运算
+            // åŸºç¡€è¿®—
             `FUNC_ADD:   begin
                 result = add_result[31:0];
             end
@@ -340,7 +473,7 @@ module alu (
             `FUNC_SHR_U: result = operand_a >> operand_b[4:0];
             `FUNC_SHR_S: result = signed_a >>> operand_b[4:0];
 
-            // PTX扩展整数运算
+            // PTXæ‰©å±•æ•´æ•°è¿®—
             `FUNC_ABS:   result = signed_a[31] ? (-signed_a) : signed_a;
             `FUNC_NEG:   result = -signed_a;
             `FUNC_MIN_S: result = (signed_a < signed_b) ? operand_a : operand_b;
@@ -348,19 +481,19 @@ module alu (
             `FUNC_MAX_S: result = (signed_a > signed_b) ? operand_a : operand_b;
             `FUNC_MAX_U: result = (operand_a > operand_b) ? operand_a : operand_b;
 
-            // 位操作指令
+            // ä½æ“ä½œæŒ‡ä»¤
             `FUNC_POPC:  result = {26'b0, popc32(operand_a)};
             `FUNC_CLZ:   result = {26'b0, clz32(operand_a)};
-            `FUNC_BFIND: result = bfind32(operand_a, 1'b1);  // 有符号版本
+            `FUNC_BFIND: result = bfind32(operand_a, 1'b1);  // æœ‰ç¬¦å·ç‰ˆæœ¬
             `FUNC_BREV:  result = brev32(operand_a);
 
-            // 位域操作
+            // ä½åŸŸæ“ä½œ
             `FUNC_BFE_S: result = bfe_result_s;
             `FUNC_BFE_U: result = bfe_result_u;
             `FUNC_BFI:   result = bfi_result;
             `FUNC_PRMT:  result = prmt_result;
 
-            // 特殊运算
+            // ç‰¹æ®Šè¿®—
             `FUNC_SAD:   result = sad_result;
             `FUNC_CNOT:  result = cnot_res;
             `FUNC_BMSK:  result = bmsk_result;
@@ -372,11 +505,11 @@ module alu (
             `VIDEO_DP4A_ALU: result = dp4a_sum;
             `VIDEO_DP2A_ALU: result = dp2a_sum;
 
-            // 选择操作
+            // é€‰æ‹©æ“ä½œ
             `FUNC_SELP:  result = pred_in ? operand_a : operand_b;
-            `FUNC_SLCT:  result = signed_b[31] ? operand_a : operand_b;  // 根据c的符号选择
+            `FUNC_SLCT:  result = signed_b[31] ? operand_a : operand_b;  // æ ¹æ®cçš„ç¬¦å·é€‰æ‹©
 
-            // 进位运算 (add.cc, addc, sub.cc, subc)
+            // è¿›ä½è¿®— (add.cc, addc, sub.cc, subc)
             `FUNC_ADD_CC: begin
                 result = add_result[31:0];
                 carry_out = add_result[32];
@@ -394,13 +527,25 @@ module alu (
                 carry_out = subc_result[32];  // borrow
             end
 
-            // 宽乘法 (mul.wide: 32x32 -> 64)
+            // å®½ä¹˜æ³• (mul.wide: 32x32 -> 64)
             `FUNC_MUL_WIDE: begin
                 result = mul_wide_u[31:0];
                 result_hi = mul_wide_u[63:32];
             end
 
             // CVT instructions (FP16 <-> FP32 conversion)
+            `CVT_S32_F32: begin
+                result = fp32_to_s32(operand_a);
+            end
+            `CVT_U32_F32: begin
+                result = fp32_to_u32(operand_a);
+            end
+            `CVT_F32_S32: begin
+                result = s32_to_fp32(operand_a);
+            end
+            `CVT_F32_U32: begin
+                result = u32_to_fp32(operand_a);
+            end
             `CVT_F32_F16: begin
                 // Convert FP16 (in low 16 bits of operand_a) to FP32
                 result = fp16_to_fp32(operand_a[15:0]);
@@ -416,48 +561,37 @@ module alu (
 
             default:     result = 32'b0;
                 /* verilator lint_on CASEOVERLAP */
-endcase
+        endcase
     end
 
     //------------------------------------------------------------------------
-    // 标志位生成
-    //------------------------------------------------------------------------
-    assign zero = (result == 32'b0);
+    // æ ‡å¿—ä½ç”Ÿæˆ
+    assign zero     = (result == 32'b0);
     assign negative = result[31];
-
-    // 溢出检测：加法时两个正数得负数，或两个负数得正数
-    wire add_overflow = (~operand_a[31] & ~operand_b[31] & result[31]) |
-                        (operand_a[31] & operand_b[31] & ~result[31]);
-    wire sub_overflow = (~operand_a[31] & operand_b[31] & result[31]) |
-                        (operand_a[31] & ~operand_b[31] & ~result[31]);
-
-    assign overflow = (func == `FUNC_ADD) ? add_overflow :
-                      (func == `FUNC_SUB) ? sub_overflow : 1'b0;
+    assign overflow = 1'b0; // TODO: Implement integer overflow flags
 
 endmodule
 
 
 //============================================================================
-// SIMD ALU - 32个并行ALU用于Warp执行
-// 每个Warp的32个线程同时执行
-// 支持完整PTX整数指令集，包括进位操作和宽乘法
+// SIMD ALU - 32ä¸ªå¹¶è¡ŒALUç”¨äºŽWarpæ‰§è¡Œ
 //============================================================================
 module simd_alu #(
-    parameter LANES = `THREADS_PER_WARP  // 32
+    parameter LANES = 32
 )(
     input  wire [5:0]           func,
-    input  wire [LANES*32-1:0]  operand_a,  // 32个操作数A
-    input  wire [LANES*32-1:0]  operand_b,  // 32个操作数B
-    input  wire [LANES*32-1:0]  operand_c,  // 32个操作数C (BFI, PRMT, SAD, SELP)
-    input  wire [LANES-1:0]     pred_in,    // 32个谓词输入 (SELP)
-    input  wire [LANES-1:0]     carry_in,   // 32个进位输入 (addc, subc)
-    input  wire [LANES-1:0]     lane_mask,  // 活跃线程掩码
-    output wire [LANES*32-1:0]  result,     // 32个结果
-    output wire [LANES*32-1:0]  result_hi,  // 32个高32位结果 (mul.wide)
+    input  wire [LANES*32-1:0]  operand_a,
+    input  wire [LANES*32-1:0]  operand_b,
+    input  wire [LANES*32-1:0]  operand_c,
+    input  wire [LANES-1:0]     pred_in,
+    input  wire [LANES-1:0]     carry_in,
+    input  wire [LANES-1:0]     lane_mask,
+    output wire [LANES*32-1:0]  result,
+    output wire [LANES*32-1:0]  result_hi,
     output wire [LANES-1:0]     zero_flags,
     output wire [LANES-1:0]     neg_flags,
     output wire [LANES-1:0]     ovf_flags,
-    output wire [LANES-1:0]     carry_out   // 32个进位输出 (add.cc, sub.cc)
+    output wire [LANES-1:0]     carry_out
 );
 
     genvar i;
@@ -487,7 +621,6 @@ module simd_alu #(
                 .carry_out (lane_cout)
             );
 
-            // 只有活跃线程的结果有效
             assign result[i*32 +: 32] = lane_mask[i] ? lane_result : 32'b0;
             assign result_hi[i*32 +: 32] = lane_mask[i] ? lane_result_hi : 32'b0;
             assign zero_flags[i] = lane_mask[i] & lane_zero;

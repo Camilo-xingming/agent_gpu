@@ -516,19 +516,19 @@
 //============================================================================
 // 类型转换功能码 (CVT指令)
 //============================================================================
-`define CVT_S32_F32     6'b000000   // cvt.s32.f32
-`define CVT_U32_F32     6'b000001   // cvt.u32.f32
-`define CVT_F32_S32     6'b000010   // cvt.f32.s32
-`define CVT_F32_U32     6'b000011   // cvt.f32.u32
-`define CVT_F32_F64     6'b000100   // cvt.f32.f64
-`define CVT_F64_F32     6'b000101   // cvt.f64.f32
+`define CVT_S32_F32     6'd42   // cvt.s32.f32
+`define CVT_U32_F32     6'd43   // cvt.u32.f32
+`define CVT_F32_S32     6'd44   // cvt.f32.s32
+`define CVT_F32_U32     6'd45   // cvt.f32.u32
+`define CVT_F32_F64     6'd46   // cvt.f32.f64
+`define CVT_F64_F32     6'd47   // cvt.f64.f32
 `define CVT_F32_F16     6'b101000   // cvt.f32.f16 (unique code 40)
 `define CVT_F16_F32     6'b101001   // cvt.f16.f32 (unique code 41)
-`define CVT_S64_F64     6'b001000   // cvt.s64.f64
-`define CVT_U64_F64     6'b001001   // cvt.u64.f64
-`define CVT_F64_S64     6'b001010   // cvt.f64.s64
-`define CVT_F64_U64     6'b001011   // cvt.f64.u64
-`define CVT_PACK        6'b101100   // cvt.pack (pack two 16-bit values) - unique code
+`define CVT_S64_F64     6'd48   // cvt.s64.f64
+`define CVT_U64_F64     6'd49   // cvt.u64.f64
+`define CVT_F64_S64     6'd50   // cvt.f64.s64
+`define CVT_F64_U64     6'd51   // cvt.f64.u64
+`define CVT_PACK        6'd52   // cvt.pack (pack two 16-bit values) - unique code
 
 //============================================================================
 // WMMA 功能码

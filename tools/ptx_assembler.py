@@ -251,19 +251,19 @@ class Fp16Func(IntEnum):
 # CVT Function Codes
 #============================================================================
 class CvtFunc(IntEnum):
-    S32_F32 = 0b000000
-    U32_F32 = 0b000001
-    F32_S32 = 0b000010
-    F32_U32 = 0b000011
-    F32_F64 = 0b000100
-    F64_F32 = 0b000101
+    S32_F32 = 42
+    U32_F32 = 43
+    F32_S32 = 44
+    F32_U32 = 45
+    F32_F64 = 46
+    F64_F32 = 47
     F32_F16 = 0b101000  # unique code 40, not conflicting with ALU FUNC_SHL
     F16_F32 = 0b101001  # unique code 41, not conflicting with ALU FUNC_SHR_U
-    S64_F64 = 0b001000
-    U64_F64 = 0b001001
-    F64_S64 = 0b001010
-    F64_U64 = 0b001011
-    PACK    = 0b101100
+    S64_F64 = 48
+    U64_F64 = 49
+    F64_S64 = 50
+    F64_U64 = 51
+    PACK    = 52
 
 #============================================================================
 # Atomic Function Codes
