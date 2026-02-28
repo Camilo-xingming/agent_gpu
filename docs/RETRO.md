@@ -25,7 +25,7 @@
 - **CoderGemini**：做得好：成功定位并修复 PR #230 和 #235 的关键逻辑及集成 Bug；改进点：长任务调试中心跳汇报频率需进一步优化
 
 ## 🔧 Action Items (下次 Planning 必须参考)
-- [ ] **长任务心跳（第 4 次 — 终局决策）**：要么本 Sprint 上线（Codex 实现 60s heartbeat cron），要么永久关闭此 item。不允许再次滚入
+- [x] **长任务心跳（第 4 次 — 终局决策）**：已于 2026-03-01 确认采用实现路线（默认 60s heartbeat + 120s 启动阈值），并补充 `make test_cron_optimization` 验证入口（Issue #245）
 - [ ] **SHA discipline 强化**：DoD checklist 加一条：merge 前 Lily 必须验证 reviewer SHA = PR head SHA，不一致则要求重新 review
 - [x] **每日经济要闻 cron 修复**：已于 2026-02-28 禁用 job 828d4110-1aa7-4616-9fa8-13b2813e6037（连续 timeout: 180s/300s），终止反复 error（Issue #237）
 - [ ] **ist-mac-s 代理修复**：为 Codex/GitHub CLI 配置显式 `HTTPS_PROXY=http://127.0.0.1:7897`，或在 Codex cron 中直接使用 IP
