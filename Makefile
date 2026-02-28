@@ -112,6 +112,11 @@ TB_L1_DATA_CACHE = $(TB_DIR)/tb_l1_data_cache.v
 TB_TENSOR_FP4 = $(TB_DIR)/tb_tensor_core_fp4.v
 TB_TENSOR_FP4_FP8 = $(TB_DIR)/tb_tensor_fp4_fp8.v
 
+TB_TENSOR_FP4_FP8_FRM_GEN = $(BUILD_DIR)/tb_tensor_fp4_fp8_frm_generated.v
+
+TENSOR_FRM_SEED ?= 239
+TENSOR_FRM_CASES_PER_DTYPE ?= 32
+
 # Memory subsystem RTL files (Phase 2)
 MEMSYS_SRCS = \
     $(RTL_DIR)/gpu_defines.vh \
@@ -133,7 +138,7 @@ endif
 
 .PHONY: all sim wave clean assemble help test test_all
 .PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_warp test_sfu
-.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4 dashboard dashboard-check dashboard-baseline
+.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm dashboard dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_multi_sm test_command_processor test_memsys test_l1_data_cache test_phase2
 
 all: $(BUILD_DIR) sim
@@ -290,6 +295,18 @@ test_tensor_fp4_fp8: $(BUILD_DIR)/tb_tensor_fp4_fp8.vvp
 
 $(BUILD_DIR)/tb_tensor_fp4_fp8.vvp: $(RTL_DIR)/tensor_core.v $(RTL_DIR)/gpu_defines.vh $(TB_TENSOR_FP4_FP8) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_TENSOR_FP4_FP8) $(RTL_DIR)/tensor_core.v
+
+test_tensor_fp4_fp8_frm: $(BUILD_DIR)/tb_tensor_fp4_fp8_frm_generated.vvp
+	@echo "========================================"
+	@echo "Running Tensor Core FP4/FP8 RTL vs FRM E2E"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_tensor_fp4_fp8_frm_generated.vvp
+
+$(BUILD_DIR)/tb_tensor_fp4_fp8_frm_generated.v: $(TOOLS_DIR)/tensor_fp4_fp8_frm.py | $(BUILD_DIR)
+	$(PYTHON) $(TOOLS_DIR)/tensor_fp4_fp8_frm.py --emit-tb $@ --emit-json $(BUILD_DIR)/tensor_fp4_fp8_frm_vectors.json --seed $(TENSOR_FRM_SEED) --cases-per-dtype $(TENSOR_FRM_CASES_PER_DTYPE)
+
+$(BUILD_DIR)/tb_tensor_fp4_fp8_frm_generated.vvp: $(BUILD_DIR)/tb_tensor_fp4_fp8_frm_generated.v $(RTL_DIR)/tensor_core.v $(RTL_DIR)/gpu_defines.vh | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(BUILD_DIR)/tb_tensor_fp4_fp8_frm_generated.v $(RTL_DIR)/tensor_core.v
 
 #----------------------------------------------------------------------------
 # 集成测试
@@ -691,6 +708,8 @@ help:
 	@echo "  test_smem     - Test shared memory"
 	@echo "  test_warp     - Test warp scheduler"
 	@echo "  test_tensor_core_fp4 - Tensor Core FP4 sanity test"
+	@echo "  test_tensor_fp4_fp8 - Tensor Core FP4/FP8 handwritten e2e test"
+	@echo "  test_tensor_fp4_fp8_frm - Tensor Core FP4/FP8 generated RTL vs FRM e2e"
 	@echo ""
 	@echo "Integration Tests:"
 	@echo "  test_vector_add - Test vector addition kernel"

@@ -164,6 +164,7 @@ FRM Self-Tests:      10/10 pass
 make test                              # Quick regression (iverilog)
 make lint                              # Verilator lint
 make synth                             # Yosys synthesis
+make test_tensor_fp4_fp8_frm           # Generated FP4/FP8 Tensor Core RTL vs FRM e2e
 python3 tools/rtl_frm_compare.py --all # RTL vs FRM (204 tests)
 python3 tools/gpu_simulator.py         # FRM self-tests (10 tests)
 python3 tools/test_generator.py --gen all  # Regenerate test vectors
