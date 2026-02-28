@@ -1,3 +1,45 @@
+# Sprint Retrospective 2026-02-28
+
+## ✅ Went Well
+- **Sprint 13 velocity 100% (2/2)**：#226 (dual-issue RTL fetch) + #131 (Phase 5 test coverage) 全部关闭
+- **Sprint 12 也在同日完成 (2/2)**：#232 (scrum-health cron fix PR #234) + #233 (CVT FRM fix PR #235) ✅
+- **CVT FRM 根因快速收敛**：Codex 定位到 `gpu_simulator.py` CvtFunc 枚举旧编码 (0..11 → 42..52)，本地验证 12/12 → CI 全绿，根因→修复→验证全程 <30 分钟
+- **scrum-health cron 修复 ✅**：上期 action item 落地，PR #234 恢复正常运行
+- **Codex 连接中断自愈**：stream disconnect 后自动重连，5 分钟内恢复工作
+- **Master CI 全天绿**：Nightly Regression + 所有 master runs success
+- **Retro 参与率 100%**：Codex + Gemini 均在 60 秒内回复
+- **Sprint Review → Planning 零延迟链工作正常**：cron chain 自动触发无 gap
+
+## ❌ Didn't Go Well
+- **每日经济要闻 cron 持续 error（第 2 Sprint）**：未修复，action item 再次滚入
+- **ist-mac-s SSH hostname 失效**：Codex 必须绕过用 IP (100.81.212.41)，说明 proxy 修复 action item 仍未落地
+- **SHA discipline 违规**：CoderGemini 审查签署了旧 SHA `3d1cae4c`，实际合并 commit 为 `e7832945`，DoD D5 未满足即合并
+- **CoderGemini 原始 JSON 工具调用泄露到 Discord**：多条包含 `startcall:default_api:run_shell_command` 的原始调试输出发到 #ralphgpu-dev，降低频道信噪比
+- **Lily 连续重复消息**：同一个结论发了 4-5 条略有不同的消息（#233 blocker resolved），违反 ≤3 行原则
+- **长任务心跳（第 4 Sprint 未落地）**：Codex 和 Gemini 都点名此问题，连续 4 Sprint 未实现 → 必须本 Sprint 决策
+- **stale branch issue-131/gemini**：CI 仍 fail，未清理（上期 action item 未执行）
+- **CoderGemini git checkout 自我回滚**：在调试中意外回滚了自己的修复提交，反复推了两次相同内容
+
+## 💬 Coder Feedback
+- **CoderCodex**：做得好：#233 根因快速定位到 FRM 模拟器枚举旧编码，CVT 12/12 闭环；需改进：跨 coder 协作时严格先更新 Issue 再发频道，保持 60s 心跳避免状态滞后
+- **CoderGemini**：做得好：成功定位并修复 PR #230 和 #235 的关键逻辑及集成 Bug；改进点：长任务调试中心跳汇报频率需进一步优化
+
+## 🔧 Action Items (下次 Planning 必须参考)
+- [ ] **长任务心跳（第 4 次 — 终局决策）**：要么本 Sprint 上线（Codex 实现 60s heartbeat cron），要么永久关闭此 item。不允许再次滚入
+- [ ] **SHA discipline 强化**：DoD checklist 加一条：merge 前 Lily 必须验证 reviewer SHA = PR head SHA，不一致则要求重新 review
+- [ ] **每日经济要闻 cron 修复**：检查 error 原因，修复或彻底禁用（禁止第 3 次滚入）
+- [ ] **ist-mac-s 代理修复**：为 Codex/GitHub CLI 配置显式 `HTTPS_PROXY=http://127.0.0.1:7897`，或在 Codex cron 中直接使用 IP
+- [ ] **stale branch 清理**：删除 issue-131/gemini 等 CI 持续 fail 的旧分支
+- [ ] **CoderGemini 输出净化**：禁止将 `startcall:default_api:*` 工具调用原文发到 Discord；只发结论
+- [ ] **Lily 消息去重**：同一件事不允许发超过 2 条消息；确认/通知合并为一条
+- [ ] **Issue-first 协议**：任何状态变更必须先 `gh issue comment`，再发 Discord（Codex 的建议 — 再次强调）
+
+## 📈 Velocity
+- 今日: 2/2 (Sprint 13: #226 + #131)，另 Sprint 12 收尾 2/2 (#232 + #233)
+- 趋势：连续 5 个 Sprint velocity 100%，但流程质量项（心跳、SHA、频道规范）持续拖尾
+
+---
+
 # Sprint Retrospective 2026-02-27
 
 ## ✅ Went Well
@@ -13,7 +55,7 @@
 - **Sprint Planning 断档**：Sprint 4 结束到 Sprint 5 milestone 创建之间出现 gap，多条 "No active Sprint milestone" 告警，cron 报错循环
 - **Sprint 2026-02-27 milestone（M#12）空创建**：0 item，Planning 未正确填充 backlog
 - **scrum-health cron 错误**：上次运行 16h 前，error 状态，未修复
-- **每日经济要闻 cron 错误**：持续 error 状态，未排查
+- **每日经济政治要闻 cron 错误**：持续 error 状态，未排查
 - **ist-mac-s 代理异常**：curl/gh 从 ist-mac-s 出站走 Clash 7897 端口被拒，影响 GitHub CLI 操作
 - **前两次 Retro action items 执行率低**：长任务心跳、同步消息模板、Post-merge SOP 连续 2 Sprint 未落地
 - **PR #231 feature branch CI 仍 fail**：issue-131/gemini branch 未清理或修复
@@ -33,6 +75,7 @@
 - [ ] **Post-merge SOP（Checklist 条目）**：追加到 pr-submission.md — 合并后必须跑 `make regression` + `make lint` 并 comment 结果
 - [ ] **stale branch 清理**：关闭 issue-131/gemini CI fail 的 stale branch，避免持续报警
 - [ ] **Jerry escalation 阈值**：Lily 必须在 agent 下线 30min（不是 10h+）时主动告警
+- [ ] **#148 研究时间盒**：研究类 issue 最多 2h，超时必须产出草稿文档提交 review，不允许无限期研究
 
 ## 📈 Velocity
 - Sprint 5：6/6 (100%) 🎉 — #148 #221 #222 #223 #227 #228
