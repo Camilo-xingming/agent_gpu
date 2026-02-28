@@ -5,6 +5,20 @@ set -uo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
+configure_gh_proxy_env() {
+  if [[ "${GH_PROXY_AUTO_CONFIG:-1}" == "0" ]]; then
+    return
+  fi
+
+  local https_proxy_val="${GH_HTTPS_PROXY:-http://127.0.0.1:7897}"
+  local http_proxy_val="${GH_HTTP_PROXY:-$https_proxy_val}"
+
+  export HTTPS_PROXY="$https_proxy_val"
+  export https_proxy="$https_proxy_val"
+  export HTTP_PROXY="$http_proxy_val"
+  export http_proxy="$http_proxy_val"
+}
+
 resolve_repo_root() {
   if [[ -n "${REPO_ROOT:-}" ]]; then
     printf '%s\n' "$REPO_ROOT"
