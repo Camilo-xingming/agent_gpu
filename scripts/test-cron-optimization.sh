@@ -436,8 +436,67 @@ fi
 EOF_BASH
 }
 
+run_heartbeat_schedule_test() {
+  local hb_log="$TMP_ROOT/heartbeat-openclaw.log"
+  : > "$hb_log"
+
+  OPENCLAW_LOG_FILE="$hb_log" \
+  OPENCLAW_STUB_DEV_TEXT="$FIXTURE_DIR/discord-dev.txt" \
+  OPENCLAW_STUB_MAIN_TEXT="$FIXTURE_DIR/discord-main.txt" \
+  OPENCLAW_BIN="$BIN_DIR/openclaw" \
+  DISCORD_DEV_TARGET="1475083010968649778" \
+  DISCORD_ACCOUNT="lily" \
+  bash -s "$SCRIPT_DIR/cron-common.sh" "$hb_log" << 'EOF_BASH'
+set -euo pipefail
+
+cron_common="$1"
+hb_log="$2"
+source "$cron_common"
+
+# Default interval should remain 60s.
+HEARTBEAT_START_AFTER_SEC=1
+unset HEARTBEAT_INTERVAL_SEC
+start_heartbeat "hb-default-interval" "interval-check"
+sleep 3
+stop_heartbeat
+if grep -q '^message send ' "$hb_log"; then
+  echo "default heartbeat interval should not emit within 3s" >&2
+  exit 1
+fi
+
+# Default threshold should start after 120s.
+: > "$hb_log"
+HEARTBEAT_INTERVAL_SEC=1
+unset HEARTBEAT_START_AFTER_SEC
+start_heartbeat "hb-default-threshold" "threshold-check"
+sleep 3
+stop_heartbeat
+if grep -q '^message send ' "$hb_log"; then
+  echo "default heartbeat threshold should block early updates" >&2
+  exit 1
+fi
+
+# Once threshold is reached, heartbeat should continue at the configured interval.
+: > "$hb_log"
+HEARTBEAT_INTERVAL_SEC=1
+HEARTBEAT_START_AFTER_SEC=2
+start_heartbeat "hb-active" "steady-check"
+sleep 4
+stop_heartbeat
+if [[ "$(grep -c '^message send ' "$hb_log" || true)" -lt 2 ]]; then
+  echo "heartbeat should emit periodic updates after threshold" >&2
+  exit 1
+fi
+if ! grep -q 'long-task heartbeat elapsed=' "$hb_log"; then
+  echo "heartbeat message payload missing" >&2
+  exit 1
+fi
+EOF_BASH
+}
+
 run_warning_vs_critical_test
 run_zero_token_and_coverage_test
 run_atomic_write_race_test
+run_heartbeat_schedule_test
 
 echo "PASS: cron optimization tests completed"
