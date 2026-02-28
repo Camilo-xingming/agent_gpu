@@ -21,6 +21,12 @@ should_ignore() {
     return 1
 }
 
+# Skip files ignored by .gitignore (important on reused CI workspaces)
+is_git_ignored() {
+    local rel_path="$1"
+    git -C "$REPO_ROOT" check-ignore -q "$rel_path"
+}
+
 # Extract filenames from the first column of markdown tables in a MANIFEST.md.
 # Skips: header rows, separator rows, glob patterns, backtick-wrapped entries, directory entries.
 # Output: one filename per line (empty if no real filenames found).
@@ -120,6 +126,16 @@ while IFS= read -r manifest_path; do
             continue
         fi
 
+        # Ignore files covered by .gitignore (e.g. generated artifacts on shared runners)
+        if [ "$dir" = "$REPO_ROOT" ]; then
+            rel_path="$actual"
+        else
+            rel_path="${dir#"$REPO_ROOT"/}/$actual"
+        fi
+        if is_git_ignored "$rel_path"; then
+            continue
+        fi
+
         # Check if file is listed in MANIFEST (exact match)
         if ! grep -qxF "$actual" "$manifest_list"; then
             issue_count=$((issue_count + 1))
@@ -151,7 +167,7 @@ echo "Unlisted files: $found_issues"
 if [ "$found_issues" -gt 0 ]; then
     echo ""
     echo "FAILED: $found_issues file(s) missing from MANIFEST.md."
-    echo "Add them to the appropriate MANIFEST.md or add to IGNORE_PATTERNS if they should be excluded."
+    echo "Add them to the appropriate MANIFEST.md, or ignore generated files via .gitignore / should_ignore()."
     exit 1
 else
     echo ""
