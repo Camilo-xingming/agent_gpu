@@ -138,7 +138,7 @@ endif
 
 .PHONY: all sim wave clean assemble help test test_all
 .PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_warp test_sfu
-.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm dashboard dashboard-check dashboard-baseline
+.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization dashboard dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_multi_sm test_command_processor test_memsys test_l1_data_cache test_phase2
 
 all: $(BUILD_DIR) sim
@@ -616,6 +616,13 @@ test_all: test test_vector_add test_multi_sm sim
 	@echo "All Tests Completed (Unit + Integration)"
 	@echo "========================================"
 
+test_cron_optimization:
+	@echo "========================================"
+	@echo "Running Cron Optimization / Heartbeat Tests"
+	@echo "========================================"
+	bash scripts/test-cron-optimization.sh
+
+
 #----------------------------------------------------------------------------
 # 波形查看
 #----------------------------------------------------------------------------
@@ -699,6 +706,7 @@ help:
 	@echo "  test          - Run all unit tests"
 	@echo "  test_l1_data_cache - Test L1 data cache hit/miss/LRU/bank conflict"
 	@echo "  test_all      - Run all tests (unit + integration)"
+	@echo "  test_cron_optimization - Run cron heartbeat/optimization script tests"
 	@echo ""
 	@echo "Unit Tests:"
 	@echo "  test_alu      - Test ALU operations"
