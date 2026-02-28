@@ -451,6 +451,9 @@ module decoder (
                     cvt_op    <= 1'b1;
                     alu_op    <= 1'b1;
                     reg_write <= 1'b1;
+                    rd        <= inst_rd;
+                    ra        <= inst_ra;
+                    func      <= inst_func;
                 end
 
                 //============================================================
