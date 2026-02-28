@@ -49,6 +49,12 @@ class Opcode(IntEnum):
     MEMBAR = 0b100100
     # Video/DP
     VIDEO = 0b100101
+    # Texture/Surface
+    TEX = 0b100110
+    TXQ = 0b100111
+    SULD = 0b101000
+    SUST = 0b101001
+    SURED = 0b101010
     # Async memory
     CPASYNC = 0b101011
     # WGMMA (tensor)
@@ -222,6 +228,31 @@ class VideoFunc(IntEnum):
     DP2A_S32_S32 = 0b010100
     DP2A_S32_U32 = 0b010101
     DP4A = 0b100010
+
+# Texture功能码
+class TexFunc(IntEnum):
+    TEX_1D = 0b000000
+    TEX_2D = 0b000001
+    TEX_3D = 0b000010
+    TEX_CUBE = 0b000011
+    TEX_LEVEL = 0b001000
+    TXQ_WIDTH = 0b010000
+    TXQ_HEIGHT = 0b010001
+    TXQ_DEPTH = 0b010010
+    TXQ_LEVELS = 0b010011
+
+# Surface功能码
+class SurfFunc(IntEnum):
+    SURF_1D = 0b000000
+    SURF_2D = 0b000001
+    SURF_3D = 0b000010
+
+# Texture wrap modes (matches texture_unit defaults)
+class TextureWrap(IntEnum):
+    REPEAT = 0b0000
+    CLAMP = 0b0001
+    MIRROR = 0b0010
+    BORDER = 0b0011
 
 # Atomic功能码
 class AtomicFunc(IntEnum):
@@ -424,6 +455,16 @@ class RalphGPUSimulator:
         self.cache_policy_slots: Dict[int, int] = {}
         self.cache_line_policy: Dict[int, int] = {}
 
+        # Texture/surface descriptor defaults (match SM texture_unit wiring)
+        self.texture_base_addr = 0
+        self.texture_width = 256
+        self.texture_height = 256
+        self.texture_depth = 1
+        self.texture_levels = 1
+        self.texture_wrap_s = TextureWrap.REPEAT
+        self.texture_wrap_t = TextureWrap.REPEAT
+        self.texture_wrap_r = TextureWrap.REPEAT
+
     def load_program(self, hex_file: str):
         """从hex文件加载程序"""
         self.instruction_memory = []
@@ -448,6 +489,100 @@ class RalphGPUSimulator:
             'rc': (inst >> 6) & 0x1F,
             'func': inst & 0x3F,
         }
+
+    def _wrap_coord(self, coord: int, size: int, mode: int) -> int:
+        """Apply texture coordinate wrap mode."""
+        if size <= 0:
+            return 0
+
+        coord &= 0xFFFFFFFF
+        if mode == TextureWrap.REPEAT:
+            return coord % size
+        if mode == TextureWrap.CLAMP:
+            if coord & 0x80000000:
+                return 0
+            return min(coord, size - 1)
+        if mode == TextureWrap.MIRROR:
+            period = size * 2
+            wrapped = coord % period
+            if wrapped >= size:
+                wrapped = period - wrapped - 1
+            return wrapped
+        return coord
+
+    def _texture_addr(self, func: int, coord_s: int, coord_t: int, coord_r: int) -> int:
+        """Compute texture fetch address using current descriptor defaults."""
+        base = self.texture_base_addr
+        w = self.texture_width
+        h = self.texture_height
+        d = self.texture_depth
+
+        if func == TexFunc.TEX_1D:
+            s = self._wrap_coord(coord_s, w, self.texture_wrap_s)
+            return base + s
+        if func in (TexFunc.TEX_2D, TexFunc.TEX_LEVEL, TexFunc.TEX_CUBE):
+            s = self._wrap_coord(coord_s, w, self.texture_wrap_s)
+            t = self._wrap_coord(coord_t, h, self.texture_wrap_t)
+            return base + t * (w * 4) + s * 4
+        if func == TexFunc.TEX_3D:
+            s = self._wrap_coord(coord_s, w, self.texture_wrap_s)
+            t = self._wrap_coord(coord_t, h, self.texture_wrap_t)
+            r = self._wrap_coord(coord_r, d, self.texture_wrap_r)
+            return base + r * (w * h * 4) + t * (w * 4) + s * 4
+        return base
+
+    def _surface_addr(self, func: int, coord_s: int, coord_t: int, coord_r: int) -> int:
+        """Compute surface memory address."""
+        base = self.texture_base_addr
+        w = self.texture_width
+        h = self.texture_height
+        if func == SurfFunc.SURF_1D:
+            return base + ((coord_s & 0xFFFFFFFF) * 4)
+        if func == SurfFunc.SURF_3D:
+            return base + ((coord_r & 0xFFFFFFFF) * (w * h * 4) +
+                           (coord_t & 0xFFFFFFFF) * (w * 4) +
+                           (coord_s & 0xFFFFFFFF) * 4)
+        return base + ((coord_t & 0xFFFFFFFF) * (w * 4) + (coord_s & 0xFFFFFFFF) * 4)
+
+    def execute_tex(self, func: int, coord_s: int, coord_t: int, coord_r: int) -> int:
+        """Execute texture sample and return R channel in low 8 bits."""
+        addr = self._texture_addr(func, coord_s, coord_t, coord_r)
+        texel = self.global_memory.get(addr, 0) & 0xFFFFFFFF
+        return texel & 0xFF
+
+    def execute_txq(self, func: int) -> int:
+        """Execute texture query."""
+        if func == TexFunc.TXQ_WIDTH:
+            return self.texture_width & 0xFFFFFFFF
+        if func == TexFunc.TXQ_HEIGHT:
+            return self.texture_height & 0xFFFFFFFF
+        if func == TexFunc.TXQ_DEPTH:
+            return self.texture_depth & 0xFFFFFFFF
+        if func == TexFunc.TXQ_LEVELS:
+            return self.texture_levels & 0xFFFFFFFF
+        return 0
+
+    def execute_suld(self, func: int, coord_s: int, coord_t: int, coord_r: int) -> int:
+        """Execute surface load."""
+        addr = self._surface_addr(func, coord_s, coord_t, coord_r)
+        return self.global_memory.get(addr, 0) & 0xFFFFFFFF
+
+    def execute_sust(self, func: int, coord_s: int, coord_t: int, coord_r: int, value: int):
+        """Execute surface store.
+
+        Store payload follows current RTL wiring where source comes from RB.
+        """
+        addr = self._surface_addr(func, coord_s, coord_t, coord_r)
+        self.global_memory[addr] = value & 0xFFFFFFFF
+
+    def execute_sured(self, func: int, coord_s: int, coord_t: int, coord_r: int, value: int) -> int:
+        """Execute surface reduction.
+
+        Current RTL path is a no-op completion; model as read-only return.
+        """
+        addr = self._surface_addr(func, coord_s, coord_t, coord_r)
+        _ = value  # reserved for future reduction ops
+        return self.global_memory.get(addr, 0) & 0xFFFFFFFF
 
     def execute_alu(self, func: int, a: int, b: int) -> int:
         """执行ALU操作"""
@@ -1039,6 +1174,35 @@ class RalphGPUSimulator:
                     thread.registers[rd] = self.execute_dp4a(a, b, c, False, True)
                 elif func == VideoFunc.DP4A:
                     thread.registers[rd] = self.execute_dp4a(a, b, c, True, True)
+
+            elif opcode == Opcode.TEX:
+                # PTX parser encodes texref in RA and packed coord source in RB.
+                # Use RB as primary coordinate input for FRM compatibility.
+                s = thread.registers[rb]
+                t = thread.registers[rc]
+                r = 0
+                thread.registers[rd] = self.execute_tex(func, s, t, r)
+
+            elif opcode == Opcode.TXQ:
+                thread.registers[rd] = self.execute_txq(func)
+
+            elif opcode == Opcode.SULD:
+                s = thread.registers[ra]
+                t = thread.registers[rb]
+                r = thread.registers[rc]
+                thread.registers[rd] = self.execute_suld(func, s, t, r)
+
+            elif opcode == Opcode.SUST:
+                s = thread.registers[ra]
+                t = thread.registers[rb]
+                r = thread.registers[rc]
+                self.execute_sust(func, s, t, r, thread.registers[rb])
+
+            elif opcode == Opcode.SURED:
+                s = thread.registers[ra]
+                t = thread.registers[rb]
+                r = thread.registers[rc]
+                thread.registers[rd] = self.execute_sured(func, s, t, r, thread.registers[rb])
 
             elif opcode == Opcode.EXIT:
                 thread.active = False

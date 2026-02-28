@@ -1901,6 +1901,140 @@ class BranchTestGenerator:
 
 
 
+class TextureSurfaceTestGenerator:
+    """Generate texture/surface FRM tests aligned with current RTL defaults."""
+
+    def __init__(self, seed: int = 42):
+        random.seed(seed)
+
+    def gen_txq_tests(self) -> List[TestCase]:
+        tests = []
+
+        tests.append(TestCase(
+            name="txq_width_000",
+            category="texture",
+            ptx_code=[
+                "mov.u32 r1, 0",
+                "txq.width.b32 r3, r1",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 256}
+        ))
+
+        tests.append(TestCase(
+            name="txq_height_000",
+            category="texture",
+            ptx_code=[
+                "mov.u32 r1, 0",
+                "txq.height.b32 r3, r1",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 256}
+        ))
+
+        tests.append(TestCase(
+            name="txq_depth_levels_000",
+            category="texture",
+            ptx_code=[
+                "mov.u32 r1, 0",
+                "txq.depth.b32 r3, r1",
+                "txq.num_mipmap_levels.b32 r4, r1",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 1, 4: 1}
+        ))
+
+        return tests
+
+    def gen_tex_tests(self) -> List[TestCase]:
+        tests = []
+
+        # TEX uses repeat wrap by default; coord 261 wraps to 5.
+        tests.append(TestCase(
+            name="tex_1d_repeat_000",
+            category="texture",
+            ptx_code=[
+                "mov.u32 r1, 0",
+                "mov.u32 r2, 261",
+                "tex.1d.v4.f32 r3, r1, r2",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 0x00000044},
+            initial_memory={
+                5: 0x11223344
+            }
+        ))
+
+        return tests
+
+    def gen_surface_tests(self) -> List[TestCase]:
+        tests = []
+
+        # SULD address = base + t*(256*4) + s*4
+        tests.append(TestCase(
+            name="suld_2d_000",
+            category="texture",
+            ptx_code=[
+                "mov.u32 r1, 2",
+                "mov.u32 r2, 1",
+                "suld.b.2d.b32 r3, r1, r2",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={3: 0xAABBCCDD},
+            initial_memory={
+                1032: 0xAABBCCDD
+            }
+        ))
+
+        # SUST payload currently comes from RB in RTL wiring; verify via round-trip SULD.
+        tests.append(TestCase(
+            name="sust_suld_roundtrip_000",
+            category="texture",
+            ptx_code=[
+                "mov.u32 r1, 3",
+                "mov.u32 r2, 77",
+                "sust.b.2d.b32 r1, r2, r0",
+                "suld.b.2d.b32 r4, r1, r2",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={4: 0x0000004D}
+        ))
+
+        # SURED modeled as no-op; data remains unchanged.
+        tests.append(TestCase(
+            name="sured_noop_000",
+            category="texture",
+            ptx_code=[
+                "mov.u32 r1, 4",
+                "mov.u32 r2, 2",
+                "mov.u32 r3, 9",
+                "sured.b32 r1, r2, r3",
+                "suld.b.2d.b32 r5, r1, r2",
+                "exit"
+            ],
+            initial_regs={},
+            expected_regs={5: 0x55667788},
+            initial_memory={
+                2064: 0x55667788
+            }
+        ))
+
+        return tests
+
+    def gen_all_texture_tests(self) -> List[TestCase]:
+        tests = []
+        tests.extend(self.gen_txq_tests())
+        tests.extend(self.gen_tex_tests())
+        tests.extend(self.gen_surface_tests())
+        return tests
+
+
 class B300TestGenerator:
     """Generate B300 feature tests (st.async/multimem/barrier.cluster/cache policy)."""
 
@@ -2319,6 +2453,17 @@ def generate_all_tests():
             success_count += 1
     print(f"Successfully wrote {success_count}/{len(cvt_tests)} CVT tests")
 
+    # Texture/Surface tests
+    tex_gen = TextureSurfaceTestGenerator(seed=42)
+    tex_tests = tex_gen.gen_all_texture_tests()
+    print(f"Generated {len(tex_tests)} Texture/Surface tests")
+
+    success_count = 0
+    for test in tex_tests:
+        if write_test_case(test, output_dir / "texture"):
+            success_count += 1
+    print(f"Successfully wrote {success_count}/{len(tex_tests)} Texture/Surface tests")
+
 
     # mbarrier (Hopper+ async barrier) tests
     mbar_gen = MbarrierTestGenerator(seed=42)
@@ -2346,7 +2491,7 @@ def generate_all_tests():
     total_tests = (len(alu_tests) + len(fp32_tests) + len(mem_tests) + len(branch_tests) +
                    len(div_tests) + len(special_tests) + len(atom_tests) + len(sync_tests) +
                    len(param_tests) + len(membar_tests) + len(sfu_tests) + len(fp16_tests) +
-                   len(fp64_tests) + len(cvt_tests) + len(mbar_tests) + len(b300_tests))
+                   len(fp64_tests) + len(cvt_tests) + len(tex_tests) + len(mbar_tests) + len(b300_tests))
     print(f"\nTotal: {total_tests} tests generated")
     return total_tests
 
@@ -2371,7 +2516,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="RalphGPU Test Generator")
-    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "fp16", "fp64", "cvt", "mbarrier", "b300", "all"],
+    parser.add_argument("--gen", choices=["alu", "fp32", "memory", "branch", "div", "special", "atom", "sync", "param", "membar", "sfu", "fp16", "fp64", "cvt", "texture", "mbarrier", "b300", "all"],
                        help="Generate test cases")
     parser.add_argument("--list", action="store_true",
                        help="List generated tests")
@@ -2455,6 +2600,11 @@ def main():
             tests = gen.gen_all_cvt_tests()
             success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "cvt"))
             print(f"Generated {success}/{len(tests)} CVT tests")
+        elif args.gen == "texture":
+            gen = TextureSurfaceTestGenerator(seed=args.seed)
+            tests = gen.gen_all_texture_tests()
+            success = sum(1 for t in tests if write_test_case(t, OUTPUT_DIR / "texture"))
+            print(f"Generated {success}/{len(tests)} Texture/Surface tests")
         elif args.gen == "mbarrier":
             gen = MbarrierTestGenerator(seed=args.seed)
             tests = gen.gen_all_mbarrier_tests()
