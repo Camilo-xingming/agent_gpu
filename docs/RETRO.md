@@ -28,7 +28,7 @@
 - [x] **长任务心跳（第 4 次 — 终局决策）**：已于 2026-03-01 确认采用实现路线（默认 60s heartbeat + 120s 启动阈值），并补充 `make test_cron_optimization` 验证入口（Issue #245）
 - [ ] **SHA discipline 强化**：DoD checklist 加一条：merge 前 Lily 必须验证 reviewer SHA = PR head SHA，不一致则要求重新 review
 - [x] **每日经济要闻 cron 修复**：已于 2026-02-28 禁用 job 828d4110-1aa7-4616-9fa8-13b2813e6037（连续 timeout: 180s/300s），终止反复 error（Issue #237）
-- [ ] **ist-mac-s 代理修复**：为 Codex/GitHub CLI 配置显式 `HTTPS_PROXY=http://127.0.0.1:7897`，或在 Codex cron 中直接使用 IP
+- [x] **ist-mac-s 代理修复**：已新增 scripts/update-coder-codex-heartbeat-cron.sh + scripts/coder-codex-heartbeat.prompt.txt，并已将 codex cron job 更新为显式代理 + IP SSH（Issue #253）
 - [ ] **stale branch 清理**：删除 issue-131/gemini 等 CI 持续 fail 的旧分支
 - [ ] **CoderGemini 输出净化**：禁止将 `startcall:default_api:*` 工具调用原文发到 Discord；只发结论
 - [ ] **Lily 消息去重**：同一件事不允许发超过 2 条消息；确认/通知合并为一条
