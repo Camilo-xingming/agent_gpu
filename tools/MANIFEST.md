@@ -13,6 +13,7 @@
 | perf_report.py | 性能报告生成 | Coders | Makefile | PR review 时 | performance, report |
 | rtl_frm_compare.py | RTL vs FRM 对比验证 | Coders | `make frm-compare` (CI) | 每次 CI | frm, compare, verify |
 | test_generator.py | 测试用例生成器 | Coders | Makefile | 新增测试时 | test, generator |
+| tensor_fp4_fp8_frm.py | 生成 FP4/FP8 Tensor Core RTL vs FRM 向量与自检 TB | Coders | `make test_tensor_fp4_fp8_frm` | 需要 FP4/FP8 e2e 对齐验证时 | tensor, fp4, fp8, frm |
 | run_single_test.py | 单个测试运行器 | Coders | 手动 | 调试单个测试时 | test, runner |
 | verification_framework.py | 验证框架 | Coders | Makefile | 集成验证时 | verify, framework |
 | check-manifest.sh | CI 检查：MANIFEST.md 覆盖率（检测未列入的文件） | Jerry | CI (`manifest-check` job) | 每次 PR | ci, manifest, coverage |
