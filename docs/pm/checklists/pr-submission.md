@@ -32,6 +32,11 @@
 
 *更新时间: 2026-02-25*
 
+## merge 前 SHA 验证（Lily 执行）
+
+- [ ] 确认至少 1 个不同种类 coder 的最新 review SHA = PR head SHA（`gh pr view NUM --json headRefOid`）
+- [ ] SHA 不一致 → 要求 reviewer 重新 review，不得 merge
+
 ## merge 后（Lily 执行）
 
 - [ ] merge 后立即检查 master CI 状态：`gh run list --branch master --limit 3`
