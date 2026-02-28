@@ -194,6 +194,7 @@ cat > "$BIN_DIR/gh" << 'EOF_GH'
 #!/usr/bin/env bash
 set -euo pipefail
 
+printf 'env HTTPS_PROXY=%s HTTP_PROXY=%s\n' "${HTTPS_PROXY:-}" "${HTTP_PROXY:-}" >> "${GH_LOG_FILE:-/dev/null}"
 printf '%s\n' "$*" >> "${GH_LOG_FILE:-/dev/null}"
 
 cmd="${1:-}"
@@ -408,6 +409,8 @@ run_zero_token_and_coverage_test() {
   if grep -q '^issue view ' "$GH_LOG"; then
     fail "issue view fallback should not be needed with bulk issue list"
   fi
+
+  grep -q "^env HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897$" "$GH_LOG" || fail "gh commands must run with explicit proxy 127.0.0.1:7897"
 }
 
 run_atomic_write_race_test() {

@@ -42,6 +42,8 @@ if [[ -z "$GH_BIN" ]]; then
   GH_BIN="${GH_BIN_INPUT:-gh}"
 fi
 
+configure_gh_proxy_env
+
 OPENCLAW_BIN_INPUT="${OPENCLAW_BIN:-}"
 OPENCLAW_BIN="$(resolve_command_path "$OPENCLAW_BIN_INPUT" openclaw /opt/homebrew/bin/openclaw /usr/local/bin/openclaw 2>/dev/null || true)"
 if [[ -z "$OPENCLAW_BIN" ]]; then
