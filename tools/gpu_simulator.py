@@ -199,18 +199,19 @@ class Fp64Func(IntEnum):
 
 # CVT 功能码
 class CvtFunc(IntEnum):
-    S32_F32 = 0b000000  # cvt.s32.f32 - FP32 to signed int32
-    U32_F32 = 0b000001  # cvt.u32.f32 - FP32 to unsigned int32
-    F32_S32 = 0b000010  # cvt.f32.s32 - signed int32 to FP32
-    F32_U32 = 0b000011  # cvt.f32.u32 - unsigned int32 to FP32
-    F32_F64 = 0b000100  # cvt.f32.f64 - FP64 to FP32
-    F64_F32 = 0b000101  # cvt.f64.f32 - FP32 to FP64
+    S32_F32 = 42        # cvt.s32.f32 - FP32 to signed int32
+    U32_F32 = 43        # cvt.u32.f32 - FP32 to unsigned int32
+    F32_S32 = 44        # cvt.f32.s32 - signed int32 to FP32
+    F32_U32 = 45        # cvt.f32.u32 - unsigned int32 to FP32
+    F32_F64 = 46        # cvt.f32.f64 - FP64 to FP32
+    F64_F32 = 47        # cvt.f64.f32 - FP32 to FP64
     F32_F16 = 0b101000  # cvt.f32.f16 - FP16 to FP32
     F16_F32 = 0b101001  # cvt.f16.f32 - FP32 to FP16
-    S64_F64 = 0b001000  # cvt.s64.f64 - FP64 to signed int64
-    U64_F64 = 0b001001  # cvt.u64.f64 - FP64 to unsigned int64
-    F64_S64 = 0b001010  # cvt.f64.s64 - signed int64 to FP64
-    F64_U64 = 0b001011  # cvt.f64.u64 - unsigned int64 to FP64
+    S64_F64 = 48        # cvt.s64.f64 - FP64 to signed int64
+    U64_F64 = 49        # cvt.u64.f64 - FP64 to unsigned int64
+    F64_S64 = 50        # cvt.f64.s64 - signed int64 to FP64
+    F64_U64 = 51        # cvt.f64.u64 - unsigned int64 to FP64
+    PACK    = 52        # cvt.pack - pack two 16-bit values
 
 # Video功能码 (DP4A/DP2A)
 class VideoFunc(IntEnum):
