@@ -139,7 +139,7 @@ endif
 
 .PHONY: all sim wave clean assemble help test test_all regression
 .PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_warp test_sfu test_cvt_unit
-.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization dashboard dashboard-check dashboard-baseline
+.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_perf_counters test_multi_sm test_command_queue test_command_processor test_ralph_gpu_top_cp_integration test_memsys test_l1_data_cache test_phase2 test_warp_valid_d1
 
 # Audited must-run regression suite (stable gates for local + CI).
@@ -631,6 +631,23 @@ dashboard:
 	@echo "Dashboard: docs/PERF_DASHBOARD.md"
 	@echo "JSON:      $(BUILD_DIR)/perf_results.json"
 	@echo "CSV:       $(BUILD_DIR)/perf_results.csv"
+
+# Sprint 21 baseline for issue #286 (GEMM/Tensor focused)
+dashboard-sprint21-baseline:
+	@echo "========================================"
+	@echo "Running Sprint 21 PERF baseline (GEMM/Tensor)"
+	@echo "========================================"
+	$(PYTHON) tools/perf_dashboard.py --run \
+		--workload alu_heavy \
+		--workload tensor \
+		--workload tensor_multiwarp \
+		--repro-cmd "make dashboard-sprint21-baseline" \
+		--json $(BUILD_DIR)/perf_results_sprint21.json \
+		--csv $(BUILD_DIR)/perf_results_sprint21.csv \
+		-o docs/PERF_DASHBOARD.md
+	@echo "Dashboard: docs/PERF_DASHBOARD.md"
+	@echo "JSON:      $(BUILD_DIR)/perf_results_sprint21.json"
+	@echo "CSV:       $(BUILD_DIR)/perf_results_sprint21.csv"
 
 # Dashboard with regression check against baseline
 dashboard-check:

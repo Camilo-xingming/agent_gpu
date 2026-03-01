@@ -75,6 +75,23 @@ WORKLOADS = {
 }
 
 
+def resolve_workload_ids(selected: Optional[List[str]]) -> List[str]:
+    """Return workload ids in a stable order, optionally filtered by user input."""
+    if not selected:
+        return list(WORKLOADS.keys())
+
+    seen = set()
+    ordered = []
+    for wid in selected:
+        if wid not in WORKLOADS:
+            raise ValueError(f"Unknown workload: {wid}")
+        if wid in seen:
+            continue
+        ordered.append(wid)
+        seen.add(wid)
+    return ordered
+
+
 # ============================================================================
 # Data Model
 # ============================================================================
@@ -246,10 +263,12 @@ def run_benchmark(target: str) -> str:
         return f"ERROR: {e}"
 
 
-def run_all_benchmarks() -> List[PerfMetrics]:
-    """Run all defined workloads and collect metrics."""
+def run_all_benchmarks(selected_workloads: Optional[List[str]] = None) -> List[PerfMetrics]:
+    """Run workloads and collect metrics."""
     results = []
-    for wid, wdef in WORKLOADS.items():
+    workload_ids = resolve_workload_ids(selected_workloads)
+    for wid in workload_ids:
+        wdef = WORKLOADS[wid]
         print(f"Running {wdef['name']}...", file=sys.stderr)
         output = run_benchmark(wdef["make_target"])
 
@@ -367,7 +386,8 @@ def _bar(pct: float, width: int = 20) -> str:
 
 
 def generate_markdown(results: List[PerfMetrics],
-                      alerts: Optional[List[str]] = None) -> str:
+                      alerts: Optional[List[str]] = None,
+                      repro_cmd: Optional[str] = None) -> str:
     """Generate Markdown dashboard report."""
     commit = _git_commit()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -379,6 +399,12 @@ def generate_markdown(results: List[PerfMetrics],
         f"**Commit:** `{commit}`",
         "",
     ]
+
+    if repro_cmd:
+        lines.append("## Reproduce")
+        lines.append("")
+        lines.append(f"Run: `{repro_cmd}`")
+        lines.append("")
 
     # Regression alerts
     if alerts:
@@ -403,6 +429,23 @@ def generate_markdown(results: List[PerfMetrics],
         lines.append(
             f"| {wname} | {r.category} | {r.status} | "
             f"{r.cycles:,} | {r.instructions:,} | {r.ipc:.3f} | {r.stall_pct:.1f}% |"
+        )
+    lines.append("")
+
+    # KPI table required for reproducible baselines.
+    lines.append("## Baseline KPI (Cycles/IPC/Stalls)")
+    lines.append("")
+    lines.append("| Workload | Cycles | IPC | Stall Mem | Stall Scoreboard | Stall Fetch |")
+    lines.append("|----------|--------|-----|-----------|------------------|-------------|")
+    for r in results:
+        if not r.cycles:
+            continue
+        wname = WORKLOADS.get(r.workload, {}).get("name", r.workload)
+        lines.append(
+            f"| {wname} | {r.cycles:,} | {r.ipc:.3f} | "
+            f"{r.stall_mem} ({r.stall_mem / r.cycles * 100:.1f}%) | "
+            f"{r.stall_raw} ({r.stall_raw / r.cycles * 100:.1f}%) | "
+            f"{r.stall_ifetch} ({r.stall_ifetch / r.cycles * 100:.1f}%) |"
         )
     lines.append("")
 
@@ -450,7 +493,9 @@ def generate_markdown(results: List[PerfMetrics],
     lines.append("")
     lines.append("| ID | Name | Category | Description |")
     lines.append("|----|------|----------|-------------|")
-    for wid, wdef in WORKLOADS.items():
+    used_workloads = [r.workload for r in results if r.workload in WORKLOADS]
+    for wid in resolve_workload_ids(used_workloads):
+        wdef = WORKLOADS[wid]
         lines.append(f"| `{wid}` | {wdef['name']} | {wdef['category']} | {wdef['description']} |")
     lines.append("")
 
@@ -474,6 +519,8 @@ def main():
                         help="Run all benchmark workloads")
     parser.add_argument("--parse", action="append", metavar="FILE",
                         help="Parse existing log file(s)")
+    parser.add_argument("--workload", action="append", choices=sorted(WORKLOADS.keys()),
+                        help="Workload id(s) to run/filter (repeatable)")
     parser.add_argument("--baseline", type=Path, metavar="FILE",
                         help="Baseline JSON for regression detection")
     parser.add_argument("--threshold", type=float, default=5.0,
@@ -482,6 +529,8 @@ def main():
                         help="Export results to CSV")
     parser.add_argument("--json", type=Path, metavar="FILE",
                         help="Export results to JSON")
+    parser.add_argument("--repro-cmd", type=str,
+                        help="Command used to reproduce this report")
     parser.add_argument("-o", "--output", type=Path,
                         default=PROJECT_ROOT / "docs" / "PERF_DASHBOARD.md",
                         help="Markdown output path")
@@ -495,8 +544,10 @@ def main():
 
     results: List[PerfMetrics] = []
 
+    selected_workloads = resolve_workload_ids(args.workload) if args.workload else None
+
     if args.run:
-        results = run_all_benchmarks()
+        results = run_all_benchmarks(selected_workloads)
     elif args.parse:
         for i, filepath in enumerate(args.parse):
             p = Path(filepath)
@@ -507,11 +558,15 @@ def main():
             # Derive workload name from filename
             wid = p.stem.replace("dashboard_", "").replace("bench_", "")
             cat = "Unknown"
-            for k, v in WORKLOADS.items():
-                if k in wid or wid in k:
-                    wid = k
-                    cat = v["category"]
-                    break
+            if wid in WORKLOADS:
+                cat = WORKLOADS[wid]["category"]
+            else:
+                matches = [k for k in WORKLOADS if k in wid or wid in k]
+                if matches:
+                    wid = max(matches, key=len)
+                    cat = WORKLOADS[wid]["category"]
+            if selected_workloads and wid not in selected_workloads:
+                continue
             results.append(parse_sim_output(content, workload=wid, category=cat))
 
     if not results:
@@ -533,7 +588,7 @@ def main():
         export_json(results, args.json)
 
     # Markdown report
-    report = generate_markdown(results, alerts)
+    report = generate_markdown(results, alerts, args.repro_cmd)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report)
     if not args.quiet:
