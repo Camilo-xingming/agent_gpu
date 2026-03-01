@@ -144,7 +144,9 @@ module l2_cache #(
     wire [ADDR_WIDTH-1:0] bank_req_addr [0:NUM_BANKS-1];
     wire [LINE_BITS-1:0] bank_req_wdata [0:NUM_BANKS-1];
     wire [LINE_SIZE-1:0] bank_req_wmask [0:NUM_BANKS-1];
+    wire [3:0]           bank_req_port_id [0:NUM_BANKS-1];
     wire [NUM_BANKS-1:0] bank_ready;
+    wire [3:0]           bank_resp_port_id [0:NUM_BANKS-1];
     wire [NUM_BANKS-1:0] bank_mem_req_valid;
     wire [NUM_BANKS-1:0] bank_mem_req_write;
     wire [ADDR_WIDTH-1:0] bank_mem_req_addr [0:NUM_BANKS-1];
@@ -169,6 +171,7 @@ module l2_cache #(
             assign bank_req_addr[b]  = l1_req_addr[winning_port*ADDR_WIDTH +: ADDR_WIDTH];
             assign bank_req_wdata[b] = l1_req_wdata[winning_port*LINE_BITS +: LINE_BITS];
             assign bank_req_wmask[b] = l1_req_wmask[winning_port*LINE_SIZE +: LINE_SIZE];
+            assign bank_req_port_id[b] = winning_port[3:0];
 
             // Cache bank instance
             l2_cache_bank #(
@@ -176,7 +179,8 @@ module l2_cache #(
                 .NUM_WAYS       (NUM_WAYS),
                 .LINE_SIZE      (LINE_SIZE),
                 .ADDR_WIDTH     (ADDR_WIDTH),
-                .MSHR_ENTRIES   (MSHR_ENTRIES / NUM_BANKS)
+                .MSHR_ENTRIES   (MSHR_ENTRIES / NUM_BANKS),
+                .PORT_ID_WIDTH  (4)
             ) u_bank (
                 .clk            (clk),
                 .rst_n          (rst_n),
@@ -185,8 +189,10 @@ module l2_cache #(
                 .req_addr       (bank_req_addr[b]),
                 .req_wdata      (bank_req_wdata[b]),
                 .req_wmask      (bank_req_wmask[b]),
+                .req_port_id    (bank_req_port_id[b]),
                 .req_ready      (bank_ready[b]),
                 .resp_valid     (bank_resp_valid[b]),
+                .resp_port_id   (bank_resp_port_id[b]),
                 .resp_rdata     (bank_rdata[b]),
                 .hit            (bank_hit[b]),
                 .miss           (bank_miss[b]),
@@ -239,7 +245,8 @@ module l2_cache #(
 
             // Response valid when pending and bank responds
             assign l1_resp_valid[p] = port_pending[p] &&
-                                      bank_resp_valid[port_pending_bank[p]];
+                                      bank_resp_valid[port_pending_bank[p]] &&
+                                      (bank_resp_port_id[port_pending_bank[p]] == p[3:0]);
 
             // Response data from appropriate bank
             assign l1_resp_rdata[p*LINE_BITS +: LINE_BITS] =
@@ -356,7 +363,8 @@ module l2_cache_bank #(
     parameter NUM_WAYS      = 16,
     parameter LINE_SIZE     = 128,          // 128 bytes
     parameter ADDR_WIDTH    = 32,
-    parameter MSHR_ENTRIES  = 4
+    parameter MSHR_ENTRIES  = 4,
+    parameter PORT_ID_WIDTH = 4
 )(
     input  wire                         clk,
     input  wire                         rst_n,
@@ -366,9 +374,11 @@ module l2_cache_bank #(
     input  wire [ADDR_WIDTH-1:0]        req_addr,
     input  wire [LINE_SIZE*8-1:0]       req_wdata,
     input  wire [LINE_SIZE-1:0]         req_wmask,
+    input  wire [PORT_ID_WIDTH-1:0]     req_port_id,
     output wire                         req_ready,
 
     output reg                          resp_valid,
+    output reg  [PORT_ID_WIDTH-1:0]     resp_port_id,
     output reg  [LINE_SIZE*8-1:0]       resp_rdata,
 
     output reg                          hit,
@@ -474,6 +484,7 @@ module l2_cache_bank #(
     reg [LINE_SIZE-1:0] wmask_reg;
     reg write_reg;
     reg [WAY_BITS-1:0] way_reg;
+    reg [PORT_ID_WIDTH-1:0] port_id_reg;
 
     assign req_ready = (state == S_IDLE);
 
@@ -515,6 +526,8 @@ module l2_cache_bank #(
             wmask_reg <= 0;
             write_reg <= 0;
             way_reg <= 0;
+            port_id_reg <= 0;
+            resp_port_id <= 0;
 
             // Initialize arrays
             for (i = 0; i < NUM_SETS; i = i + 1) begin
@@ -540,6 +553,7 @@ module l2_cache_bank #(
                         wdata_reg <= req_wdata;
                         wmask_reg <= req_wmask;
                         write_reg <= req_write;
+                        port_id_reg <= req_port_id;
                         state <= S_TAG_CHECK;
                     end
                 end
@@ -558,11 +572,7 @@ module l2_cache_bank #(
                             writeback <= 1'b1;
                             state <= S_WRITEBACK;
                         end else begin
-                            if (write_reg) begin
-                                state <= S_WRITE_ALLOC;
-                            end else begin
-                                state <= S_FILL_REQ;
-                            end
+                            state <= S_FILL_REQ; // Always fetch on miss to support partial writes
                         end
                     end
                 end
@@ -579,6 +589,7 @@ module l2_cache_bank #(
                     // Update LRU
                     lru_state[req_index] <= lru_state[req_index] ^ (1 << way_reg);
                     resp_valid <= 1'b1;
+                    resp_port_id <= port_id_reg;
                     state <= S_IDLE;
                 end
 
@@ -587,9 +598,8 @@ module l2_cache_bank #(
                     mem_req_write <= 1'b1;
                     mem_req_addr  <= victim_addr;
                     mem_req_wdata <= data_array[req_index][way_reg];
-                    if (write_reg) begin
-                        state <= S_WRITE_ALLOC;
-                    end else begin
+                    if (mem_req_ready) begin
+                        mem_req_valid <= 1'b0;
                         state <= S_FILL_REQ;
                     end
                 end
@@ -598,15 +608,10 @@ module l2_cache_bank #(
                     mem_req_valid <= 1'b1;
                     mem_req_write <= 1'b0;
                     mem_req_addr  <= {req_tag, req_index, {OFFSET_BITS{1'b0}}};
-                    data_array[req_index][way_reg] <= mem_fill_valid ?
-                        mem_fill_data : {LINE_BITS{1'b0}};
-                    dirty_array[req_index][way_reg] <= 1'b0;
-                    tag_array[req_index][way_reg] <= req_tag;
-                    valid_array[req_index][way_reg] <= 1'b1;
-                    lru_state[req_index] <= lru_state[req_index] ^ (1 << way_reg);
-                    resp_rdata <= mem_fill_valid ? mem_fill_data : {LINE_BITS{1'b0}};
-                    resp_valid <= 1'b1;
-                    state <= S_IDLE;
+                    if (mem_req_ready) begin
+                        mem_req_valid <= 1'b0;
+                        state <= S_WAIT_FILL;
+                    end
                 end
 
                 S_WAIT_FILL: begin
@@ -624,11 +629,13 @@ module l2_cache_bank #(
                         valid_array[req_index][way_reg] <= 1'b1;
                         lru_state[req_index] <= lru_state[req_index] ^ (1 << way_reg);
                         resp_valid <= 1'b1;
+                        resp_port_id <= port_id_reg;
                         state <= S_IDLE;
                     end
                 end
 
                 S_WRITE_ALLOC: begin
+                    // Deprecated: Partial writes require fetch (handled in S_WAIT_FILL)
                     data_array[req_index][way_reg] <= write_alloc_line;
                     dirty_array[req_index][way_reg] <= 1'b1;
                     tag_array[req_index][way_reg] <= req_tag;
@@ -636,6 +643,7 @@ module l2_cache_bank #(
                     lru_state[req_index] <= lru_state[req_index] ^ (1 << way_reg);
                     resp_rdata <= write_alloc_line;
                     resp_valid <= 1'b1;
+                    resp_port_id <= port_id_reg;
                     state <= S_IDLE;
                 end
 
