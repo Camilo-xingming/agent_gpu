@@ -138,9 +138,9 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all regression
-.PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_warp test_sfu
-.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization dashboard dashboard-check dashboard-baseline
-.PHONY: test_vector_add test_multi_sm test_command_queue test_command_processor test_memsys test_l1_data_cache test_phase2
+.PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_warp test_sfu test_cvt_unit
+.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization dashboard dashboard-check dashboard-baseline
+.PHONY: test_vector_add test_perf_counters test_multi_sm test_command_queue test_command_processor test_memsys test_l1_data_cache test_phase2 test_warp_valid_d1
 
 # Audited must-run regression suite (stable gates for local + CI).
 # Non-gating/extended tests are tracked separately and can be run via:
@@ -150,13 +150,19 @@ REGRESSION_MUST_RUN_TARGETS = \
 	test_regfile_banked \
 	test_bw_scheduler_scoreboard \
 	test_sfu \
+	test_cvt_unit \
 	test_tensor_fp4_fp8 \
 	test_tensor_fp4_fp8_frm \
 	test_phase2 \
 	test_sm_v2_core \
 	test_tensor_core_fp4 \
-	test_sm_v2_sched_raw_hazard \
+	test_raw_hazard \
 	test_sm_v2_perf_gemm16_ptx \
+	test_sm_v2_perf_gemm16_wmma_ptx \
+	test_sm_v2_perf_gemm64_wgmma_ptx \
+	test_warp_valid_d1 \
+	test_command_processor \
+	test_perf_counters \
 	test_cron_optimization \
 	bench_atomic_minimal \
 	bench_app_compile
@@ -166,11 +172,9 @@ REGRESSION_EXTENDED_TARGETS = \
 	test_vector_add \
 	test_multi_sm \
 	test_sm_v2_full \
-	test_sm_v2_perf_gemm16_wmma_ptx \
-	test_sm_v2_perf_gemm64_wgmma_ptx \
 	test_sm_v2_perf_tensor \
 	test_sm_v2_perf_tensor_multiwarp \
-	test_warp_valid_d1 \
+	test_l1_data_cache \
 	test_dual_fetch \
 	test_ptx \
 	bench_atomics \
@@ -314,6 +318,15 @@ test_sfu: $(BUILD_DIR)/tb_sfu.vvp
 $(BUILD_DIR)/tb_sfu.vvp: $(RTL_DIR)/sfu.v $(RTL_DIR)/gpu_defines.vh $(TB_DIR)/tb_sfu.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_sfu.v $(RTL_DIR)/sfu.v
 
+test_cvt_unit: $(BUILD_DIR)/tb_cvt_unit.vvp
+	@echo "========================================"
+	@echo "Running CVT Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_cvt_unit.vvp
+
+$(BUILD_DIR)/tb_cvt_unit.vvp: $(TB_DIR)/tb_cvt_unit.v $(RTL_DIR)/cvt_unit.v $(RTL_DIR)/gpu_defines.vh | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_cvt_unit.v $(RTL_DIR)/cvt_unit.v
+
 #----------------------------------------------------------------------------
 # Tensor Core FP4 Sanity Test
 #----------------------------------------------------------------------------
@@ -350,7 +363,10 @@ $(BUILD_DIR)/tb_tensor_fp4_fp8_frm_generated.vvp: $(BUILD_DIR)/tb_tensor_fp4_fp8
 #----------------------------------------------------------------------------
 # 集成测试
 #----------------------------------------------------------------------------
-test_vector_add: $(BUILD_DIR)/tb_vector_add.vvp
+$(BUILD_DIR)/vector_add.hex: $(EXAMPLES_DIR)/vector_add.ptx | $(BUILD_DIR)
+	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
+
+test_vector_add: $(BUILD_DIR)/tb_vector_add.vvp $(BUILD_DIR)/vector_add.hex
 	@echo "========================================"
 	@echo "Running Vector Addition Integration Test"
 	@echo "========================================"
@@ -358,6 +374,15 @@ test_vector_add: $(BUILD_DIR)/tb_vector_add.vvp
 
 $(BUILD_DIR)/tb_vector_add.vvp: $(RTL_SRCS) $(TB_VADD) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_VADD) $(filter %.v,$(RTL_SRCS))
+
+test_perf_counters: $(BUILD_DIR)/tb_perf_counters.vvp $(BUILD_DIR)/vector_add.hex
+	@echo "========================================"
+	@echo "Running Performance Counters Integration Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_perf_counters.vvp
+
+$(BUILD_DIR)/tb_perf_counters.vvp: $(RTL_SRCS) $(TB_DIR)/tb_perf_counters.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_perf_counters.v $(filter %.v,$(RTL_SRCS))
 
 test_multi_sm: $(BUILD_DIR)/tb_multi_sm.vvp
 	@echo "========================================"
@@ -519,6 +544,10 @@ test_sm_v2_sched_raw_hazard: $(BUILD_DIR)/tb_sm_v2_sched_raw_hazard.vvp
 
 $(BUILD_DIR)/tb_sm_v2_sched_raw_hazard.vvp: $(SM_V2_SRCS) $(TB_SM_V2_SCHED_RAW) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(SM_V2_DEFINES) -o $@ $(TB_SM_V2_SCHED_RAW) $(filter %.v,$(SM_V2_SRCS))
+
+# Alias for regression audit naming consistency.
+test_raw_hazard: test_sm_v2_sched_raw_hazard
+	@echo "Alias target completed: test_sm_v2_sched_raw_hazard"
 
 #----------------------------------------------------------------------------
 # Track 1-2 Performance Benchmarks (Atomics + Divergence)
@@ -776,13 +805,16 @@ help:
 	@echo "  test_regfile  - Test register file"
 	@echo "  test_smem     - Test shared memory"
 	@echo "  test_warp     - Test warp scheduler"
+	@echo "  test_cvt_unit - Test CVT conversion unit"
 	@echo "  test_tensor_core_fp4 - Tensor Core FP4 sanity test"
 	@echo "  test_tensor_fp4_fp8 - Tensor Core FP4/FP8 handwritten e2e test"
 	@echo "  test_tensor_fp4_fp8_frm - Tensor Core FP4/FP8 generated RTL vs FRM e2e"
 	@echo ""
 	@echo "Integration Tests:"
 	@echo "  test_vector_add - Test vector addition kernel"
+	@echo "  test_perf_counters - Test top-level perf counters integration"
 	@echo "  test_multi_sm   - Test multi-SM parallel execution"
+	@echo "  test_raw_hazard - Alias for SM V2 scheduler RAW hazard gating test"
 	@echo "  test_sm_v2_perf - SM V2 FP32 FMA performance microbenchmark"
 	@echo "  test_sm_v2_perf_gemm16_ptx - SM V2 PTX-driven GEMM 16x16x16 microbenchmark"
 	@echo "  test_sm_v2_perf_gemm16_wmma_ptx - SM V2 PTX WMMA GEMM 16x16x16 path test"

@@ -46,13 +46,19 @@ If any target fails, it also prints `Failed targets: ...` and exits non-zero (CI
 `test_regfile_banked`
 `test_bw_scheduler_scoreboard`
 `test_sfu`
+`test_cvt_unit`
 `test_tensor_fp4_fp8`
 `test_tensor_fp4_fp8_frm`
 `test_phase2`
 `test_sm_v2_core`
 `test_tensor_core_fp4`
-`test_sm_v2_sched_raw_hazard`
+`test_raw_hazard`
 `test_sm_v2_perf_gemm16_ptx`
+`test_sm_v2_perf_gemm16_wmma_ptx`
+`test_sm_v2_perf_gemm64_wgmma_ptx`
+`test_warp_valid_d1`
+`test_command_processor`
+`test_perf_counters`
 `test_cron_optimization`
 `bench_atomic_minimal`
 `bench_app_compile`
@@ -69,11 +75,9 @@ Extended set:
 `test_vector_add`
 `test_multi_sm`
 `test_sm_v2_full`
-`test_sm_v2_perf_gemm16_wmma_ptx`
-`test_sm_v2_perf_gemm64_wgmma_ptx`
 `test_sm_v2_perf_tensor`
 `test_sm_v2_perf_tensor_multiwarp`
-`test_warp_valid_d1`
+`test_l1_data_cache`
 `test_dual_fetch`
 `test_ptx`
 `bench_atomics`
@@ -81,8 +85,10 @@ Extended set:
 
 ### Audit notes
 
-- On March 1, 2026 `test_tensor_core_fp4`, `test_sm_v2_sched_raw_hazard`, and `test_sm_v2_perf_gemm16_ptx` were stabilized and promoted into the must-run gating suite.
-- Remaining known extended failures/noise include `test_vector_add`, `test_sm_v2_perf_gemm16_wmma_ptx`, and very long/noisy execution in `test_multi_sm` and `test_ptx`.
+- On March 1, 2026 the gating suite was expanded from 14 to 20 targets by promoting `test_cvt_unit`, `test_warp_valid_d1`, `test_sm_v2_perf_gemm16_wmma_ptx`, `test_sm_v2_perf_gemm64_wgmma_ptx`, and `test_perf_counters`.
+- `test_raw_hazard` is a gating alias that resolves to `test_sm_v2_sched_raw_hazard` (the audited iverilog-compatible RAW hazard path).
+- `tb_raw_hazard.v` is currently not in gating because it is not interface-compatible with the current `streaming_multiprocessor_v2` port map under iverilog.
+- Known extended failures/noise include `test_l1_data_cache` and `test_dual_fetch`; long/noisy execution remains in `test_multi_sm` and `test_ptx`.
 - Aggregate wrappers are intentionally excluded from gating to avoid duplicate work: `test_all`, `bench_all`, `test_sm_v2`.
 - Alias target `test_sm_v2_perf` remains excluded from gating to avoid duplicate work because it maps to must-run target `test_sm_v2_perf_gemm16_ptx`.
 - Non-regression operational targets (`dashboard*`, `perf_report`, `wave`, etc.) are not part of pass/fail gating.

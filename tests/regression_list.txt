@@ -1,17 +1,23 @@
-# RalphGPU regression list
+# RalphGPU audited regression list (must-run gating suite)
 # One command per line. Lines starting with # are ignored.
 
-make test_alu
-make test_mul
-make test_decoder
-make test_regfile
-make test_smem
-make test_warp
-make test_vector_add
-make test_multi_sm
-make test_sm_v2_full
-make test_sm_v2_perf
-make test_sm_v2_perf_gemm16_ptx
-make test_sm_v2_perf_tensor
-make test_sm_v2_perf_tensor_multiwarp
+make test
+make test_regfile_banked
+make test_bw_scheduler_scoreboard
+make test_sfu
+make test_cvt_unit
+make test_tensor_fp4_fp8
+make test_tensor_fp4_fp8_frm
+make test_phase2
+make test_sm_v2_core
 make test_tensor_core_fp4
+make test_raw_hazard
+make test_sm_v2_perf_gemm16_ptx
+make test_sm_v2_perf_gemm16_wmma_ptx
+make test_sm_v2_perf_gemm64_wgmma_ptx
+make test_warp_valid_d1
+make test_command_processor
+make test_perf_counters
+make test_cron_optimization
+make bench_atomic_minimal
+make bench_app_compile
