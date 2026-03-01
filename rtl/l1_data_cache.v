@@ -436,6 +436,10 @@ module l1_data_cache #(
                 ST_DONE: begin
                     // 完成状态，返回IDLE
                 end
+
+                default: begin
+                    // Explicit default prevents CASEINCOMPLETE when state is X/unused encoding.
+                end
             endcase
 
             //----------------------------------------------------------------

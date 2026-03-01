@@ -386,7 +386,7 @@ module alu (
                 lzc = 0;
                 for (i = 31; i >= 0; i = i - 1) begin
                     if (abs_val[i]) begin
-                        lzc = 31 - i;
+                        lzc = 5'd31 - i[4:0];
                         i = -1;
                     end
                 end
@@ -413,7 +413,7 @@ module alu (
                 lzc = 0;
                 for (i = 31; i >= 0; i = i - 1) begin
                     if (tmp_u32[i]) begin
-                        lzc = 31 - i;
+                        lzc = 5'd31 - i[4:0];
                         i = -1;
                     end
                 end
