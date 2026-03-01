@@ -8,6 +8,7 @@
 |------|------|
 | [RACI.md](RACI.md) | 职责分配矩阵 (R/A/C/I) |
 | [DoD.md](DoD.md) | Definition of Done — PR 级和 Sprint 级完成标准 |
+| [pr-submission.md](pr-submission.md) | PR 提交流程与 Post-merge SOP（含超时升级、研究时间盒、standup 模板） |
 | [communication-plan.md](communication-plan.md) | 沟通计划 — 频道矩阵、升级路径、标注规则 |
 | [decision-log.md](decision-log.md) | 决策日志 — 重要技术和流程决策的追溯记录 |
 | [velocity.md](velocity.md) | Velocity 追踪 — 每 Sprint 计划/完成/遗留统计 |

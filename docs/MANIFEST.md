@@ -26,6 +26,7 @@
 | pm/README.md | PM 文档索引 | Jerry/SM Coach | 所有人 | 查找 PM 文档时 | pm, index |
 | pm/RACI.md | 职责分配矩阵 (R/A/C/I) | Jerry/SM Coach | 所有人 | 职责不清时 | raci, roles, responsibility |
 | pm/DoD.md | Definition of Done（PR 级 + Sprint 级） | Jerry/SM Coach | Lily + Coders | PR review / Sprint Review | dod, done, criteria |
+| pm/pr-submission.md | PR 提交流程 + Post-merge SOP（30min 升级、2h 时间盒、standup 模板） | Jerry/SM Coach | Lily + Coders | 提 PR / merge 后 / 日常 standup | pr, post-merge, sop, timeout |
 | pm/communication-plan.md | 沟通计划：频道矩阵、升级路径、标注规则 | Jerry/SM Coach | 所有人 | 新 agent 上线 / 沟通问题时 | communication, discord, escalation |
 | pm/decision-log.md | 决策日志：重要技术和流程决策追溯 | Jerry/Lily | 所有人 | 追溯决策原因时 | decision, log, why |
 | pm/velocity.md | Velocity 追踪：每 Sprint 计划/完成统计 | Lily (review cron) | Jerry/Lily | Sprint Review / Planning | velocity, sprint, metrics |
