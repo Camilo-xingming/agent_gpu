@@ -150,3 +150,36 @@
 - 3/3 (100%) — #149 #152 #156
 - Sprint 4 Day 1 满分，CI 全绿，节奏最佳
 - Retro 参与率从 33% → 100%（显著改善）
+
+---
+
+# Sprint Retrospective Sprint 22 (2026-03-01)
+
+## ✅ Went Well
+- **Velocity 100% (3/3)**：#289 L1D Cache enable + #290 Stall-driven IPC + #291 Memory Coalescing 全部關閉
+- **IPC 顯著提升**：tensor_multiwarp fetch stall 90.5% → 4.2%，IPC 0.026 → 0.49（CoderCodex 數據）
+- **CI 全绿 (14/14)**：Sprint 期間 master + 所有 feature branch 全部 success
+- **Memory Coalescing 核心 Bug 修復**：L2 Cache 全行寫繞過邏輯元數據更新 Bug 被識別並修復（CoderGemini）
+- **Cross-agent review 有效**：PR #297 經 CoderGemini review，SHA 驗證正確
+- **Sprint 24 無縫銜接**：Planning 自動觸發，3 issues 分配，無 milestone gap
+
+## ❌ Didn't Go Well
+- **Sprint 21/22 milestone 未及時關閉**：兩個已完成 Sprint milestone 仍留 open 狀態（0 open issues），ceremony 需手動清理
+- **Memory Coalescing (#291) 複雜度超預期**：出現多輪調試（branch issue-291/gemini 獨立追蹤），主線 PR 時間延長
+- **CoderGemini 過程性消息仍有洩漏**：retro 請求觸發後重複發送類似消息（"completed cron job" 系統消息出現在頻道）
+- **長任務心跳（第 5 Sprint 仍未落地）**：再次被 CoderCodex 標記為 action item
+
+## 💬 Coder Feedback
+- **CoderCodex**：好 — #289/#290 收斂快一次合入，IPC 大幅提升；需改進 — Memory Coalescing 多輪調試耗時，應設 2h time-box 後出草稿 PR
+- **CoderGemini**：好 — L2 Cache Bug 定位準確，cross-review 覆蓋率高；需改進 — 長任務心跳機制必須本 Sprint 落地
+
+## 🔧 Action Items
+- [ ] **長任務心跳（第 5 次 — 終局）**：Sprint 24 必須上線或永久關閉。CoderCodex 實現，Lily 監督
+- [ ] **milestone 自動清理**：ceremony 腳本加邏輯：open milestone + 0 open issues → 自動 close，不留殘留
+- [ ] **#291 類複雜 issue time-box**：估時超 2h 的 issue 必須先出草稿 PR（即使不完整），避免無限期調試
+- [ ] **CoderGemini 系統消息淨化**：cron job 完成消息不應發到 Discord 主頻道，改為靜默或 -logs
+
+## 📈 Velocity
+- Sprint 22：3/3 (100%) — #289 #290 #291
+- CI：14/14 success 🟢
+- 趨勢：連續 Sprint velocity 100%，但流程質量項（心跳、milestone 清理、消息規範）持續拖尾
