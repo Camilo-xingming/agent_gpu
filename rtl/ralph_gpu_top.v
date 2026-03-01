@@ -1097,19 +1097,66 @@ module ralph_gpu_top #(
     wire [SM_ID_W-1:0] resp_rd_sm = m_axi_rid[AXI_ID_WIDTH-1 -: SM_ID_W];
     wire [SM_ID_W-1:0] resp_wr_sm = m_axi_bid[AXI_ID_WIDTH-1 -: SM_ID_W];
 
-    // bready/rready: route to target SM
-    assign m_axi_bready = sm_axi_bready[resp_wr_sm];
-    assign m_axi_rready = sm_axi_rready[resp_rd_sm];
+    // Track per-SM outstanding requests so stray responses are ignored.
+    localparam AXI_OUTSTANDING_W = 4;
+    reg [AXI_OUTSTANDING_W-1:0] rd_outstanding [0:NUM_SM-1];
+    reg [AXI_OUTSTANDING_W-1:0] wr_outstanding [0:NUM_SM-1];
+    integer sm_outstanding_i;
+
+    wire aw_hs = axi_aw_valid && m_axi_awready;
+    wire ar_hs = axi_ar_valid && m_axi_arready;
+    wire b_hs = m_axi_bvalid && m_axi_bready;
+    wire r_last_hs = m_axi_rvalid && m_axi_rready && m_axi_rlast;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            for (sm_outstanding_i = 0; sm_outstanding_i < NUM_SM; sm_outstanding_i = sm_outstanding_i + 1) begin
+                rd_outstanding[sm_outstanding_i] <= {AXI_OUTSTANDING_W{1'b0}};
+                wr_outstanding[sm_outstanding_i] <= {AXI_OUTSTANDING_W{1'b0}};
+            end
+        end else begin
+            for (sm_outstanding_i = 0; sm_outstanding_i < NUM_SM; sm_outstanding_i = sm_outstanding_i + 1) begin
+                if ((ar_hs && (axi_ar_sel == sm_outstanding_i[AXI_ARB_W-1:0])) &&
+                    !(r_last_hs && (resp_rd_sm == sm_outstanding_i[SM_ID_W-1:0]) &&
+                      (rd_outstanding[sm_outstanding_i] != {AXI_OUTSTANDING_W{1'b0}}))) begin
+                    if (rd_outstanding[sm_outstanding_i] != {AXI_OUTSTANDING_W{1'b1}})
+                        rd_outstanding[sm_outstanding_i] <= rd_outstanding[sm_outstanding_i] + 1'b1;
+                end else if ((r_last_hs && (resp_rd_sm == sm_outstanding_i[SM_ID_W-1:0]) &&
+                           (rd_outstanding[sm_outstanding_i] != {AXI_OUTSTANDING_W{1'b0}})) &&
+                           !(ar_hs && (axi_ar_sel == sm_outstanding_i[AXI_ARB_W-1:0]))) begin
+                    rd_outstanding[sm_outstanding_i] <= rd_outstanding[sm_outstanding_i] - 1'b1;
+                end
+
+                if ((aw_hs && (axi_aw_sel == sm_outstanding_i[AXI_ARB_W-1:0])) &&
+                    !(b_hs && (resp_wr_sm == sm_outstanding_i[SM_ID_W-1:0]) &&
+                      (wr_outstanding[sm_outstanding_i] != {AXI_OUTSTANDING_W{1'b0}}))) begin
+                    if (wr_outstanding[sm_outstanding_i] != {AXI_OUTSTANDING_W{1'b1}})
+                        wr_outstanding[sm_outstanding_i] <= wr_outstanding[sm_outstanding_i] + 1'b1;
+                end else if ((b_hs && (resp_wr_sm == sm_outstanding_i[SM_ID_W-1:0]) &&
+                           (wr_outstanding[sm_outstanding_i] != {AXI_OUTSTANDING_W{1'b0}})) &&
+                           !(aw_hs && (axi_aw_sel == sm_outstanding_i[AXI_ARB_W-1:0]))) begin
+                    wr_outstanding[sm_outstanding_i] <= wr_outstanding[sm_outstanding_i] - 1'b1;
+                end
+            end
+        end
+    end
+
+    wire rd_resp_known = (rd_outstanding[resp_rd_sm] != {AXI_OUTSTANDING_W{1'b0}});
+    wire wr_resp_known = (wr_outstanding[resp_wr_sm] != {AXI_OUTSTANDING_W{1'b0}});
+
+    // bready/rready: route to target SM only if a matching transaction is outstanding
+    assign m_axi_bready = wr_resp_known ? sm_axi_bready[resp_wr_sm] : 1'b0;
+    assign m_axi_rready = rd_resp_known ? sm_axi_rready[resp_rd_sm] : 1'b0;
 
     // Response demux: gate valid signals to target SM only
     generate
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_resp_demux
-            assign sm_resp_rvalid[sm] = m_axi_rvalid && (resp_rd_sm == sm[SM_ID_W-1:0]);
+            assign sm_resp_rvalid[sm] = m_axi_rvalid && rd_resp_known && (resp_rd_sm == sm[SM_ID_W-1:0]);
             assign sm_resp_rid[sm]    = {{SM_ID_W{1'b0}}, m_axi_rid[AXI_ID_WIDTH-SM_ID_W-1:0]};
             assign sm_resp_rdata[sm]  = m_axi_rdata;
             assign sm_resp_rresp[sm]  = m_axi_rresp;
             assign sm_resp_rlast[sm]  = m_axi_rlast;
-            assign sm_resp_bvalid[sm] = m_axi_bvalid && (resp_wr_sm == sm[SM_ID_W-1:0]);
+            assign sm_resp_bvalid[sm] = m_axi_bvalid && wr_resp_known && (resp_wr_sm == sm[SM_ID_W-1:0]);
             assign sm_resp_bid[sm]    = {{SM_ID_W{1'b0}}, m_axi_bid[AXI_ID_WIDTH-SM_ID_W-1:0]};
             assign sm_resp_bresp[sm]  = m_axi_bresp;
         end
