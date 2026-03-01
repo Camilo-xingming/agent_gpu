@@ -15,7 +15,6 @@
 
 ## 维护规则
 
-- 新增 PM 文档时同步更新本 README 和 `docs/MANIFEST.md`
 - 决策日志由做出决策的人（通常是 Jerry 或 Lily）负责记录
 - Velocity 表由 Sprint Review cron 自动追加
 - 所有文件用中文编写，技术术语保留英文原文

@@ -16,9 +16,8 @@
 | 6 | PR title 关联 Issue（如 `fix #150: xxx`） | watchdog 检查 |
 | 7 | PR description 包含背景、变更内容、测试方法 | Reviewer 确认 |
 | 8 | 不包含 debug 临时代码（`$display` 调试输出、hardcoded 测试值） | Reviewer 确认 |
-| 9 | MANIFEST.md 已更新（如有新增/删除/移动文件） | CI 或 Reviewer 确认 |
-| 10 | branch 已 push 到 remote | watchdog 检查（branch 存在） |
-| 11 | 至少 1 个不同 coder 的 review（cross-review） | watchdog 检查（reviews API） |
+| 9 | branch 已 push 到 remote | watchdog 检查（branch 存在） |
+| 10 | 至少 1 个不同 coder 的 review（cross-review） | watchdog 检查（reviews API） |
 
 ### PR Description 必须包含
 
@@ -52,7 +51,6 @@
 | branch 未 push | 无法 review | 提 PR 前 `git push` |
 | 缺 PR description | Review 效率低 | 用模板填写 |
 | 忘记关联 Issue | Sprint tracking 断裂 | title 带 `#NUM` |
-| MANIFEST 未更新 | CI manifest-check 失败 | 新增文件必更新 |
 
 ## 例外处理
 

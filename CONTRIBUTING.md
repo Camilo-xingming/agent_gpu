@@ -9,7 +9,6 @@
 ```bash
 make lint          # Verilator lint，0 error
 make test          # 全部 testbench pass
-bash tools/check-manifest.sh   # 新文件已加入 MANIFEST.md
 ```
 
 如果修改了 RTL 文件，还需运行：
@@ -55,6 +54,5 @@ PR 描述必须使用 `.github/PULL_REQUEST_TEMPLATE.md` 模板，勾选所有�
 
 | 失败类型 | 占比 | 预防措施 |
 |----------|------|----------|
-| MANIFEST.md 未更新 | 73% | 添加新文件后立即运行 `bash tools/check-manifest.sh` |
 | Verilog 语法错误 | 18% | 提交前运行 `make lint` |
 | Makefile 格式错误 | 9% | 使用 tab 缩进，不要用空格 |
