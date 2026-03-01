@@ -15,13 +15,14 @@ module tb_tensor_core_fp4;
 
     reg op_valid;
     wire op_ready;
-    reg [2:0] op_type;
+    reg [3:0] op_type;
 
     reg  [31:0] frag_a;
     reg  [31:0] frag_b;
     reg  [31:0] frag_c;
     wire [31:0] result_data;
     wire        result_valid;
+    wire        result_ready;
 
     // 1-lane tensor core for a focused FP4 check
     tensor_core #(
@@ -42,8 +43,11 @@ module tb_tensor_core_fp4;
         .frag_b      (frag_b),
         .frag_c      (frag_c),
         .result_valid(result_valid),
+        .result_ready(result_ready),
         .result_data (result_data)
     );
+
+    assign result_ready = 1'b1;
 
     initial begin
         clk = 0;
@@ -53,7 +57,7 @@ module tb_tensor_core_fp4;
     integer timeout;
 
     task run_fp4_case;
-        input [2:0] dtype;
+        input [3:0] dtype;
         input [31:0] expected;
         input [31:0] a_val;
         input [31:0] b_val;
