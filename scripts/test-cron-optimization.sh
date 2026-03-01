@@ -180,6 +180,7 @@ cat > "$FIXTURE_DIR/retro.md" << 'EOF_MD'
 
 ## Action Items
 - [ ] Follow up #42 in planning
+- [x] Completed item #43 (already done)
 EOF_MD
 
 cat > "$FIXTURE_DIR/discord-dev.txt" << 'EOF_DC'
@@ -396,6 +397,9 @@ run_zero_token_and_coverage_test() {
 
   assert_jq "$retro_file" '.scrum_health.coverage_pct >= 95' "retro scrum_health coverage"
   assert_jq "$planning_file" '.scrum_health.coverage_pct >= 95' "planning scrum_health coverage"
+  assert_jq "$retro_file" '([.action_items.github[].text] | index("Follow up #42 in planning")) != null' "retro includes unchecked github action item"
+  assert_jq "$retro_file" '([.action_items.github[].text] | index("Completed item #43 (already done)")) == null' "retro excludes checked github action item"
+  assert_jq "$planning_file" '([.retro_action_items.github[].text] | index("Completed item #43 (already done)")) == null' "planning excludes checked github action item"
   assert_jq "$retro_status" '.component == "retro-gather" and (.state | type == "string")' "retro status file"
   assert_jq "$planning_status" '.component == "sprint-planning-gather" and (.state | type == "string")' "planning status file"
 
