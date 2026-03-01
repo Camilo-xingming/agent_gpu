@@ -11,7 +11,7 @@
 - **Sprint Review → Planning 零延迟链工作正常**：cron chain 自动触发无 gap
 
 ## ❌ Didn't Go Well
-- **每日经济要闻 cron 持续 error（第 2 Sprint）**：未修复，action item 再次滚入
+- **每日经济要闻 cron 曾连续 error（第 2 Sprint）**：已于 2026-02-28 禁用 job 828d4110-1aa7-4616-9fa8-13b2813e6037，终止重复报错（Issue #237）
 - **ist-mac-s SSH hostname 失效**：Codex 必须绕过用 IP (100.81.212.41)，说明 proxy 修复 action item 仍未落地
 - **SHA discipline 违规**：CoderGemini 审查签署了旧 SHA `3d1cae4c`，实际合并 commit 为 `e7832945`，DoD D5 未满足即合并
 - **CoderGemini 原始 JSON 工具调用泄露到 Discord**：多条包含 `startcall:default_api:run_shell_command` 的原始调试输出发到 #ralphgpu-dev，降低频道信噪比

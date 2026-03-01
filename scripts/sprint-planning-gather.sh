@@ -20,7 +20,7 @@ extract_github_action_items() {
         exit
       }
     }
-    in_actions && /^- \[[ xX]\]/ {
+    in_actions && /^- \[[[:space:]]\]/ {
       line = $0
       sub(/^- \[[ xX]\][[:space:]]*/, "", line)
       print line
