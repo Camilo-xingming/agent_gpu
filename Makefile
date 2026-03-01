@@ -140,7 +140,7 @@ endif
 .PHONY: all sim wave clean assemble help test test_all regression
 .PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_warp test_sfu test_cvt_unit
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization dashboard dashboard-check dashboard-baseline
-.PHONY: test_vector_add test_perf_counters test_multi_sm test_command_queue test_command_processor test_memsys test_l1_data_cache test_phase2 test_warp_valid_d1
+.PHONY: test_vector_add test_perf_counters test_multi_sm test_command_queue test_command_processor test_ralph_gpu_top_cp_integration test_memsys test_l1_data_cache test_phase2 test_warp_valid_d1
 
 # Audited must-run regression suite (stable gates for local + CI).
 # Non-gating/extended tests are tracked separately and can be run via:
@@ -162,6 +162,7 @@ REGRESSION_MUST_RUN_TARGETS = \
 	test_sm_v2_perf_gemm64_wgmma_ptx \
 	test_warp_valid_d1 \
 	test_command_processor \
+	test_ralph_gpu_top_cp_integration \
 	test_perf_counters \
 	test_cron_optimization \
 	bench_atomic_minimal \
@@ -905,6 +906,15 @@ test_command_processor: $(BUILD_DIR)/tb_command_processor.vvp
 
 $(BUILD_DIR)/tb_command_processor.vvp: $(RTL_DIR)/command_queue.v $(RTL_DIR)/command_processor.v $(RTL_DIR)/gpu_defines.vh tb/tb_command_processor.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_command_processor.v $(RTL_DIR)/command_queue.v $(RTL_DIR)/command_processor.v
+
+test_ralph_gpu_top_cp_integration: $(BUILD_DIR)/tb_ralph_gpu_top_cp_integration.vvp
+	@echo "========================================"
+	@echo "Running Top-Level Command Processor Integration Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_ralph_gpu_top_cp_integration.vvp
+
+$(BUILD_DIR)/tb_ralph_gpu_top_cp_integration.vvp: $(RTL_SRCS) $(TB_DIR)/tb_ralph_gpu_top_cp_integration.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_ralph_gpu_top_cp_integration.v $(filter %.v,$(RTL_SRCS))
 
 # Optional FPGA vendor-flow targets
 -include fpga/Makefile.fpga
