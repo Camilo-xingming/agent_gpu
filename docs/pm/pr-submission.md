@@ -8,7 +8,6 @@
 - [ ] 分支已 push 到远端，且 PR 目标分支正确（`master`）
 - [ ] PR body 含 `Closes #<num>`
 - [ ] `make test` 与 `make lint` 已执行并记录结果
-- [ ] 若新增/删除文档，已更新 `docs/MANIFEST.md`
 
 ## 2. Post-merge Checklist（必须）
 

@@ -7,7 +7,6 @@ Closes #
 
 - [ ] **Lint passes**: `make lint` runs clean (0 errors on both Verilator 4.x and 5.x)
 - [ ] **Tests pass**: `make test` runs clean
-- [ ] **MANIFEST.md updated**: `bash tools/check-manifest.sh` passes (every new file is listed)
 - [ ] **FRM compare** (if RTL changed): `python3 tools/rtl_frm_compare.py --all` passes
 
 ## Post-merge Checklist (after merging to master)
