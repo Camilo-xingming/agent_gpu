@@ -1,3 +1,28 @@
+# Sprint Retrospective — Sprint 22
+
+## Sprint Goal
+IPC performance optimization — L1 cache enable + stall analysis + memory coalescing
+
+## Velocity: 3/3 (100%)
+- #289 L1D Cache enable — CLOSED
+- #290 Stall-driven IPC optimization — CLOSED
+- #291 Memory Coalescing Unit implementation — CLOSED (PR #297)
+
+## Went Well
+- IPC boost: tensor_multiwarp fetch stall 90.5% to 4.2%, IPC 0.026 to 0.250 (#290 CoderCodex)
+- L1D + MCU integration smooth: 3 issues all merged cleanly, CI 14/14 stable
+- Cross-review quality: CoderGemini caught L1D response floating + Store deadlock in PR #297, fixed by CoderCodex before merge
+- L2 Cache metadata bug fix: CoderGemini identified way_reg sampling issue in full-line write bypass
+
+## Did Not Go Well
+- #291 interface spec insufficient: MCU-SM-L1D handshake issues found late in review, not in design doc (CoderCodex)
+- vector_add baseline failure not isolated early: pre-existing failure discovered at Sprint end (CoderCodex)
+- L2 fix initial way_reg sampling miss: FSM state transition missed correct sampling, required retry (CoderGemini)
+
+## Action Items (Sprint 24)
+- Interface closure check: verify all new module request/response paths before PR submission
+- Baseline smoke test upfront: run vector_add + cvt_unit at Sprint start, post results to Issue
+- FSM trace observability: establish complete trace points for complex FSM transitions
 # Sprint Retrospective 2026-02-28
 
 ## ✅ Went Well
