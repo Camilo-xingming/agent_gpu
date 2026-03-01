@@ -8,6 +8,10 @@
 
 `include "../rtl/gpu_defines.vh"
 
+`ifndef TB_L1D_BYPASS
+`define TB_L1D_BYPASS 0
+`endif
+
 module tb_perf_counters;
 
     //------------------------------------------------------------------------
@@ -69,7 +73,11 @@ module tb_perf_counters;
     //------------------------------------------------------------------------
     // DUT实例化
     //------------------------------------------------------------------------
-    ralph_gpu_top dut (
+    localparam integer TB_L1D_BYPASS_CFG = `TB_L1D_BYPASS;
+
+    ralph_gpu_top #(
+        .L1D_BYPASS(TB_L1D_BYPASS_CFG)
+    ) dut (
         .clk             (clk),
         .rst_n           (rst_n),
         .csr_wr_en       (csr_wr_en),
@@ -227,6 +235,7 @@ module tb_perf_counters;
         $display("RalphGPU Vector Addition Integration Test");
         $display("============================================================");
         $display("Kernel: C[i] = A[i] + B[i]");
+        $display("TB_L1D_BYPASS=%0d (0=enable L1D, 1=bypass)", TB_L1D_BYPASS_CFG);
         $display("============================================================");
 
         // 初始化
