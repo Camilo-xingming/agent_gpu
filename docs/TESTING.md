@@ -93,6 +93,23 @@ Extended set:
 - Alias target `test_sm_v2_perf` remains excluded from gating to avoid duplicate work because it maps to must-run target `test_sm_v2_perf_gemm16_ptx`.
 - Non-regression operational targets (`dashboard*`, `perf_report`, `wave`, etc.) are not part of pass/fail gating.
 
+## L1D IPC Compare (Issue #289)
+
+Use this helper to compare top-level perf-counter IPC with cache bypass on/off:
+
+```bash
+make bench_l1d_ipc_compare
+```
+
+It runs `test_perf_counters` twice:
+- `TB_L1D_BYPASS=1` (cache bypass)
+- `TB_L1D_BYPASS=0` (L1D enabled)
+
+Output includes:
+- integration status for each mode
+- `IPC bypass=... enable=... delta=...` summary
+- logs in `build/l1d_ipc_bypass.log` and `build/l1d_ipc_enable.log`
+
 ## Tensor multiwarp perf test (current hotspot)
 
 ```bash
