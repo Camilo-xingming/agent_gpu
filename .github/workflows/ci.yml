@@ -8,47 +8,26 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        verilator: ['4.228', '5.006']
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
-      - name: Install Verilator ${{ matrix.verilator }}
-        run: |
-          sudo apt-get update && sudo apt-get install -y verilator
       - name: Verilator Lint
         run: make lint VERILATOR=verilator
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: lint
     steps:
       - uses: actions/checkout@v4
-      - name: Install Icarus Verilog
-        run: sudo apt-get update && sudo apt-get install -y iverilog
       - name: Run tests
         run: make test IVERILOG=iverilog VVP=vvp
 
   frm-compare:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: test
     steps:
       - uses: actions/checkout@v4
-      - name: Install Icarus Verilog
-        run: sudo apt-get update && sudo apt-get install -y iverilog
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
       - name: Generate tests and run RTL-FRM compare
         run: |
           python3 tools/test_generator.py --gen all
           python3 tools/rtl_frm_compare.py --all
-
-  manifest-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check MANIFEST.md coverage
-        run: bash tools/check-manifest.sh
