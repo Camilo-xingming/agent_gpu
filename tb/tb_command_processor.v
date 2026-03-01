@@ -1,11 +1,5 @@
 //============================================================================
-// Testbench for Command Processor (Issue #151)
-//
-// Tests:
-// 1. Legacy mode: CSR-direct kernel launch (backward compat)
-// 2. Queue mode: single kernel via command queue
-// 3. Queue mode: multi-kernel sequential dispatch
-// 4. Fence and interrupt mechanism
+// Testbench for Command Processor (Issue #151/#266)
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -21,6 +15,13 @@ module tb_command_processor;
     // CSR addresses
     localparam CSR_GPU_STATUS        = 12'h000;
     localparam CSR_GPU_CONTROL       = 12'h004;
+    localparam CSR_KERNEL_PC         = 12'h008;
+    localparam CSR_GRID_DIM_X        = 12'h00C;
+    localparam CSR_GRID_DIM_Y        = 12'h010;
+    localparam CSR_GRID_DIM_Z        = 12'h014;
+    localparam CSR_BLOCK_DIM_X       = 12'h018;
+    localparam CSR_BLOCK_DIM_Y       = 12'h01C;
+    localparam CSR_BLOCK_DIM_Z       = 12'h020;
     localparam CSR_CMD_QUEUE_TAIL    = 12'h040;
     localparam CSR_CMD_FENCE_VALUE   = 12'h044;
     localparam CSR_CMD_FENCE_SIGNAL  = 12'h048;
@@ -45,26 +46,31 @@ module tb_command_processor;
     wire [31:0] csr_rd_data;
     wire        csr_rd_valid;
 
-    reg         legacy_kernel_start;
-    reg  [31:0] legacy_kernel_pc;
-    reg  [31:0] legacy_grid_dim_x, legacy_grid_dim_y, legacy_grid_dim_z;
-    reg  [31:0] legacy_block_dim_x, legacy_block_dim_y, legacy_block_dim_z;
-
     wire [NUM_SM-1:0] sm_kernel_start;
     wire [31:0]       sm_kernel_pc;
     wire [31:0]       sm_block_dim_x, sm_block_dim_y, sm_block_dim_z;
     wire [31:0]       sm_grid_dim_x, sm_grid_dim_y, sm_grid_dim_z;
-    wire        gpu_busy;
-    wire        irq_kernel_done;
-    wire [31:0] fence_value;
+    wire              gpu_busy;
+    wire              irq_kernel_done;
+    wire [31:0]       fence_value;
+    wire              kernel_launch_pulse;
 
     // SM done simulation
     reg [NUM_SM-1:0] sm_done_reg;
 
-    // sm_block_id wires
-    wire [31:0] sm_block_id_x [0:NUM_SM-1];
-    wire [31:0] sm_block_id_y [0:NUM_SM-1];
-    wire [31:0] sm_block_id_z [0:NUM_SM-1];
+    // sm_block_id flattened buses
+    wire [NUM_SM*32-1:0] sm_block_id_x;
+    wire [NUM_SM*32-1:0] sm_block_id_y;
+    wire [NUM_SM*32-1:0] sm_block_id_z;
+
+    // Phase 2 AXI stubs
+    wire        m_axi_arvalid;
+    wire [31:0] m_axi_araddr;
+    reg         m_axi_arready;
+    reg  [31:0] m_axi_rdata;
+    reg  [1:0]  m_axi_rresp;
+    reg         m_axi_rvalid;
+    wire        m_axi_rready;
 
     //------------------------------------------------------------------------
     // DUT
@@ -74,36 +80,36 @@ module tb_command_processor;
         .QUEUE_DEPTH (QUEUE_DEPTH),
         .DESC_WORDS  (DESC_WORDS)
     ) u_cp (
-        .clk              (clk),
-        .rst_n            (rst_n),
-        .csr_wr_en        (csr_wr_en),
-        .csr_addr         (csr_addr),
-        .csr_wr_data      (csr_wr_data),
-        .csr_rd_data      (csr_rd_data),
-        .csr_rd_valid     (csr_rd_valid),
-        .legacy_kernel_start (legacy_kernel_start),
-        .legacy_kernel_pc    (legacy_kernel_pc),
-        .legacy_grid_dim_x   (legacy_grid_dim_x),
-        .legacy_grid_dim_y   (legacy_grid_dim_y),
-        .legacy_grid_dim_z   (legacy_grid_dim_z),
-        .legacy_block_dim_x  (legacy_block_dim_x),
-        .legacy_block_dim_y  (legacy_block_dim_y),
-        .legacy_block_dim_z  (legacy_block_dim_z),
-        .sm_kernel_start  (sm_kernel_start),
-        .sm_kernel_pc     (sm_kernel_pc),
-        .sm_block_id_x    (sm_block_id_x),
-        .sm_block_id_y    (sm_block_id_y),
-        .sm_block_id_z    (sm_block_id_z),
-        .sm_block_dim_x   (sm_block_dim_x),
-        .sm_block_dim_y   (sm_block_dim_y),
-        .sm_block_dim_z   (sm_block_dim_z),
-        .sm_grid_dim_x    (sm_grid_dim_x),
-        .sm_grid_dim_y    (sm_grid_dim_y),
-        .sm_grid_dim_z    (sm_grid_dim_z),
-        .sm_done          (sm_done_reg),
-        .gpu_busy         (gpu_busy),
-        .irq_kernel_done  (irq_kernel_done),
-        .fence_value      (fence_value)
+        .clk               (clk),
+        .rst_n             (rst_n),
+        .csr_wr_en         (csr_wr_en),
+        .csr_addr          (csr_addr),
+        .csr_wr_data       (csr_wr_data),
+        .csr_rd_data       (csr_rd_data),
+        .csr_rd_valid      (csr_rd_valid),
+        .sm_kernel_start   (sm_kernel_start),
+        .sm_kernel_pc      (sm_kernel_pc),
+        .sm_block_id_x     (sm_block_id_x),
+        .sm_block_id_y     (sm_block_id_y),
+        .sm_block_id_z     (sm_block_id_z),
+        .sm_block_dim_x    (sm_block_dim_x),
+        .sm_block_dim_y    (sm_block_dim_y),
+        .sm_block_dim_z    (sm_block_dim_z),
+        .sm_grid_dim_x     (sm_grid_dim_x),
+        .sm_grid_dim_y     (sm_grid_dim_y),
+        .sm_grid_dim_z     (sm_grid_dim_z),
+        .sm_done           (sm_done_reg),
+        .gpu_busy          (gpu_busy),
+        .irq_kernel_done   (irq_kernel_done),
+        .fence_value       (fence_value),
+        .kernel_launch_pulse(kernel_launch_pulse),
+        .m_axi_arvalid     (m_axi_arvalid),
+        .m_axi_araddr      (m_axi_araddr),
+        .m_axi_arready     (m_axi_arready),
+        .m_axi_rdata       (m_axi_rdata),
+        .m_axi_rresp       (m_axi_rresp),
+        .m_axi_rvalid      (m_axi_rvalid),
+        .m_axi_rready      (m_axi_rready)
     );
 
     //------------------------------------------------------------------------
@@ -175,15 +181,11 @@ module tb_command_processor;
         csr_wr_en = 0;
         csr_addr = 12'b0;
         csr_wr_data = 32'b0;
-        legacy_kernel_start = 0;
-        legacy_kernel_pc = 32'b0;
-        legacy_grid_dim_x = 32'd1;
-        legacy_grid_dim_y = 32'd1;
-        legacy_grid_dim_z = 32'd1;
-        legacy_block_dim_x = 32'd32;
-        legacy_block_dim_y = 32'd1;
-        legacy_block_dim_z = 32'd1;
         sm_done_reg = {NUM_SM{1'b0}};
+        m_axi_arready = 1'b0;
+        m_axi_rdata = 32'b0;
+        m_axi_rresp = 2'b0;
+        m_axi_rvalid = 1'b0;
 
         repeat (5) @(posedge clk);
         rst_n = 1;
@@ -193,15 +195,16 @@ module tb_command_processor;
         // Test 1: Legacy mode — single kernel, 1 block
         //====================================================================
         $display("\n=== Test 1: Legacy mode single kernel ===");
-        legacy_kernel_pc = 32'h0000_1000;
-        legacy_grid_dim_x = 32'd1;
-        legacy_grid_dim_y = 32'd1;
-        legacy_grid_dim_z = 32'd1;
+        write_csr(CSR_KERNEL_PC, 32'h0000_1000);
+        write_csr(CSR_GRID_DIM_X, 32'd1);
+        write_csr(CSR_GRID_DIM_Y, 32'd1);
+        write_csr(CSR_GRID_DIM_Z, 32'd1);
+        write_csr(CSR_BLOCK_DIM_X, 32'd32);
+        write_csr(CSR_BLOCK_DIM_Y, 32'd1);
+        write_csr(CSR_BLOCK_DIM_Z, 32'd1);
 
-        @(posedge clk);
-        legacy_kernel_start = 1'b1;
-        @(posedge clk);
-        legacy_kernel_start = 1'b0;
+        // bit[0]=start, bit[1]=cp_enable
+        write_csr(CSR_GPU_CONTROL, 32'h1);
 
         repeat (5) @(posedge clk);
         check_val("T1 gpu_busy", {31'b0, gpu_busy}, 32'd1);
@@ -224,15 +227,11 @@ module tb_command_processor;
         write_csr(CSR_GPU_STATUS, 32'h1);
         repeat (2) @(posedge clk);
 
-        legacy_kernel_pc = 32'h0000_2000;
-        legacy_grid_dim_x = 32'd2;
-        legacy_grid_dim_y = 32'd2;
-        legacy_grid_dim_z = 32'd1;
-
-        @(posedge clk);
-        legacy_kernel_start = 1'b1;
-        @(posedge clk);
-        legacy_kernel_start = 1'b0;
+        write_csr(CSR_KERNEL_PC, 32'h0000_2000);
+        write_csr(CSR_GRID_DIM_X, 32'd2);
+        write_csr(CSR_GRID_DIM_Y, 32'd2);
+        write_csr(CSR_GRID_DIM_Z, 32'd1);
+        write_csr(CSR_GPU_CONTROL, 32'h1);
 
         repeat (5) @(posedge clk);
         check_val("T2 gpu_busy", {31'b0, gpu_busy}, 32'd1);
@@ -264,16 +263,15 @@ module tb_command_processor;
 
         // Write descriptor words
         write_desc_word(0, 32'h0000_3000); // kernel_pc
-        write_desc_word(1, 32'd1);          // grid_dim_x
-        write_desc_word(2, 32'd1);          // grid_dim_y
-        write_desc_word(3, 32'd1);          // grid_dim_z
-        write_desc_word(4, 32'd32);         // block_dim_x
-        write_desc_word(5, 32'd1);          // block_dim_y
-        write_desc_word(6, 32'd1);          // block_dim_z
-        write_desc_word(7, 32'd0);          // shared_mem
-        write_desc_word(8, 32'd0);          // param_addr
-        write_desc_word(9, 32'd0);          // param_size
-        write_desc_word(10, 32'd42);        // fence_id
+        write_desc_word(1, 32'd1);         // grid_dim_x
+        write_desc_word(2, 32'd1);         // grid_dim_y
+        write_desc_word(3, 32'd1);         // grid_dim_z
+        write_desc_word(4, 32'd32);        // block_dim_x
+        write_desc_word(5, 32'd1);         // block_dim_y
+        write_desc_word(6, 32'd1);         // block_dim_z
+        write_desc_word(7, 32'd0);         // shared_mem
+        write_desc_word(8, 32'd0);         // param_addr
+        write_desc_word(10, 32'd42);       // fence_id
 
         // Doorbell: bump tail
         write_csr(CSR_CMD_QUEUE_TAIL, 32'd1);
@@ -282,7 +280,6 @@ module tb_command_processor;
         check_val("T3 gpu_busy", {31'b0, gpu_busy}, 32'd1);
         check_val("T3 kernel_pc", sm_kernel_pc, 32'h0000_3000);
 
-        // SM0 done
         fork
             sim_sm_done(0, 10);
         join
@@ -327,7 +324,6 @@ module tb_command_processor;
             sim_sm_done(1, 10);
         join
 
-        // Wait for kernel B
         repeat (15) @(posedge clk);
         check_val("T4 fence_after_A", fence_value, 32'd100);
 
@@ -341,8 +337,7 @@ module tb_command_processor;
 
         //====================================================================
         $display("\n====================================");
-        $display("Total: %0d  Passed: %0d  Failed: %0d",
-                 total_tests, passed_tests, failed_tests);
+        $display("Total: %0d  Passed: %0d  Failed: %0d", total_tests, passed_tests, failed_tests);
         $display("====================================");
         if (failed_tests == 0)
             $display("ALL TESTS PASSED");
@@ -350,7 +345,6 @@ module tb_command_processor;
             $display("SOME TESTS FAILED");
         $finish;
     end
-
 
     // Timeout
     initial begin
