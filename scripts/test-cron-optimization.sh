@@ -456,6 +456,11 @@ cron_common="$1"
 hb_log="$2"
 source "$cron_common"
 
+if ! grep -q HEARTBEAT_START_AFTER_SEC:-180 "$cron_common"; then
+  echo "default heartbeat threshold should be 180s" >&2
+  exit 1
+fi
+
 # Default interval should remain 60s.
 HEARTBEAT_START_AFTER_SEC=1
 unset HEARTBEAT_INTERVAL_SEC
@@ -467,7 +472,7 @@ if grep -q '^message send ' "$hb_log"; then
   exit 1
 fi
 
-# Default threshold should start after 120s.
+# Default threshold should start after 180s.
 : > "$hb_log"
 HEARTBEAT_INTERVAL_SEC=1
 unset HEARTBEAT_START_AFTER_SEC
