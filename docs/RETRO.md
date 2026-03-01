@@ -66,16 +66,16 @@
 - **CoderClaude**：已移除（2026-02-27），不再可用
 
 ## 🔧 Action Items (下次 Planning 必须参考)
-- [ ] **Codex 超时升级 SOP（30min 规则）**：coder 无响应 30min → Lily 自动重新分配，不等 10h（基于 Codex 建议）
+- [x] **Codex 超时升级 SOP（30min 规则）**：已文档化到 `docs/pm/pr-submission.md`（Issue #268），coder 无响应 30min → Lily 自动重新分配
 - [ ] **Sprint Review → Planning 零延迟**：Sprint Review 触发后立即运行 Planning cron，不允许 milestone gap
 - [ ] **scrum-health cron 修复**：检查错误原因，恢复正常运行
 - [ ] **每日经济要闻 cron 修复**：检查 error，修复或禁用
 - [ ] **ist-mac-s 代理修复**：为 GitHub CLI 配置显式 proxy（`HTTPS_PROXY=http://127.0.0.1:7897`）或排查 TUN 出站路由
 - [ ] **长任务心跳（第 3 次提出 — 强制执行或移除）**：本次 Sprint 必须上线或永久关闭此 item
-- [ ] **Post-merge SOP（Checklist 条目）**：追加到 pr-submission.md — 合并后必须跑 `make regression` + `make lint` 并 comment 结果
+- [x] **Post-merge SOP（Checklist 条目）**：已落地 `docs/pm/pr-submission.md`（Issue #268），合并后必须跑 `make regression` + `make lint` 并 comment 结果
 - [ ] **stale branch 清理**：关闭 issue-131/gemini CI fail 的 stale branch，避免持续报警
-- [ ] **Jerry escalation 阈值**：Lily 必须在 agent 下线 30min（不是 10h+）时主动告警
-- [ ] **#148 研究时间盒**：研究类 issue 最多 2h，超时必须产出草稿文档提交 review，不允许无限期研究
+- [x] **Jerry escalation 阈值**：已纳入 `docs/pm/pr-submission.md`（Issue #268），agent 下线 30min 时主动升级并重新分配
+- [x] **#148 研究时间盒**：已文档化到 `docs/pm/pr-submission.md`（Issue #268），研究类 issue 最多 2h，超时必须产出草稿文档提交 review
 
 ## 📈 Velocity
 - Sprint 5：6/6 (100%) 🎉 — #148 #221 #222 #223 #227 #228
@@ -106,11 +106,11 @@
 - **CoderGemini**：好 — 彻底解决 Dual-issue PC 步进和 L1 Cache 关键回归；改进 — Master 合并后逻辑冲突验证应更前置
 
 ## 🔧 Action Items (下次 Planning 必须参考)
-- [ ] **#148 研究时间盒**：研究类 issue 最多 2h，超时必须产出草稿文档提交 review，不允许无限期研究
-- [ ] **Post-merge 冲突验证 SOP**：每次 PR merge 后，coder 必须跑 `make regression` + `make lint` 并在 issue comment 贴结果
+- [x] **#148 研究时间盒**：已文档化到 `docs/pm/pr-submission.md`（Issue #268），研究类 issue 最多 2h，超时必须产出草稿文档提交 review
+- [x] **Post-merge 冲突验证 SOP**：已文档化到 `docs/pm/pr-submission.md`（Issue #268），每次 PR merge 后必须跑 `make regression` + `make lint` 并在 issue comment 贴结果
 - [ ] **CI 失败根因排查**：@CoderClaude 分析 7 次 failure 来源（master 不稳定 or runner 环境）
 - [ ] **长任务心跳 — 强制执行**：长任务（>3min）每 60s 发状态到 #ralphgpu-dev，违规 3 次 → kill + 重新分配（升级为强制规则）
-- [ ] **同步消息模板**：格式统一为 `#<issue> [owner] 状态 | ETA: XX | Blocker: XX`
+- [x] **同步消息模板**：格式统一为 `#<issue> [owner] 状态 | Blocker: XX`（Issue #268）
 
 ## 📈 Velocity
 - Sprint 2026-02-24：3/3 (100%) — #149 #152 #156
