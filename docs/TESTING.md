@@ -25,6 +25,67 @@ make test IVERILOG=/opt/homebrew/bin/iverilog VVP=/opt/homebrew/bin/vvp
 
 This runs core unit tests (ALU, MUL, decoder, regfile, shared memory, warp scheduler).
 
+## Full regression (audited test_/bench_ suite)
+
+```bash
+cd ~/RalphGPU
+make regression IVERILOG=/opt/homebrew/bin/iverilog VVP=/opt/homebrew/bin/vvp
+```
+
+`make regression` executes the audited must-run targets in dependency-safe order and always prints a summary:
+
+```text
+Regression Summary: X/Y passed, Z failed
+```
+
+If any target fails, it also prints `Failed targets: ...` and exits non-zero (CI-safe).
+
+### Must-run targets in `make regression` (stable gating set)
+
+`test`
+`test_regfile_banked`
+`test_bw_scheduler_scoreboard`
+`test_sfu`
+`test_tensor_fp4_fp8`
+`test_tensor_fp4_fp8_frm`
+`test_phase2`
+`test_sm_v2_core`
+`test_cron_optimization`
+`bench_atomic_minimal`
+`bench_app_compile`
+
+### Extended non-gating targets
+
+Run separately when needed:
+
+```bash
+make regression REGRESSION_TARGETS="$(REGRESSION_EXTENDED_TARGETS)"
+```
+
+Extended set:
+`test_tensor_core_fp4`
+`test_vector_add`
+`test_multi_sm`
+`test_sm_v2_full`
+`test_sm_v2_perf_gemm16_ptx`
+`test_sm_v2_perf_gemm16_wmma_ptx`
+`test_sm_v2_perf_gemm64_wgmma_ptx`
+`test_sm_v2_perf_tensor`
+`test_sm_v2_perf_tensor_multiwarp`
+`test_sm_v2_sched_raw_hazard`
+`test_warp_valid_d1`
+`test_dual_fetch`
+`test_ptx`
+`bench_atomics`
+`bench_divergence`
+
+### Audit notes
+
+- On March 1, 2026 local validation found existing failures in extended tests (`test_tensor_core_fp4`, `test_vector_add`, `test_sm_v2_perf_gemm16_wmma_ptx`) and very long/noisy execution in `test_multi_sm` and `test_ptx`.
+- Aggregate wrappers are intentionally excluded from gating to avoid duplicate work: `test_all`, `bench_all`, `test_sm_v2`.
+- Alias target `test_sm_v2_perf` is excluded from gating because it maps to `test_sm_v2_perf_gemm16_ptx`.
+- Non-regression operational targets (`dashboard*`, `perf_report`, `wave`, etc.) are not part of pass/fail gating.
+
 ## Tensor multiwarp perf test (current hotspot)
 
 ```bash
