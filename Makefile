@@ -154,13 +154,14 @@ REGRESSION_MUST_RUN_TARGETS = \
 	test_tensor_fp4_fp8_frm \
 	test_phase2 \
 	test_sm_v2_core \
+	test_tensor_core_fp4 \
+	test_sm_v2_sched_raw_hazard \
 	test_cron_optimization \
 	bench_atomic_minimal \
 	bench_app_compile
 
 # Known flaky/heavy/non-deterministic tests, kept outside gating set.
 REGRESSION_EXTENDED_TARGETS = \
-	test_tensor_core_fp4 \
 	test_vector_add \
 	test_multi_sm \
 	test_sm_v2_full \
@@ -169,7 +170,6 @@ REGRESSION_EXTENDED_TARGETS = \
 	test_sm_v2_perf_gemm64_wgmma_ptx \
 	test_sm_v2_perf_tensor \
 	test_sm_v2_perf_tensor_multiwarp \
-	test_sm_v2_sched_raw_hazard \
 	test_warp_valid_d1 \
 	test_dual_fetch \
 	test_ptx \

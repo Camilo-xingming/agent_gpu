@@ -50,6 +50,8 @@ If any target fails, it also prints `Failed targets: ...` and exits non-zero (CI
 `test_tensor_fp4_fp8_frm`
 `test_phase2`
 `test_sm_v2_core`
+`test_tensor_core_fp4`
+`test_sm_v2_sched_raw_hazard`
 `test_cron_optimization`
 `bench_atomic_minimal`
 `bench_app_compile`
@@ -63,7 +65,6 @@ make regression REGRESSION_TARGETS="$(REGRESSION_EXTENDED_TARGETS)"
 ```
 
 Extended set:
-`test_tensor_core_fp4`
 `test_vector_add`
 `test_multi_sm`
 `test_sm_v2_full`
@@ -72,7 +73,6 @@ Extended set:
 `test_sm_v2_perf_gemm64_wgmma_ptx`
 `test_sm_v2_perf_tensor`
 `test_sm_v2_perf_tensor_multiwarp`
-`test_sm_v2_sched_raw_hazard`
 `test_warp_valid_d1`
 `test_dual_fetch`
 `test_ptx`
@@ -81,7 +81,8 @@ Extended set:
 
 ### Audit notes
 
-- On March 1, 2026 local validation found existing failures in extended tests (`test_tensor_core_fp4`, `test_vector_add`, `test_sm_v2_perf_gemm16_wmma_ptx`) and very long/noisy execution in `test_multi_sm` and `test_ptx`.
+- On March 1, 2026 `test_tensor_core_fp4` and `test_sm_v2_sched_raw_hazard` were stabilized and promoted into the must-run gating suite.
+- Remaining known extended failures/noise include `test_vector_add`, `test_sm_v2_perf_gemm16_wmma_ptx`, and very long/noisy execution in `test_multi_sm` and `test_ptx`.
 - Aggregate wrappers are intentionally excluded from gating to avoid duplicate work: `test_all`, `bench_all`, `test_sm_v2`.
 - Alias target `test_sm_v2_perf` is excluded from gating because it maps to `test_sm_v2_perf_gemm16_ptx`.
 - Non-regression operational targets (`dashboard*`, `perf_report`, `wave`, etc.) are not part of pass/fail gating.
