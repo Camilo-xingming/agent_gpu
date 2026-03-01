@@ -8,6 +8,7 @@
 |--------|------|------|------|------|------|----------|------|
 | Sprint 3 | 2026-02-24 | WB precision + regfile banking + perf dashboard | 3 | 3 | 0 | 100% | #149 #152 #156 全部关闭，CI 全绿 |
 | Sprint 4 | — | — | — | — | — | — | （待 Planning 填入） |
+| Sprint 22 | 2026-03-01 | IPC 性能优化 — L1 cache 启用 + stall 分析 + memory coalescing | 3 | 3 | 0 | 100% | #289 #290 #291 全部关闭，CI 全绿，PR #292 #295 #297 merged |
 
 ## 统计方式
 
@@ -29,3 +30,12 @@
 ---
 
 *更新时间: 2026-02-24*
+| Sprint 2026-02-25 | 2026-02-24 | 扩展支持 + 自动化驱动 + 知识积累 (Multi-SM p... | 3 | 3 | 0 | 100% | auto-generated |
+| Sprint 2026-02-26 | 2026-02-24 | 工具链稳定性 — 完成 cron-optimization 脚本实... | 3 | 3 | 0 | 100% | auto-generated |
+| Sprint 2026-02-27 | 2026-02-24 | GPU software stack foundation — pipeline replay + FPGA ... | 4 | 4 | 0 | 100% | auto-generated |
+| Sprint 5 | 2026-02-27 | GPU core feature expansion — dual-issue RTL + L1D activ... | 6 | 6 | 0 | 100% | auto-generated |
+| Sprint 2026-02-28 | 2026-02-27 | Merge in-flight PRs (#230 dual-port icache, #231 CVT fix)... | 2 | 2 | 0 | 100% | auto-generated |
+| Sprint 14 | 2026-02-28 | Tensor Core e2e + Texture/Surface verification | 2 | 2 | 0 | 100% | auto-generated |
+| Sprint 15 | 2026-02-28 | 终结 Retro 积压：心跳机制终局 + 经济要闻 c... | 2 | 0 | 2 | 0% | auto-generated |
+| Sprint 16 | 2026-02-28 | 恢复 master CI（P0）+ 清理 stale branches。Items: ... | 2 | 2 | 0 | 100% | auto-generated |
+| Sprint 17 | 2026-02-28 | 基础设施可靠性 — ist-mac-s proxy 修复 + CI bil... | 2 | 2 | 0 | 100% | auto-generated |
