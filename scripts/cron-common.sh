@@ -257,7 +257,7 @@ start_heartbeat() {
   local component="$1"
   local context="$2"
   local interval="${HEARTBEAT_INTERVAL_SEC:-60}"
-  local threshold="${HEARTBEAT_START_AFTER_SEC:-120}"
+  local threshold="${HEARTBEAT_START_AFTER_SEC:-180}"
   local start_epoch
 
   start_epoch="$(date +%s)"
