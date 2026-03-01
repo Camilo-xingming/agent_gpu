@@ -70,7 +70,11 @@ module sm_gmem_arbiter #(
     // --- From memory_interface ---
     input  wire                     gmem_req_ready,
     input  wire                     gmem_resp_valid,
-    input  wire [SIMD_WIDTH-1:0]    gmem_resp_rdata
+    input  wire [SIMD_WIDTH-1:0]    gmem_resp_rdata,
+
+    // --- Routed normal-path response (for SM LD/ST path) ---
+    output wire                     normal_resp_valid,
+    output wire [SIMD_WIDTH-1:0]    normal_resp_rdata
 );
 
     //------------------------------------------------------------------------
@@ -218,5 +222,9 @@ module sm_gmem_arbiter #(
     assign tex_resp_valid = tex_pending_r && gmem_resp_valid && !ace_pending_r && !atomic_pending_r;
     assign tex_resp_data = gmem_resp_rdata[127:0];
     assign tex_pending   = tex_pending_r;
+
+    // Response belongs to normal path when no side-unit request is pending.
+    assign normal_resp_valid = gmem_resp_valid && !atomic_pending_r && !ace_pending_r && !tex_pending_r;
+    assign normal_resp_rdata = gmem_resp_rdata;
 
 endmodule

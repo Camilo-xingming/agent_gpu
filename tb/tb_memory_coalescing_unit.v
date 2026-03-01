@@ -23,6 +23,7 @@ module tb_memory_coalescing_unit;
     wire [ADDR_WIDTH-1:0] mem_req_addr;
     wire [LINE_BITS-1:0] mem_req_wdata;
     wire [CACHE_LINE_SIZE-1:0] mem_req_wmask;
+    reg  mem_req_ready;
     reg  [LINE_BITS-1:0] mem_resp_rdata;
     reg mem_resp_valid;
 
@@ -67,6 +68,7 @@ module tb_memory_coalescing_unit;
         .mem_req_addr(mem_req_addr),
         .mem_req_wdata(mem_req_wdata),
         .mem_req_wmask(mem_req_wmask),
+        .mem_req_ready(mem_req_ready),
         .mem_resp_rdata(mem_resp_rdata),
         .mem_resp_valid(mem_resp_valid),
         .resp_rdata(resp_rdata),
@@ -164,6 +166,7 @@ module tb_memory_coalescing_unit;
         req_mask = 0;
         mem_resp_rdata = 0;
         mem_resp_valid = 1'b0;
+        mem_req_ready = 1'b1;
         pending_resp = 1'b0;
         pending_addr = 0;
         last_req_write = 1'b0;

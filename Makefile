@@ -105,6 +105,7 @@ TB_REG = $(TB_DIR)/tb_register_file.v
 TB_REG_BANKED = $(TB_DIR)/tb_register_file_banked.v
 TB_BW_SCHED_SB = $(TB_DIR)/tb_blackwell_scheduler_scoreboard.v
 TB_SMEM = $(TB_DIR)/tb_shared_memory.v
+TB_MEM_COALESCE = $(TB_DIR)/tb_memory_coalescing_unit.v
 TB_WARP = $(TB_DIR)/tb_warp_scheduler.v
 TB_VADD = $(TB_DIR)/tb_vector_add.v
 TB_MULTI = $(TB_DIR)/tb_multi_sm.v
@@ -139,7 +140,7 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all regression
-.PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_warp test_sfu test_cvt_unit
+.PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_warp test_sfu test_cvt_unit
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_perf_counters test_multi_sm test_command_queue test_command_processor test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_phase2 test_warp_valid_d1
 
@@ -270,6 +271,15 @@ test_smem: $(BUILD_DIR)/tb_shared_memory.vvp
 
 $(BUILD_DIR)/tb_shared_memory.vvp: $(RTL_DIR)/shared_memory.v $(RTL_DIR)/gpu_defines.vh $(TB_SMEM) | $(BUILD_DIR)
 	$(IVERILOG) $(INCLUDES) -o $@ $(TB_SMEM) $(RTL_DIR)/shared_memory.v
+
+test_memory_coalescing_unit: $(BUILD_DIR)/tb_memory_coalescing_unit.vvp
+	@echo "========================================"
+	@echo "Running Memory Coalescing Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_memory_coalescing_unit.vvp
+
+$(BUILD_DIR)/tb_memory_coalescing_unit.vvp: $(RTL_DIR)/memory_coalescing_unit.v $(RTL_DIR)/gpu_defines.vh $(TB_MEM_COALESCE) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_MEM_COALESCE) $(RTL_DIR)/memory_coalescing_unit.v
 
 test_warp: $(BUILD_DIR)/tb_warp_scheduler.vvp
 	@echo "========================================"
@@ -477,6 +487,7 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/control_flow_unit.v \
 	$(RTL_DIR)/shared_memory.v \
 	$(RTL_DIR)/memory_interface.v \
+	$(RTL_DIR)/memory_coalescing_unit.v \
 	$(RTL_DIR)/warp_shuffle.v \
 	$(RTL_DIR)/atomic_unit.v \
 	$(RTL_DIR)/async_copy_engine.v \
@@ -699,7 +710,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_decoder test_regfile test_smem test_warp test_warp_ops test_video_unit test_tensor_core_e2e test_texture_unit test_command_queue test_command_processor
+test: test_alu test_mul test_decoder test_regfile test_smem test_memory_coalescing_unit test_warp test_warp_ops test_video_unit test_tensor_core_e2e test_texture_unit test_command_queue test_command_processor
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
@@ -841,6 +852,7 @@ help:
 	@echo "  test_mul      - Test multiply unit"
 	@echo "  test_decoder  - Test instruction decoder"
 	@echo "  test_regfile  - Test register file"
+	@echo "  test_memory_coalescing_unit - Test memory coalescing logic"
 	@echo "  test_smem     - Test shared memory"
 	@echo "  test_warp     - Test warp scheduler"
 	@echo "  test_cvt_unit - Test CVT conversion unit"
