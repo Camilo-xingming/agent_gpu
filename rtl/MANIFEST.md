@@ -11,6 +11,7 @@
 | cache_policy_unit.v | RalphGPU - Cache Policy Unit |
 | chi_controller.v | RalphGPU - CHI (Coherent Hub Interface) Controller |
 | cluster_barrier_unit.v | RalphGPU - Cluster Barrier Unit |
+| command_queue.v | RalphGPU - Command Queue Ring Buffer |
 | command_processor.v | RalphGPU - Command Processor |
 | control_flow_unit.v | RalphGPU - Control Flow Unit |
 | cvt_unit.v | RalphGPU - CVT Unit (Type Conversion Unit) |

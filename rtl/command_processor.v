@@ -53,7 +53,8 @@ module command_processor #(
     // Status
     output wire        gpu_busy,
     output wire        irq_kernel_done,
-    output wire [31:0] fence_value ,
+    output wire [31:0] fence_value,
+
     // AXI Master for Command Queue (Phase 2 stubs)
     output wire        m_axi_arvalid,
     output wire [31:0] m_axi_araddr,
@@ -64,7 +65,6 @@ module command_processor #(
     output wire        m_axi_rready
 );
 
-    // Pointer width for ring buffer
     localparam Q_PTR_W = $clog2(QUEUE_DEPTH);
 
     // CSR address map
@@ -78,41 +78,77 @@ module command_processor #(
     localparam CSR_CP_STATUS         = 12'h04C;
     localparam CSR_DESC_BASE         = 12'h050;
 
+    // Descriptor word definitions
+    localparam DESC_IDX_KERNEL_PC          = 0;
+    localparam DESC_IDX_GRID_DIM_X         = 1;
+    localparam DESC_IDX_GRID_DIM_Y         = 2;
+    localparam DESC_IDX_GRID_DIM_Z         = 3;
+    localparam DESC_IDX_BLOCK_DIM_X        = 4;
+    localparam DESC_IDX_BLOCK_DIM_Y        = 5;
+    localparam DESC_IDX_BLOCK_DIM_Z        = 6;
+    localparam DESC_IDX_SHARED_MEM_SIZE    = 7;
+    localparam DESC_IDX_KERNEL_PARAMS_BASE = 8;
+    localparam DESC_IDX_FENCE_ID           = 10;
+    localparam DESC_IDX_FLAGS              = 11;
+
     // FSM states
-    localparam CP_IDLE          = 3'd0;
-    localparam CP_LOAD_DESC     = 3'd1;
-    localparam CP_DISPATCH      = 3'd2;
-    localparam CP_WAIT          = 3'd3;
-    localparam CP_COMPLETE      = 3'd4;
+    localparam CP_IDLE      = 3'd0;
+    localparam CP_LOAD_DESC = 3'd1;
+    localparam CP_DISPATCH  = 3'd2;
+    localparam CP_WAIT      = 3'd3;
+    localparam CP_COMPLETE  = 3'd4;
 
     //========================================================================
     // Registers
     //========================================================================
     reg        cp_enable;
-    reg [Q_PTR_W-1:0] queue_head;
-    reg [Q_PTR_W-1:0] queue_tail;
-    wire queue_empty = (queue_head == queue_tail);
-    wire [Q_PTR_W:0] queue_count = {1'b0, queue_tail} - {1'b0, queue_head};
 
     // Descriptor staging (CSR-written)
     reg [31:0] desc_staging [0:DESC_WORDS-1];
 
-    // Descriptor queue
-    reg [31:0] desc_queue_pc         [0:QUEUE_DEPTH-1];
-    reg [31:0] desc_queue_grid_x     [0:QUEUE_DEPTH-1];
-    reg [31:0] desc_queue_grid_y     [0:QUEUE_DEPTH-1];
-    reg [31:0] desc_queue_grid_z     [0:QUEUE_DEPTH-1];
-    reg [31:0] desc_queue_block_x    [0:QUEUE_DEPTH-1];
-    reg [31:0] desc_queue_block_y    [0:QUEUE_DEPTH-1];
-    reg [31:0] desc_queue_block_z    [0:QUEUE_DEPTH-1];
-    reg [31:0] desc_queue_shared_mem [0:QUEUE_DEPTH-1];
-    reg [31:0] desc_queue_fence_id   [0:QUEUE_DEPTH-1];
-    reg [31:0] desc_queue_flags      [0:QUEUE_DEPTH-1];
+    // Queue push interface (from CSR doorbell write)
+    reg        queue_push_valid;
+    wire       queue_push_ready;
+    reg [31:0] queue_push_kernel_pc;
+    reg [31:0] queue_push_grid_dim_x;
+    reg [31:0] queue_push_grid_dim_y;
+    reg [31:0] queue_push_grid_dim_z;
+    reg [31:0] queue_push_block_dim_x;
+    reg [31:0] queue_push_block_dim_y;
+    reg [31:0] queue_push_block_dim_z;
+    reg [31:0] queue_push_shared_mem_size;
+    reg [31:0] queue_push_kernel_params_base;
+    reg [31:0] queue_push_fence_id;
+    reg [31:0] queue_push_flags;
+
+    // Queue pop interface (to scheduler FSM)
+    reg        queue_pop_ready;
+    wire       queue_pop_valid;
+    wire [31:0] queue_pop_kernel_pc;
+    wire [31:0] queue_pop_grid_dim_x;
+    wire [31:0] queue_pop_grid_dim_y;
+    wire [31:0] queue_pop_grid_dim_z;
+    wire [31:0] queue_pop_block_dim_x;
+    wire [31:0] queue_pop_block_dim_y;
+    wire [31:0] queue_pop_block_dim_z;
+    wire [31:0] queue_pop_shared_mem_size;
+    wire [31:0] queue_pop_kernel_params_base;
+    wire [31:0] queue_pop_fence_id;
+    wire [31:0] queue_pop_flags;
+    wire [Q_PTR_W-1:0] queue_head;
+    wire [Q_PTR_W-1:0] queue_tail;
+    wire [Q_PTR_W:0]   queue_count;
 
     // Active kernel state
     reg [31:0] active_kernel_pc;
-    reg [31:0] active_grid_dim_x, active_grid_dim_y, active_grid_dim_z;
-    reg [31:0] active_block_dim_x, active_block_dim_y, active_block_dim_z;
+    reg [31:0] active_grid_dim_x;
+    reg [31:0] active_grid_dim_y;
+    reg [31:0] active_grid_dim_z;
+    reg [31:0] active_block_dim_x;
+    reg [31:0] active_block_dim_y;
+    reg [31:0] active_block_dim_z;
+    reg [31:0] active_shared_mem_size;
+    reg [31:0] active_kernel_params_base;
     reg [31:0] active_fence_id;
 
     // CTA dispatch state
@@ -126,7 +162,47 @@ module command_processor #(
     reg        kernel_done_irq;
 
     // Main FSM
-    reg [2:0]  cp_state;
+    reg [2:0] cp_state;
+
+    //========================================================================
+    // Queue
+    //========================================================================
+    command_queue #(
+        .DEPTH     (QUEUE_DEPTH),
+        .PTR_WIDTH (Q_PTR_W)
+    ) u_command_queue (
+        .clk                     (clk),
+        .rst_n                   (rst_n),
+        .push_valid              (queue_push_valid),
+        .push_ready              (queue_push_ready),
+        .push_kernel_pc          (queue_push_kernel_pc),
+        .push_grid_dim_x         (queue_push_grid_dim_x),
+        .push_grid_dim_y         (queue_push_grid_dim_y),
+        .push_grid_dim_z         (queue_push_grid_dim_z),
+        .push_block_dim_x        (queue_push_block_dim_x),
+        .push_block_dim_y        (queue_push_block_dim_y),
+        .push_block_dim_z        (queue_push_block_dim_z),
+        .push_shared_mem_size    (queue_push_shared_mem_size),
+        .push_kernel_params_base (queue_push_kernel_params_base),
+        .push_fence_id           (queue_push_fence_id),
+        .push_flags              (queue_push_flags),
+        .pop_valid               (queue_pop_valid),
+        .pop_ready               (queue_pop_ready),
+        .pop_kernel_pc           (queue_pop_kernel_pc),
+        .pop_grid_dim_x          (queue_pop_grid_dim_x),
+        .pop_grid_dim_y          (queue_pop_grid_dim_y),
+        .pop_grid_dim_z          (queue_pop_grid_dim_z),
+        .pop_block_dim_x         (queue_pop_block_dim_x),
+        .pop_block_dim_y         (queue_pop_block_dim_y),
+        .pop_block_dim_z         (queue_pop_block_dim_z),
+        .pop_shared_mem_size     (queue_pop_shared_mem_size),
+        .pop_kernel_params_base  (queue_pop_kernel_params_base),
+        .pop_fence_id            (queue_pop_fence_id),
+        .pop_flags               (queue_pop_flags),
+        .head                    (queue_head),
+        .tail                    (queue_tail),
+        .count                   (queue_count)
+    );
 
     //========================================================================
     // CSR Read
@@ -148,7 +224,7 @@ module command_processor #(
             CSR_CP_STATUS:         csr_rd_data = {24'b0, cp_enable, cp_state, queue_count[3:0]};
             default: begin
                 if (csr_addr >= CSR_DESC_BASE && csr_addr < (CSR_DESC_BASE + DESC_WORDS * 4))
-                    csr_rd_data = desc_staging[((csr_addr - CSR_DESC_BASE) >> 2) & 15];
+                    csr_rd_data = desc_staging[(csr_addr - CSR_DESC_BASE) >> 2];
             end
         endcase
     end
@@ -160,35 +236,50 @@ module command_processor #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             cp_enable <= 1'b0;
-            queue_tail <= {Q_PTR_W{1'b0}};
             fence_signal_reg <= 32'hFFFF_FFFF;
             for (desc_wr_idx = 0; desc_wr_idx < DESC_WORDS; desc_wr_idx = desc_wr_idx + 1)
                 desc_staging[desc_wr_idx] <= 32'b0;
-        end else if (csr_wr_en) begin
-            case (csr_addr)
-                12'h004: cp_enable <= csr_wr_data[1];
-                CSR_CMD_FENCE_SIGNAL: fence_signal_reg <= csr_wr_data;
-                CSR_CMD_QUEUE_TAIL: begin
-                    if (cp_enable) begin
-                        desc_queue_pc[queue_tail]         <= desc_staging[0];
-                        desc_queue_grid_x[queue_tail]     <= desc_staging[1];
-                        desc_queue_grid_y[queue_tail]     <= desc_staging[2];
-                        desc_queue_grid_z[queue_tail]     <= desc_staging[3];
-                        desc_queue_block_x[queue_tail]    <= desc_staging[4];
-                        desc_queue_block_y[queue_tail]    <= desc_staging[5];
-                        desc_queue_block_z[queue_tail]    <= desc_staging[6];
-                        desc_queue_shared_mem[queue_tail] <= desc_staging[7];
-                        desc_queue_fence_id[queue_tail]   <= desc_staging[10];
-                        desc_queue_flags[queue_tail]      <= desc_staging[11];
-                        queue_tail <= queue_tail + 1'b1;
+
+            queue_push_valid              <= 1'b0;
+            queue_push_kernel_pc          <= 32'b0;
+            queue_push_grid_dim_x         <= 32'b0;
+            queue_push_grid_dim_y         <= 32'b0;
+            queue_push_grid_dim_z         <= 32'b0;
+            queue_push_block_dim_x        <= 32'b0;
+            queue_push_block_dim_y        <= 32'b0;
+            queue_push_block_dim_z        <= 32'b0;
+            queue_push_shared_mem_size    <= 32'b0;
+            queue_push_kernel_params_base <= 32'b0;
+            queue_push_fence_id           <= 32'b0;
+            queue_push_flags              <= 32'b0;
+        end else begin
+            queue_push_valid <= 1'b0;
+            if (csr_wr_en) begin
+                case (csr_addr)
+                    12'h004: cp_enable <= csr_wr_data[1];
+                    CSR_CMD_FENCE_SIGNAL: fence_signal_reg <= csr_wr_data;
+                    CSR_CMD_QUEUE_TAIL: begin
+                        if (cp_enable && queue_push_ready) begin
+                            queue_push_kernel_pc          <= desc_staging[DESC_IDX_KERNEL_PC];
+                            queue_push_grid_dim_x         <= desc_staging[DESC_IDX_GRID_DIM_X];
+                            queue_push_grid_dim_y         <= desc_staging[DESC_IDX_GRID_DIM_Y];
+                            queue_push_grid_dim_z         <= desc_staging[DESC_IDX_GRID_DIM_Z];
+                            queue_push_block_dim_x        <= desc_staging[DESC_IDX_BLOCK_DIM_X];
+                            queue_push_block_dim_y        <= desc_staging[DESC_IDX_BLOCK_DIM_Y];
+                            queue_push_block_dim_z        <= desc_staging[DESC_IDX_BLOCK_DIM_Z];
+                            queue_push_shared_mem_size    <= desc_staging[DESC_IDX_SHARED_MEM_SIZE];
+                            queue_push_kernel_params_base <= desc_staging[DESC_IDX_KERNEL_PARAMS_BASE];
+                            queue_push_fence_id           <= desc_staging[DESC_IDX_FENCE_ID];
+                            queue_push_flags              <= desc_staging[DESC_IDX_FLAGS];
+                            queue_push_valid              <= 1'b1;
+                        end
                     end
-                end
-                default: begin
-                    if (csr_addr >= CSR_DESC_BASE &&
-                        csr_addr < (CSR_DESC_BASE + DESC_WORDS * 4))
-                        desc_staging[((csr_addr - CSR_DESC_BASE) >> 2) & 15] <= csr_wr_data;
-                end
-            endcase
+                    default: begin
+                        if (csr_addr >= CSR_DESC_BASE && csr_addr < (CSR_DESC_BASE + DESC_WORDS * 4))
+                            desc_staging[(csr_addr - CSR_DESC_BASE) >> 2] <= csr_wr_data;
+                    end
+                endcase
+            end
         end
     end
 
@@ -215,19 +306,22 @@ module command_processor #(
                 sm_block_id_y[sm_i] <= 32'b0;
                 sm_block_id_z[sm_i] <= 32'b0;
             end
-            active_kernel_pc   <= 32'b0;
-            active_grid_dim_x  <= 32'd1;
-            active_grid_dim_y  <= 32'd1;
-            active_grid_dim_z  <= 32'd1;
-            active_block_dim_x <= 32'd32;
-            active_block_dim_y <= 32'd1;
-            active_block_dim_z <= 32'd1;
-            active_fence_id    <= 32'b0;
-            fence_value_reg    <= 32'b0;
-            kernel_done_irq    <= 1'b0;
-            queue_head         <= {Q_PTR_W{1'b0}};
+            active_kernel_pc         <= 32'b0;
+            active_grid_dim_x        <= 32'd1;
+            active_grid_dim_y        <= 32'd1;
+            active_grid_dim_z        <= 32'd1;
+            active_block_dim_x       <= 32'd32;
+            active_block_dim_y       <= 32'd1;
+            active_block_dim_z       <= 32'd1;
+            active_shared_mem_size   <= 32'b0;
+            active_kernel_params_base<= 32'b0;
+            active_fence_id          <= 32'b0;
+            fence_value_reg          <= 32'b0;
+            kernel_done_irq          <= 1'b0;
+            queue_pop_ready          <= 1'b0;
         end else begin
             sm_kernel_start <= {NUM_SM{1'b0}};
+            queue_pop_ready <= 1'b0;
 
             if (csr_wr_en && csr_addr == 12'h000)
                 kernel_done_irq <= 1'b0;
@@ -239,7 +333,7 @@ module command_processor #(
 
             case (cp_state)
                 CP_IDLE: begin
-                    if (cp_enable && !queue_empty) begin
+                    if (cp_enable && queue_pop_valid) begin
                         cp_state <= CP_LOAD_DESC;
                     end else if (!cp_enable && legacy_kernel_start) begin
                         active_kernel_pc   <= legacy_kernel_pc;
@@ -258,22 +352,22 @@ module command_processor #(
                 end
 
                 CP_LOAD_DESC: begin
-                    active_kernel_pc   <= desc_queue_pc[queue_head];
-                    active_grid_dim_x  <= desc_queue_grid_x[queue_head];
-                    active_grid_dim_y  <= desc_queue_grid_y[queue_head];
-                    active_grid_dim_z  <= desc_queue_grid_z[queue_head];
-                    active_block_dim_x <= desc_queue_block_x[queue_head];
-                    active_block_dim_y <= desc_queue_block_y[queue_head];
-                    active_block_dim_z <= desc_queue_block_z[queue_head];
-                    active_fence_id    <= desc_queue_fence_id[queue_head];
+                    active_kernel_pc          <= queue_pop_kernel_pc;
+                    active_grid_dim_x         <= queue_pop_grid_dim_x;
+                    active_grid_dim_y         <= queue_pop_grid_dim_y;
+                    active_grid_dim_z         <= queue_pop_grid_dim_z;
+                    active_block_dim_x        <= queue_pop_block_dim_x;
+                    active_block_dim_y        <= queue_pop_block_dim_y;
+                    active_block_dim_z        <= queue_pop_block_dim_z;
+                    active_shared_mem_size    <= queue_pop_shared_mem_size;
+                    active_kernel_params_base <= queue_pop_kernel_params_base;
+                    active_fence_id           <= queue_pop_fence_id;
 
-                    total_blocks <= desc_queue_grid_x[queue_head] *
-                                    desc_queue_grid_y[queue_head] *
-                                    desc_queue_grid_z[queue_head];
+                    total_blocks <= queue_pop_grid_dim_x * queue_pop_grid_dim_y * queue_pop_grid_dim_z;
                     dispatched_blocks <= 32'b0;
                     sm_busy <= {NUM_SM{1'b0}};
 
-                    queue_head <= queue_head + 1'b1;
+                    queue_pop_ready <= 1'b1;
                     cp_state <= CP_DISPATCH;
                 end
 
@@ -319,7 +413,7 @@ module command_processor #(
                         fence_signal_reg == 32'hFFFF_FFFF) begin
                         kernel_done_irq <= 1'b1;
                     end
-                    if (cp_enable && !queue_empty)
+                    if (cp_enable && queue_pop_valid)
                         cp_state <= CP_LOAD_DESC;
                     else
                         cp_state <= CP_IDLE;
