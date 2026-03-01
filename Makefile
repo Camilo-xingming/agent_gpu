@@ -137,10 +137,48 @@ endif
 # 目标
 #============================================================================
 
-.PHONY: all sim wave clean assemble help test test_all
+.PHONY: all sim wave clean assemble help test test_all regression
 .PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_warp test_sfu
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization dashboard dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_multi_sm test_command_queue test_command_processor test_memsys test_l1_data_cache test_phase2
+
+# Audited must-run regression suite (stable gates for local + CI).
+# Non-gating/extended tests are tracked separately and can be run via:
+# make regression REGRESSION_TARGETS="$(REGRESSION_EXTENDED_TARGETS)"
+REGRESSION_MUST_RUN_TARGETS = \
+	test \
+	test_regfile_banked \
+	test_bw_scheduler_scoreboard \
+	test_sfu \
+	test_tensor_fp4_fp8 \
+	test_tensor_fp4_fp8_frm \
+	test_phase2 \
+	test_sm_v2_core \
+	test_cron_optimization \
+	bench_atomic_minimal \
+	bench_app_compile
+
+# Known flaky/heavy/non-deterministic tests, kept outside gating set.
+REGRESSION_EXTENDED_TARGETS = \
+	test_tensor_core_fp4 \
+	test_vector_add \
+	test_multi_sm \
+	test_sm_v2_full \
+	test_sm_v2_perf_gemm16_ptx \
+	test_sm_v2_perf_gemm16_wmma_ptx \
+	test_sm_v2_perf_gemm64_wgmma_ptx \
+	test_sm_v2_perf_tensor \
+	test_sm_v2_perf_tensor_multiwarp \
+	test_sm_v2_sched_raw_hazard \
+	test_warp_valid_d1 \
+	test_dual_fetch \
+	test_ptx \
+	bench_atomics \
+	bench_divergence
+
+# Allow temporary suite override from CLI:
+# make regression REGRESSION_TARGETS="test_alu test_mul"
+REGRESSION_TARGETS ?= $(REGRESSION_MUST_RUN_TARGETS)
 
 all: $(BUILD_DIR) sim
 
@@ -364,7 +402,6 @@ test_phase2: test_memsys
 # SM V2 Integration Tests (Scoreboard, FU Tracking, WB Arbitration)
 #----------------------------------------------------------------------------
 TB_SM_V2 = $(TB_DIR)/tb_sm_v2_integration.v
-TB_SM_V2_PERF = $(TB_DIR)/tb_sm_v2_perf_gemm16.v
 TB_SM_V2_PERF_PTX = $(TB_DIR)/tb_sm_v2_perf_gemm16_ptx.v
 TB_SM_V2_PERF_TC = $(TB_DIR)/tb_sm_v2_perf_tensor.v
 TB_SM_V2_PERF_TC_MW = $(TB_DIR)/tb_sm_v2_perf_tensor_multiwarp.v
@@ -439,15 +476,9 @@ test_sm_v2_full: $(BUILD_DIR)/tb_sm_v2_integration.vvp
 $(BUILD_DIR)/tb_sm_v2_integration.vvp: $(SM_V2_SRCS) $(TB_SM_V2) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(SM_V2_DEFINES) -o $@ $(TB_SM_V2) $(filter %.v,$(SM_V2_SRCS))
 
-# Performance microbenchmark (FP32 FMA stream)
-test_sm_v2_perf: $(BUILD_DIR)/tb_sm_v2_perf_gemm16.vvp
-	@echo "========================================"
-	@echo "Running SM V2 Performance Test (GEMM 16x16x16)"
-	@echo "========================================"
-	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_perf_gemm16.vvp
-
-$(BUILD_DIR)/tb_sm_v2_perf_gemm16.vvp: $(SM_V2_SRCS) $(TB_SM_V2_PERF) | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) $(SM_V2_DEFINES) -o $@ $(TB_SM_V2_PERF) $(filter %.v,$(SM_V2_SRCS))
+# Performance microbenchmark (legacy alias kept for compatibility)
+test_sm_v2_perf: test_sm_v2_perf_gemm16_ptx
+	@echo "Alias target completed: test_sm_v2_perf_gemm16_ptx"
 
 # Performance microbenchmark (PTX-driven FMA stream)
 test_sm_v2_perf_gemm16_ptx: $(BUILD_DIR)/tb_sm_v2_perf_gemm16_ptx.vvp
@@ -618,6 +649,32 @@ test_all: test test_vector_add test_multi_sm sim
 	@echo "All Tests Completed (Unit + Integration)"
 	@echo "========================================"
 
+regression:
+	@echo "========================================"
+	@echo "Running Audited Regression Suite"
+	@echo "========================================"
+	@total=0; passed=0; failed=0; failed_targets=""; \
+	for target in $(REGRESSION_TARGETS); do \
+		total=$$((total + 1)); \
+		echo ""; \
+		echo "[$$total/$(words $(REGRESSION_TARGETS))] $$target"; \
+		if $(MAKE) --no-print-directory $$target; then \
+			passed=$$((passed + 1)); \
+		else \
+			failed=$$((failed + 1)); \
+			failed_targets="$$failed_targets $$target"; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "========================================"; \
+	echo "Regression Summary: $$passed/$$total passed, $$failed failed"; \
+	if [ $$failed -ne 0 ]; then \
+		echo "Failed targets:$$failed_targets"; \
+		echo "========================================"; \
+		exit 1; \
+	fi; \
+	echo "========================================"
+
 test_cron_optimization:
 	@echo "========================================"
 	@echo "Running Cron Optimization / Heartbeat Tests"
@@ -708,6 +765,8 @@ help:
 	@echo "  test          - Run all unit tests"
 	@echo "  test_l1_data_cache - Test L1 data cache hit/miss/LRU/bank conflict"
 	@echo "  test_all      - Run all tests (unit + integration)"
+	@echo "  regression    - Run audited must-run test_/bench_ suite with summary"
+	@echo "  regression (extended) - Override REGRESSION_TARGETS with REGRESSION_EXTENDED_TARGETS"
 	@echo "  test_cron_optimization - Run cron heartbeat/optimization script tests"
 	@echo ""
 	@echo "Unit Tests:"
