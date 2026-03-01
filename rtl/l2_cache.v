@@ -476,7 +476,6 @@ module l2_cache_bank #(
     localparam S_WRITEBACK   = 3'd3;
     localparam S_FILL_REQ    = 3'd4;
     localparam S_WAIT_FILL   = 3'd5;
-    localparam S_WRITE_ALLOC = 3'd6;
 
     reg [2:0] state;
     reg [ADDR_WIDTH-1:0] addr_reg;
@@ -493,17 +492,14 @@ module l2_cache_bank #(
 
     reg [LINE_BITS-1:0] merged_hit_line;
     reg [LINE_BITS-1:0] merged_fill_line;
-    reg [LINE_BITS-1:0] write_alloc_line;
     integer b;
     always @(*) begin
         merged_hit_line = data_array[req_index][way_reg];
         merged_fill_line = mem_fill_data;
-        write_alloc_line = {LINE_BITS{1'b0}};
         for (b = 0; b < LINE_SIZE; b = b + 1) begin
             if (wmask_reg[b]) begin
                 merged_hit_line[b*8 +: 8] = wdata_reg[b*8 +: 8];
                 merged_fill_line[b*8 +: 8] = wdata_reg[b*8 +: 8];
-                write_alloc_line[b*8 +: 8] = wdata_reg[b*8 +: 8];
             end
         end
     end
@@ -634,18 +630,6 @@ module l2_cache_bank #(
                     end
                 end
 
-                S_WRITE_ALLOC: begin
-                    // Deprecated: Partial writes require fetch (handled in S_WAIT_FILL)
-                    data_array[req_index][way_reg] <= write_alloc_line;
-                    dirty_array[req_index][way_reg] <= 1'b1;
-                    tag_array[req_index][way_reg] <= req_tag;
-                    valid_array[req_index][way_reg] <= 1'b1;
-                    lru_state[req_index] <= lru_state[req_index] ^ (1 << way_reg);
-                    resp_rdata <= write_alloc_line;
-                    resp_valid <= 1'b1;
-                    resp_port_id <= port_id_reg;
-                    state <= S_IDLE;
-                end
 
                 default: state <= S_IDLE;
             endcase
