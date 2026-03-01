@@ -130,7 +130,7 @@ module sm_fetch_pipeline #(
     reg [WARP_ID_W-1:0] fetch_warp_id_a;
     reg                  fetch_valid_arb_a;
 
-    wire [NUM_WARPS-1:0] warp_needs_fetch_a = warp_needs_fetch & even_warp_mask;
+    wire [NUM_WARPS-1:0] warp_needs_fetch_a = ICACHE_BYPASS ? warp_needs_fetch : (warp_needs_fetch & even_warp_mask);
 
     integer fa_i;
     always @(*) begin
@@ -208,8 +208,8 @@ module sm_fetch_pipeline #(
         assign icache_hit_bypass_data_a = 32'b0;
         assign icache_hit_bypass_line_data_a = 64'b0;
         // Bypass mode: Port B gets same-cycle valid if different address
-        assign icache_ready_b = imem_ready;
-        assign icache_valid_b = 1'b0; // No Port B in bypass mode
+        assign icache_ready_b = 1'b0; // Bypass mode uses only Port A fetch path
+        assign icache_valid_b = 1'b0; // No Port B responses in bypass mode
         assign icache_data_b = 32'b0;
         assign icache_line_data_b = 64'b0;
     end else begin : gen_icache_normal
@@ -275,8 +275,12 @@ module sm_fetch_pipeline #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
             fetch_arb_ptr_a <= 0;
-        else if (fetch_fire_a || bypass_fire_a)
-            fetch_arb_ptr_a <= fetch_warp_id_a + 2'd2; // Skip to next even warp
+        else if (fetch_fire_a || bypass_fire_a) begin
+            if (ICACHE_BYPASS)
+                fetch_arb_ptr_a <= fetch_warp_id_a + 1'b1;
+            else
+                fetch_arb_ptr_a <= fetch_warp_id_a + 2'd2; // Skip to next even warp
+        end
     end
 
     // Port B round-robin pointer
