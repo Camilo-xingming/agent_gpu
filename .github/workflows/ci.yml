@@ -14,20 +14,12 @@ jobs:
       - name: Verilator Lint
         run: make lint VERILATOR=verilator
 
-  test:
+  regression:
     runs-on: self-hosted
     needs: lint
     steps:
       - uses: actions/checkout@v4
-      - name: Run tests
-        run: make test IVERILOG=iverilog VVP=vvp
-
-  frm-compare:
-    runs-on: self-hosted
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-      - name: Generate tests and run RTL-FRM compare
-        run: |
-          python3 tools/test_generator.py --gen all
-          python3 tools/rtl_frm_compare.py --all
+      - name: Generate tests
+        run: python3 tools/test_generator.py --gen all
+      - name: Run Audited Regression Suite
+        run: make regression IVERILOG=iverilog VVP=vvp
