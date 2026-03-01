@@ -34,7 +34,6 @@
 
 | 文件 | 用途 | 写者 | 读者 | 何时读 | 关键词 |
 |------|------|------|------|--------|--------|
-| pm/checklists/pr-submission.md | PR 提交前自检 | SM Coach / RETRO | Coders | 提 PR 前 | pr, checklist, submission |
 | pm/checklists/sprint-planning.md | Sprint Planning 检查项 | SM Coach / RETRO | Lily | Planning 前/中/后 | planning, checklist |
 | pm/checklists/post-incident.md | 故障恢复后清理确认 | SM Coach / RETRO | Lily / Jerry | 故障恢复后 | incident, recovery, cleanup |
 | pm/checklists/agent-onboarding.md | 新 agent 上线配置检查 | SM Coach / RETRO | Jerry | 新增/切换 agent 时 | agent, onboarding, config |
