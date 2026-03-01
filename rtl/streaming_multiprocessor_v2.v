@@ -820,6 +820,8 @@ module streaming_multiprocessor_v2 #(
     wire [31:0]           mcu_mem_req_addr;
     wire [L1_LINE_SIZE_BYTES*8-1:0] mcu_mem_req_wdata;
     wire [L1_LINE_SIZE_BYTES-1:0] mcu_mem_req_wmask;
+    wire [SIMD_WIDTH-1:0] mcu_resp_rdata;
+    wire                  mcu_resp_valid;
     wire [NUM_LANES*32-1:0] gmem_mcu_req_addr;
     wire [NUM_LANES-1:0]  gmem_mcu_word_mask_from_wmask;
 
@@ -1250,8 +1252,8 @@ module streaming_multiprocessor_v2 #(
     assign l1_cache_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op && issue_mem_read && !issue_addr_oob_exc && !issue_illegal_exc;
     assign l1_miss_req_valid = l1_mem_req && !l1_mem_write;
     assign l1_mem_ready = l1_miss_req_valid && gmem_normal_req_ready;
-    assign l1_mem_rdata = gmem_normal_resp_rdata;
-    assign l1_mem_valid = gmem_normal_resp_valid && l1_miss_pending;
+    assign l1_mem_rdata = mcu_resp_rdata;
+    assign l1_mem_valid = mcu_resp_valid && l1_miss_pending;
     assign l1_miss_line_base_addr = {l1_mem_addr[31:7], 7'b0};
     assign gmem_load_resp_valid = l1_cache_resp_valid;
     assign gmem_load_resp_rdata = l1_cache_resp_rdata_packed;
@@ -1345,8 +1347,8 @@ module streaming_multiprocessor_v2 #(
         .mem_req_ready   (gmem_req_ready),
         .mem_resp_rdata  (gmem_normal_resp_rdata),
         .mem_resp_valid  (gmem_normal_resp_valid),
-        .resp_rdata      (),
-        .resp_valid      (),
+        .resp_rdata      (mcu_resp_rdata),
+        .resp_valid      (mcu_resp_valid),
         .stat_requests   (),
         .stat_transactions(),
         .stat_coalesce_ratio()
@@ -3593,7 +3595,7 @@ module streaming_multiprocessor_v2 #(
             l1_miss_pending <= 1'b0;
         end else if (l1_miss_req_valid && gmem_normal_req_ready) begin
             l1_miss_pending <= 1'b1;
-        end else if (gmem_normal_resp_valid && l1_miss_pending) begin
+        end else if (mcu_resp_valid && l1_miss_pending) begin
             l1_miss_pending <= 1'b0;
         end
     end

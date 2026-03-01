@@ -13,8 +13,8 @@ module memory_coalescing_unit #(
     parameter CACHE_LINE_SIZE = 128,    // 128 bytes per cache line
     parameter MAX_COALESCED   = 4       // Max unique transactions per warp request
 )(
-    input  wire                 clk,
-    input  wire                 rst_n,
+    input  wire                           clk,
+    input  wire                           rst_n,
 
     //------------------------------------------------------------------------
     // Warp-level Request (from SM)
@@ -187,8 +187,17 @@ module memory_coalescing_unit #(
 
                         // Hold request in ST_REQUEST until downstream accepts it.
                         if (mem_req_ready) begin
-                            state <= ST_WAIT;
                             stat_transactions <= stat_transactions + 1;
+                            if (saved_write) begin
+                                current_line_idx <= current_line_idx + 1'b1;
+                                if ((current_line_idx + 1'b1) >= num_unique_lines) begin
+                                    state <= ST_COLLECT;
+                                end else begin
+                                    state <= ST_REQUEST;
+                                end
+                            end else begin
+                                state <= ST_WAIT;
+                            end
                         end
                     end else begin
                         state <= ST_COLLECT;
@@ -204,13 +213,17 @@ module memory_coalescing_unit #(
                 end
 
                 ST_COLLECT: begin
-                    for (i = 0; i < THREADS; i = i + 1) begin
-                        if (saved_mask[i]) begin
-                            // Extract data from the correct line buffer and correct offset
-                            resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <=
-                                line_data_buf[thread_to_line[i]][saved_addr[i][OFFSET_BITS-1:0]*8 +: DATA_WIDTH];
-                        end else begin
-                            resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= 0;
+                    if (saved_write) begin
+                        resp_rdata <= {THREADS*DATA_WIDTH{1'b0}};
+                    end else begin
+                        for (i = 0; i < THREADS; i = i + 1) begin
+                            if (saved_mask[i]) begin
+                                // Extract data from the correct line buffer and correct offset
+                                resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <=
+                                    line_data_buf[thread_to_line[i]][saved_addr[i][OFFSET_BITS-1:0]*8 +: DATA_WIDTH];
+                            end else begin
+                                resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= 0;
+                            end
                         end
                     end
                     resp_valid <= 1;
