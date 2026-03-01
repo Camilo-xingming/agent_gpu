@@ -487,6 +487,7 @@ SM_V2_SRCS = \
 	$(RTL_DIR)/control_flow_unit.v \
 	$(RTL_DIR)/shared_memory.v \
 	$(RTL_DIR)/memory_interface.v \
+	$(RTL_DIR)/memory_coalescing_unit.v \
 	$(RTL_DIR)/warp_shuffle.v \
 	$(RTL_DIR)/atomic_unit.v \
 	$(RTL_DIR)/async_copy_engine.v \

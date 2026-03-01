@@ -1,6 +1,6 @@
 //============================================================================
 // RalphGPU - Memory Coalescing Unit
-// Memory Coalescing Unit: Coalesce memory accesses from 32 threads into minimum 
+// Memory Coalescing Unit: Coalesce memory accesses from 32 threads into minimum
 // memory transactions. This is key to high performance in GPUs.
 //============================================================================
 
@@ -19,36 +19,37 @@ module memory_coalescing_unit #(
     //------------------------------------------------------------------------
     // Warp-level Request (from SM)
     //------------------------------------------------------------------------
-    input  wire                         req_valid,
-    input  wire                         req_write,
-    input  wire [THREADS*ADDR_WIDTH-1:0] req_addr,
-    input  wire [THREADS*DATA_WIDTH-1:0] req_wdata,
-    input  wire [THREADS-1:0]           req_mask,
-    output reg                          ready,
+    input  wire                           req_valid,
+    input  wire                           req_write,
+    input  wire [THREADS*ADDR_WIDTH-1:0]  req_addr,
+    input  wire [THREADS*DATA_WIDTH-1:0]  req_wdata,
+    input  wire [THREADS-1:0]             req_mask,
+    output reg                            ready,
 
     //------------------------------------------------------------------------
-    // Memory Interface (to L1 Cache)
+    // Memory Interface (to downstream global memory path)
     //------------------------------------------------------------------------
-    output reg                          mem_req_valid,
-    output reg                          mem_req_write,
-    output reg  [ADDR_WIDTH-1:0]        mem_req_addr,
-    output reg  [CACHE_LINE_SIZE*8-1:0] mem_req_wdata,
-    output reg  [CACHE_LINE_SIZE-1:0]   mem_req_wmask,
-    input  wire [CACHE_LINE_SIZE*8-1:0] mem_resp_rdata,
-    input  wire                         mem_resp_valid,
+    output reg                            mem_req_valid,
+    output reg                            mem_req_write,
+    output reg  [ADDR_WIDTH-1:0]          mem_req_addr,
+    output reg  [CACHE_LINE_SIZE*8-1:0]   mem_req_wdata,
+    output reg  [CACHE_LINE_SIZE-1:0]     mem_req_wmask,
+    input  wire                           mem_req_ready,
+    input  wire [CACHE_LINE_SIZE*8-1:0]   mem_resp_rdata,
+    input  wire                           mem_resp_valid,
 
     //------------------------------------------------------------------------
     // Response to Warp
     //------------------------------------------------------------------------
-    output reg [THREADS*DATA_WIDTH-1:0]  resp_rdata,
-    output reg                          resp_valid,
+    output reg [THREADS*DATA_WIDTH-1:0]   resp_rdata,
+    output reg                            resp_valid,
 
     //------------------------------------------------------------------------
     // Statistics
     //------------------------------------------------------------------------
-    output reg [31:0]                   stat_requests,
-    output reg [31:0]                   stat_transactions,
-    output reg [31:0]                   stat_coalesce_ratio
+    output reg [31:0]                     stat_requests,
+    output reg [31:0]                     stat_transactions,
+    output reg [31:0]                     stat_coalesce_ratio
 );
 
     localparam OFFSET_BITS = $clog2(CACHE_LINE_SIZE);
@@ -92,6 +93,7 @@ module memory_coalescing_unit #(
             thread_to_line[i] = 0;
         end
 
+        line_found = 0;
         for (i = 0; i < THREADS; i = i + 1) begin
             if (saved_mask[i]) begin
                 line_found = 0;
@@ -167,7 +169,7 @@ module memory_coalescing_unit #(
                         mem_req_valid <= 1;
                         mem_req_write <= saved_write;
                         mem_req_addr <= {unique_lines[current_line_idx[1:0]], {OFFSET_BITS{1'b0}}};
-                        
+
                         // Construct write data and mask
                         mem_req_wdata <= 0;
                         mem_req_wmask <= 0;
@@ -182,8 +184,12 @@ module memory_coalescing_unit #(
                                 end
                             end
                         end
-                        state <= ST_WAIT;
-                        stat_transactions <= stat_transactions + 1;
+
+                        // Hold request in ST_REQUEST until downstream accepts it.
+                        if (mem_req_ready) begin
+                            state <= ST_WAIT;
+                            stat_transactions <= stat_transactions + 1;
+                        end
                     end else begin
                         state <= ST_COLLECT;
                     end
@@ -201,19 +207,19 @@ module memory_coalescing_unit #(
                     for (i = 0; i < THREADS; i = i + 1) begin
                         if (saved_mask[i]) begin
                             // Extract data from the correct line buffer and correct offset
-                            resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= 
+                            resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <=
                                 line_data_buf[thread_to_line[i]][saved_addr[i][OFFSET_BITS-1:0]*8 +: DATA_WIDTH];
                         end else begin
                             resp_rdata[i*DATA_WIDTH +: DATA_WIDTH] <= 0;
                         end
                     end
                     resp_valid <= 1;
-                    
+
                     // Update stats ratio (fixed point x100)
                     if (stat_transactions > 0) begin
                         stat_coalesce_ratio <= (stat_requests * 100) / stat_transactions;
                     end
-                    
+
                     state <= ST_DONE;
                 end
 
