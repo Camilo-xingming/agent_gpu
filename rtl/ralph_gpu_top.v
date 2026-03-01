@@ -595,22 +595,23 @@ module ralph_gpu_top #(
             );
 
             assign sm_axi_awid[sm]    = sm_core_axi_awid[sm];
-            assign sm_axi_awaddr[sm]  = sm_core_axi_awaddr[sm];
+            assign sm_axi_awaddr[sm]  = sm_aw_tlb_addr_valid[sm] ? sm_aw_tlb_addr[sm] : sm_core_axi_awaddr[sm];
             assign sm_axi_awlen[sm]   = sm_core_axi_awlen[sm];
             assign sm_axi_awsize[sm]  = sm_core_axi_awsize[sm];
             assign sm_axi_awburst[sm] = sm_core_axi_awburst[sm];
-            assign sm_axi_awvalid[sm] = sm_core_axi_awvalid[sm];
+            // Hold AW/AR until TLB translation completes to provide backpressure into the SM.
+            assign sm_axi_awvalid[sm] = sm_core_axi_awvalid[sm] & sm_aw_tlb_addr_valid[sm];
             assign sm_axi_wdata[sm]   = sm_core_axi_wdata[sm];
             assign sm_axi_wstrb[sm]   = sm_core_axi_wstrb[sm];
             assign sm_axi_wlast[sm]   = sm_core_axi_wlast[sm];
             assign sm_axi_wvalid[sm]  = sm_core_axi_wvalid[sm];
             assign sm_axi_bready[sm]  = sm_core_axi_bready[sm];
             assign sm_axi_arid[sm]    = sm_core_axi_arid[sm];
-            assign sm_axi_araddr[sm]  = sm_core_axi_araddr[sm];
+            assign sm_axi_araddr[sm]  = sm_ar_tlb_addr_valid[sm] ? sm_ar_tlb_addr[sm] : sm_core_axi_araddr[sm];
             assign sm_axi_arlen[sm]   = sm_core_axi_arlen[sm];
             assign sm_axi_arsize[sm]  = sm_core_axi_arsize[sm];
             assign sm_axi_arburst[sm] = sm_core_axi_arburst[sm];
-            assign sm_axi_arvalid[sm] = sm_core_axi_arvalid[sm];
+            assign sm_axi_arvalid[sm] = sm_core_axi_arvalid[sm] & sm_ar_tlb_addr_valid[sm];
             assign sm_axi_rready[sm]  = sm_core_axi_rready[sm];
             assign sm_core_axi_awready[sm] = sm_axi_awready[sm];
             assign sm_core_axi_arready[sm] = sm_axi_arready[sm];
@@ -1073,7 +1074,7 @@ module ralph_gpu_top #(
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_ready_gen
             assign sm_axi_awready[sm] = (axi_aw_sel == sm[AXI_ARB_W-1:0] && axi_aw_valid) ? m_axi_awready : 1'b0;
             assign sm_axi_arready[sm] = (axi_ar_sel == sm[AXI_ARB_W-1:0] && axi_ar_valid) ? m_axi_arready : 1'b0;
-            assign sm_axi_wready[sm]  = (axi_w_sel == sm[AXI_ARB_W-1:0] && (axi_w_active || axi_aw_valid)) ? m_axi_wready : 1'b0;
+            assign sm_axi_wready[sm]  = (axi_w_sel == sm[AXI_ARB_W-1:0] && axi_w_active) ? m_axi_wready : 1'b0;
         end
     endgenerate
 
@@ -1087,7 +1088,7 @@ module ralph_gpu_top #(
     assign m_axi_wdata   = sm_axi_wdata[axi_w_sel];
     assign m_axi_wstrb   = sm_axi_wstrb[axi_w_sel];
     assign m_axi_wlast   = sm_axi_wlast[axi_w_sel];
-    assign m_axi_wvalid  = (axi_w_active || axi_aw_valid) ? sm_axi_wvalid[axi_w_sel] : 1'b0;
+    assign m_axi_wvalid  = axi_w_active ? sm_axi_wvalid[axi_w_sel] : 1'b0;
 
     // Read channel output: encode SM ID in upper AXI ID bits
     assign m_axi_arid    = {axi_ar_sel[SM_ID_W-1:0], sm_axi_arid[axi_ar_sel][AXI_ID_WIDTH-SM_ID_W-1:0]};
