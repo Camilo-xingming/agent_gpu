@@ -17,6 +17,7 @@ make test_sm_v2_perf_gemm16_wmma_ptx
 make test_sm_v2_perf_gemm64_wgmma_ptx
 make test_warp_valid_d1
 make test_command_processor
+make test_ralph_gpu_top_cp_integration
 make test_perf_counters
 make test_cron_optimization
 make bench_atomic_minimal
