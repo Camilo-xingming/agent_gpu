@@ -156,6 +156,7 @@ REGRESSION_MUST_RUN_TARGETS = \
 	test_sm_v2_core \
 	test_tensor_core_fp4 \
 	test_sm_v2_sched_raw_hazard \
+	test_sm_v2_perf_gemm16_ptx \
 	test_cron_optimization \
 	bench_atomic_minimal \
 	bench_app_compile
@@ -165,7 +166,6 @@ REGRESSION_EXTENDED_TARGETS = \
 	test_vector_add \
 	test_multi_sm \
 	test_sm_v2_full \
-	test_sm_v2_perf_gemm16_ptx \
 	test_sm_v2_perf_gemm16_wmma_ptx \
 	test_sm_v2_perf_gemm64_wgmma_ptx \
 	test_sm_v2_perf_tensor \

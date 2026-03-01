@@ -405,6 +405,12 @@ module streaming_multiprocessor_v2 #(
     reg  [3:0]           dec0_isn;
     reg  [31:0]          dec1_pc;
     reg  [3:0]           dec1_isn;
+    // Decoder has 1-cycle output latency. Delay metadata to keep warp/pc/isn
+    // aligned with dec_valid/dec1_dec_valid outputs.
+    reg  [WARP_ID_W-1:0] dec0_warp_id_d;
+    reg  [WARP_ID_W-1:0] dec1_warp_id_d;
+    reg  [31:0]          dec0_pc_d, dec1_pc_d;
+    reg  [3:0]           dec0_isn_d, dec1_isn_d;
     reg  [31:0]          dec0_instruction;
     reg  [31:0]          dec1_instruction;
 
@@ -2099,7 +2105,19 @@ module streaming_multiprocessor_v2 #(
             dec1_valid <= 0;
             dec0_isn <= 4'd0;
             dec1_isn <= 4'd0;
+            dec0_warp_id_d <= {WARP_ID_W{1'b0}};
+            dec1_warp_id_d <= {WARP_ID_W{1'b0}};
+            dec0_pc_d <= 32'b0;
+            dec1_pc_d <= 32'b0;
+            dec0_isn_d <= 4'd0;
+            dec1_isn_d <= 4'd0;
         end else begin
+            dec0_warp_id_d <= dec0_warp_id;
+            dec1_warp_id_d <= dec1_warp_id;
+            dec0_pc_d <= dec0_pc;
+            dec1_pc_d <= dec1_pc;
+            dec0_isn_d <= dec0_isn;
+            dec1_isn_d <= dec1_isn;
             // Debug: trace issue0_fire
             // Flush decode stage if branch taken for same warp
             if (branch_flush_dec0) begin
@@ -2461,9 +2479,9 @@ module streaming_multiprocessor_v2 #(
                 // With the new scheduler flow, always use lane 0's decoder output
                 // (the old lane0_ready-based selection doesn't apply here)
                 begin
-                    issue_warp_id <= dec0_warp_id;
-                    issue_pc <= dec0_pc;
-                    issue_isn <= dec0_isn;
+                    issue_warp_id <= dec0_warp_id_d;
+                    issue_pc <= dec0_pc_d;
+                    issue_isn <= dec0_isn_d;
                     issue_opcode <= dec_opcode;
                     issue_rd <= dec_rd;
                     issue_ra <= dec_ra;
@@ -2474,7 +2492,7 @@ module streaming_multiprocessor_v2 #(
                     issue_imm21 <= dec_imm21;
                     issue_use_imm <= dec_use_imm;
                     // Use merged mask when reconverging, normal mask otherwise
-                    issue_mask <= dec0_at_reconverge ? dec0_merged_mask : warp_mask[dec0_warp_id];
+                    issue_mask <= dec0_at_reconverge ? dec0_merged_mask : warp_mask[dec0_warp_id_d];
                     issue_alu_op <= dec_alu_op || dec_cvt_op;  // CVT routed through ALU
                     issue_mul_op <= dec_mul_op;
                     issue_div_op <= dec_div_op;
@@ -2507,12 +2525,12 @@ module streaming_multiprocessor_v2 #(
 
                     // Handle decode-stage reconvergence: update mask and pop stack
                     if (dec0_at_reconverge) begin
-                        warp_mask[dec0_warp_id] <= dec0_merged_mask;
+                        warp_mask[dec0_warp_id_d] <= dec0_merged_mask;
                         if (dec0_div_ptr > 0) begin
-                            sm_div_stack_ptr[dec0_warp_id] <= dec0_div_ptr - 1'b1;
+                            sm_div_stack_ptr[dec0_warp_id_d] <= dec0_div_ptr - 1'b1;
                         end else begin
-                            sm_div_stack_underflow[dec0_warp_id] <= 1'b1;
-                            sm_div_stack_ptr[dec0_warp_id] <= {DIV_PTR_W{1'b0}};
+                            sm_div_stack_underflow[dec0_warp_id_d] <= 1'b1;
+                            sm_div_stack_ptr[dec0_warp_id_d] <= {DIV_PTR_W{1'b0}};
                         end
                     end
                 end
@@ -2521,9 +2539,9 @@ module streaming_multiprocessor_v2 #(
             // Slot 1: capture decoder outputs when decoder output is valid (NOT at issue1_fire time)
             // This matches the timing of issue1_valid which is set from dec1_dec_valid
             if (dec1_dec_valid && !branch_flush_dec1) begin
-                issue1_warp_id <= dec1_warp_id;
-                issue1_pc <= dec1_pc;
-                issue1_isn <= dec1_isn;
+                issue1_warp_id <= dec1_warp_id_d;
+                issue1_pc <= dec1_pc_d;
+                issue1_isn <= dec1_isn_d;
                 issue1_opcode <= dec1_opcode;
                 issue1_rd <= dec1_rd;
                 issue1_ra <= dec1_ra;
@@ -2533,7 +2551,7 @@ module streaming_multiprocessor_v2 #(
                 issue1_imm16 <= dec1_imm16;
                 issue1_imm21 <= dec1_imm21;
                 issue1_use_imm <= dec1_use_imm;
-                issue1_mask <= warp_mask[dec1_warp_id];
+                issue1_mask <= warp_mask[dec1_warp_id_d];
                 issue1_alu_op <= dec1_alu_op || dec1_cvt_op;  // CVT routed through ALU
                 issue1_mul_op <= dec1_mul_op;
                 issue1_div_op <= dec1_div_op;
@@ -4887,14 +4905,14 @@ module streaming_multiprocessor_v2 #(
     wire [DIV_PTR_W-1:0] curr1_div_ptr = sm_div_stack_ptr[issue1_warp_id];
 
     // Decode-stage reconvergence detection (for early mask merge)
-    wire [DIV_PTR_W-1:0] dec0_div_ptr = sm_div_stack_ptr[dec0_warp_id];
+    wire [DIV_PTR_W-1:0] dec0_div_ptr = sm_div_stack_ptr[dec0_warp_id_d];
     wire [DIV_PTR_W-1:0] dec0_top_ptr = (dec0_div_ptr > 0) ? (dec0_div_ptr - 1'b1) : {DIV_PTR_W{1'b0}};
     wire [DIV_IDX_W-1:0] dec0_top_idx = dec0_top_ptr[DIV_IDX_W-1:0];
     wire dec0_at_reconverge = (dec0_div_ptr > 0) &&
-                             (sm_div_stack_pc[dec0_warp_id][dec0_top_idx] == dec0_pc) &&
+                             (sm_div_stack_pc[dec0_warp_id_d][dec0_top_idx] == dec0_pc_d) &&
                              dec_valid && !dec_branch_op;
-    wire [NUM_LANES-1:0] dec0_merged_mask = warp_mask[dec0_warp_id] |
-                                            sm_div_stack_mask[dec0_warp_id][dec0_top_idx];
+    wire [NUM_LANES-1:0] dec0_merged_mask = warp_mask[dec0_warp_id_d] |
+                                            sm_div_stack_mask[dec0_warp_id_d][dec0_top_idx];
 
     // Assign flush signals - flush on taken branch OR divergent branch (mask changes)
     // For divergent branch, we flush to ensure next instruction uses updated mask

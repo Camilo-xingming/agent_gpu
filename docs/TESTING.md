@@ -52,6 +52,7 @@ If any target fails, it also prints `Failed targets: ...` and exits non-zero (CI
 `test_sm_v2_core`
 `test_tensor_core_fp4`
 `test_sm_v2_sched_raw_hazard`
+`test_sm_v2_perf_gemm16_ptx`
 `test_cron_optimization`
 `bench_atomic_minimal`
 `bench_app_compile`
@@ -68,7 +69,6 @@ Extended set:
 `test_vector_add`
 `test_multi_sm`
 `test_sm_v2_full`
-`test_sm_v2_perf_gemm16_ptx`
 `test_sm_v2_perf_gemm16_wmma_ptx`
 `test_sm_v2_perf_gemm64_wgmma_ptx`
 `test_sm_v2_perf_tensor`
@@ -81,10 +81,10 @@ Extended set:
 
 ### Audit notes
 
-- On March 1, 2026 `test_tensor_core_fp4` and `test_sm_v2_sched_raw_hazard` were stabilized and promoted into the must-run gating suite.
+- On March 1, 2026 `test_tensor_core_fp4`, `test_sm_v2_sched_raw_hazard`, and `test_sm_v2_perf_gemm16_ptx` were stabilized and promoted into the must-run gating suite.
 - Remaining known extended failures/noise include `test_vector_add`, `test_sm_v2_perf_gemm16_wmma_ptx`, and very long/noisy execution in `test_multi_sm` and `test_ptx`.
 - Aggregate wrappers are intentionally excluded from gating to avoid duplicate work: `test_all`, `bench_all`, `test_sm_v2`.
-- Alias target `test_sm_v2_perf` is excluded from gating because it maps to `test_sm_v2_perf_gemm16_ptx`.
+- Alias target `test_sm_v2_perf` remains excluded from gating to avoid duplicate work because it maps to must-run target `test_sm_v2_perf_gemm16_ptx`.
 - Non-regression operational targets (`dashboard*`, `perf_report`, `wave`, etc.) are not part of pass/fail gating.
 
 ## Tensor multiwarp perf test (current hotspot)
