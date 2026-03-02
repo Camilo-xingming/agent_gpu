@@ -247,11 +247,17 @@ module tb_sm_v2_perf_tensor_multiwarp;
     real ipc;
     real avg_active_warps;
     real occupancy_pct;
+    real l1_hit_rate;
+    real l2_hit_rate;
     wire wb_fire = dut.wb_valid && (dut.wb_rd != 0);
     integer active_warp_sum;
     integer active_warp_peak;
     integer active_warp_now;
     integer occ_i;
+    integer l1_hits;
+    integer l1_misses;
+    integer l2_hits;
+    integer l2_misses;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -470,6 +476,12 @@ module tb_sm_v2_perf_tensor_multiwarp;
         ipc = (cycle_count > 0) ? (1.0 * wb_count / cycle_count) : 0.0;
         avg_active_warps = (cycle_count > 0) ? (1.0 * active_warp_sum / cycle_count) : 0.0;
         occupancy_pct = (NUM_WARPS > 0) ? (100.0 * avg_active_warps / NUM_WARPS) : 0.0;
+        l1_hits = dut.l1_stat_hits;
+        l1_misses = dut.l1_stat_misses;
+        l2_hits = 0;
+        l2_misses = 0;
+        l1_hit_rate = ((l1_hits + l1_misses) > 0) ? ((1.0 * l1_hits * 100.0) / (l1_hits + l1_misses)) : 0.0;
+        l2_hit_rate = 0.0;
         $display("Cycles: %0d", cycle_count);
         $display("Writebacks: %0d", wb_count);
         $display("Fetches: %0d", fetch_count);
@@ -481,6 +493,8 @@ module tb_sm_v2_perf_tensor_multiwarp;
                  stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq,
                  stall_ifetch, (cycle_count > 0) ? (stall_ifetch * 100 / cycle_count) : 0);
         $display("IPC: %0.3f", ipc);
+        $display("CacheStats: L1_hits=%0d L1_misses=%0d L1_hit_rate=%0.2f%% L2_hits=%0d L2_misses=%0d L2_hit_rate=%0.2f%%",
+                 l1_hits, l1_misses, l1_hit_rate, l2_hits, l2_misses, l2_hit_rate);
 
         $display("Per-warp WB: w0=%0d w1=%0d w2=%0d w3=%0d",
                  tensor_wb_per_warp[0], tensor_wb_per_warp[1],

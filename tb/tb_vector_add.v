@@ -258,6 +258,12 @@ module tb_vector_add;
     integer perf_active_warp_sum = 0;
     integer perf_active_warp_samples = 0;
     integer perf_avg_occ_pct = 0;
+    integer perf_l1_hits = 0;
+    integer perf_l1_misses = 0;
+    integer perf_l2_hits = 0;
+    integer perf_l2_misses = 0;
+    real perf_l1_hit_rate;
+    real perf_l2_hit_rate;
 
     //------------------------------------------------------------------------
     // Occupancy sampler (average active warps while kernel is running)
@@ -429,6 +435,23 @@ module tb_vector_add;
         perf_cycles = csr_rd_data;
         @(posedge clk); csr_addr <= 12'h101; @(posedge clk); @(posedge clk);
         perf_instructions = csr_rd_data;
+        @(posedge clk); csr_addr <= 12'h110; @(posedge clk); @(posedge clk);
+        perf_l1_hits = csr_rd_data;
+        @(posedge clk); csr_addr <= 12'h111; @(posedge clk); @(posedge clk);
+        perf_l1_misses = csr_rd_data;
+        @(posedge clk); csr_addr <= 12'h112; @(posedge clk); @(posedge clk);
+        perf_l2_hits = csr_rd_data;
+        @(posedge clk); csr_addr <= 12'h113; @(posedge clk); @(posedge clk);
+        perf_l2_misses = csr_rd_data;
+
+        if ((perf_l1_hits + perf_l1_misses) == 0) begin
+            perf_l1_hits = dut.sm_gen[0].u_sm.l1_stat_hits;
+            perf_l1_misses = dut.sm_gen[0].u_sm.l1_stat_misses;
+        end
+        perf_l1_hit_rate = (perf_l1_hits + perf_l1_misses > 0) ?
+                           (($itor(perf_l1_hits) * 100.0) / $itor(perf_l1_hits + perf_l1_misses)) : 0.0;
+        perf_l2_hit_rate = (perf_l2_hits + perf_l2_misses > 0) ?
+                           (($itor(perf_l2_hits) * 100.0) / $itor(perf_l2_hits + perf_l2_misses)) : 0.0;
 
         perf_ipc_x100 = dut.perf_achieved_ipc_x100;
         perf_occ_pct = dut.perf_sm_occupancy_pct[7:0];
@@ -442,6 +465,9 @@ module tb_vector_add;
         $display("  IPC: %0d.%02d", perf_ipc_x100 / 100, perf_ipc_x100 % 100);
         $display("  Occupancy(SM0) instant: %0d%%", perf_occ_pct);
         $display("  Occupancy(SM0) average: %0d%%", perf_avg_occ_pct);
+        $display("  CacheStats: L1_hits=%0d L1_misses=%0d L1_hit_rate=%0.2f%% L2_hits=%0d L2_misses=%0d L2_hit_rate=%0.2f%%",
+                 perf_l1_hits, perf_l1_misses, perf_l1_hit_rate,
+                 perf_l2_hits, perf_l2_misses, perf_l2_hit_rate);
 
         if (perf_ipc_x100 > 0) begin
             $display("[PASS] IPC metric is non-zero");

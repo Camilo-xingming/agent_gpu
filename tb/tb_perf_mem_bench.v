@@ -1,7 +1,8 @@
 //============================================================================
 // RalphGPU - Memory benchmark TB for MCU/L1D validation (Issue #306)
 // Compile-time switches:
-//   -DTB_MEM_BENCH_GATHER : run gather benchmark (default: stream)
+//   -DTB_MEM_BENCH_GATHER : run gather benchmark
+//   -DTB_MEM_BENCH_SAXPY  : run SAXPY benchmark
 //   -DTB_L1D_BYPASS=0/1   : top-level L1D bypass mode
 //============================================================================
 
@@ -33,6 +34,10 @@ module tb_perf_mem_bench;
     localparam integer S_B2_BASE_IDX = 3072;    // 0x3000 / 4
     localparam integer S_B3_BASE_IDX = 3584;    // 0x3800 / 4
     localparam integer S_C_BASE_IDX  = 4096;    // 0x4000 / 4
+
+    // SAXPY benchmark map
+    localparam integer SX_X_BASE_IDX = 0;       // 0x0000 / 4
+    localparam integer SX_Y_BASE_IDX = 1024;    // 0x1000 / 4
 
     reg clk;
     reg rst_n;
@@ -151,6 +156,8 @@ module tb_perf_mem_bench;
         end
 `ifdef TB_MEM_BENCH_GATHER
         $readmemh("mem_gather.hex", imem);
+`elsif TB_MEM_BENCH_SAXPY
+        $readmemh("saxpy.hex", imem);
 `else
         $readmemh("mem_stream8.hex", imem);
 `endif
@@ -160,6 +167,8 @@ module tb_perf_mem_bench;
         end
 `ifdef TB_MEM_BENCH_GATHER
         $display("Loaded %0d instructions from mem_gather.hex", instr_count);
+`elsif TB_MEM_BENCH_SAXPY
+        $display("Loaded %0d instructions from saxpy.hex", instr_count);
 `else
         $display("Loaded %0d instructions from mem_stream8.hex", instr_count);
 `endif
@@ -252,6 +261,12 @@ module tb_perf_mem_bench;
     integer got_val;
     reg [31:0] c_val;
     reg [31:0] i_val;
+    reg [31:0] l1_hits;
+    reg [31:0] l1_misses;
+    reg [31:0] l2_hits;
+    reg [31:0] l2_misses;
+    real l1_hit_rate;
+    real l2_hit_rate;
 
     initial begin
         passed = 0;
@@ -271,6 +286,10 @@ module tb_perf_mem_bench;
             data_memory[G_A_BASE_IDX + ii] = (ii * 10);
             data_memory[G_B_BASE_IDX + ii] = (ii * 5);
             data_memory[G_IDX_BASE_IDX + ii] = (ii * 5) & 32'h1F;
+            data_memory[G_C_BASE_IDX + ii] = 32'hDEADBEEF;
+`elsif TB_MEM_BENCH_SAXPY
+            data_memory[SX_X_BASE_IDX + ii] = (ii + 1);
+            data_memory[SX_Y_BASE_IDX + ii] = (100 + ii);
 `else
             data_memory[S_A0_BASE_IDX + ii]  = (ii * 10);
             data_memory[S_A1_BASE_IDX + ii]  = (ii * 11);
@@ -280,10 +299,6 @@ module tb_perf_mem_bench;
             data_memory[S_B1_BASE_IDX + ii]  = (ii * 6);
             data_memory[S_B2_BASE_IDX + ii]  = (ii * 7);
             data_memory[S_B3_BASE_IDX + ii]  = (ii * 8);
-`endif
-            `ifdef TB_MEM_BENCH_GATHER
-            data_memory[G_C_BASE_IDX + ii] = 32'hDEADBEEF;
-`else
             data_memory[S_C_BASE_IDX + ii] = 32'hDEADBEEF;
 `endif
         end
@@ -294,6 +309,11 @@ module tb_perf_mem_bench;
         $display("Init A[0..3]=%0d,%0d,%0d,%0d", data_memory[G_A_BASE_IDX], data_memory[G_A_BASE_IDX+1], data_memory[G_A_BASE_IDX+2], data_memory[G_A_BASE_IDX+3]);
         $display("Init B[0..3]=%0d,%0d,%0d,%0d", data_memory[G_B_BASE_IDX], data_memory[G_B_BASE_IDX+1], data_memory[G_B_BASE_IDX+2], data_memory[G_B_BASE_IDX+3]);
         $display("Init C[0..3]=0x%08h,0x%08h,0x%08h,0x%08h", data_memory[G_C_BASE_IDX], data_memory[G_C_BASE_IDX+1], data_memory[G_C_BASE_IDX+2], data_memory[G_C_BASE_IDX+3]);
+`elsif TB_MEM_BENCH_SAXPY
+        $display("=== Memory Benchmark: saxpy ===");
+        $display("TB_L1D_BYPASS=%0d", TB_L1D_BYPASS_CFG);
+        $display("Init X[0..3]=%0d,%0d,%0d,%0d", data_memory[SX_X_BASE_IDX], data_memory[SX_X_BASE_IDX+1], data_memory[SX_X_BASE_IDX+2], data_memory[SX_X_BASE_IDX+3]);
+        $display("Init Y[0..3]=%0d,%0d,%0d,%0d", data_memory[SX_Y_BASE_IDX], data_memory[SX_Y_BASE_IDX+1], data_memory[SX_Y_BASE_IDX+2], data_memory[SX_Y_BASE_IDX+3]);
 `else
         $display("=== Memory Benchmark: mem_stream8 ===");
         $display("TB_L1D_BYPASS=%0d", TB_L1D_BYPASS_CFG);
@@ -332,6 +352,10 @@ module tb_perf_mem_bench;
             idx = data_memory[G_IDX_BASE_IDX + ii];
             expect_val = data_memory[G_A_BASE_IDX + idx] + data_memory[G_B_BASE_IDX + idx];
             got_val = data_memory[G_C_BASE_IDX + ii];
+`elsif TB_MEM_BENCH_SAXPY
+            idx = ii;
+            expect_val = ((ii + 1) * 3) + (100 + ii);
+            got_val = data_memory[SX_Y_BASE_IDX + ii];
 `else
             expect_val = (data_memory[S_A0_BASE_IDX + ii] + data_memory[S_B0_BASE_IDX + ii]) * 4;
             got_val = data_memory[S_C_BASE_IDX + ii];
@@ -349,6 +373,21 @@ module tb_perf_mem_bench;
         c_val = csr_rd_data;
         @(posedge clk); csr_addr <= 12'h101; @(posedge clk); @(posedge clk);
         i_val = csr_rd_data;
+        @(posedge clk); csr_addr <= 12'h110; @(posedge clk); @(posedge clk);
+        l1_hits = csr_rd_data;
+        @(posedge clk); csr_addr <= 12'h111; @(posedge clk); @(posedge clk);
+        l1_misses = csr_rd_data;
+        @(posedge clk); csr_addr <= 12'h112; @(posedge clk); @(posedge clk);
+        l2_hits = csr_rd_data;
+        @(posedge clk); csr_addr <= 12'h113; @(posedge clk); @(posedge clk);
+        l2_misses = csr_rd_data;
+
+        if ((l1_hits + l1_misses) == 0) begin
+            l1_hits = dut.sm_gen[0].u_sm.l1_stat_hits;
+            l1_misses = dut.sm_gen[0].u_sm.l1_stat_misses;
+        end
+        l1_hit_rate = (l1_hits + l1_misses > 0) ? (($itor(l1_hits) * 100.0) / $itor(l1_hits + l1_misses)) : 0.0;
+        l2_hit_rate = (l2_hits + l2_misses > 0) ? (($itor(l2_hits) * 100.0) / $itor(l2_hits + l2_misses)) : 0.0;
 
         $display("Cycles = %0d", c_val);
         $display("Instructions = %0d", i_val);
@@ -356,6 +395,9 @@ module tb_perf_mem_bench;
             $display("IPC = %0d / %0d = %f", i_val, c_val, $itor(i_val) / $itor(c_val));
         else
             $display("IPC = 0 / 0 = 0.000000");
+
+        $display("CacheStats: L1_hits=%0d L1_misses=%0d L1_hit_rate=%0.2f%% L2_hits=%0d L2_misses=%0d L2_hit_rate=%0.2f%%",
+                 l1_hits, l1_misses, l1_hit_rate, l2_hits, l2_misses, l2_hit_rate);
 
         $display("Result = %0d pass, %0d fail", passed, failed);
         if (failed == 0) begin
