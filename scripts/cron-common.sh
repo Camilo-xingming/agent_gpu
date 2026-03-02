@@ -235,6 +235,19 @@ release_script_lock() {
 send_discord_message_best_effort() {
   local text="$1"
 
+  # Prevent raw tool output and system messages from leaking
+  if echo "$text" | grep -qE 'startcall:|sessionId:|Stats: |\[System Message\]'; then
+    log_event "discord_msg" "ERROR" "Message intercepted: raw output leaked. Filtering..."
+    text=$(echo "$text" | sed -E 's/Stats: runtime[^\)]+\)//g')
+    text=$(echo "$text" | sed -E 's/\[System Message\] sessionId: [a-zA-Z0-9-]+//g')
+    # Filter lines containing startcall: or sessionId:
+    text=$(echo "$text" | grep -vE 'startcall:|sessionId:' || true)
+    # If empty after filtering, exit without sending
+    if [[ -z "$(echo "$text" | tr -d ' \n')" ]]; then
+      return 0
+    fi
+  fi
+
   if [[ -z "${OPENCLAW_BIN:-}" ]] || ! has_command "$OPENCLAW_BIN"; then
     return 0
   fi
