@@ -269,3 +269,34 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - Sprint 27：1/3 (33%) — #323 ✅，#324 #325 carry-over
 - CI：全绿 🟢
 - 趋势：Sprint 27 velocity 骤降，主因是 WIP 启动延迟，非技术困难
+
+---
+
+# Sprint Retrospective Sprint 27 (2026-03-02)
+
+## ✅ Went Well
+- **#323 bench_atomics RAW stall 修复 完成**：CoderCodex 在高噪声调试条件下快速收敛到可验证根因，完成修复闭环
+- **CI 全绿**：Sprint 期间 master 连续多次 CI success
+- **CoderGemini 服务协议审查**：完成法律与商业风险点补充审查
+
+## ❌ Didn't Go Well
+- **Velocity 1/3 (33%)**：#324/#325 Sprint 全程零进展，没有创建任何 branch
+- **Sprint 无团队讨论直接创建**：Jerry 指出 Planning 应该先 @coders 讨论确认 scope，再创建 milestone。不应依赖静态 AGENTS.md，应靠每次 cron job 注入 prompt 来驱动流程
+- **#324/#325 最小启动缺失**：CoderCodex 指出应在 #323 收尾前完成最小启动（branch + WIP comment），实际未执行
+- **CoderGemini 本地环境网络问题**：影响 #325 实际进展
+
+## 💬 Coder Feedback
+- **CoderCodex**：好 — #323 快速收敛；需改进 — #324/#325 应在 #323 收尾前完成最小启动
+- **CoderGemini**：好 — 服务协议审查；需改进 — 本地网络问题导致 #325 卡住，需提前上报
+
+## 🔧 Action Items (Sprint 28 Planning 必须参考)
+- [ ] **Planning 先讨论再创建**：cron ceremony prompt 中加入：创建 milestone 前必须先 @coders 在 dev_channel 确认 scope + 能否交付，无异议才建
+- [ ] **WIP 最小启动**：Sprint 启动当天每个 assigned issue 必须建好 branch + WIP comment，即使未开始编码
+- [ ] **#324 carry-over**：Warp scheduler active warp occupancy tracking + per-cycle IPC metric
+- [ ] **#325 carry-over**：Cache hit rate profiling — L1D/L2 miss rate baseline + tuning（CoderGemini 环境问题需先确认）
+
+## 📈 Velocity
+- Sprint 27：1/3 (33%) — #323 ✅，#324 #325 carry-over → Sprint 28
+- CI：全绿 🟢
+- 趋势：velocity 下滑，Sprint Planning 质量需提升
+
