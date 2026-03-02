@@ -245,7 +245,13 @@ module tb_sm_v2_perf_tensor_multiwarp;
     reg running;
     reg done;
     real ipc;
+    real avg_active_warps;
+    real occupancy_pct;
     wire wb_fire = dut.wb_valid && (dut.wb_rd != 0);
+    integer active_warp_sum;
+    integer active_warp_peak;
+    integer active_warp_now;
+    integer occ_i;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -261,6 +267,9 @@ module tb_sm_v2_perf_tensor_multiwarp;
             stall_atomic <= 0;
             stall_tensor <= 0;
             stall_wbq <= 0;
+            active_warp_sum <= 0;
+            active_warp_peak <= 0;
+            active_warp_now <= 0;
             stall_ifetch <= 0;
         end else begin
             if (kernel_start) begin
@@ -276,6 +285,9 @@ module tb_sm_v2_perf_tensor_multiwarp;
                 stall_atomic <= 0;
                 stall_tensor <= 0;
                 stall_wbq <= 0;
+                active_warp_sum <= 0;
+                active_warp_peak <= 0;
+                active_warp_now <= 0;
                 stall_ifetch <= 0;
             end else if (running) begin
                 cycle_count <= cycle_count + 1;
@@ -363,6 +375,14 @@ module tb_sm_v2_perf_tensor_multiwarp;
                 if (dut.lane0_stall_wbq) begin
                     stall_wbq <= stall_wbq + 1;
                 end
+                active_warp_now = 0;
+                for (occ_i = 0; occ_i < NUM_WARPS; occ_i = occ_i + 1) begin
+                    if (dut.warp_valid[occ_i]) begin
+                        active_warp_now = active_warp_now + 1;
+                    end
+                end
+                active_warp_sum <= active_warp_sum + active_warp_now;
+                active_warp_peak <= (active_warp_now > active_warp_peak) ? active_warp_now : active_warp_peak;
                 if (kernel_done) begin
                     running <= 1'b0;
                     done <= 1'b1;
@@ -448,10 +468,15 @@ module tb_sm_v2_perf_tensor_multiwarp;
         end
 
         ipc = (cycle_count > 0) ? (1.0 * wb_count / cycle_count) : 0.0;
+        avg_active_warps = (cycle_count > 0) ? (1.0 * active_warp_sum / cycle_count) : 0.0;
+        occupancy_pct = (NUM_WARPS > 0) ? (100.0 * avg_active_warps / NUM_WARPS) : 0.0;
         $display("Cycles: %0d", cycle_count);
         $display("Writebacks: %0d", wb_count);
         $display("Fetches: %0d", fetch_count);
         $display("Issues: %0d", issue_count);
+        $display("Occupancy: %0.1f%%", occupancy_pct);
+        $display("Active warps: avg=%0.2f peak=%0d/%0d",
+                 avg_active_warps, active_warp_peak, NUM_WARPS);
         $display("Stalls: raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d ifetch=%0d (%0d%%)",
                  stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq,
                  stall_ifetch, (cycle_count > 0) ? (stall_ifetch * 100 / cycle_count) : 0);
@@ -471,6 +496,10 @@ module tb_sm_v2_perf_tensor_multiwarp;
         end else if (tensor_push_lane0_suppress != 0) begin
             $display("FAIL: lane0 tensor push was unexpectedly suppressed (%0d times)",
                      tensor_push_lane0_suppress);
+        end else if (occupancy_pct <= 0.1) begin
+            $display("FAIL: occupancy metric is zero (avg=%0.2f)", avg_active_warps);
+        end else if (ipc <= 0.0) begin
+            $display("FAIL: IPC metric is zero");
         end else begin
             $display("PASS: completed multi-warp WMMA stream");
             if (stall_tensor == 0) begin

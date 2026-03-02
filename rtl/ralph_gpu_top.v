@@ -279,6 +279,7 @@ module ralph_gpu_top #(
     reg [31:0] l1d_bypass_mem [0:16383];  // 64KB shared for bypass mode
 
     genvar sm;
+    localparam PERF_WARP_COUNT_W = $clog2(4 + 1);
     // Performance counter wires (RALPH-7)
     wire [NUM_SM-1:0] sm_perf_issue_valid;
     wire [NUM_SM-1:0] sm_perf_dual_issue;
@@ -298,6 +299,8 @@ module ralph_gpu_top #(
     wire [NUM_SM*4-1:0] sm_perf_warp_issued;
     wire [NUM_SM*4-1:0] sm_perf_warp_stalled;
     wire [NUM_SM*4-1:0] sm_perf_warp_diverged;
+    wire [NUM_SM*4-1:0] sm_perf_warp_active;
+    wire [NUM_SM*PERF_WARP_COUNT_W-1:0] sm_perf_active_warp_count;
     wire [NUM_SM-1:0] sm_perf_tensor_mma_issued;
     wire [NUM_SM-1:0] sm_perf_tensor_mma_completed;
     wire [NUM_SM-1:0] sm_exception_valid;
@@ -307,6 +310,10 @@ module ralph_gpu_top #(
     wire [NUM_SM*4-1:0] sm_warp_error_mask;
     wire [NUM_SM-1:0] sm_perf_l1_hit;
     wire [NUM_SM-1:0] sm_perf_l1_miss;
+
+    wire [NUM_SM*8-1:0] perf_sm_occupancy_pct;
+    wire [31:0] perf_achieved_ipc_x100;
+    wire [31:0] perf_memory_throughput_x100;
 
     wire [31:0] l2_stat_hits_perf;
     wire [31:0] l2_stat_misses_perf;
@@ -585,6 +592,8 @@ module ralph_gpu_top #(
                 .perf_warp_issued       (sm_perf_warp_issued[sm*4 +: 4]),
                 .perf_warp_stalled      (sm_perf_warp_stalled[sm*4 +: 4]),
                 .perf_warp_diverged     (sm_perf_warp_diverged[sm*4 +: 4]),
+                .perf_warp_active       (sm_perf_warp_active[sm*4 +: 4]),
+                .perf_active_warp_count (sm_perf_active_warp_count[sm*PERF_WARP_COUNT_W +: PERF_WARP_COUNT_W]),
                 .perf_tensor_mma_issued (sm_perf_tensor_mma_issued[sm]),
                 .perf_tensor_mma_completed(sm_perf_tensor_mma_completed[sm]),
                 .exception_valid       (sm_exception_valid[sm]),
@@ -1314,6 +1323,7 @@ module ralph_gpu_top #(
         .dram_access        (perf_dram_access),
 
         .warp_issued        (sm_perf_warp_issued),
+        .warp_active        (sm_perf_warp_active),
         .warp_stalled       (sm_perf_warp_stalled),
         .warp_diverged      (sm_perf_warp_diverged),
 
@@ -1325,9 +1335,9 @@ module ralph_gpu_top #(
         .tensor_mma_completed(|sm_perf_tensor_mma_completed),
         .tensor_flops       (16'b0),
 
-        .sm_occupancy       (),
-        .achieved_ipc       (),
-        .memory_throughput  (),
+        .sm_occupancy       (perf_sm_occupancy_pct),
+        .achieved_ipc       (perf_achieved_ipc_x100),
+        .memory_throughput  (perf_memory_throughput_x100),
         .total_instructions (),
         .total_cycles       (),
         .total_memory_bytes ()

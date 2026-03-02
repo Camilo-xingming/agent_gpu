@@ -126,6 +126,8 @@ module streaming_multiprocessor_v2 #(
     output wire [NUM_WARPS-1:0]     perf_warp_issued,
     output wire [NUM_WARPS-1:0]     perf_warp_stalled,
     output wire [NUM_WARPS-1:0]     perf_warp_diverged,
+    output wire [NUM_WARPS-1:0]     perf_warp_active,
+    output wire [$clog2(NUM_WARPS+1)-1:0] perf_active_warp_count,
     output wire                     perf_tensor_mma_issued,
     output wire                     perf_tensor_mma_completed,
 
@@ -1227,6 +1229,20 @@ module streaming_multiprocessor_v2 #(
     assign perf_tensor_mma_completed = tensor_wbq_pop;
 
     // Per-warp tracking: which warps issued / are stalled / diverged this cycle
+    function [$clog2(NUM_WARPS+1)-1:0] count_warp_bits;
+        input [NUM_WARPS-1:0] warp_bits;
+        integer bit_i;
+        begin
+            count_warp_bits = {($clog2(NUM_WARPS+1)){1'b0}};
+            for (bit_i = 0; bit_i < NUM_WARPS; bit_i = bit_i + 1) begin
+                count_warp_bits = count_warp_bits + warp_bits[bit_i];
+            end
+        end
+    endfunction
+
+    assign perf_warp_active = warp_valid;
+    assign perf_active_warp_count = count_warp_bits(warp_valid);
+
     genvar pw_i;
     generate
         for (pw_i = 0; pw_i < NUM_WARPS; pw_i = pw_i + 1) begin : gen_perf_warp

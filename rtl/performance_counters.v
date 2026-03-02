@@ -57,6 +57,7 @@ module performance_counters #(
     // Warp Events (per SM, packed)
     //------------------------------------------------------------------------
     input  wire [NUM_SM*NUM_WARPS-1:0] warp_issued,
+    input  wire [NUM_SM*NUM_WARPS-1:0] warp_active,
     input  wire [NUM_SM*NUM_WARPS-1:0] warp_stalled,
     input  wire [NUM_SM*NUM_WARPS-1:0] warp_diverged,
 
@@ -263,7 +264,7 @@ module performance_counters #(
             always @(*) begin
                 active_warps = 0;
                 for (w = 0; w < NUM_WARPS; w = w + 1) begin
-                    if (!warp_stalled[sm*NUM_WARPS + w]) begin
+                    if (warp_active[sm*NUM_WARPS + w]) begin
                         active_warps = active_warps + 1;
                     end
                 end

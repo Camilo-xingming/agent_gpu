@@ -107,6 +107,7 @@ class PerfMetrics:
     cycles: int = 0
     instructions: int = 0
     ipc: float = 0.0
+    occupancy_pct: float = 0.0
 
     # Stall breakdown (cycle counts)
     stall_raw: int = 0
@@ -193,6 +194,10 @@ def parse_sim_output(content: str, workload: str = "", category: str = "") -> Pe
         m.ipc = float(match.group(1))
     elif m.cycles and m.instructions:
         m.ipc = m.instructions / m.cycles
+
+    # Occupancy percentage
+    if match := re.search(r'Occupancy:\s*([\d.]+)%', content):
+        m.occupancy_pct = float(match.group(1))
 
     # Stalls: raw=N fu=N mem=N atomic=N tensor=N wbq=N
     if match := re.search(r'Stalls?:\s*(.*)', content):
@@ -291,7 +296,7 @@ def run_all_benchmarks(selected_workloads: Optional[List[str]] = None) -> List[P
 
 def export_csv(results: List[PerfMetrics], path: Path):
     """Export metrics to CSV."""
-    fields = ["workload", "category", "status", "cycles", "instructions", "ipc",
+    fields = ["workload", "category", "status", "cycles", "instructions", "ipc", "occupancy_pct",
               "stall_raw", "stall_fu", "stall_mem", "stall_sync", "stall_ifetch",
               "stall_atomic", "stall_tensor", "stall_wbq",
               "fu_alu", "fu_fpu", "fu_sfu", "fu_ldst", "fu_tensor",
@@ -422,27 +427,27 @@ def generate_markdown(results: List[PerfMetrics],
     # Summary table
     lines.append("## IPC Summary")
     lines.append("")
-    lines.append("| Workload | Category | Status | Cycles | Instr | IPC | Stall% |")
-    lines.append("|----------|----------|--------|--------|-------|-----|--------|")
+    lines.append("| Workload | Category | Status | Cycles | Instr | IPC | Occupancy | Stall% |")
+    lines.append("|----------|----------|--------|--------|-------|-----|-----------|--------|")
     for r in results:
         wname = WORKLOADS.get(r.workload, {}).get("name", r.workload)
         lines.append(
             f"| {wname} | {r.category} | {r.status} | "
-            f"{r.cycles:,} | {r.instructions:,} | {r.ipc:.3f} | {r.stall_pct:.1f}% |"
+            f"{r.cycles:,} | {r.instructions:,} | {r.ipc:.3f} | {r.occupancy_pct:.1f}% | {r.stall_pct:.1f}% |"
         )
     lines.append("")
 
     # KPI table required for reproducible baselines.
     lines.append("## Baseline KPI (Cycles/IPC/Stalls)")
     lines.append("")
-    lines.append("| Workload | Cycles | IPC | Stall Mem | Stall Scoreboard | Stall Fetch |")
-    lines.append("|----------|--------|-----|-----------|------------------|-------------|")
+    lines.append("| Workload | Cycles | IPC | Occupancy | Stall Mem | Stall Scoreboard | Stall Fetch |")
+    lines.append("|----------|--------|-----|-----------|-----------|------------------|-------------|")
     for r in results:
         if not r.cycles:
             continue
         wname = WORKLOADS.get(r.workload, {}).get("name", r.workload)
         lines.append(
-            f"| {wname} | {r.cycles:,} | {r.ipc:.3f} | "
+            f"| {wname} | {r.cycles:,} | {r.ipc:.3f} | {r.occupancy_pct:.1f}% | "
             f"{r.stall_mem} ({r.stall_mem / r.cycles * 100:.1f}%) | "
             f"{r.stall_raw} ({r.stall_raw / r.cycles * 100:.1f}%) | "
             f"{r.stall_ifetch} ({r.stall_ifetch / r.cycles * 100:.1f}%) |"
