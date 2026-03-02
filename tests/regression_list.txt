@@ -19,6 +19,8 @@ make test_warp_valid_d1
 make test_command_processor
 make test_ralph_gpu_top_cp_integration
 make test_perf_counters
+make test_perf_mem_gather
+make test_perf_mem_stream
 make test_cron_optimization
 make bench_atomic_minimal
 make bench_app_compile

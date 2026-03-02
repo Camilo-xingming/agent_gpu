@@ -1,0 +1,41 @@
+// RalphGPU memory benchmark #1: stream8 (8 global loads / lane)
+// Repeatedly loads A[i] and B[i] four times to stress memory path.
+// A: 0x0000, B: 0x2000, C: 0x4000
+
+.entry mem_stream8:
+    mov.u32 r0, %tid.x
+    shl.b32 r1, r0, 2
+
+    mov.u32 r6, 0x0000
+    add.s32 r6, r1, r6
+    mov.u32 r7, 0x2000
+    add.s32 r7, r1, r7
+
+    // round 1
+    ld.global.s32 r2, [r6]
+    ld.global.s32 r3, [r7]
+    add.s32 r10, r2, r3
+
+    // round 2
+    ld.global.s32 r2, [r6]
+    ld.global.s32 r3, [r7]
+    add.s32 r11, r2, r3
+    add.s32 r12, r10, r11
+
+    // round 3
+    ld.global.s32 r2, [r6]
+    ld.global.s32 r3, [r7]
+    add.s32 r13, r2, r3
+    add.s32 r14, r12, r13
+
+    // round 4
+    ld.global.s32 r2, [r6]
+    ld.global.s32 r3, [r7]
+    add.s32 r15, r2, r3
+    add.s32 r5, r14, r15
+
+    mov.u32 r6, 0x4000
+    add.s32 r6, r1, r6
+    st.global.s32 [r6], r5
+
+    exit
