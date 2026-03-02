@@ -3,8 +3,15 @@
 ⚠️ 所有消息只用 --channel discord。
 ⚠️ 所有 gh 命令必须显式带代理。固定前缀：env HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 gh
 ⚠️ 所有 SSH 操作优先使用 IP 100.81.212.41（不要依赖 hostname 解析）。
+⚠️ 长任务心跳：单次任务持续超过 3 分钟时，必须每 60 秒向 #ralphgpu-dev 发一条 heartbeat；任务完成后停止 heartbeat 并发送最终结果。
 
 步骤：
+0) 长任务心跳规则（必须执行）
+   - 触发条件：任务开始后运行时间 > 180 秒
+   - 频率：每 60 秒
+   - 发送位置：openclaw message send --account codex --channel discord --target channel:1475083010968649778 -m "⏳ [issue-编号/任务名] 进行中：[当前结果/下一步]"
+   - 停止条件：任务结束或被明确中止后，停止 heartbeat，并发送一次最终结论（成功/阻塞 + 下一步）
+
 1) 查分配给你的 open issues：
    env HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 gh issue list --repo ssql2014/RalphGPU --assignee Tony-zf1 --state open --json number,title,milestone
 

@@ -447,6 +447,10 @@ run_heartbeat_schedule_test() {
   local hb_log="$TMP_ROOT/heartbeat-openclaw.log"
   : > "$hb_log"
 
+  grep -q "长任务心跳" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing heartbeat policy marker"
+  grep -q "每 60 秒" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing heartbeat interval marker"
+  grep -q "3 分钟" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing heartbeat threshold marker"
+
   OPENCLAW_LOG_FILE="$hb_log" \
   OPENCLAW_STUB_DEV_TEXT="$FIXTURE_DIR/discord-dev.txt" \
   OPENCLAW_STUB_MAIN_TEXT="$FIXTURE_DIR/discord-main.txt" \
