@@ -11,12 +11,28 @@
 
 ## Planning 中
 
+- [ ] **在 #ralphgpu-dev 创建 thread 召集 Sprint Planning 会议**（格式见下方模板）
+- [ ] 在 thread 中 @mention 所有 coder，等待确认参加
+- [ ] 在 thread 中讨论 Sprint Goal、任务分配、容量
 - [ ] Sprint Goal 写入 Milestone description
 - [ ] 每个 Issue 有 assignee（GitHub 上设置，不只是口头说）
 - [ ] 每个 Issue 有明确的验收标准（DoD 可检查）
 - [ ] WIP 限制 = 1/coder，不超配
 - [ ] 总容量合理：Sprint 时长 x coder 数 >= Issue 总量
-- [ ] 通知所有 coder 各自任务（#ralphgpu-dev @mention）
+- [ ] 在 thread 中总结会议结论（任务分配、Sprint Goal、时间线）
+- [ ] 通知所有 coder 各自任务（thread 内 @mention 确认）
+
+### Sprint Planning 会议模板（创建 thread 用）
+
+\`\`\`
+📋 Sprint N Planning
+
+Sprint Goal: [目标]
+候选 Issues: #X, #Y, #Z
+参会: <@CoderCodex> <@CoderGemini>
+
+请确认参加，我们讨论任务分配和验收标准。
+\`\`\`
 
 ## Planning 后
 
