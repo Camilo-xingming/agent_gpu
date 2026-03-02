@@ -48,7 +48,7 @@ module command_queue #(
     output reg  [PTR_WIDTH:0]   count
 );
 
-    localparam [PTR_WIDTH-1:0] PTR_LAST = DEPTH - 1;
+    localparam [PTR_WIDTH-1:0] PTR_LAST = PTR_WIDTH'(DEPTH - 1);
 
     reg [31:0] queue_kernel_pc          [0:DEPTH-1];
     reg [31:0] queue_grid_dim_x         [0:DEPTH-1];

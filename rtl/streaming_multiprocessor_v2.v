@@ -1235,7 +1235,7 @@ module streaming_multiprocessor_v2 #(
         begin
             count_warp_bits = {($clog2(NUM_WARPS+1)){1'b0}};
             for (bit_i = 0; bit_i < NUM_WARPS; bit_i = bit_i + 1) begin
-                count_warp_bits = count_warp_bits + warp_bits[bit_i];
+                count_warp_bits = count_warp_bits + $clog2(NUM_WARPS+1)'(warp_bits[bit_i]);
             end
         end
     endfunction
