@@ -251,6 +251,26 @@ module tb_vector_add;
     integer cycle_counter = 0;
     integer kernel_start_cycle = 0;
     integer kernel_end_cycle = 0;
+    integer perf_cycles = 0;
+    integer perf_instructions = 0;
+    integer perf_ipc_x100 = 0;
+    integer perf_occ_pct = 0;
+    integer perf_active_warp_sum = 0;
+    integer perf_active_warp_samples = 0;
+    integer perf_avg_occ_pct = 0;
+
+    //------------------------------------------------------------------------
+    // Occupancy sampler (average active warps while kernel is running)
+    //------------------------------------------------------------------------
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            perf_active_warp_sum <= 0;
+            perf_active_warp_samples <= 0;
+        end else if (dut.gpu_busy) begin
+            perf_active_warp_sum <= perf_active_warp_sum + dut.sm_gen[0].u_sm.perf_active_warp_count;
+            perf_active_warp_samples <= perf_active_warp_samples + 1;
+        end
+    end
 
     //------------------------------------------------------------------------
     // 测试程序
@@ -397,6 +417,44 @@ module tb_vector_add;
             passed = passed + 1;
         end else begin
             $display("[FAIL] Kernel done interrupt not asserted");
+            failed = failed + 1;
+        end
+
+        //--------------------------------------------------------------------
+        // 性能可观测性断言 (#324)
+        //--------------------------------------------------------------------
+        $display("\n--- Performance Metrics ---");
+
+        @(posedge clk); csr_addr <= 12'h100; @(posedge clk); @(posedge clk);
+        perf_cycles = csr_rd_data;
+        @(posedge clk); csr_addr <= 12'h101; @(posedge clk); @(posedge clk);
+        perf_instructions = csr_rd_data;
+
+        perf_ipc_x100 = dut.perf_achieved_ipc_x100;
+        perf_occ_pct = dut.perf_sm_occupancy_pct[7:0];
+        if (perf_active_warp_samples > 0)
+            perf_avg_occ_pct = (perf_active_warp_sum * 100) / (perf_active_warp_samples * 4);
+        else
+            perf_avg_occ_pct = 0;
+
+        $display("  Cycles: %0d", perf_cycles);
+        $display("  Instructions: %0d", perf_instructions);
+        $display("  IPC: %0d.%02d", perf_ipc_x100 / 100, perf_ipc_x100 % 100);
+        $display("  Occupancy(SM0) instant: %0d%%", perf_occ_pct);
+        $display("  Occupancy(SM0) average: %0d%%", perf_avg_occ_pct);
+
+        if (perf_ipc_x100 > 0) begin
+            $display("[PASS] IPC metric is non-zero");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] IPC metric is zero");
+            failed = failed + 1;
+        end
+        if (perf_avg_occ_pct > 0) begin
+            $display("[PASS] Occupancy metric is non-zero");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Occupancy metric is zero");
             failed = failed + 1;
         end
 

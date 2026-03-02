@@ -140,7 +140,7 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all regression
-.PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_warp test_sfu test_cvt_unit
+.PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_warp test_sfu test_cvt_unit benchmark
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_multi_sm test_command_queue test_command_processor test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_phase2 test_warp_valid_d1
 
@@ -684,6 +684,19 @@ bench_all: bench_atomics bench_divergence
 
 # Generate performance report from benchmark logs
 # Performance dashboard: run benchmarks, generate IPC/stall/utilization report
+benchmark:
+	@echo "========================================"
+	@echo "Running Standard Benchmark Dashboard"
+	@echo "========================================"
+	$(PYTHON) tools/perf_dashboard.py --run \
+		--repro-cmd "make benchmark" \
+		--json $(BUILD_DIR)/benchmark_results.json \
+		--csv $(BUILD_DIR)/benchmark_results.csv \
+		-o docs/PERF_DASHBOARD.md
+	@echo "Benchmark dashboard: docs/PERF_DASHBOARD.md"
+	@echo "JSON: $(BUILD_DIR)/benchmark_results.json"
+	@echo "CSV:  $(BUILD_DIR)/benchmark_results.csv"
+
 dashboard:
 	@echo "========================================"
 	@echo "Running Performance Dashboard"
@@ -917,6 +930,7 @@ help:
 	@echo "  bench_all           - Run all benchmarks"
 	@echo "  perf_report         - Generate PERFORMANCE_REPORT.md from logs"
 	@echo "  dashboard            - Run perf benchmarks + generate dashboard (IPC/stall/util)"
+	@echo "  benchmark            - Standardized dashboard report (IPC/occupancy/stalls)"
 	@echo "  dashboard-check      - Dashboard + regression check vs baseline"
 	@echo "  dashboard-baseline   - Save current results as new baseline"
 	@echo ""
