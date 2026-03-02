@@ -142,7 +142,7 @@ endif
 .PHONY: all sim wave clean assemble help test test_all regression
 .PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_warp test_sfu test_cvt_unit benchmark
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
-.PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_multi_sm test_command_queue test_command_processor test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_phase2 test_warp_valid_d1
+.PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_phase2 test_warp_valid_d1
 
 # Audited must-run regression suite (stable gates for local + CI).
 # Non-gating/extended tests are tracked separately and can be run via:
@@ -384,6 +384,9 @@ $(BUILD_DIR)/tb_tensor_fp4_fp8_frm_generated.vvp: $(BUILD_DIR)/tb_tensor_fp4_fp8
 $(BUILD_DIR)/vector_add.hex: $(EXAMPLES_DIR)/vector_add.ptx | $(BUILD_DIR)
 	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
 
+$(BUILD_DIR)/saxpy.hex: $(EXAMPLES_DIR)/saxpy.ptx | $(BUILD_DIR)
+	$(PYTHON) $(TOOLS_DIR)/ptx_assembler.py $< -o $@
+
 test_vector_add: $(BUILD_DIR)/tb_vector_add.vvp $(BUILD_DIR)/vector_add.hex
 	@echo "========================================"
 	@echo "Running Vector Addition Integration Test"
@@ -426,11 +429,20 @@ test_perf_mem_gather: $(BUILD_DIR)/tb_perf_mem_gather_l1d$(TB_L1D_BYPASS).vvp $(
 	@echo "========================================"
 	cd $(BUILD_DIR) && $(VVP) tb_perf_mem_gather_l1d$(TB_L1D_BYPASS).vvp | tee perf_mem_gather_l1d$(TB_L1D_BYPASS).log
 
+test_perf_saxpy: $(BUILD_DIR)/tb_perf_saxpy_l1d$(TB_L1D_BYPASS).vvp $(BUILD_DIR)/saxpy.hex
+	@echo "========================================"
+	@echo "Running SAXPY Benchmark (L1D_BYPASS=$(TB_L1D_BYPASS))"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_perf_saxpy_l1d$(TB_L1D_BYPASS).vvp | tee perf_saxpy_l1d$(TB_L1D_BYPASS).log
+
 $(BUILD_DIR)/tb_perf_mem_stream_l1d%.vvp: $(RTL_SRCS) $(TB_DIR)/tb_perf_mem_bench.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -DTB_L1D_BYPASS=$* -o $@ $(TB_DIR)/tb_perf_mem_bench.v $(filter %.v,$(RTL_SRCS))
 
 $(BUILD_DIR)/tb_perf_mem_gather_l1d%.vvp: $(RTL_SRCS) $(TB_DIR)/tb_perf_mem_bench.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -DTB_L1D_BYPASS=$* -DTB_MEM_BENCH_GATHER -o $@ $(TB_DIR)/tb_perf_mem_bench.v $(filter %.v,$(RTL_SRCS))
+
+$(BUILD_DIR)/tb_perf_saxpy_l1d%.vvp: $(RTL_SRCS) $(TB_DIR)/tb_perf_mem_bench.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -DTB_L1D_BYPASS=$* -DTB_MEM_BENCH_SAXPY -o $@ $(TB_DIR)/tb_perf_mem_bench.v $(filter %.v,$(RTL_SRCS))
 
 bench_mcu_mem_compare: $(BUILD_DIR)/mem_stream8.hex $(BUILD_DIR)/mem_gather.hex
 	@echo "========================================"
@@ -912,6 +924,7 @@ help:
 	@echo "  bench_l1d_ipc_compare - Run perf counters with L1D on/off and print IPC delta"
 	@echo "  test_perf_mem_stream - Memory-intensive stream benchmark (TB_L1D_BYPASS=0/1)"
 	@echo "  test_perf_mem_gather - Memory-intensive gather benchmark (TB_L1D_BYPASS=0/1)"
+	@echo "  test_perf_saxpy - SAXPY benchmark with L1D/L2 profiling"
 	@echo "  bench_mcu_mem_compare - Run #306 memory benchmarks with L1D on/off and print table"
 	@echo "  test_multi_sm   - Test multi-SM parallel execution"
 	@echo "  test_raw_hazard - Alias for SM V2 scheduler RAW hazard gating test"

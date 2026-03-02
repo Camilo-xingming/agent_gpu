@@ -1,40 +1,37 @@
 // RalphGPU Example: SAXPY (Single-precision A*X Plus Y)
 // Y[i] = a * X[i] + Y[i]
 //
-// 这是BLAS Level 1的经典操作
+// Memory layout:
+// - X array: 0x0000 - 0x007F (32 elements * 4 bytes)
+// - Y array: 0x1000 - 0x107F (32 elements * 4 bytes)
 //
-// 假设:
-// - a (标量) 在 r20
-// - X数组起始地址: 0x0000
-// - Y数组起始地址: 0x1000
+// Constants used by this kernel:
+// - a = 3
 
 .entry saxpy:
-    // 获取全局线程ID
-    mov.u32 r0, %tid.x          // r0 = threadIdx.x
-    mov.u32 r1, %ctaid.x        // r1 = blockIdx.x
-    mov.u32 r2, %ntid.x         // r2 = blockDim.x
+    // Get thread ID
+    mov.u32 r0, %tid.x
 
-    // globalIdx = blockIdx.x * blockDim.x + threadIdx.x
-    mul.lo.s32 r3, r1, r2       // r3 = blockIdx.x * blockDim.x
-    add.s32 r4, r3, r0          // r4 = globalIdx
+    // byte offset = tid * 4
+    shl.b32 r1, r0, 2
 
-    // 计算字节偏移
-    shl.b32 r5, r4, 2           // r5 = globalIdx * 4
+    // X[i]
+    ld.global.s32 r2, [r1]
+    ld.global.s32 r7, [r1]      // warm-cache reload for hit-rate visibility
 
-    // 加载 X[i]
-    ld.global.s32 r6, [r5]      // r6 = X[i]
+    // a * X[i]  (a = 3)
+    mov.u32 r20, 3
+    mul.lo.s32 r3, r20, r7
 
-    // 计算 a * X[i]
-    mul.lo.s32 r7, r20, r6      // r7 = a * X[i]
+    // Y[i]
+    mov.u32 r21, 0x1000
+    add.s32 r4, r1, r21
+    ld.global.s32 r5, [r4]
 
-    // 加载 Y[i]
-    add.s32 r8, r5, r21         // r8 = &Y[i] (r21 = Y base addr)
-    ld.global.s32 r9, [r8]      // r9 = Y[i]
+    // Y[i] = a*X[i] + Y[i]
+    add.s32 r6, r3, r5
 
-    // Y[i] = a * X[i] + Y[i]
-    add.s32 r10, r7, r9         // r10 = a * X[i] + Y[i]
+    // store result back to Y[i]
+    st.global.s32 [r4], r6
 
-    // 存储结果
-    st.global.s32 [r8], r10     // Y[i] = result
-
-    nop
+    exit

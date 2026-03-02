@@ -129,6 +129,8 @@ class PerfMetrics:
     # Memory
     l1_hits: int = 0
     l1_misses: int = 0
+    l2_hits: int = 0
+    l2_misses: int = 0
     fetches: int = 0
     writebacks: int = 0
 
@@ -149,6 +151,11 @@ class PerfMetrics:
     def l1_hit_rate(self) -> float:
         total = self.l1_hits + self.l1_misses
         return (self.l1_hits / total * 100) if total else 0.0
+
+    @property
+    def l2_hit_rate(self) -> float:
+        total = self.l2_hits + self.l2_misses
+        return (self.l2_hits / total * 100) if total else 0.0
 
     def stall_breakdown(self) -> Dict[str, float]:
         """Return stall breakdown as percentages of total cycles."""
@@ -220,6 +227,19 @@ def parse_sim_output(content: str, workload: str = "", category: str = "") -> Pe
                         ("LDST", "fu_ldst"), ("Tensor", "fu_tensor")]:
         if match := re.search(rf'FU:\s*{label}\s*Active\s*=\s*(\d+)', content):
             setattr(m, attr, int(match.group(1)))
+
+    # CacheStats (standardized TB format)
+    if match := re.search(r'CacheStats:\s*L1_hits=(\d+)\s+L1_misses=(\d+).*?L2_hits=(\d+)\s+L2_misses=(\d+)', content):
+        m.l1_hits = int(match.group(1))
+        m.l1_misses = int(match.group(2))
+        m.l2_hits = int(match.group(3))
+        m.l2_misses = int(match.group(4))
+
+    # Legacy vector_add line: "SM0 L1D stats: hits=.. misses=.."
+    if (m.l1_hits + m.l1_misses) == 0:
+        if match := re.search(r'SM0 L1D stats:\s*hits=(\d+)\s+misses=(\d+)', content):
+            m.l1_hits = int(match.group(1))
+            m.l1_misses = int(match.group(2))
 
     # Fetches / Writebacks
     if match := re.search(r'Fetches:\s*(\d+)', content):
@@ -300,7 +320,7 @@ def export_csv(results: List[PerfMetrics], path: Path):
               "stall_raw", "stall_fu", "stall_mem", "stall_sync", "stall_ifetch",
               "stall_atomic", "stall_tensor", "stall_wbq",
               "fu_alu", "fu_fpu", "fu_sfu", "fu_ldst", "fu_tensor",
-              "l1_hits", "l1_misses", "fetches", "writebacks"]
+              "l1_hits", "l1_misses", "l2_hits", "l2_misses", "fetches", "writebacks"]
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
@@ -321,6 +341,7 @@ def export_json(results: List[PerfMetrics], path: Path):
         d = asdict(r)
         d["stall_pct"] = r.stall_pct
         d["l1_hit_rate"] = r.l1_hit_rate
+        d["l2_hit_rate"] = r.l2_hit_rate
         d["stall_breakdown"] = r.stall_breakdown()
         d["fu_utilization"] = r.fu_utilization()
         data["workloads"][r.workload] = d
@@ -427,27 +448,27 @@ def generate_markdown(results: List[PerfMetrics],
     # Summary table
     lines.append("## IPC Summary")
     lines.append("")
-    lines.append("| Workload | Category | Status | Cycles | Instr | IPC | Occupancy | Stall% |")
-    lines.append("|----------|----------|--------|--------|-------|-----|-----------|--------|")
+    lines.append("| Workload | Category | Status | Cycles | Instr | IPC | Occupancy | L1 Hit% | L2 Hit% | Stall% |")
+    lines.append("|----------|----------|--------|--------|-------|-----|-----------|---------|---------|--------|")
     for r in results:
         wname = WORKLOADS.get(r.workload, {}).get("name", r.workload)
         lines.append(
             f"| {wname} | {r.category} | {r.status} | "
-            f"{r.cycles:,} | {r.instructions:,} | {r.ipc:.3f} | {r.occupancy_pct:.1f}% | {r.stall_pct:.1f}% |"
+            f"{r.cycles:,} | {r.instructions:,} | {r.ipc:.3f} | {r.occupancy_pct:.1f}% | {r.l1_hit_rate:.1f}% | {r.l2_hit_rate:.1f}% | {r.stall_pct:.1f}% |"
         )
     lines.append("")
 
     # KPI table required for reproducible baselines.
-    lines.append("## Baseline KPI (Cycles/IPC/Stalls)")
+    lines.append("## Baseline KPI (Cycles/IPC/Stalls/Cache)")
     lines.append("")
-    lines.append("| Workload | Cycles | IPC | Occupancy | Stall Mem | Stall Scoreboard | Stall Fetch |")
-    lines.append("|----------|--------|-----|-----------|-----------|------------------|-------------|")
+    lines.append("| Workload | Cycles | IPC | Occupancy | L1 Hit% | L2 Hit% | Stall Mem | Stall Scoreboard | Stall Fetch |")
+    lines.append("|----------|--------|-----|-----------|---------|---------|-----------|------------------|-------------|")
     for r in results:
         if not r.cycles:
             continue
         wname = WORKLOADS.get(r.workload, {}).get("name", r.workload)
         lines.append(
-            f"| {wname} | {r.cycles:,} | {r.ipc:.3f} | {r.occupancy_pct:.1f}% | "
+            f"| {wname} | {r.cycles:,} | {r.ipc:.3f} | {r.occupancy_pct:.1f}% | {r.l1_hit_rate:.1f}% | {r.l2_hit_rate:.1f}% | "
             f"{r.stall_mem} ({r.stall_mem / r.cycles * 100:.1f}%) | "
             f"{r.stall_raw} ({r.stall_raw / r.cycles * 100:.1f}%) | "
             f"{r.stall_ifetch} ({r.stall_ifetch / r.cycles * 100:.1f}%) |"
