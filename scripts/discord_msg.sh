@@ -48,13 +48,13 @@ if [[ "$MODE" == "read" ]]; then
   exit $?
 fi
 
-if echo "$MESSAGE" | grep -qE 'startcall:|sessionId:|Stats: |\[System Message\]'; then
+if echo "$MESSAGE" | grep -qE 'startcall:|sessionId:|Stats:|Tool:|\[System Message\]'; then
   echo "ERROR: Message intercepted. Raw tool logs or system metrics detected."
   echo "Please rewrite your message to be human-readable and free of tool traces."
   exit 1
 fi
 
 # Clean up any trailing stats if somehow missed
-CLEAN_MESSAGE=$(echo "$MESSAGE" | sed -E 's/Stats: runtime.*//g')
+CLEAN_MESSAGE=$(echo "$MESSAGE" | sed -E 's/Stats:.*//g' | sed -E 's/Tool:.*//g')
 
 openclaw message send --channel "$CHANNEL" --account "$ACCOUNT" --target "$TARGET" -m "$CLEAN_MESSAGE"
