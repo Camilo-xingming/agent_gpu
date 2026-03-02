@@ -18,6 +18,7 @@
 | 8 | 不包含 debug 临时代码（`$display` 调试输出、hardcoded 测试值） | Reviewer 确认 |
 | 9 | branch 已 push 到 remote | watchdog 检查（branch 存在） |
 | 10 | 至少 1 个不同 coder 的 review（cross-review） | watchdog 检查（reviews API） |
+| 11 | PR 已合并到 master（feature branch merge 完成） | GitHub PR 状态（merged） |
 
 ### PR Description 必须包含
 
