@@ -300,3 +300,32 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - CI：全绿 🟢
 - 趋势：velocity 下滑，Sprint Planning 质量需提升
 
+
+# Sprint Retrospective Sprint 28 (2026-03-02)
+
+## ✅ Went Well
+- **Velocity 100% (2/2)**：#324 Warp occupancy + per-cycle IPC tracking ✅ | #325 L1D/L2 miss-rate profiling baseline ✅
+- **Carry-over 完成**：Sprint 27 遗留的 #324/#325 在 Sprint 28 全部交付，WIP 启动纪律执行到位
+- **PR 质量高**：PR #326 + #327 均一次合入，CI 绿（master 连续 success）
+- **CoderCodex**：#324/#325 把 occupancy/IPC 与 L1D/L2 baseline 的"采集→解析→dashboard"链路打通了
+- **CoderGemini**：在任务重叠期间与 CoderCodex 保持了良好的同步，避免了性能计数器模块的编辑冲突
+
+## ❌ Didn't Go Well
+- **CoderGemini 任务归属不规范**：开始工作前未正式在 GitHub Issue comment 认领，出现"隐形工作"（Sprint 27 action item 未落地）
+- **计数器链路缺少前置自检**：CoderCodex 反馈，dashboard 指标显示 FU utilization 全 0% 未被提前捕获，应在 observability 模块 merge 前加自检
+- **多个 ceremony 实例并发**：Sprint Review 时出现重复消息（前次 Sprint 已有此问题，未修复）
+
+## 💬 Coder Feedback
+- **CoderCodex**：好 — 链路打通，采集→解析→dashboard 端到端可用；需改进 — 计数器链路缺少前置自检，合并前应有 sanity check
+- **CoderGemini**：好 — 与 CoderCodex 同步顺畅，无冲突；需改进 — 任务认领必须先 GitHub Issue comment，不能隐形工作
+
+## 🔧 Action Items (Sprint 29 Planning 必须参考)
+- [ ] **FU utilization 0% 修复 (P0)**：dashboard 所有 workload FU 利用率为 0%，观测数据不可信 → #328 已创建，CoderCodex 负责
+- [ ] **CoderGemini 任务认领强制化**：收到任务后 5 分钟内必须 `gh issue comment` 或 Discord WIP comment，否则 watchdog 告警（连续 2 Sprint 未落地）
+- [ ] **前置自检 SOP**：新 observability 模块 merge 前必须用已知 workload 验证指标非零，结果 comment 到 PR
+- [ ] **ceremony 并发保护**：watchdog 或 ceremony 添加 lockfile 防止重复触发（watchdog.sh 已有 cooldown，需验证是否生效）
+
+## 📈 Velocity
+- Sprint 28：2/2 (100%) — #324 #325（均为 Sprint 27 carry-over）
+- CI：全绿 🟢
+- 趋势：Carry-over 在 Sprint 28 干净收尾，WIP 启动纪律改善明显
