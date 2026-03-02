@@ -788,6 +788,7 @@ module streaming_multiprocessor_v2 #(
     wire                  replay_trigger;       // Combinational: L1 signals replay this cycle
     wire [WARP_ID_W-1:0] replay_warp;          // Warp being replayed
     wire [4:0]            replay_rd;            // Dest register to clear from scoreboard
+    wire                  replay_sb_clr_valid;  // Clear replayed load scoreboard only when refill response arrives
     reg [31:0]            l1_cycle_counter;
     reg [31:0]            l1_req_issue_cycle;
     reg                   l1_req_inflight;
@@ -1262,6 +1263,7 @@ module streaming_multiprocessor_v2 #(
     assign replay_trigger = l1_cache_resp_replay && mem_pending_valid;
     assign replay_warp = mem_warp_pending;
     assign replay_rd = mem_rd_pending;
+    assign replay_sb_clr_valid = gmem_load_resp_valid && mem_pending_valid && replay_pending[mem_warp_pending];
 
     generate
         genvar l1_lane_i;
@@ -1911,8 +1913,18 @@ module streaming_multiprocessor_v2 #(
     // Prevent issuing new memory ops when one is already in the pipeline
     //------------------------------------------------------------------------
     reg [2:0] mem_pipe_inflight;  // Count of memory ops in scheduler->mem pipeline
-    wire sched_issues_memory = sched_issue_valid_mask[0] && pd_is_memory[sched_issue_warp_id[0]];
+    reg sched_issues_memory;
+    integer mem_issue_i;
     wire mem_response_complete = gmem_load_resp_valid || gmem_resp_valid || smem_resp_valid;
+
+    always @(*) begin
+        sched_issues_memory = 1'b0;
+        for (mem_issue_i = 0; mem_issue_i < SCHED_LANES; mem_issue_i = mem_issue_i + 1) begin
+            if (sched_issue_valid_mask[mem_issue_i] && (sched_issue_pipe[mem_issue_i] == 3'd3)) begin
+                sched_issues_memory = 1'b1;
+            end
+        end
+    end
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -1942,7 +1954,7 @@ module streaming_multiprocessor_v2 #(
     wire pipe_tensor_ready = (tensor_issue_count + {{(TENSOR_ISSUE_COUNT_W-4){1'b0}}, tensor_inflight_count} + 4 < TENSOR_ISSUE_DEPTH_VAL) && wgmma_ready;
     // Memory pipeline ready only if no memory ops in flight AND not stalled
     // Also gate with ace_ready for cp.async backpressure (OP_CPASYNC is classified as memory)
-    wire pipe_memory_ready   = (mem_pipe_inflight == 0) && !issue_stall_mem && ace_ready;
+    wire pipe_memory_ready   = (mem_pipe_inflight == 0) && !issue_stall_mem && !mem_pending_valid && !smem_pending_valid && !store_pending_valid && gmem_normal_req_ready && ace_ready;
     // Branch pipeline is always ready - per-warp stall (warp_stalled_branch) handles flow control
     wire pipe_branch_ready   = 1'b1;
 
@@ -2065,7 +2077,7 @@ module streaming_multiprocessor_v2 #(
         .wgmma_sb_clr_valid(wgmma_done && wgmma_pending_valid),
         .wgmma_sb_clr_warp(wgmma_pending_warp),
         .wgmma_sb_clr_rd(wgmma_pending_rd),
-        .replay_sb_clr_valid(replay_trigger),
+        .replay_sb_clr_valid(replay_sb_clr_valid),
         .replay_sb_clr_warp(replay_warp),
         .replay_sb_clr_rd(replay_rd),
         .issue_valid(sched_issue_valid_mask),

@@ -724,24 +724,24 @@ module ralph_gpu_top #(
                 if (aw_tlb_resp_valid[tlb_sm_i]) begin
                     sm_aw_tlb_pending[tlb_sm_i] <= 1'b0;
                     sm_aw_tlb_addr_valid[tlb_sm_i] <= 1'b1;
-                    sm_aw_tlb_vaddr[tlb_sm_i] <= aw_tlb_req_vaddr_hold[tlb_sm_i][31:0];
+                    sm_aw_tlb_vaddr[tlb_sm_i] <= aw_tlb_req_vaddr_r[tlb_sm_i*TLB_VADDR_WIDTH +: 32];
                     sm_aw_tlb_addr[tlb_sm_i] <= aw_tlb_resp_fault[tlb_sm_i] ?
-                                               aw_tlb_req_vaddr_hold[tlb_sm_i][31:0] :
+                                               aw_tlb_req_vaddr_r[tlb_sm_i*TLB_VADDR_WIDTH +: 32] :
                                                aw_tlb_resp_paddr[tlb_sm_i*TLB_PADDR_WIDTH +: 32];
                 end
                 if (ar_tlb_resp_valid[tlb_sm_i]) begin
                     sm_ar_tlb_pending[tlb_sm_i] <= 1'b0;
                     sm_ar_tlb_addr_valid[tlb_sm_i] <= 1'b1;
-                    sm_ar_tlb_vaddr[tlb_sm_i] <= ar_tlb_req_vaddr_hold[tlb_sm_i][31:0];
+                    sm_ar_tlb_vaddr[tlb_sm_i] <= ar_tlb_req_vaddr_r[tlb_sm_i*TLB_VADDR_WIDTH +: 32];
                     sm_ar_tlb_addr[tlb_sm_i] <= ar_tlb_resp_fault[tlb_sm_i] ?
-                                               ar_tlb_req_vaddr_hold[tlb_sm_i][31:0] :
+                                               ar_tlb_req_vaddr_r[tlb_sm_i*TLB_VADDR_WIDTH +: 32] :
                                                ar_tlb_resp_paddr[tlb_sm_i*TLB_PADDR_WIDTH +: 32];
                 end
 
-                if (sm_axi_awvalid[tlb_sm_i] && sm_axi_awready[tlb_sm_i]) begin
+                if (!sm_core_axi_awvalid[tlb_sm_i]) begin
                     sm_aw_tlb_addr_valid[tlb_sm_i] <= 1'b0;
                 end
-                if (sm_axi_arvalid[tlb_sm_i] && sm_axi_arready[tlb_sm_i]) begin
+                if (!sm_core_axi_arvalid[tlb_sm_i]) begin
                     sm_ar_tlb_addr_valid[tlb_sm_i] <= 1'b0;
                 end
             end
