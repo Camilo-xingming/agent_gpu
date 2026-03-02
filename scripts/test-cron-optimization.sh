@@ -70,6 +70,14 @@ JSON
 cat > "$FIXTURE_DIR/milestones-open.json" << 'JSON'
 [
   {
+    "title": "Sprint 2026-02-20",
+    "number": 7,
+    "state": "open",
+    "due_on": "2026-02-20",
+    "created_at": "2026-02-19T12:00:00Z",
+    "open_issues": 0
+  },
+  {
     "title": "Sprint 2026-02-25",
     "number": 8,
     "state": "open",
@@ -215,6 +223,15 @@ if [[ "$cmd" == "api" ]]; then
     repos/*/issues\?state=all\&milestone=*)
       cat "$GH_STUB_MILESTONE_ISSUES_JSON"
       exit 0
+      ;;
+    repos/*/milestones/*)
+      if printf "%s\n" "$*" | grep -Eq -- "--method[[:space:]]+PATCH" \
+        && printf "%s\n" "$*" | grep -Eq -- "-f[[:space:]]+state=closed"; then
+        jq -cn --arg route "$route" '{route: $route, state: "closed"}'
+        exit 0
+      fi
+      echo "unsupported gh api milestone mutation: $*" >&2
+      exit 2
       ;;
     *)
       echo "unsupported gh api route: $route" >&2
@@ -397,6 +414,8 @@ run_zero_token_and_coverage_test() {
 
   assert_jq "$retro_file" '.scrum_health.coverage_pct >= 95' "retro scrum_health coverage"
   assert_jq "$planning_file" '.scrum_health.coverage_pct >= 95' "planning scrum_health coverage"
+  assert_jq "$planning_file" '(.auto_closed_milestones | length) >= 1' "planning records auto-closed milestones"
+
   assert_jq "$retro_file" '([.action_items.github[].text] | index("Follow up #42 in planning")) != null' "retro includes unchecked github action item"
   assert_jq "$retro_file" '([.action_items.github[].text] | index("Completed item #43 (already done)")) == null' "retro excludes checked github action item"
   assert_jq "$planning_file" '([.retro_action_items.github[].text] | index("Completed item #43 (already done)")) == null' "planning excludes checked github action item"
@@ -415,6 +434,8 @@ run_zero_token_and_coverage_test() {
   fi
 
   grep -q "^env HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897$" "$GH_LOG" || fail "gh commands must run with explicit proxy 127.0.0.1:7897"
+  grep -q -- "--method PATCH -f state=closed" "$GH_LOG" || fail "missing milestone auto-close API call"
+
 }
 
 run_atomic_write_race_test() {
