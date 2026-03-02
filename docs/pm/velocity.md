@@ -43,3 +43,5 @@
 | Sprint 25 | 2026-03-02 | 流程质量收尾 + 系统稳定性 — CoderGemini raw output 净化 + milestone 自动清理 + 长任务心跳终局落地 | 3 | 3 | 0 | 100% | auto-generated |
 | Sprint 26 | 2026-03-02 | 净化 + 清理 — CoderGemini 输出过滤根治 + stale branch 清理 + PR #317 收尾 | 4 | 4 | 0 | 100% | auto-generated |
 | Sprint 27 | 2026-03-02 | GPU 可观测性 + 稳定性 — bench_atomics RAW stall 修复 + warp occupancy + L1D/L2 cache baseline | 1 | 3 | 2 | 33% | carry-over: #324 #325 |
+| Sprint 28 | 2026-03-02 | 可观测性完成 — Warp 占用率 tracking (#324) + L1D/L2 cache 命中率基线 (#325) | 2 | 2 | 0 | 100% | auto-generated |
+| Sprint 29 | 2026-03-02 | Core Efficiency & Stall Debugging — FU utilization fix + Tensor WB spike + bench_divergence guard | 3 | 3 | 0 | 100% | bonus: #333 memory_heavy fix |
