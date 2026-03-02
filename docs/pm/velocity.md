@@ -41,3 +41,4 @@
 | Sprint 17 | 2026-02-28 | 基础设施可靠性 — ist-mac-s proxy 修复 + CI bil... | 2 | 2 | 0 | 100% | auto-generated |
 | Sprint 24 | 2026-03-02 | Memory subsystem e2e validation — MCU/L1D perf + vector_add fix + memory benchmark | 3 | 3 | 0 | 100% | auto-generated |
 | Sprint 25 | 2026-03-02 | 流程质量收尾 + 系统稳定性 — CoderGemini raw output 净化 + milestone 自动清理 + 长任务心跳终局落地 | 3 | 3 | 0 | 100% | auto-generated |
+| Sprint 26 | 2026-03-02 | 净化 + 清理 — CoderGemini 输出过滤根治 + stale branch 清理 + PR #317 收尾 | 4 | 4 | 0 | 100% | auto-generated |
