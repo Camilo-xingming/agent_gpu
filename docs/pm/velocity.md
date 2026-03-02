@@ -40,3 +40,4 @@
 | Sprint 16 | 2026-02-28 | 恢复 master CI（P0）+ 清理 stale branches。Items: ... | 2 | 2 | 0 | 100% | auto-generated |
 | Sprint 17 | 2026-02-28 | 基础设施可靠性 — ist-mac-s proxy 修复 + CI bil... | 2 | 2 | 0 | 100% | auto-generated |
 | Sprint 24 | 2026-03-02 | Memory subsystem e2e validation — MCU/L1D perf + vector_add fix + memory benchmark | 3 | 3 | 0 | 100% | auto-generated |
+| Sprint 25 | 2026-03-02 | 流程质量收尾 + 系统稳定性 — CoderGemini raw output 净化 + milestone 自动清理 + 长任务心跳终局落地 | 3 | 3 | 0 | 100% | auto-generated |
