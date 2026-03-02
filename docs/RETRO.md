@@ -329,3 +329,26 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - Sprint 28：2/2 (100%) — #324 #325（均为 Sprint 27 carry-over）
 - CI：全绿 🟢
 - 趋势：Carry-over 在 Sprint 28 干净收尾，WIP 启动纪律改善明显
+
+# Sprint Retrospective Sprint 28 (2026-03-02)
+
+## ✅ Went Well
+- **Velocity 100% (2/2)**：#324 Warp occupancy tracking + per-cycle IPC metric、#325 L1D/L2 cache hit rate baseline 全部关闭
+- **PR #326/#327 快速交付**：两个可观测性功能 PR 同天合并，CI 通过
+- **CI master 全绿**：Sprint 期间 master 连续多次 CI success
+- **Sprint 27 carry-over 清零**：#324/#325 作为 carry-over 完整交付，无遗留
+
+## ❌ Didn't Go Well
+- **issue-325/codex branch CI failure**：PR 合并后 feature branch 仍有 CI failure 记录（不影响 master，但增加噪声）
+- **Coder 未响应 Retro 请求**：60s 内无反馈，Retro 基于 PR/issue 数据自动生成
+- **Sprint 29 issues 初始无 assignee**：3 个 Sprint 29 issues 创建时均未分配，需 ceremony 补充
+
+## 🔧 Action Items (Sprint 29 必须参考)
+- [ ] **issue-325/codex stale branch 清理**：CI failure 分支应在 merge 后立即删除
+- [ ] **Sprint 启动即分配**：Planning 后立即给所有 Sprint issues assign coder，不留空白
+- [ ] **CoderGemini Retro 参与率**：连续 2 Sprint 无回复，确认 heartbeat cron 是否正常
+
+## 📈 Velocity
+- Sprint 28：2/2 (100%) — #324 #325
+- CI：master 全绿 🟢
+- 趋势：carry-over 清零，可观测性基础设施完整，进入 Sprint 29 性能调试阶段
