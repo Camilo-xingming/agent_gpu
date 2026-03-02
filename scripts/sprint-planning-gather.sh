@@ -84,6 +84,7 @@ retro_combined_items_json='[]'
 retro_issue_states_json='[]'
 retro_data_json='{}'
 retro_auto_refresh='false'
+auto_closed_milestones_json='[]'
 
 if ! has_command jq; then
   echo "jq not found" >&2
@@ -234,6 +235,35 @@ if has_command "$GH_BIN"; then
 
   existing_milestone_json="$(printf '%s\n' "$open_milestones_json" | jq -c '[.[] | select(.title | startswith("Sprint "))] | sort_by(.due_on // .created_at // "") | last // null | if . == null then null else {title: .title, number: .number, open_issues: .open_issues, due_on: .due_on, state: .state} end' 2>/dev/null || echo 'null')"
 
+  close_candidates_json="$(printf '%s\n' "$open_milestones_json" | jq -c '[.[] | select(.title | startswith("Sprint ")) | select((.open_issues // 0) == 0) | {title: .title, number: .number, open_issues: (.open_issues // 0), due_on: .due_on, state: .state}]' 2>/dev/null || echo '[]')"
+  close_candidates_count="$(printf '%s\n' "$close_candidates_json" | jq 'length' 2>/dev/null || echo 0)"
+
+  if [[ "$close_candidates_count" -gt 0 ]]; then
+    close_failed='false'
+    while IFS= read -r milestone_item; do
+      [[ -n "$milestone_item" ]] || continue
+      milestone_number="$(printf '%s\n' "$milestone_item" | jq -r '.number' 2>/dev/null || echo '')"
+      milestone_title="$(printf '%s\n' "$milestone_item" | jq -r '.title // ""' 2>/dev/null || echo '')"
+
+      close_result='{}'
+      if [[ -n "$milestone_number" ]] && capture_with_retry close_result 2 2 "$GH_BIN" api "repos/$GITHUB_REPO/milestones/$milestone_number" --method PATCH -f state=closed; then
+        auto_closed_milestones_json="$(jq -cn --argjson arr "$auto_closed_milestones_json" --argjson item "$milestone_item" '$arr + [$item]')"
+        log_event "sprint-planning-gather" "OK" "auto-closed milestone #$milestone_number ($milestone_title)"
+      else
+        close_failed='true'
+        append_warning "Failed to auto-close open sprint milestone #$milestone_number ($milestone_title)"
+      fi
+    done < <(printf '%s\n' "$close_candidates_json" | jq -c '.[]' 2>/dev/null)
+
+    if [[ "$close_failed" == 'true' ]]; then
+      add_health_check "milestone_auto_close" "fail" "auto-close attempted with failures" true
+    else
+      add_health_check "milestone_auto_close" "pass" "auto-closed $close_candidates_count stale milestone(s)" true
+    fi
+  else
+    add_health_check "milestone_auto_close" "pass" "no stale open sprint milestone to close" true
+  fi
+
   if capture_with_retry open_issues_json 3 2 "$GH_BIN" issue list --repo "$GITHUB_REPO" --state open --limit 200 --json number,title,labels,assignees,milestone,state; then
     add_health_check "open_issues_query" "pass" "open issues queried" true
   else
@@ -345,6 +375,7 @@ output_json="$(jq -cn \
   --arg timestamp "$NOW_TS" \
   --arg date "$TODAY" \
   --argjson existing_milestone "$existing_milestone_json" \
+  --argjson auto_closed_milestones "$auto_closed_milestones_json" \
   --arg retro_content "$retro_content" \
   --argjson retro_action_items "$retro_action_items_json" \
   --argjson backlog "$backlog_json" \
@@ -360,6 +391,7 @@ output_json="$(jq -cn \
     timestamp: $timestamp,
     date: $date,
     existing_milestone: $existing_milestone,
+    auto_closed_milestones: $auto_closed_milestones,
     retro_content: $retro_content,
     retro_action_items: $retro_action_items,
     backlog: $backlog,
