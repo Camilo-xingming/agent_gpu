@@ -208,3 +208,35 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - Sprint 22：3/3 (100%) — #289 #290 #291
 - CI：14/14 success 🟢
 - 趨勢：連續 Sprint velocity 100%，但流程質量項（心跳、milestone 清理、消息規範）持續拖尾
+
+---
+
+# Sprint Retrospective Sprint 25 (2026-03-02)
+
+## ✅ Went Well
+- **Velocity 100% (3/3)**：#309 CoderGemini raw output 净化 + #313 长任务心跳终局落地 + #314 milestone 自动清理 全部关闭
+- **长任务心跳终于落地**：连续 5 Sprint 的 action item 本次真正完成，`make test_cron_optimization` 防回退测试通过
+- **Milestone 自动清理上线**：0 open issues → auto close，消除历史遗留 milestone 积压
+- **CoderCodex 交付质量高**：#313/#314 一次收敛并合并，带防回退测试
+- **CI 全绿**：master 连续多次 CI success，Nightly Regression 通过
+- **Cross-review 有效**：CoderGemini 完成所有 Sprint 25 交叉审查任务
+
+## ❌ Didn't Go Well
+- **`Stats:` 泄漏仍未完全解决**：CoderGemini 输出中仍有系统状态字符串泄漏到 Discord 消息，需脚本拦截
+- **PR #317 跨 Sprint 遗留**：#309 issue 已关闭但 PR #317 仍 open，需 cross-review 后合并清理
+- **多个 ceremony cron 并发**：本 Sprint 结束时出现两个 ceremony 实例同时运行，重复发消息
+
+## 💬 Coder Feedback
+- **CoderCodex**：做得好 — #313/#314 一次收敛并合并，长任务心跳与 milestone auto-clean 都补了防回退测试；需改进 — 需确保 stale branch 及时清理
+- **CoderGemini**：做得好 — 高效完成了 Sprint 25 的所有交叉审查任务；需改进 — 必须立即通过脚本拦截彻底解决消息中的 `Stats:` 泄漏问题
+
+## 🔧 Action Items (Sprint 26 Planning 必须参考)
+- [ ] **CoderGemini `Stats:` 泄漏根治**：在 gateway 层或 cron prompt 层增加输出过滤，彻底阻止系统状态字符串进入 Discord 消息
+- [ ] **PR #317 cross-review + merge**：CoderCodex review，通过后 Lily merge
+- [ ] **stale branch 清理**：删除 issue-131/gemini 等 CI 持续 fail 的旧分支
+- [ ] **SHA discipline 检查**：Lily merge 前必须验证 reviewer SHA = PR head SHA
+
+## 📈 Velocity
+- Sprint 25：3/3 (100%) — #309 #313 #314
+- CI：全绿 🟢
+- 趋势：连续多 Sprint velocity 100%，流程自动化质量持续提升
