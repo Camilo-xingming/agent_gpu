@@ -250,6 +250,11 @@ module tb_sm_v2_perf_gemm16_ptx;
     integer stall_tensor;
     integer stall_wbq;
     integer stall_ifetch;
+    integer fu_alu_active;
+    integer fu_fpu_active;
+    integer fu_sfu_active;
+    integer fu_ldst_active;
+    integer fu_tensor_active;
     integer timeout_cycles;
     integer timeout_left;
     integer progress_interval;
@@ -273,6 +278,11 @@ module tb_sm_v2_perf_gemm16_ptx;
             stall_tensor <= 0;
             stall_wbq <= 0;
             stall_ifetch <= 0;
+            fu_alu_active <= 0;
+            fu_fpu_active <= 0;
+            fu_sfu_active <= 0;
+            fu_ldst_active <= 0;
+            fu_tensor_active <= 0;
         end else begin
             if (kernel_start) begin
                 running <= 1'b1;
@@ -319,6 +329,21 @@ module tb_sm_v2_perf_gemm16_ptx;
                 end
                 if (dut.lane0_stall_wbq) begin
                     stall_wbq <= stall_wbq + 1;
+                end
+                if (dut.perf_fu_alu_active) begin
+                    fu_alu_active <= fu_alu_active + 1;
+                end
+                if (dut.perf_fu_fpu_active) begin
+                    fu_fpu_active <= fu_fpu_active + 1;
+                end
+                if (dut.perf_fu_sfu_active) begin
+                    fu_sfu_active <= fu_sfu_active + 1;
+                end
+                if (dut.perf_fu_ldst_active) begin
+                    fu_ldst_active <= fu_ldst_active + 1;
+                end
+                if (dut.perf_fu_tensor_active) begin
+                    fu_tensor_active <= fu_tensor_active + 1;
                 end
                 if (wb_count + (wb_fire ? 1 : 0) >= N_OPS) begin
                     running <= 1'b0;
@@ -386,6 +411,11 @@ module tb_sm_v2_perf_gemm16_ptx;
         $display("Stalls: raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d",
                  stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq);
         $display("IPC: %0.3f", ipc);
+        $display("FU: ALU Active = %0d", fu_alu_active);
+        $display("FU: FPU Active = %0d", fu_fpu_active);
+        $display("FU: SFU Active = %0d", fu_sfu_active);
+        $display("FU: LDST Active = %0d", fu_ldst_active);
+        $display("FU: Tensor Active = %0d", fu_tensor_active);
 
         if (!done) begin
             $display("FAIL: timeout before completing all FMAs");

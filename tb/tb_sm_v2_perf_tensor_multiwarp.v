@@ -258,6 +258,11 @@ module tb_sm_v2_perf_tensor_multiwarp;
     integer l1_misses;
     integer l2_hits;
     integer l2_misses;
+    integer fu_alu_active;
+    integer fu_fpu_active;
+    integer fu_sfu_active;
+    integer fu_ldst_active;
+    integer fu_tensor_active;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -277,6 +282,11 @@ module tb_sm_v2_perf_tensor_multiwarp;
             active_warp_peak <= 0;
             active_warp_now <= 0;
             stall_ifetch <= 0;
+            fu_alu_active <= 0;
+            fu_fpu_active <= 0;
+            fu_sfu_active <= 0;
+            fu_ldst_active <= 0;
+            fu_tensor_active <= 0;
         end else begin
             if (kernel_start) begin
                 running <= 1'b1;
@@ -295,6 +305,11 @@ module tb_sm_v2_perf_tensor_multiwarp;
                 active_warp_peak <= 0;
                 active_warp_now <= 0;
                 stall_ifetch <= 0;
+                fu_alu_active <= 0;
+                fu_fpu_active <= 0;
+                fu_sfu_active <= 0;
+                fu_ldst_active <= 0;
+                fu_tensor_active <= 0;
             end else if (running) begin
                 cycle_count <= cycle_count + 1;
                 if (wb_fire) begin
@@ -389,6 +404,21 @@ module tb_sm_v2_perf_tensor_multiwarp;
                 end
                 active_warp_sum <= active_warp_sum + active_warp_now;
                 active_warp_peak <= (active_warp_now > active_warp_peak) ? active_warp_now : active_warp_peak;
+                if (dut.perf_fu_alu_active) begin
+                    fu_alu_active <= fu_alu_active + 1;
+                end
+                if (dut.perf_fu_fpu_active) begin
+                    fu_fpu_active <= fu_fpu_active + 1;
+                end
+                if (dut.perf_fu_sfu_active) begin
+                    fu_sfu_active <= fu_sfu_active + 1;
+                end
+                if (dut.perf_fu_ldst_active) begin
+                    fu_ldst_active <= fu_ldst_active + 1;
+                end
+                if (dut.perf_fu_tensor_active) begin
+                    fu_tensor_active <= fu_tensor_active + 1;
+                end
                 if (kernel_done) begin
                     running <= 1'b0;
                     done <= 1'b1;
@@ -493,6 +523,11 @@ module tb_sm_v2_perf_tensor_multiwarp;
                  stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq,
                  stall_ifetch, (cycle_count > 0) ? (stall_ifetch * 100 / cycle_count) : 0);
         $display("IPC: %0.3f", ipc);
+        $display("FU: ALU Active = %0d", fu_alu_active);
+        $display("FU: FPU Active = %0d", fu_fpu_active);
+        $display("FU: SFU Active = %0d", fu_sfu_active);
+        $display("FU: LDST Active = %0d", fu_ldst_active);
+        $display("FU: Tensor Active = %0d", fu_tensor_active);
         $display("CacheStats: L1_hits=%0d L1_misses=%0d L1_hit_rate=%0.2f%% L2_hits=%0d L2_misses=%0d L2_hit_rate=%0.2f%%",
                  l1_hits, l1_misses, l1_hit_rate, l2_hits, l2_misses, l2_hit_rate);
 
