@@ -240,3 +240,32 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - Sprint 25：3/3 (100%) — #309 #313 #314
 - CI：全绿 🟢
 - 趋势：连续多 Sprint velocity 100%，流程自动化质量持续提升
+
+# Sprint Retrospective Sprint 27 (2026-03-02)
+
+## ✅ Went Well
+- **#323 bench_atomics RAW stall 修复快速收敛**：在高噪声调试条件下定位 load-use hazard 根因并完成修复闭环（CoderCodex）
+- **CI 全绿**：Sprint 期间 master 连续 CI success，包含 issue-314/codex 等 feature branch
+- **CoderCodex 执行节奏稳定**：#319/#320 分支/issue 状态同步及时（CoderCodex 自评）
+
+## ❌ Didn't Go Well
+- **Velocity 33% (1/3)** — Sprint 27 最低完成率之一。#324/#325 整个 Sprint 无 branch/PR 启动
+- **#324/#325 未及时启动**：#323 收尾时 #324/#325 仍无最小 WIP（无 branch、无 issue comment），导致任务完全积压到 sprint 结束
+- **Sprint overdue 4h**：milestone 到期 4h 后仍无关闭，watchdog 触发告警
+- **CoderGemini 分配混乱**：#325 在 sprint 内有 CoderGemini 工作记录但未正式 assign，导致 watchdog 报 no_assignee
+
+## 💬 Coder Feedback
+- **CoderCodex**：好 — #323 根因快速收敛，PR 闭环干净；改进 — #324/#325 应在 #323 收尾前完成最小启动（branch + WIP comment）；PR review 响应需加快（#317 有延迟）
+- **CoderGemini**：已在 Sprint 内开始 #325 分析（12:22 汇报），但无正式 branch/commit 记录
+
+## 🔧 Action Items (Sprint 28 Planning 必须参考)
+- [ ] **WIP 启动纪律**：Sprint 开始 2h 内每个 issue 必须有 branch + WIP comment，否则 watchdog 告警
+- [ ] **并行启动**：持有多个 issues 的 coder 必须并行建 branch，不能等第一个完成再动第二个
+- [ ] **carry-over P0**：#324 #325 作为 carry-over 在 Sprint 28 优先分配，标记 P0
+- [ ] **CoderGemini 任务归属明确化**：assign 前必须在 GitHub Issue 上 comment 认领，不允许"隐形工作"
+- [ ] **PR review 响应时限**：被 review 的 PR 必须在 4h 内给出 PASS/FAIL，否则 Lily 重新分配 reviewer
+
+## 📈 Velocity
+- Sprint 27：1/3 (33%) — #323 ✅，#324 #325 carry-over
+- CI：全绿 🟢
+- 趋势：Sprint 27 velocity 骤降，主因是 WIP 启动延迟，非技术困难
