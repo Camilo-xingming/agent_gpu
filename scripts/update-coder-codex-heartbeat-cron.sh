@@ -8,6 +8,9 @@ JOB_ID="${JOB_ID:-5c612c20-ae3f-47e0-a80b-f884c2ec50cd}"
 PROMPT_FILE="${PROMPT_FILE:-$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt}"
 REQUIRED_GH_PROXY_PREFIX="${REQUIRED_GH_PROXY_PREFIX:-env HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 gh}"
 REQUIRED_SSH_IP="${REQUIRED_SSH_IP:-100.81.212.41}"
+REQUIRED_HEARTBEAT_KEYWORD="${REQUIRED_HEARTBEAT_KEYWORD:-长任务心跳}"
+REQUIRED_HEARTBEAT_INTERVAL_KEYWORD="${REQUIRED_HEARTBEAT_INTERVAL_KEYWORD:-每 60 秒}"
+REQUIRED_HEARTBEAT_THRESHOLD_KEYWORD="${REQUIRED_HEARTBEAT_THRESHOLD_KEYWORD:-3 分钟}"
 
 require_prompt_policies() {
   local source_name="$1"
@@ -20,6 +23,21 @@ require_prompt_policies() {
 
   if ! printf '%s\n' "$content" | grep -Fq "$REQUIRED_SSH_IP"; then
     echo "$source_name missing required SSH IP hint: $REQUIRED_SSH_IP" >&2
+    exit 1
+  fi
+
+  if ! printf '%s\n' "$content" | grep -Fq "$REQUIRED_HEARTBEAT_KEYWORD"; then
+    echo "$source_name missing required heartbeat policy marker: $REQUIRED_HEARTBEAT_KEYWORD" >&2
+    exit 1
+  fi
+
+  if ! printf '%s\n' "$content" | grep -Fq "$REQUIRED_HEARTBEAT_INTERVAL_KEYWORD"; then
+    echo "$source_name missing required heartbeat interval marker: $REQUIRED_HEARTBEAT_INTERVAL_KEYWORD" >&2
+    exit 1
+  fi
+
+  if ! printf '%s\n' "$content" | grep -Fq "$REQUIRED_HEARTBEAT_THRESHOLD_KEYWORD"; then
+    echo "$source_name missing required heartbeat threshold marker: $REQUIRED_HEARTBEAT_THRESHOLD_KEYWORD" >&2
     exit 1
   fi
 }
@@ -57,4 +75,4 @@ fi
 
 require_prompt_policies "stored cron payload" "$stored_message"
 
-echo "updated coder-codex heartbeat cron: $JOB_ID (proxy + SSH-IP policy verified)"
+echo "updated coder-codex heartbeat cron: $JOB_ID (proxy + SSH-IP + heartbeat policy verified)"
