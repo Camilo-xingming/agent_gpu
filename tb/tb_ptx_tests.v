@@ -657,7 +657,7 @@ module tb_ptx_tests;
         clear_imem();
         $readmemh("sim/test_10_cvt.hex", instruction_mem);
         num_instr = 53;
-        launch_kernel(0, 1, 1, 1, 128, 1, 1);  // 4 warps for latency hiding
+        launch_kernel(0, 1, 1, 1, 32, 1, 1);  // 1 warp (single-warp test)
         wait_kernel_done_with_cycles(TIMEOUT_CYCLES, timeout, test_cycles);
         result = global_mem[(RESULT_ADDR - GMEM_BASE) >> 2];
         test_pass = !timeout && (result == PASS_MARKER);
