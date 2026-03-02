@@ -1,0 +1,28 @@
+// RalphGPU memory benchmark #2: indexed gather + add + scatter (32 lanes)
+// idx = IDX[tid], C[tid] = A[idx] + B[idx]
+
+.entry mem_gather:
+    mov.u32 r0, %tid.x
+    shl.b32 r1, r0, 2
+
+    mov.u32 r8, 0x3000
+    add.s32 r8, r1, r8
+    ld.global.s32 r2, [r8]
+
+    shl.b32 r2, r2, 2
+
+    // A[idx], with warm reload to match stable LDST behavior
+    ld.global.s32 r3, [r2]
+    ld.global.s32 r7, [r2]
+
+    mov.u32 r4, 0x1000
+    add.s32 r4, r2, r4
+    ld.global.s32 r5, [r4]
+
+    add.s32 r6, r7, r5
+
+    mov.u32 r9, 0x2000
+    add.s32 r9, r1, r9
+    st.global.s32 [r9], r6
+
+    exit
