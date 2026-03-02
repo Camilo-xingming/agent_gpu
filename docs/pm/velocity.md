@@ -42,3 +42,4 @@
 | Sprint 24 | 2026-03-02 | Memory subsystem e2e validation — MCU/L1D perf + vector_add fix + memory benchmark | 3 | 3 | 0 | 100% | auto-generated |
 | Sprint 25 | 2026-03-02 | 流程质量收尾 + 系统稳定性 — CoderGemini raw output 净化 + milestone 自动清理 + 长任务心跳终局落地 | 3 | 3 | 0 | 100% | auto-generated |
 | Sprint 26 | 2026-03-02 | 净化 + 清理 — CoderGemini 输出过滤根治 + stale branch 清理 + PR #317 收尾 | 4 | 4 | 0 | 100% | auto-generated |
+| Sprint 27 | 2026-03-02 | GPU 可观测性 + 稳定性 — bench_atomics RAW stall 修复 + warp occupancy + L1D/L2 cache baseline | 1 | 3 | 2 | 33% | carry-over: #324 #325 |
