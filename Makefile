@@ -631,6 +631,7 @@ test_raw_hazard: test_sm_v2_sched_raw_hazard
 TB_BENCH_ATOMICS = $(TB_DIR)/tb_bench_atomics.v
 TB_BENCH_DIVERGENCE = $(TB_DIR)/tb_bench_divergence.v
 TB_ATOMIC_MINIMAL = $(TB_DIR)/tb_atomic_contention_minimal.v
+BENCH_DIVERGENCE_MAX_CYCLES ?= 5000
 
 # Atomic operations benchmark
 bench_atomics: $(BUILD_DIR)/tb_bench_atomics.vvp tb/bench_atomics.hex
@@ -651,7 +652,9 @@ bench_divergence: $(BUILD_DIR)/tb_bench_divergence.vvp tb/bench_divergence.hex
 	@echo "========================================"
 	@echo "Running Branch Divergence Benchmark"
 	@echo "========================================"
-	cd $(BUILD_DIR) && $(VVP) tb_bench_divergence.vvp | tee bench_divergence.log
+	@echo "Max cycle guard: $(BENCH_DIVERGENCE_MAX_CYCLES)"
+	cp tb/bench_divergence.hex $(BUILD_DIR)/bench_divergence.hex
+	cd $(BUILD_DIR) && $(VVP) tb_bench_divergence.vvp +max_cycles=$(BENCH_DIVERGENCE_MAX_CYCLES) | tee bench_divergence.log
 	@echo "Output saved to $(BUILD_DIR)/bench_divergence.log"
 
 $(BUILD_DIR)/tb_bench_divergence.vvp: $(RTL_SRCS) $(TB_BENCH_DIVERGENCE) | $(BUILD_DIR)
