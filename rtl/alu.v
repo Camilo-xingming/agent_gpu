@@ -460,9 +460,11 @@ module alu (
         case (func)
             // 
             `FUNC_ADD:   begin
+                carry_out = add_result[32];
                 result = add_result[31:0];
             end
             `FUNC_SUB:   begin
+                carry_out = sub_result[32];
                 result = sub_result[31:0];
             end
             `FUNC_AND:   result = operand_a & operand_b;
@@ -568,7 +570,19 @@ module alu (
     // 
     assign zero     = (result == 32'b0);
     assign negative = result[31];
-    assign overflow = 1'b0; // TODO: Implement integer overflow flags
+    
+    reg overflow_reg;
+    always @(*) begin
+        overflow_reg = 1'b0;
+        case (func)
+            `FUNC_ADD: overflow_reg = (operand_a[31] == operand_b[31]) && (result[31] != operand_a[31]);
+            `FUNC_SUB: overflow_reg = (operand_a[31] != operand_b[31]) && (result[31] != operand_a[31]);
+            `FUNC_MUL_WIDE: overflow_reg = (mul_wide_s[63:32] != {32{mul_wide_s[31]}});
+            default: overflow_reg = 1'b0;
+        endcase
+    end
+
+    assign overflow = overflow_reg;
 
 endmodule
 
