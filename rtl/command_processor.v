@@ -167,6 +167,8 @@ module command_processor #(
     reg [31:0] fence_signal_reg;
     reg        kernel_done_irq;
     reg        kernel_launch_pulse_reg;
+    reg        queue_overflow;
+    reg        invalid_command;
 
     // Main FSM
     reg [2:0] cp_state;
@@ -250,7 +252,7 @@ module command_processor #(
             CSR_CMD_QUEUE_TAIL:    csr_rd_data = {{(32-Q_PTR_W){1'b0}}, queue_tail};
             CSR_CMD_FENCE_VALUE:   csr_rd_data = fence_value_reg;
             CSR_CMD_FENCE_SIGNAL:  csr_rd_data = fence_signal_reg;
-            CSR_CP_STATUS:         csr_rd_data = {24'b0, cp_enable, cp_state, queue_count[3:0]};
+            CSR_CP_STATUS:         csr_rd_data = {22'b0, invalid_command, queue_overflow, cp_enable, cp_state, queue_count[3:0]};
             default: begin
                 if (desc_addr_hit)
                     csr_rd_data = desc_staging[desc_word_idx];
@@ -312,20 +314,28 @@ module command_processor #(
                     CSR_BLOCK_DIM_Z: block_dim_z_reg <= csr_wr_data;
                     CSR_CMD_FENCE_SIGNAL: fence_signal_reg <= csr_wr_data;
                     CSR_CMD_QUEUE_TAIL: begin
-                        if (cp_enable && queue_push_ready) begin
-                            queue_push_kernel_pc          <= desc_staging[DESC_IDX_KERNEL_PC];
-                            queue_push_grid_dim_x         <= desc_staging[DESC_IDX_GRID_DIM_X];
-                            queue_push_grid_dim_y         <= desc_staging[DESC_IDX_GRID_DIM_Y];
-                            queue_push_grid_dim_z         <= desc_staging[DESC_IDX_GRID_DIM_Z];
-                            queue_push_block_dim_x        <= desc_staging[DESC_IDX_BLOCK_DIM_X];
-                            queue_push_block_dim_y        <= desc_staging[DESC_IDX_BLOCK_DIM_Y];
-                            queue_push_block_dim_z        <= desc_staging[DESC_IDX_BLOCK_DIM_Z];
-                            queue_push_shared_mem_size    <= desc_staging[DESC_IDX_SHARED_MEM_SIZE];
-                            queue_push_kernel_params_base <= desc_staging[DESC_IDX_KERNEL_PARAMS_BASE];
-                            queue_push_fence_id           <= desc_staging[DESC_IDX_FENCE_ID];
-                            queue_push_flags              <= desc_staging[DESC_IDX_FLAGS];
-                            queue_push_valid              <= 1'b1;
+                        if (cp_enable) begin
+                            if (queue_push_ready) begin
+                                queue_push_kernel_pc          <= desc_staging[DESC_IDX_KERNEL_PC];
+                                queue_push_grid_dim_x         <= desc_staging[DESC_IDX_GRID_DIM_X];
+                                queue_push_grid_dim_y         <= desc_staging[DESC_IDX_GRID_DIM_Y];
+                                queue_push_grid_dim_z         <= desc_staging[DESC_IDX_GRID_DIM_Z];
+                                queue_push_block_dim_x        <= desc_staging[DESC_IDX_BLOCK_DIM_X];
+                                queue_push_block_dim_y        <= desc_staging[DESC_IDX_BLOCK_DIM_Y];
+                                queue_push_block_dim_z        <= desc_staging[DESC_IDX_BLOCK_DIM_Z];
+                                queue_push_shared_mem_size    <= desc_staging[DESC_IDX_SHARED_MEM_SIZE];
+                                queue_push_kernel_params_base <= desc_staging[DESC_IDX_KERNEL_PARAMS_BASE];
+                                queue_push_fence_id           <= desc_staging[DESC_IDX_FENCE_ID];
+                                queue_push_flags              <= desc_staging[DESC_IDX_FLAGS];
+                                queue_push_valid              <= 1'b1;
+                            end else begin
+                                queue_overflow <= 1'b1;
+                            end
                         end
+                    end
+                    CSR_CP_STATUS: begin
+                        if (csr_wr_data[8]) queue_overflow <= 1'b0;
+                        if (csr_wr_data[9]) invalid_command <= 1'b0;
                     end
                     default: begin
                         if (desc_addr_hit)
@@ -373,6 +383,8 @@ module command_processor #(
             kernel_done_irq          <= 1'b0;
             kernel_launch_pulse_reg  <= 1'b0;
             queue_pop_ready          <= 1'b0;
+            queue_overflow           <= 1'b0;
+            invalid_command          <= 1'b0;
         end else begin
             sm_kernel_start         <= {NUM_SM{1'b0}};
             queue_pop_ready         <= 1'b0;
@@ -391,42 +403,52 @@ module command_processor #(
                     if (cp_enable && queue_pop_valid) begin
                         cp_state <= CP_LOAD_DESC;
                     end else if (!cp_enable && kernel_start_reg) begin
-                        active_kernel_pc         <= kernel_pc_reg;
-                        active_grid_dim_x        <= grid_dim_x_reg;
-                        active_grid_dim_y        <= grid_dim_y_reg;
-                        active_grid_dim_z        <= grid_dim_z_reg;
-                        active_block_dim_x       <= block_dim_x_reg;
-                        active_block_dim_y       <= block_dim_y_reg;
-                        active_block_dim_z       <= block_dim_z_reg;
-                        active_shared_mem_size   <= 32'b0;
-                        active_kernel_params_base<= 32'b0;
-                        active_fence_id          <= 32'b0;
-                        total_blocks             <= grid_dim_x_reg * grid_dim_y_reg * grid_dim_z_reg;
-                        dispatched_blocks        <= 32'b0;
-                        sm_busy                  <= {NUM_SM{1'b0}};
-                        kernel_launch_pulse_reg  <= 1'b1;
-                        cp_state                 <= CP_DISPATCH;
+                        if (grid_dim_x_reg == 0 || grid_dim_y_reg == 0 || grid_dim_z_reg == 0 || block_dim_x_reg == 0 || block_dim_y_reg == 0 || block_dim_z_reg == 0) begin
+                            invalid_command <= 1'b1;
+                        end else begin
+                            active_kernel_pc         <= kernel_pc_reg;
+                            active_grid_dim_x        <= grid_dim_x_reg;
+                            active_grid_dim_y        <= grid_dim_y_reg;
+                            active_grid_dim_z        <= grid_dim_z_reg;
+                            active_block_dim_x       <= block_dim_x_reg;
+                            active_block_dim_y       <= block_dim_y_reg;
+                            active_block_dim_z       <= block_dim_z_reg;
+                            active_shared_mem_size   <= 32'b0;
+                            active_kernel_params_base<= 32'b0;
+                            active_fence_id          <= 32'b0;
+                            total_blocks             <= grid_dim_x_reg * grid_dim_y_reg * grid_dim_z_reg;
+                            dispatched_blocks        <= 32'b0;
+                            sm_busy                  <= {NUM_SM{1'b0}};
+                            kernel_launch_pulse_reg  <= 1'b1;
+                            cp_state                 <= CP_DISPATCH;
+                        end
                     end
                 end
 
                 CP_LOAD_DESC: begin
-                    active_kernel_pc          <= queue_pop_kernel_pc;
-                    active_grid_dim_x         <= queue_pop_grid_dim_x;
-                    active_grid_dim_y         <= queue_pop_grid_dim_y;
-                    active_grid_dim_z         <= queue_pop_grid_dim_z;
-                    active_block_dim_x        <= queue_pop_block_dim_x;
-                    active_block_dim_y        <= queue_pop_block_dim_y;
-                    active_block_dim_z        <= queue_pop_block_dim_z;
-                    active_shared_mem_size    <= queue_pop_shared_mem_size;
-                    active_kernel_params_base <= queue_pop_kernel_params_base;
-                    active_fence_id           <= queue_pop_fence_id;
+                    if (queue_pop_grid_dim_x == 0 || queue_pop_grid_dim_y == 0 || queue_pop_grid_dim_z == 0 || queue_pop_block_dim_x == 0 || queue_pop_block_dim_y == 0 || queue_pop_block_dim_z == 0) begin
+                        invalid_command <= 1'b1;
+                        queue_pop_ready <= 1'b1;
+                        cp_state <= CP_IDLE;
+                    end else begin
+                        active_kernel_pc          <= queue_pop_kernel_pc;
+                        active_grid_dim_x         <= queue_pop_grid_dim_x;
+                        active_grid_dim_y         <= queue_pop_grid_dim_y;
+                        active_grid_dim_z         <= queue_pop_grid_dim_z;
+                        active_block_dim_x        <= queue_pop_block_dim_x;
+                        active_block_dim_y        <= queue_pop_block_dim_y;
+                        active_block_dim_z        <= queue_pop_block_dim_z;
+                        active_shared_mem_size    <= queue_pop_shared_mem_size;
+                        active_kernel_params_base <= queue_pop_kernel_params_base;
+                        active_fence_id           <= queue_pop_fence_id;
 
-                    total_blocks             <= queue_pop_grid_dim_x * queue_pop_grid_dim_y * queue_pop_grid_dim_z;
-                    dispatched_blocks        <= 32'b0;
-                    sm_busy                  <= {NUM_SM{1'b0}};
-                    queue_pop_ready          <= 1'b1;
-                    kernel_launch_pulse_reg  <= 1'b1;
-                    cp_state                 <= CP_DISPATCH;
+                        total_blocks             <= queue_pop_grid_dim_x * queue_pop_grid_dim_y * queue_pop_grid_dim_z;
+                        dispatched_blocks        <= 32'b0;
+                        sm_busy                  <= {NUM_SM{1'b0}};
+                        queue_pop_ready          <= 1'b1;
+                        kernel_launch_pulse_reg  <= 1'b1;
+                        cp_state                 <= CP_DISPATCH;
+                    end
                 end
 
                 CP_DISPATCH: begin
