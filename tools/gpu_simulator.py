@@ -519,16 +519,16 @@ class RalphGPUSimulator:
         d = self.texture_depth
 
         if func == TexFunc.TEX_1D:
-            s = self._wrap_coord(coord_s, w, self.texture_wrap_s)
+            s = self._wrap_coord(coord_s >> 8, w, self.texture_wrap_s)
             return base + s
         if func in (TexFunc.TEX_2D, TexFunc.TEX_LEVEL, TexFunc.TEX_CUBE):
-            s = self._wrap_coord(coord_s, w, self.texture_wrap_s)
-            t = self._wrap_coord(coord_t, h, self.texture_wrap_t)
+            s = self._wrap_coord(coord_s >> 8, w, self.texture_wrap_s)
+            t = self._wrap_coord(coord_t >> 8, h, self.texture_wrap_t)
             return base + t * (w * 4) + s * 4
         if func == TexFunc.TEX_3D:
-            s = self._wrap_coord(coord_s, w, self.texture_wrap_s)
-            t = self._wrap_coord(coord_t, h, self.texture_wrap_t)
-            r = self._wrap_coord(coord_r, d, self.texture_wrap_r)
+            s = self._wrap_coord(coord_s >> 8, w, self.texture_wrap_s)
+            t = self._wrap_coord(coord_t >> 8, h, self.texture_wrap_t)
+            r = self._wrap_coord(coord_r >> 8, d, self.texture_wrap_r)
             return base + r * (w * h * 4) + t * (w * 4) + s * 4
         return base
 
@@ -2303,6 +2303,33 @@ def test_cvt():
     return errors == 0
 
 
+
+def test_texture():
+    print("Testing Texture fixed-point addressing...")
+    sim = RalphGPUSimulator()
+    sim.texture_base_addr = 0x1000
+    sim.texture_width = 32
+    sim.texture_height = 32
+    sim.texture_depth = 1
+    sim.texture_wrap_s = TextureWrap.CLAMP
+    sim.texture_wrap_t = TextureWrap.CLAMP
+
+    errors = 0
+    # 24.8 fixed point: integer part is shifted by 8.
+    # 10 << 8, 20 << 8. Expected int coords: s=10, t=20
+    # Addr: 0x1000 + 20 * (32 * 4) + 10 * 4 = 0x1A28
+    addr = sim._texture_addr(TexFunc.TEX_2D, 10 << 8, 20 << 8, 0)
+    expected = 0x1A28
+    if addr != expected:
+        print(f"Mismatch: _texture_addr(TEX_2D, 10<<8, 20<<8, 0) = {hex(addr)}, expected {hex(expected)}")
+        errors += 1
+
+    if errors == 0:
+        print("  OK")
+    else:
+        print(f"  FAILED: {errors} errors")
+    return errors == 0
+
 if __name__ == '__main__':
     print("\n" + "=" * 60)
     print("RalphGPU Functional Simulator")
@@ -2321,6 +2348,7 @@ if __name__ == '__main__':
     all_passed &= test_fp16_arith()
     all_passed &= test_fp64_arith()
     all_passed &= test_cvt()
+    all_passed &= test_texture()
 
     print("\n" + "=" * 60)
     if all_passed:
