@@ -1929,6 +1929,7 @@ module streaming_multiprocessor_v2 #(
     // Prevent issuing new memory ops when one is already in the pipeline
     //------------------------------------------------------------------------
     reg [2:0] mem_pipe_inflight;  // Count of memory ops in scheduler->mem pipeline
+    reg [3:0] mem_pipe_idle_cycles;  // Idle cycles while inflight remains non-zero
     reg sched_issues_memory;
     integer mem_issue_i;
     wire mem_response_complete = gmem_load_resp_valid || gmem_resp_valid || smem_resp_valid;
@@ -1945,19 +1946,31 @@ module streaming_multiprocessor_v2 #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             mem_pipe_inflight <= 3'd0;
+            mem_pipe_idle_cycles <= 4'd0;
         end else begin
             case ({sched_issues_memory, mem_response_complete})
-                2'b10: mem_pipe_inflight <= mem_pipe_inflight + 3'd1;  // Issue, no response
-                2'b01: mem_pipe_inflight <= (mem_pipe_inflight > 0) ? mem_pipe_inflight - 3'd1 : 3'd0;  // Response, no issue
+                2'b10: begin
+                    mem_pipe_inflight <= mem_pipe_inflight + 3'd1;  // Issue, no response
+                    mem_pipe_idle_cycles <= 4'd0;
+                end
+                2'b01: begin
+                    mem_pipe_inflight <= (mem_pipe_inflight > 0) ? mem_pipe_inflight - 3'd1 : 3'd0;  // Response, no issue
+                    mem_pipe_idle_cycles <= 4'd0;
+                end
                 // 2'b11: no change (issue and response same cycle)
-                // 2'b00: no change unless bookkeeping got stale
+                // 2'b00: no progress; clear stale inflight only after a short idle window
                 default: begin
-                    // Self-heal stale inflight count when no real memory op is pending.
-                    // Store operations may not produce a return beat; once pending flags drain,
-                    // any leftover inflight count is stale and would deadlock memory issue.
-                    if ((mem_pipe_inflight != 0) &&
-                        !mem_pending_valid && !smem_pending_valid && !store_pending_valid) begin
-                        mem_pipe_inflight <= 3'd0;
+                    if (mem_pending_valid || smem_pending_valid || store_pending_valid) begin
+                        mem_pipe_idle_cycles <= 4'd0;
+                    end else if (mem_pipe_inflight != 0) begin
+                        if (mem_pipe_idle_cycles >= 4'd8) begin
+                            mem_pipe_inflight <= 3'd0;
+                            mem_pipe_idle_cycles <= 4'd0;
+                        end else begin
+                            mem_pipe_idle_cycles <= mem_pipe_idle_cycles + 4'd1;
+                        end
+                    end else begin
+                        mem_pipe_idle_cycles <= 4'd0;
                     end
                 end
             endcase
