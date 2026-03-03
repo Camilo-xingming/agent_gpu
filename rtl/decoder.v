@@ -380,7 +380,7 @@ module decoder (
                 `OP_ST_GLOBAL: begin
                     mem_write <= 1'b1;
                     `ifdef SIMULATION
-                    $display("[DECODER] ST_GLOBAL: inst=0x%08h ra=R%0d rb=R%0d", instruction, ra, rb);
+                    $display("[DECODER] ST_GLOBAL: inst=0x%08h ra=R%0d rb=R%0d", instruction, inst_ra, inst_rb);
                     `endif
                 end
 
