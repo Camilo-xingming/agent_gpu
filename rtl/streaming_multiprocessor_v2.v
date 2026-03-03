@@ -3555,9 +3555,9 @@ module streaming_multiprocessor_v2 #(
     wire isn_match_lane0 = (issue_isn == tensor_last_pushed_isn[issue_warp_id]);
     wire isn_match_lane1 = (issue1_isn == tensor_last_pushed_isn[issue1_warp_id]);
 
-    // ISN gate on lane0; keep lockout as belt-and-suspenders on lane1
+    // ISN dedup is sufficient for stale-push protection on both lanes.
     wire tensor_push_lane0 = tensor_push_lane0_raw && !isn_match_lane0;
-    wire tensor_push_lane1 = tensor_push_lane1_raw && !isn_match_lane1 && !tensor_push_locked[issue1_warp_id];
+    wire tensor_push_lane1 = tensor_push_lane1_raw && !isn_match_lane1;
     assign tensor_issue_push = tensor_push_lane0 || tensor_push_lane1;
     assign tensor_issue_push_data = tensor_push_lane0 ?
         pack_tensor_issue(issue_warp_id, issue_rd,
