@@ -3119,6 +3119,7 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     reg [NUM_LANES-1:0] pred_regs [0:NUM_WARPS-1][0:6];  // p0-p6 per warp
     reg [NUM_LANES-1:0] carry_flags [0:NUM_WARPS-1];      // CC.CF per warp
+    reg [NUM_LANES-1:0] ovf_flags [0:NUM_WARPS-1];        // CC.OF per warp
     wire alu_use_slot0 = alu_issue0;
     wire alu_use_slot1 = alu_issue1;
     wire [WARP_ID_W-1:0] alu_issue_warp = alu_use_slot0 ? issue_warp_id : issue1_warp_id;
@@ -3172,6 +3173,7 @@ module streaming_multiprocessor_v2 #(
     reg [5:0] alu_func_pipe;
     reg [2:0] alu_pred_addr_pipe;
     reg [NUM_LANES-1:0] alu_cout_pipe;
+    reg [NUM_LANES-1:0] alu_ovf_pipe;
     reg [5:0] alu_debug_cnt;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -3196,6 +3198,7 @@ module streaming_multiprocessor_v2 #(
                 alu_func_pipe <= alu_issue_func;
                 alu_pred_addr_pipe <= alu_pred_addr;
                 alu_cout_pipe <= alu_cout;
+                alu_ovf_pipe <= alu_ovf;
                 // DEBUG: trace ALU ops (increased limit for loop debugging)
                 if (alu_debug_cnt < 50) begin
                     alu_debug_cnt <= alu_debug_cnt + 1;
@@ -3213,6 +3216,7 @@ module streaming_multiprocessor_v2 #(
                 for (pi = 0; pi < 7; pi = pi + 1)
                     pred_regs[pw][pi] <= {NUM_LANES{1'b0}};
                 carry_flags[pw] <= {NUM_LANES{1'b0}};
+                ovf_flags[pw] <= {NUM_LANES{1'b0}};
             end
         end else if (alu_valid_pipe) begin
             // SETP writeback: extract bit 0 of each lane's result as predicate
@@ -3228,6 +3232,14 @@ module streaming_multiprocessor_v2 #(
                 for (pi = 0; pi < NUM_LANES; pi = pi + 1) begin
                     if (alu_mask_pipe[pi])
                         carry_flags[alu_warp_pipe][pi] <= alu_cout_pipe[pi];
+                end
+            end
+            // Overflow flag writeback: update on ADD/SUB/MUL
+            if (alu_func_pipe == `FUNC_ADD || alu_func_pipe == `FUNC_ADD_CC || alu_func_pipe == `FUNC_ADDC ||
+                alu_func_pipe == `FUNC_SUB || alu_func_pipe == `FUNC_SUB_CC || alu_func_pipe == `FUNC_SUBC) begin
+                for (pi = 0; pi < NUM_LANES; pi = pi + 1) begin
+                    if (alu_mask_pipe[pi])
+                        ovf_flags[alu_warp_pipe][pi] <= alu_ovf_pipe[pi];
                 end
             end
         end
@@ -4984,14 +4996,16 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // Combinational Branch Logic with Divergence Detection
     //------------------------------------------------------------------------
-    wire branch_is_unconditional = (issue_rd[4:3] == 2'b00) || (issue_rd[4:3] == 2'b11);
-    wire branch_is_if_zero       = (issue_rd[4:3] == 2'b01);  // BR_IF_TRUE
-    wire branch_is_if_not_zero   = (issue_rd[4:3] == 2'b10);  // BR_IF_FALSE
+    wire [2:0] branch_type       = issue_rd[4:2];
+    wire branch_is_unconditional = (branch_type == 3'b000) || (branch_type == 3'b011);
+    wire branch_is_if_zero       = (branch_type == 3'b001);  // BR_IF_TRUE
+    wire branch_is_if_not_zero   = (branch_type == 3'b010);  // BR_IF_FALSE
+    wire branch_is_if_overflow   = (branch_type == 3'b100);  // BR_IF_OVERFLOW
 
     // Compute per-lane branch condition (which lanes satisfy the condition)
     // For BR_IF_ZERO: lanes with alu_zero=1 (register==0) should take branch
     // For BR_IF_NOT_ZERO: lanes with alu_zero=0 (register!=0) should take branch
-    wire [NUM_LANES-1:0] branch_cond_lanes = branch_is_if_zero ? alu_zero : ~alu_zero;
+    wire [NUM_LANES-1:0] branch_cond_lanes = branch_is_if_overflow ? ovf_flags[issue_warp_id] : (branch_is_if_zero ? alu_zero : ~alu_zero);
 
     // Compute which active lanes want to take vs not take the branch
     wire [NUM_LANES-1:0] taken_lanes = branch_cond_lanes & issue_mask;
@@ -5035,13 +5049,15 @@ module streaming_multiprocessor_v2 #(
     // Lane 1 Branch Logic (for dual-issue support)
     // When branch is issued on lane 1, we need separate calculations
     //------------------------------------------------------------------------
-    wire branch1_is_unconditional = (issue1_rd[4:3] == 2'b00) || (issue1_rd[4:3] == 2'b11);
-    wire branch1_is_if_zero       = (issue1_rd[4:3] == 2'b01);
-    wire branch1_is_if_not_zero   = (issue1_rd[4:3] == 2'b10);
+    wire [2:0] branch1_type       = issue1_rd[4:2];
+    wire branch1_is_unconditional = (branch1_type == 3'b000) || (branch1_type == 3'b011);
+    wire branch1_is_if_zero       = (branch1_type == 3'b001);
+    wire branch1_is_if_not_zero   = (branch1_type == 3'b010);
+    wire branch1_is_if_overflow   = (branch1_type == 3'b100);
 
     // When lane 1 has a branch and ALU is processing it, alu_zero reflects lane 1's condition
     // Note: ALU multiplexes - when alu_use_slot0=0 and alu_use_slot1=1, alu_zero is for lane 1
-    wire [NUM_LANES-1:0] branch1_cond_lanes = branch1_is_if_zero ? alu_zero : ~alu_zero;
+    wire [NUM_LANES-1:0] branch1_cond_lanes = branch1_is_if_overflow ? ovf_flags[issue1_warp_id] : (branch1_is_if_zero ? alu_zero : ~alu_zero);
     wire [NUM_LANES-1:0] taken1_lanes = branch1_cond_lanes & issue1_mask;
     wire [NUM_LANES-1:0] not_taken1_lanes = ~branch1_cond_lanes & issue1_mask;
 

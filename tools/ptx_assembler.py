@@ -1514,7 +1514,9 @@ class PTXAssembler:
 
         # Determine branch type from mnemonic
         branch_type = 0b00  # Default: unconditional
-        if '.z' in mnemonic or '.eq' in mnemonic:
+        if '.ovf' in mnemonic:
+            branch_type = 0b100  # Branch if overflow
+        elif '.z' in mnemonic or '.eq' in mnemonic:
             branch_type = 0b01  # Branch if zero
         elif '.nz' in mnemonic or '.ne' in mnemonic:
             branch_type = 0b10  # Branch if not zero
@@ -1522,7 +1524,7 @@ class PTXAssembler:
             branch_type = 0b11  # Uniform branch
 
         # Parse operands based on branch type
-        if branch_type in [0b01, 0b10]:  # Conditional branch
+        if branch_type in [0b01, 0b10, 0b100]:  # Conditional branch
             # Format: bra.z ra, target OR bra.nz ra, target
             if len(operands) >= 2:
                 cond_reg = parse_register(operands[0])
@@ -1543,7 +1545,7 @@ class PTXAssembler:
 
         # Encode: rd[4:3]=branch_type, ra=condition register, imm16=offset
         # In hardware: issue_rd[4:3] is branch_type, issue_ra is condition reg
-        inst.rd = (branch_type << 3)  # Put branch_type in bits [4:3] of rd field
+        inst.rd = (branch_type << 2)  # Put branch_type in bits [4:2] of rd field
         inst.ra = cond_reg
         # Offset goes in imm16 (bits [15:0])
         inst.rb = (offset >> 11) & 0x1F
