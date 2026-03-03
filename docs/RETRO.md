@@ -412,3 +412,33 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - Sprint 30: 0/5 (0%) — milestone infrastructure failure, not technical failure
 - CI: billing-limited (queued) 🟡
 - 趋势: velocity 骤降 0%，主因 planning SOP 缺陷（issue-milestone link 未执行），非 coder 失职
+
+# Sprint Retrospective Sprint 34 (2026-03-03)
+
+## ✅ Went Well
+- **Velocity 100% (3/3)**：#354 NOP retirement bug fix + #355 WB FIFO silent drop test coverage + #356 Texture bilinear 24.8 fixed-point 全部关闭
+- **Tech debt audit (#346) 全部清零**：Sprint 32 CoderGemini 发现的全部 5 个 correctness/coverage 问题（ALU overflow, CFU warp_diverged, texture bilinear, NOP retirement, WB FIFO）在 Sprint 33-34 完整交付
+- **Evidence binding 质量高**：CoderCodex 反馈每个结论均绑定可验证证据（SHA + issue/pr comment + 本地复跑），#354/#355/#356 收口干净（CoderCodex 自评）
+- **Stale branch 主动清理**：CoderGemini Sprint 结束前主动清理 Sprint 34 过期分支
+- **PRs #357/#358/#360 快速合并**：三个 PR 在同一天合并，无冲突
+
+## ❌ Didn't Go Well
+- **CoderGemini 未提供 Retro 反馈**：60s 内无结构化 Retro 意见，连续多 Sprint 未参与
+- **CI 仍全部 queued**：GitHub Actions billing 限制持续（自 Sprint 32 起），本地验证替代，但 CI 基础设施问题未解决
+- **CoderCodex 反馈被截断**：Discord 消息截断导致"需改进"部分未完整记录
+
+## 💬 Coder Feedback
+- **CoderCodex**：做得好 — 每个结论绑定可验证证据，收口干净；需改进：（部分内容截断，未记录完整）
+- **CoderGemini**：无结构化 Retro 反馈（60s 超时）；Sprint 内主动清理了 stale branches
+
+## 🔧 Action Items (Sprint 35 Planning 必须参考)
+- [ ] **GitHub Actions billing 修复**：联系 Jerry 确认 GitHub 账单状态，恢复 CI 自动化（连续多 Sprint 未解决）
+- [ ] **CoderGemini Retro 参与率**：连续 3+ Sprint 无 Retro 反馈，确认 heartbeat cron 是否正常运行
+- [ ] **ICache LRU 修复**：`rtl/icache.v:466` 读写冲突 workaround 影响 cache 替换策略准确性，需正式修复
+- [ ] **Scheduler scoreboard SET gap**：`rtl/blackwell_scheduler.v:491` 中 stall/suppress 时 scoreboard SET 跳过逻辑需补全
+- [ ] **CP TB 现代化**：`tb/tb_command_processor.v:413` Legacy launch 替换为 modern kernel dispatch path
+
+## 📈 Velocity
+- Sprint 34：3/3 (100%) — #354 #355 #356
+- CI：billing-limited (queued) 🟡
+- 趋势：连续多 Sprint 100%，tech debt audit 全部清零，进入 workaround 修复阶段
