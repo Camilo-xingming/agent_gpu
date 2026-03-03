@@ -73,6 +73,7 @@ module control_flow_unit #(
     localparam [5:0] BR_UNCONDITIONAL = 6'b000000;  // bra
     localparam [5:0] BR_IF_TRUE       = 6'b000001;  // @p bra
     localparam [5:0] BR_IF_FALSE      = 6'b000010;  // @!p bra
+    localparam [5:0] BR_IF_OVERFLOW   = 6'b000101;  // bra.ovf
     localparam [5:0] BR_UNIFORM       = 6'b000011;  // bra.uni
     localparam [5:0] BR_INDIRECT      = 6'b000100;  // brx.idx
 

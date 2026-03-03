@@ -4984,14 +4984,16 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     // Combinational Branch Logic with Divergence Detection
     //------------------------------------------------------------------------
-    wire branch_is_unconditional = (issue_rd[4:3] == 2'b00) || (issue_rd[4:3] == 2'b11);
-    wire branch_is_if_zero       = (issue_rd[4:3] == 2'b01);  // BR_IF_TRUE
-    wire branch_is_if_not_zero   = (issue_rd[4:3] == 2'b10);  // BR_IF_FALSE
+    wire [2:0] branch_type       = issue_rd[4:2];
+    wire branch_is_unconditional = (branch_type == 3'b000) || (branch_type == 3'b011);
+    wire branch_is_if_zero       = (branch_type == 3'b001);  // BR_IF_TRUE
+    wire branch_is_if_not_zero   = (branch_type == 3'b010);  // BR_IF_FALSE
+    wire branch_is_if_overflow   = (branch_type == 3'b100);  // BR_IF_OVERFLOW
 
     // Compute per-lane branch condition (which lanes satisfy the condition)
     // For BR_IF_ZERO: lanes with alu_zero=1 (register==0) should take branch
     // For BR_IF_NOT_ZERO: lanes with alu_zero=0 (register!=0) should take branch
-    wire [NUM_LANES-1:0] branch_cond_lanes = branch_is_if_zero ? alu_zero : ~alu_zero;
+    wire [NUM_LANES-1:0] branch_cond_lanes = branch_is_if_overflow ? alu_ovf : (branch_is_if_zero ? alu_zero : ~alu_zero);
 
     // Compute which active lanes want to take vs not take the branch
     wire [NUM_LANES-1:0] taken_lanes = branch_cond_lanes & issue_mask;

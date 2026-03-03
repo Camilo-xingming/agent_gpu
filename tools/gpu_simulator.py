@@ -305,6 +305,7 @@ class ThreadState:
     tid: int
     registers: List[int] = field(default_factory=lambda: [0] * 32)
     predicates: List[bool] = field(default_factory=lambda: [False] * 8)
+    overflow: bool = False
     active: bool = True
 
 
@@ -584,7 +585,7 @@ class RalphGPUSimulator:
         _ = value  # reserved for future reduction ops
         return self.global_memory.get(addr, 0) & 0xFFFFFFFF
 
-    def execute_alu(self, func: int, a: int, b: int) -> int:
+    def execute_alu(self, func: int, a: int, b: int, thread=None) -> int:
         """执行ALU操作"""
         # 转换为32位有符号数处理
         a = a & 0xFFFFFFFF
@@ -592,8 +593,12 @@ class RalphGPUSimulator:
 
         if func == AluFunc.ADD:
             result = (a + b) & 0xFFFFFFFF
+            if thread is not None:
+                thread.overflow = ((a ^ result) & (b ^ result) & 0x80000000) != 0
         elif func == AluFunc.SUB:
             result = (a - b) & 0xFFFFFFFF
+            if thread is not None:
+                thread.overflow = ((a ^ b) & (a ^ result) & 0x80000000) != 0
         elif func == AluFunc.AND:
             result = a & b
         elif func == AluFunc.OR:
@@ -1054,7 +1059,7 @@ class RalphGPUSimulator:
             elif opcode == Opcode.ALU:
                 a = thread.registers[ra]
                 b = thread.registers[rb]
-                thread.registers[rd] = self.execute_alu(func, a, b)
+                thread.registers[rd] = self.execute_alu(func, a, b, thread)
 
             elif opcode == Opcode.MUL:
                 a = thread.registers[ra]
@@ -1117,7 +1122,7 @@ class RalphGPUSimulator:
                 alu_func = (inst >> 10) & 0x3F
                 imm10 = inst & 0x3FF
                 a = thread.registers[ra]
-                thread.registers[rd] = self.execute_alu(alu_func, a, imm10)
+                thread.registers[rd] = self.execute_alu(alu_func, a, imm10, thread)
 
             elif opcode == Opcode.FP32_ARITH:
                 a = thread.registers[ra]
@@ -1305,12 +1310,14 @@ class RalphGPUSimulator:
                             predicate_idx = rc & 0x7
                             t_take = t.predicates[predicate_idx]
                         else:
-                            branch_type = (rd >> 3) & 0x3
-                            t_take = branch_type in (0b00, 0b11)
+                            branch_type = (rd >> 2) & 0x7
+                            t_take = branch_type in (0b000, 0b011)
                             if branch_type == 0b01:
                                 t_take = (t.registers[ra] == 0)
                             elif branch_type == 0b10:
                                 t_take = (t.registers[ra] != 0)
+                            elif branch_type == 0b100:
+                                t_take = t.overflow
                         if t_take:
                             taken_mask |= (1 << t.tid)
 
