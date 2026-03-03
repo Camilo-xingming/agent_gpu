@@ -3630,7 +3630,6 @@ module streaming_multiprocessor_v2 #(
             endcase
         end
     end
-
     // Memory operation tracking
     `ifdef SIMULATION
     reg [7:0] mem_pend_dbg_cnt;
@@ -3642,14 +3641,50 @@ module streaming_multiprocessor_v2 #(
             `ifdef SIMULATION
             mem_pend_dbg_cnt <= 0;
             `endif
-        end else if (l1_cache_req_valid && !mem_pending_valid) begin
-            mem_pending_valid <= 1'b1;
-            mem_warp_pending <= issue_warp_id;
-            mem_rd_pending <= issue_rd;
-            mem_mask_pending <= issue_mask;
-            mem_pc_pending <= issue_pc;    // Save load PC for replay rollback (#5)
-        end else if (gmem_load_resp_valid && mem_pending_valid && !l1_cache_resp_replay) begin
-            mem_pending_valid <= 1'b0;
+        end else begin
+            `ifdef SIMULATION
+            if (issue_valid && issue_mem_read && !issue_mem_shared && !issue_atomic_op &&
+                !issue_addr_oob_exc && !issue_illegal_exc && mem_pend_dbg_cnt < 8'd64) begin
+                $display("[%0t SM%0d DBG_LD_ISSUE0] warp=%0d pc=%h rd=%0d mem_pending=%b replay_pend=%b",
+                         $time, SM_ID, issue_warp_id, issue_pc, issue_rd, mem_pending_valid,
+                         replay_pending[issue_warp_id]);
+                mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
+            end
+            if (l1_cache_req_valid && mem_pend_dbg_cnt < 8'd64) begin
+                $display("[%0t SM%0d DBG_L1_REQ] warp=%0d pc=%h rd=%0d mem_pending=%b",
+                         $time, SM_ID, issue_warp_id, issue_pc, issue_rd, mem_pending_valid);
+                mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
+            end
+            if (gmem_load_resp_valid && mem_pending_valid && mem_pend_dbg_cnt < 8'd64) begin
+                $display("[%0t SM%0d DBG_L1_RESP] warp=%0d rd=%0d replay=%b hit=%b",
+                         $time, SM_ID, mem_warp_pending, mem_rd_pending, l1_cache_resp_replay, l1_cache_resp_hit);
+                mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
+            end
+            `endif
+
+            if (l1_cache_req_valid && !mem_pending_valid) begin
+                mem_pending_valid <= 1'b1;
+                mem_warp_pending <= issue_warp_id;
+                mem_rd_pending <= issue_rd;
+                mem_mask_pending <= issue_mask;
+                mem_pc_pending <= issue_pc;    // Save load PC for replay rollback (#5)
+                `ifdef SIMULATION
+                if (mem_pend_dbg_cnt < 8'd64) begin
+                    $display("[%0t SM%0d DBG_MEM_PEND_SET] warp=%0d pc=%h rd=%0d",
+                             $time, SM_ID, issue_warp_id, issue_pc, issue_rd);
+                    mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
+                end
+                `endif
+            end else if (gmem_load_resp_valid && mem_pending_valid && !l1_cache_resp_replay) begin
+                mem_pending_valid <= 1'b0;
+                `ifdef SIMULATION
+                if (mem_pend_dbg_cnt < 8'd64) begin
+                    $display("[%0t SM%0d DBG_MEM_PEND_CLR] warp=%0d rd=%0d",
+                             $time, SM_ID, mem_warp_pending, mem_rd_pending);
+                    mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
+                end
+                `endif
+            end
         end
     end
 
