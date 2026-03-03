@@ -538,12 +538,12 @@ class RalphGPUSimulator:
         w = self.texture_width
         h = self.texture_height
         if func == SurfFunc.SURF_1D:
-            return base + ((coord_s & 0xFFFFFFFF) * 4)
+            return base + ((coord_s >> 8) * 4)
         if func == SurfFunc.SURF_3D:
-            return base + ((coord_r & 0xFFFFFFFF) * (w * h * 4) +
-                           (coord_t & 0xFFFFFFFF) * (w * 4) +
-                           (coord_s & 0xFFFFFFFF) * 4)
-        return base + ((coord_t & 0xFFFFFFFF) * (w * 4) + (coord_s & 0xFFFFFFFF) * 4)
+            return base + ((coord_r >> 8) * (w * h * 4) +
+                           (coord_t >> 8) * (w * 4) +
+                           (coord_s >> 8) * 4)
+        return base + ((coord_t >> 8) * (w * 4) + (coord_s >> 8) * 4)
 
     def execute_tex(self, func: int, coord_s: int, coord_t: int, coord_r: int) -> int:
         """Execute texture sample and return R channel in low 8 bits."""
