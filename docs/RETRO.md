@@ -352,3 +352,63 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - Sprint 28：2/2 (100%) — #324 #325
 - CI：master 全绿 🟢
 - 趋势：carry-over 清零，可观测性基础设施完整，进入 Sprint 29 性能调试阶段
+
+# Sprint Retrospective Sprint 29 (2026-03-02)
+
+## ✅ Went Well
+- **Velocity 100% (3/3 + bonus #333)**：#328 FU utilization fix + #329 Tensor WB spike + #330 bench_divergence guard 全部完成；#333 memory_heavy hex fix 额外完成
+- **FU utilization dashboard 恢复**：4 个 workload FU 指标从全 0% 恢复正常（FPU 59.9%，Tensor 99.7%/25.0%），可观测性基础设施可信
+- **Tensor WB VCD 分析成功**：从 VCD 精确定位到 lane1 tensor_push_lockout 为根因，WB 从 3077 提升至 4095/4096
+- **Cross-review 有效**：PR #335 base drift 被 CoderCodex 立即发现（FAIL review），rebase 后通过，防止 #332 回退
+- **bench_divergence timeout guard**：同天交付 + 根因文档（scoreboard 0x40 持续占用），`make benchmark` 不再挂住
+- **CoderCodex**：#328/#330 快速收敛，instrumentation 先行再 guard，cross-review 保证 Sprint DoD
+
+## ❌ Didn't Go Well
+- **CoderGemini #329 初次尝试无效**：首次 VCD 分析产出无法验证的结果，需重新分配给 Codex 才完成分析
+- **Tensor WB 4095/4096 未到 4096/4096**：最后 1 个 WB 启动边界问题，fix 在本地验证但未提 PR，遗留
+- **PR #335 base drift**：从旧 base 开分支导致 #332 回退风险，需额外 rebase round
+- **CI 全部 queued**：GitHub Actions billing 限制，所有 CI 状态仍为 queued，本地验证替代
+- **CoderGemini**：路径错配 fix 有效；需改进 VCD 分析准确性，初次结果必须可重现
+
+## 💬 Coder Feedback
+- **CoderCodex**：好 — #328/#330 按优先级快速收敛，cross-review 保证 Sprint DoD；改进 — Tensor WB 最后 1 个应在 spike close 前提 PR
+- **CoderGemini**：好 — 定位并解决了性能测试路径错配导致的 0-cycle 顽疾，优化了 Makefile；改进 — VCD 分析需确保首次结果可重现验证
+
+## 🔧 Action Items (Sprint 30 Planning 必须参考)
+- [ ] **Tensor WB 4096/4096**：基于 #329 findings，提 PR 移除 lane1 tensor_push_lockout gate（仅保留 isn_match dedup）
+- [ ] **bench_divergence scoreboard fix**：定位并修复 scoreboard 0x40 持续占用导致的 kernel_done 不触发
+- [ ] **PR rebase-before-submit DoD 强制化**：任何 PR 开 branch 时必须先 rebase latest master，不合规则 Lily reject
+- [ ] **PR #336 lint fix merge**：CoderGemini cross-review，通过后 Lily merge，关闭 #273
+
+## 📈 Velocity
+- Sprint 29：3/3 (100%) — #328 #329 #330，bonus #333
+- CI：billing limited (queued)，本地验证替代 🟡
+- 趋势：连续多 Sprint 100%，observability 基础完整，进入实质性 GPU 性能修复阶段
+
+# Sprint Retrospective Sprint 30 (2026-03-02)
+
+## ✅ Went Well
+- **Sprint 29 carry-over none**: Sprint 29 cleanly delivered all 3 items (#328/#329/#330)
+- **Backlog well-defined**: 5 issues clearly scoped (#337-341) with good Sprint 30 goal
+
+## ❌ Didn't Go Well
+- **Velocity 0/5 (0%)**: Sprint 30 milestone closed empty — all 5 issues tagged [Sprint 30] but never assigned to the milestone via GitHub
+- **Milestone-issue link broken**: Issues created with [Sprint 30] in title but `gh issue edit --milestone` was never executed, so milestone had 0 items tracked
+- **No coder startup**: No branch or WIP comment for any of the 5 issues during Sprint 30
+- **Coder retro non-response**: Both CoderCodex and CoderGemini did not respond within 60s
+
+## 💬 Coder Feedback
+- No response within 60s (auto-generated retro)
+
+## 🔧 Action Items (Sprint 31 Planning 必须参考)
+- [ ] **Planning must link issues to milestone**: After `gh milestone create`, immediately `gh issue edit NUM --milestone "Sprint N"` for every selected issue
+- [ ] **WIP 启动纪律**: Sprint 启动后 2h 内每个 assigned issue 必须有 branch + WIP comment
+- [ ] **Ceremony verify**: After planning, ceremony cron should verify milestone has >0 issues before declaring planning complete
+- [ ] **#337 carry-over P0**: Tensor WB 4096/4096 — lane1 lockout removal
+- [ ] **#338 carry-over P0**: bench_divergence scoreboard deadlock fix
+- [ ] **#339 carry-over**: PR #336 lint cross-review + merge (closes #273)
+
+## 📈 Velocity
+- Sprint 30: 0/5 (0%) — milestone infrastructure failure, not technical failure
+- CI: billing-limited (queued) 🟡
+- 趋势: velocity 骤降 0%，主因 planning SOP 缺陷（issue-milestone link 未执行），非 coder 失职
