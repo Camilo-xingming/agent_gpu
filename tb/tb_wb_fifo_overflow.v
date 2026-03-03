@@ -13,7 +13,7 @@ module tb_wb_fifo_overflow;
     wire empty;
     wire dropped;
 
-    // Instantiate with DEPTH=4 for more headroom
+    // Instantiate with DEPTH=4
     wb_fifo #(
         .WIDTH(32),
         .DEPTH(4)
@@ -32,6 +32,7 @@ module tb_wb_fifo_overflow;
     always #5 clk = ~clk;
 
     integer i;
+    reg [31:0] expected_data [0:3];
     initial begin
         $dumpfile("tb_wb_fifo_overflow.vcd");
         $dumpvars(0, tb_wb_fifo_overflow);
@@ -48,7 +49,17 @@ module tb_wb_fifo_overflow;
         for (i = 0; i < 4; i = i + 1) begin
             @(negedge clk);
             push = 1; push_data = i + 1;
+            if (i < 3) expected_data[i] = i + 2; // Data shifts due to concurrent push/pop later
         end
+        // Correction: Initial state 1, 2, 3, 4. 
+        // We will push 1, 2, 3, 4.
+        // Then we do a concurrent push(FEEDFACE) and pop.
+        // So expected sequence: 2, 3, 4, FEEDFACE (since 1 is popped first)
+        expected_data[0] = 32'd2;
+        expected_data[1] = 32'd3;
+        expected_data[2] = 32'd4;
+        expected_data[3] = 32'hFEED_FACE;
+
         @(negedge clk);
         push = 0;
 
@@ -62,7 +73,6 @@ module tb_wb_fifo_overflow;
         @(negedge clk);
         push = 1; push_data = 32'hDEAD_BEEF;
         
-        // dropped should be high combinationally
         #1;
         if (dropped) begin
             $display("PASS: 'dropped' signal high during push-while-full");
@@ -70,10 +80,7 @@ module tb_wb_fifo_overflow;
             $display("FAIL: 'dropped' signal should be high during push-while-full");
             $finish;
         end
-
-        // Wait past posedge clk to test actual overflow behavior on clock edge
-        @(posedge clk);
-        #1;
+        push = 0;
         
         $display("--- Testing Concurrent Push and Pop (Full) ---");
         @(negedge clk);
@@ -92,12 +99,15 @@ module tb_wb_fifo_overflow;
         pop = 0;
 
         $display("--- Verifying Data Integrity ---");
-        // Pop remaining items
         for (i = 0; i < 4; i = i + 1) begin
             @(negedge clk);
             pop = 1;
             #1;
-            $display("Popped: %0h", pop_data);
+            if (pop_data !== expected_data[i]) begin
+                $display("FAIL: Data mismatch at index %0d! Got %0h, expected %0h", i, pop_data, expected_data[i]);
+                $finish;
+            end
+            $display("Popped: %0h (Correct)", pop_data);
         end
         @(negedge clk);
         pop = 0;
