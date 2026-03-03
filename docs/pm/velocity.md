@@ -48,3 +48,4 @@
 | Sprint 30 | 2026-03-02 | GPU 性能修复 — Tensor WB 4096/4096 完整 fix + bench_divergence scoreboard deadlock + lint 清理 | 0 | 5 | 5 | 0% | carry-over: #337 #338 #339 #340 #341 |
 | Sprint 31 | 2026-03-02 | Tensor WB 4096/4096 完整修復 + bench_divergence deadlock fix + lint 收尾 | 6 | 6 | 0 | 100% | #337 #338 #339 #340 #341 #343 全部关闭，6/6 完成 |
 | Sprint 33 | 2026-03-03 | Correctness & stability blockers from tech debt audit (#346) — BR_IF_OVF + CFU warp_diverged + ALU overflow + ST_GLOBAL fix | 4 | 4 | 0 | 100% | #347 #348 #349 #353 全部关闭，PRs #350 #351 #352 merged | auto-generated |
+| Sprint 34 | 2026-03-03 | Test blind spots & correctness — NOP retirement (#354) + WB FIFO silent drop (#355) + Texture bilinear (#356) | 3 | 3 | 0 | 100% | PRs #357 #358 #360 merged | cd /Users/jerry/.openclaw/workspace-main/RalphGPU
