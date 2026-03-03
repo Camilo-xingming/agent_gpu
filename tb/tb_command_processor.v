@@ -336,6 +336,144 @@ module tb_command_processor;
         check_val("T4 fence_after_B", fence_value, 32'd200);
 
         //====================================================================
+        // Test 5: Queue mode overflow (Stress Test + Error Handling)
+        //====================================================================
+        $display("\n=== Test 5: Queue mode overflow ===");
+        write_csr(CSR_GPU_STATUS, 32'h1);
+        write_csr(CSR_GPU_CONTROL, 32'h2);
+        
+        // Clear overflow flag (write 1 to bit 8)
+        write_csr(CSR_CP_STATUS, 32'h0000_0100);
+
+        // 1. Push Kernel 0 (popped immediately, active in CP)
+        write_desc_word(0, 32'h0000_A000);
+        write_desc_word(1, 32'd1);
+        write_desc_word(2, 32'd1);
+        write_desc_word(3, 32'd1);
+        write_desc_word(10, 32'd300);
+        write_csr(CSR_CMD_QUEUE_TAIL, 32'd4);
+        
+        repeat (15) @(posedge clk);
+        check_val("T5 active kernel", sm_kernel_pc, 32'h0000_A000);
+
+        // 2. Push 8 Kernels to fill the queue
+        begin : push_loop
+            integer i;
+            for (i = 0; i < 8; i = i + 1) begin
+                write_desc_word(0, 32'h0000_B000 + i);
+                write_csr(CSR_CMD_QUEUE_TAIL, 32'd5 + i);
+                repeat(2) @(posedge clk);
+            end
+        end
+        
+        // 3. Push 1 more Kernel (overflow)
+        write_desc_word(0, 32'h0000_DEAD);
+        write_csr(CSR_CMD_QUEUE_TAIL, 32'd13);
+        repeat(5) @(posedge clk);
+
+        // 4. Check error flag
+        csr_addr = CSR_CP_STATUS;
+        @(posedge clk);
+        check_val("T5 overflow flag", csr_rd_data & 32'h0000_0100, 32'h0000_0100);
+
+        // 5. Drain the pipeline
+        // Finish kernel 0
+        fork sim_sm_done(0, 5); join
+        repeat (20) @(posedge clk);
+
+        // Finish 8 queued kernels
+        begin : drain_loop
+            integer j;
+            for (j = 0; j < 8; j = j + 1) begin
+                fork sim_sm_done(0, 5); join
+                repeat (20) @(posedge clk);
+            end
+        end
+
+        wait_idle(200);
+        check_val("T5 idle", {31'b0, gpu_busy}, 32'd0);
+
+        //====================================================================
+        // Test 6: Mixed mode (Legacy launch during Queued mode execution)
+        //====================================================================
+        $display("\n=== Test 6: Mixed mode ===");
+        write_csr(CSR_GPU_CONTROL, 32'h2); // queue mode
+        
+        // Push Queued kernel
+        write_desc_word(0, 32'h0000_6000);
+        write_desc_word(1, 32'd2);
+        write_desc_word(2, 32'd2);
+        write_desc_word(3, 32'd1);
+        write_desc_word(10, 32'd600);
+        write_csr(CSR_CMD_QUEUE_TAIL, 32'd14);
+        
+        repeat (10) @(posedge clk);
+        check_val("T6 queued kernel_pc", sm_kernel_pc, 32'h0000_6000);
+        
+        // Legacy launch attempt
+        write_csr(CSR_KERNEL_PC, 32'h0000_BAD0);
+        write_csr(CSR_GRID_DIM_X, 32'd1);
+        write_csr(CSR_GPU_CONTROL, 32'h3); // Start=1, Enable=1
+        
+        repeat(10) @(posedge clk);
+        check_val("T6 state machine robust", sm_kernel_pc, 32'h0000_6000);
+
+        // Finish Queued kernel (4 blocks)
+        fork sim_sm_done(0, 5); sim_sm_done(1, 5); join
+        repeat (10) @(posedge clk);
+        fork sim_sm_done(0, 5); sim_sm_done(1, 5); join
+        
+        wait_idle(200);
+        check_val("T6 idle", {31'b0, gpu_busy}, 32'd0);
+
+        //====================================================================
+        // Test 7: Large Grid Dispatch
+        //====================================================================
+        $display("\n=== Test 7: Large Grid Dispatch ===");
+        write_csr(CSR_GPU_CONTROL, 32'h2); // queue mode
+        
+        // Large grid: 128 x 1 x 1 blocks
+        write_desc_word(0, 32'h0000_7000);
+        write_desc_word(1, 32'd128);
+        write_desc_word(2, 32'd1);
+        write_desc_word(3, 32'd1);
+        write_desc_word(10, 32'd700);
+        write_csr(CSR_CMD_QUEUE_TAIL, 32'd15);
+        
+        repeat(10) @(posedge clk);
+        check_val("T7 active kernel", sm_kernel_pc, 32'h0000_7000);
+        
+        // Drain 128 blocks (64 waves for 2 SMs)
+        begin : drain_large_grid
+            integer k;
+            for (k = 0; k < 64; k = k + 1) begin
+                fork sim_sm_done(0, 2); sim_sm_done(1, 2); join
+                repeat (4) @(posedge clk);
+            end
+        end
+        
+        wait_idle(500);
+        check_val("T7 idle", {31'b0, gpu_busy}, 32'd0);
+        check_val("T7 fence", fence_value, 32'd700);
+
+        //====================================================================
+        // Test 8: Invalid command
+        //====================================================================
+        $display("\n=== Test 8: Invalid command ===");
+        write_csr(CSR_GPU_CONTROL, 32'h2); // queue mode
+        write_csr(CSR_CP_STATUS, 32'h0000_0200); // clear invalid flag
+        
+        // Push a kernel with grid_dim_x = 0
+        write_desc_word(0, 32'h0000_8000);
+        write_desc_word(1, 32'd0);
+        write_csr(CSR_CMD_QUEUE_TAIL, 32'd16);
+        
+        repeat (10) @(posedge clk);
+        csr_addr = CSR_CP_STATUS;
+        @(posedge clk);
+        check_val("T8 invalid command flag", csr_rd_data & 32'h0000_0200, 32'h0000_0200);
+
+        //====================================================================
         $display("\n====================================");
         $display("Total: %0d  Passed: %0d  Failed: %0d", total_tests, passed_tests, failed_tests);
         $display("====================================");
