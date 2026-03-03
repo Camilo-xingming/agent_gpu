@@ -221,10 +221,13 @@ module texture_unit #(
 
     // Truncated wrap coordinates for calc_2d_addr (iverilog can't part-select function returns)
     /* verilator lint_off WIDTHTRUNC */
-    wire [15:0] wrap_s_trunc = wrap_coord(coord_s_r, tex_w_r, wrap_s_r);
-    wire [15:0] wrap_t_trunc = wrap_coord(coord_t_r, tex_h_r, wrap_t_r);
-    wire [15:0] wrap_s1_trunc = wrap_coord(coord_s_r + 1, tex_w_r, wrap_s_r);
-    wire [15:0] wrap_t1_trunc = wrap_coord(coord_t_r + 1, tex_h_r, wrap_t_r);
+    wire [31:0] int_s = { {8{coord_s_r[31]}}, coord_s_r[31:8] };
+    wire [31:0] int_t = { {8{coord_t_r[31]}}, coord_t_r[31:8] };
+    wire [31:0] int_r = { {8{coord_r_r[31]}}, coord_r_r[31:8] };
+    wire [15:0] wrap_s_trunc = wrap_coord(int_s, tex_w_r, wrap_s_r);
+    wire [15:0] wrap_t_trunc = wrap_coord(int_t, tex_h_r, wrap_t_r);
+    wire [15:0] wrap_s1_trunc = wrap_coord(int_s + 1, tex_w_r, wrap_s_r);
+    wire [15:0] wrap_t1_trunc = wrap_coord(int_t + 1, tex_h_r, wrap_t_r);
     /* verilator lint_on WIDTHTRUNC */
 
     //------------------------------------------------------------------------
@@ -276,7 +279,7 @@ module texture_unit #(
                     case (func_r)
                         `TEX_1D: begin
                             texel_addr[0] <= tex_base_addr +
-                                wrap_coord(coord_s_r, tex_w_r, wrap_s_r);
+                                wrap_coord(int_s, tex_w_r, wrap_s_r);
                             num_texels <= 3'd1;
                         end
 
@@ -321,9 +324,9 @@ module texture_unit #(
                         `TEX_3D: begin
                             // 3D texture addressing
                             texel_addr[0] <= tex_base_addr +
-                                wrap_coord(coord_r_r, tex_d_r, tex_wrap_r) * (tex_w_r * tex_h_r * 4) +
-                                wrap_coord(coord_t_r, tex_h_r, wrap_t_r) * (tex_w_r * 4) +
-                                wrap_coord(coord_s_r, tex_w_r, wrap_s_r) * 4;
+                                wrap_coord(int_r, tex_d_r, tex_wrap_r) * (tex_w_r * tex_h_r * 4) +
+                                wrap_coord(int_t, tex_h_r, wrap_t_r) * (tex_w_r * 4) +
+                                wrap_coord(int_s, tex_w_r, wrap_s_r) * 4;
                             num_texels <= 3'd1;
                         end
 
@@ -409,8 +412,8 @@ module texture_unit #(
                         if (!mem_req && mem_ready) begin
                             mem_req <= 1'b1;
                             mem_addr <= tex_base_addr +
-                                       coord_t_r * (tex_w_r * 4) +
-                                       coord_s_r * 4;
+                                       int_t * (tex_w_r * 4) +
+                                       int_s * 4;
                         end else if (mem_valid) begin
                             result <= mem_rdata;
                             state <= OUTPUT;
@@ -421,8 +424,8 @@ module texture_unit #(
                             mem_req <= 1'b1;
                             mem_write <= 1'b1;
                             mem_addr <= tex_base_addr +
-                                       coord_t_r * (tex_w_r * 4) +
-                                       coord_s_r * 4;
+                                       int_t * (tex_w_r * 4) +
+                                       int_s * 4;
                             mem_wdata <= store_data;
                         end else if (mem_valid) begin
                             state <= OUTPUT;

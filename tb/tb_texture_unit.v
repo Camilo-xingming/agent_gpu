@@ -105,9 +105,9 @@ module tb_texture_unit;
             @(posedge clk);
             opcode <= op;
             func <= fn;
-            coord_s <= cs;
-            coord_t <= ct;
-            coord_r <= cr;
+            coord_s <= (cs << 8);
+            coord_t <= (ct << 8);
+            coord_r <= (cr << 8);
             valid_in <= 1'b1;
             @(posedge clk);
             valid_in <= 1'b0;
@@ -414,9 +414,12 @@ module tb_texture_unit;
         tex_filter = 4'h1; // FILTER_LINEAR
         tex_wrap_s = 4'h1; tex_wrap_t = 4'h1;
 
-        // RTL simplifies bilinear to point for now (num_texels=1),
+        
         // but we exercise the code path to confirm no hang/crash
+        // pass integer 10, then add fractional part
         issue_and_wait(`OP_TEX, `TEX_2D, 32'd10, 32'd10, 0, 80);
+        // Override to add fraction 10/255
+        @(posedge clk); coord_s = (32'd10 << 8) | 10; coord_t = (32'd10 << 8) | 10; valid_in = 1'b1; @(posedge clk); valid_in = 1'b0; wait(valid_out); #1;
         check_completed("TEX 2D bilinear path completes");
 
         // With real bilinear, coord (10,10) with frac=10/255 gives R=0x27
@@ -438,14 +441,18 @@ module tb_texture_unit;
         // addr(128,1) = base+1024+512 = 0x50600 -> R=0x00
         // addr(129,1) = base+1024+516 = 0x50604 -> R=0x04
         // lerp_x: (127*0+128*4)>>8=2, lerp_y: (255*2+0*2)>>8=1
-        issue_and_wait(`OP_TEX, `TEX_2D, 32'd128, 32'd0, 0, 80);
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd0, 32'd0, 0, 80);
+        // Override for s=128, frac=128
+        @(posedge clk); coord_s = (32'd128 << 8) | 128; coord_t = 0; valid_in = 1'b1; @(posedge clk); valid_in = 1'b0; wait(valid_out); #1;
         check_completed("TEX 2D bilinear frac_s=128 completes");
         check_result_r(32'h00000001, "TEX 2D bilinear s=128 frac=0x80 R=0x01");
 
         // --- Bilinear with both fracs = 128 ---
         // lerp_x row0: 2, lerp_x row1: 2
         // lerp_y: (127*2+128*2)>>8=1
-        issue_and_wait(`OP_TEX, `TEX_2D, 32'd128, 32'd128, 0, 80);
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd0, 32'd0, 0, 80);
+        // Override for s=128, t=128, frac=128, 128
+        @(posedge clk); coord_s = (32'd128 << 8) | 128; coord_t = (32'd128 << 8) | 128; valid_in = 1'b1; @(posedge clk); valid_in = 1'b0; wait(valid_out); #1;
         check_completed("TEX 2D bilinear frac_s=128,frac_t=128 completes");
         check_result_r(32'h00000001, "TEX 2D bilinear s=128,t=128 R=0x01");
 
