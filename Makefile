@@ -1024,7 +1024,7 @@ test_command_queue: $(BUILD_DIR)/tb_command_queue.vvp
 $(BUILD_DIR)/tb_command_queue.vvp: $(RTL_DIR)/command_queue.v $(RTL_DIR)/gpu_defines.vh tb/tb_command_queue_ring.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_command_queue_ring.v $(RTL_DIR)/command_queue.v
 
-test_command_processor test_wb_fifo: $(BUILD_DIR)/tb_command_processor.vvp
+test_command_processor: $(BUILD_DIR)/tb_command_processor.vvp
 	@echo "========================================"
 	@echo "Running Command Processor Unit Test"
 	@echo "========================================"
