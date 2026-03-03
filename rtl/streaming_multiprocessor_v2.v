@@ -3648,7 +3648,7 @@ module streaming_multiprocessor_v2 #(
             mem_rd_pending <= issue_rd;
             mem_mask_pending <= issue_mask;
             mem_pc_pending <= issue_pc;    // Save load PC for replay rollback (#5)
-        end else if (gmem_load_resp_valid && mem_pending_valid) begin
+        end else if (gmem_load_resp_valid && mem_pending_valid && !l1_cache_resp_replay) begin
             mem_pending_valid <= 1'b0;
         end
     end
@@ -5126,7 +5126,7 @@ module streaming_multiprocessor_v2 #(
         end else begin
             // Latch global memory response
             // Suppress writeback latch when replay was triggered — refill data goes to L1 only
-            if (gmem_load_resp_valid && mem_pending_valid && !gmem_resp_latched && !replay_pending[mem_warp_pending]) begin
+            if (gmem_load_resp_valid && mem_pending_valid && !l1_cache_resp_replay && !gmem_resp_latched && !replay_pending[mem_warp_pending]) begin
                 gmem_resp_latched <= 1'b1;
                 gmem_resp_warp <= mem_warp_pending;
                 gmem_resp_rd <= mem_rd_pending;
@@ -5847,7 +5847,7 @@ module streaming_multiprocessor_v2 #(
             if (smem_resp_valid && smem_pending_valid) begin
                 warp_stalled_mem[smem_warp_pending] <= 1'b0;
             end
-            if (gmem_load_resp_valid && mem_pending_valid) begin
+            if (gmem_load_resp_valid && mem_pending_valid && !l1_cache_resp_replay) begin
                 warp_stalled_mem[mem_warp_pending] <= 1'b0;
             end
 
