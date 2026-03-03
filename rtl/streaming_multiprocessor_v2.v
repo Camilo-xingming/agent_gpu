@@ -364,6 +364,10 @@ module streaming_multiprocessor_v2 #(
                                        ~warp_exit_pending & ~mbarrier_warp_blocked &
                                        ~warp_stalled_wgmma & ~cluster_barrier_pending;
 
+    // Per-warp divergence state from SM divergence stack depth.
+    // A warp is considered diverged when it has at least one pending reconvergence entry.
+    wire [NUM_WARPS-1:0] warp_diverged_state;
+
     //========================================================================
     // Pipeline Registers
     //========================================================================
@@ -1249,8 +1253,7 @@ module streaming_multiprocessor_v2 #(
             assign perf_warp_issued[pw_i]   = (issue_valid && issue_warp_id == pw_i[WARP_ID_W-1:0]) ||
                                                (issue1_valid && issue1_warp_id == pw_i[WARP_ID_W-1:0]);
             assign perf_warp_stalled[pw_i]  = warp_valid[pw_i] & ~warp_ready[pw_i];
-            assign perf_warp_diverged[pw_i] = (divergent_branch && issue_warp_id == pw_i[WARP_ID_W-1:0]) ||
-                                               (divergent_branch1 && issue1_warp_id == pw_i[WARP_ID_W-1:0]);
+            assign perf_warp_diverged[pw_i] = warp_diverged_state[pw_i];
         end
     endgenerate
 
@@ -2078,7 +2081,7 @@ module streaming_multiprocessor_v2 #(
         .rst_n(rst_n),
         .warp_valid(warp_valid),
         .warp_ready(warp_ready),
-        .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
+        .warp_diverged(warp_diverged_state),
         .warp_at_barrier(warp_stalled_sync),
         .warp_inst(fp_inst_buf_fast_flat),     // RALPH-10c: bypass (packed)
         .warp_inst_valid(warp_inst_valid_fast),  // RALPH-10c: bypass
@@ -2172,7 +2175,7 @@ module streaming_multiprocessor_v2 #(
         .rst_n(rst_n),
         .warp_valid(warp_valid),
         .warp_ready(warp_ready),
-        .warp_diverged({NUM_WARPS{1'b0}}), // Todo: connect to CFU
+        .warp_diverged(warp_diverged_state),
         .warp_at_barrier(warp_stalled_sync),
         .warp_inst(fp_inst_buf_fast_flat),     // RALPH-10c: bypass (packed)
         .warp_inst_valid(warp_inst_valid_fast),  // RALPH-10c: bypass
@@ -5069,6 +5072,13 @@ module streaming_multiprocessor_v2 #(
     reg [DIV_PTR_W-1:0] sm_div_stack_ptr [0:NUM_WARPS-1];  // Stack pointer (count) per warp
     reg [NUM_WARPS-1:0] sm_div_stack_overflow;
     reg [NUM_WARPS-1:0] sm_div_stack_underflow;
+
+    genvar div_w;
+    generate
+        for (div_w = 0; div_w < NUM_WARPS; div_w = div_w + 1) begin : gen_warp_diverged_state
+            assign warp_diverged_state[div_w] = (sm_div_stack_ptr[div_w] != 0);
+        end
+    endgenerate
 
     // Check if current PC matches a reconvergence point (issue stage)
     wire [DIV_PTR_W-1:0] curr_div_ptr = sm_div_stack_ptr[issue_warp_id];

@@ -525,6 +525,84 @@ module tb_control_flow_unit;
         wait_clk(2);
 
         //====================================================================
+        // Test 12: Nested divergence/reconvergence depth tracking
+        //====================================================================
+        $display("\n--- Test Group 12: Nested Divergence Depth ---");
+        // Use warp 3 for clean state
+        clear_inputs;
+        warp_id     <= 2'b11;
+        active_mask <= 32'hFFFF_FFFF;
+
+        // First divergence (outer): pc=0x4000, taken=0x0000FFFF, reconverge @0x4004
+        pc_current    <= 32'h0000_4000;
+        branch_valid  <= 1'b1;
+        branch_type   <= BR_IF_TRUE;
+        branch_target <= 32'h0000_4100;
+        diverge_mask  <= 32'h0000_FFFF;
+        is_uniform    <= 1'b0;
+        @(posedge clk);
+        #1;
+        check("Nested div outer: next_pc = 0x4100",
+              next_pc === 32'h0000_4100);
+        check("Nested div outer: active_mask = 0x0000FFFF",
+              next_active_mask === 32'h0000_FFFF);
+        clear_inputs;
+        @(posedge clk);
+        wait_clk(2);
+
+        // Second divergence (inner): pc=0x4100, taken=0x0000000F, reconverge @0x4104
+        clear_inputs;
+        warp_id       <= 2'b11;
+        pc_current    <= 32'h0000_4100;
+        active_mask   <= 32'h0000_FFFF;
+        branch_valid  <= 1'b1;
+        branch_type   <= BR_IF_TRUE;
+        branch_target <= 32'h0000_4200;
+        diverge_mask  <= 32'h0000_000F;
+        is_uniform    <= 1'b0;
+        @(posedge clk);
+        #1;
+        check("Nested div inner: next_pc = 0x4200",
+              next_pc === 32'h0000_4200);
+        check("Nested div inner: active_mask = 0x0000000F",
+              next_active_mask === 32'h0000_000F);
+        check("Nested div inner: reconverge_pc = 0x4104",
+              reconverge_pc === 32'h0000_4104);
+        clear_inputs;
+        @(posedge clk);
+        wait_clk(2);
+
+        // Inner reconvergence at 0x4104 should restore 0x0000FFF0
+        clear_inputs;
+        warp_id     <= 2'b11;
+        pc_current  <= 32'h0000_4104;
+        active_mask <= 32'h0000_000F;
+        @(posedge clk);
+        #1;
+        check("Nested reconverge inner: at_reconverge asserted",
+              at_reconverge === 1'b1);
+        check("Nested reconverge inner: mask restored to 0x0000FFF0",
+              next_active_mask === 32'h0000_FFF0);
+        clear_inputs;
+        @(posedge clk);
+        wait_clk(2);
+
+        // Outer reconvergence at 0x4004 should restore 0xFFFF0000
+        clear_inputs;
+        warp_id     <= 2'b11;
+        pc_current  <= 32'h0000_4004;
+        active_mask <= 32'h0000_FFF0;
+        @(posedge clk);
+        #1;
+        check("Nested reconverge outer: at_reconverge asserted",
+              at_reconverge === 1'b1);
+        check("Nested reconverge outer: mask restored to 0xFFFF0000",
+              next_active_mask === 32'hFFFF_0000);
+        clear_inputs;
+        @(posedge clk);
+        wait_clk(2);
+
+        //====================================================================
         // Summary
         //====================================================================
         $display("");
