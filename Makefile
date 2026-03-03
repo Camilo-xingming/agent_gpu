@@ -1056,3 +1056,13 @@ test_dual_fetch: $(BUILD_DIR)/tb_dual_fetch.vvp
 
 $(BUILD_DIR)/tb_dual_fetch.vvp: $(SM_V2_SRCS) $(TB_DUAL_FETCH) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(SM_V2_DEFINES) -o $@ $(TB_DUAL_FETCH) $(filter %.v,$(SM_V2_SRCS))
+
+# WB FIFO Unit Test
+test_wb_fifo: $(BUILD_DIR)/tb_wb_fifo.vvp
+	@echo "========================================"
+	@echo "Running WB FIFO Unit Test (Overflow Coverage)"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_wb_fifo.vvp
+
+$(BUILD_DIR)/tb_wb_fifo.vvp: $(RTL_DIR)/wb_fifo.v tb/tb_wb_fifo_overflow.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_wb_fifo_overflow.v $(RTL_DIR)/wb_fifo.v
