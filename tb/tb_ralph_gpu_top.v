@@ -741,15 +741,14 @@ module tb_ralph_gpu_top;
         report_test("Simple Exit Kernel", test_pass);
         reset_dut();
 
-        // Test 2.2: ALU ops then Exit (NOP skipped as it doesn't retire properly)
+        // Test 2.2: NOP retirement then Exit
         clear_imem();
-        instruction_mem[0] = encode_alu(5'd1, 5'd0, 5'd0, `FUNC_ADD);  // R1 = R0 + R0
-        instruction_mem[1] = encode_alu(5'd2, 5'd1, 5'd1, `FUNC_ADD);  // R2 = R1 + R1
-        instruction_mem[2] = encode_exit();
+        instruction_mem[0] = encode_nop();
+        instruction_mem[1] = encode_exit();
         launch_kernel(0, 1, 1, 1, 1, 1, 1);
         wait_kernel_done(TIMEOUT_CYCLES, timeout);
         test_pass = !timeout && irq_kernel_done;
-        report_test("ALU ops then Exit", test_pass);
+        report_test("NOP then Exit", test_pass);
         reset_dut();
 
         // Test 2.3: Single block with compute (multi-block needs longer time)
@@ -1786,19 +1785,18 @@ module tb_ralph_gpu_top;
         $display("");
         $display("--- Section 10: Performance Stress Tests ---");
 
-        // Test 10.1: 50 ALU Throughput (replaced NOP - NOP doesn't retire)
+        // Test 10.1: 50 NOP Throughput
         clear_imem();
         pc = 0;
         repeat(50) begin
-            instruction_mem[pc] = encode_alu(5'd1, 5'd1, 5'd1, `FUNC_OR); pc = pc + 1;
+            instruction_mem[pc] = encode_nop(); pc = pc + 1;
         end
         instruction_mem[pc] = encode_exit();
         launch_kernel(0, 1, 1, 1, 1, 1, 1);
         wait_kernel_done(TIMEOUT_CYCLES, timeout);
         test_pass = !timeout;
-        report_test("50 ALU Throughput", test_pass);
+        report_test("50 NOP Throughput", test_pass);
         reset_dut();
-
         // Test 10.2: ALU Throughput (20 ops)
         clear_imem();
         pc = 0;
