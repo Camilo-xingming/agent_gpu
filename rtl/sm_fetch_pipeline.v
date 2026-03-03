@@ -269,6 +269,11 @@ module sm_fetch_pipeline #(
     reg [31:0] fetch_pipe_pc_a [0:FETCH_PIPE_DEPTH-1];
     reg [FETCH_PIPE_DEPTH-1:0] fetch_pipe_valid_a;
 
+    // Port B tracks one in-flight miss response explicitly
+    reg                  b_resp_pending_valid;
+    reg [WARP_ID_W-1:0] b_resp_pending_warp;
+    reg [31:0]          b_resp_pending_pc;
+
     wire same_cycle_hit_a = fetch_fire_a && icache_valid_a && (fetch_pipe_valid_a == 0);
 
     // Port A round-robin pointer
@@ -300,6 +305,9 @@ module sm_fetch_pipeline #(
         if (!rst_n || kernel_start) begin
             warp_fetch_pending <= 0;
             fetch_pipe_valid_a <= 0;
+            b_resp_pending_valid <= 1'b0;
+            b_resp_pending_warp <= {WARP_ID_W{1'b0}};
+            b_resp_pending_pc <= 32'b0;
             for (fp_i = 0; fp_i < FETCH_PIPE_DEPTH; fp_i = fp_i + 1) begin
                 fetch_pipe_warp_a[fp_i] <= 0;
                 fetch_pipe_pc_a[fp_i] <= 0;
@@ -307,6 +315,11 @@ module sm_fetch_pipeline #(
         end else begin
             // Branch flush clears pending
             warp_fetch_pending <= warp_fetch_pending & ~branch_flush_mask;
+            if (b_resp_pending_valid && branch_flush_mask[b_resp_pending_warp]) begin
+                b_resp_pending_valid <= 1'b0;
+                b_resp_pending_warp <= {WARP_ID_W{1'b0}};
+                b_resp_pending_pc <= 32'b0;
+            end
 
             // Port A pipeline
             if (icache_ready_a) begin
@@ -342,18 +355,22 @@ module sm_fetch_pipeline #(
             else if (icache_valid_a && fetch_pipe_valid_a[FETCH_PIPE_DEPTH-1])
                 warp_fetch_pending[fetch_pipe_warp_a[FETCH_PIPE_DEPTH-1]] <= 1'b0;
 
-            // Port B: same-cycle hit sets and clears pending in same cycle
+            // Port B: track one in-flight miss response with explicit warp/PC metadata
             if (fetch_fire_b && icache_valid_b) begin
                 // Same-cycle hit on Port B — no pending needed
             end else if (fetch_fire_b) begin
                 warp_fetch_pending[fetch_warp_id_b] <= 1'b1;
+                b_resp_pending_valid <= 1'b1;
+                b_resp_pending_warp <= fetch_warp_id_b;
+                b_resp_pending_pc <= warp_fetch_pc[fetch_warp_id_b];
             end
 
-            // Port B response clears pending (for misses served later)
-            if (icache_valid_b && !fetch_fire_b) begin
-                // Port B miss response — pending was already set
-                // The icache returns valid_b when a queued Port B miss completes
-                warp_fetch_pending[fetch_warp_id_b] <= 1'b0;
+            // Port B delayed response clears the tracked pending warp
+            if (icache_valid_b && !fetch_fire_b && b_resp_pending_valid) begin
+                warp_fetch_pending[b_resp_pending_warp] <= 1'b0;
+                b_resp_pending_valid <= 1'b0;
+                b_resp_pending_warp <= {WARP_ID_W{1'b0}};
+                b_resp_pending_pc <= 32'b0;
             end
         end
     end
@@ -372,9 +389,10 @@ module sm_fetch_pipeline #(
 
     // ---- Port B fill logic (#148) ----
     wire same_cycle_hit_b = fetch_fire_b && icache_valid_b;
-    wire fill_valid_b = same_cycle_hit_b || (icache_valid_b && !fetch_fire_b);
-    wire [WARP_ID_W-1:0] fill_warp_id_b = fetch_warp_id_b; // Port B always fills the warp it requested
-    wire [31:0] fill_fetch_pc_b = warp_fetch_pc[fetch_warp_id_b];
+    wire delayed_resp_b = icache_valid_b && !fetch_fire_b && b_resp_pending_valid;
+    wire fill_valid_b = same_cycle_hit_b || delayed_resp_b;
+    wire [WARP_ID_W-1:0] fill_warp_id_b = same_cycle_hit_b ? fetch_warp_id_b : b_resp_pending_warp;
+    wire [31:0] fill_fetch_pc_b = same_cycle_hit_b ? warp_fetch_pc[fetch_warp_id_b] : b_resp_pending_pc;
     wire [31:0] fill_data_b = icache_data_b;
     wire [63:0] fill_line_data_b = icache_line_data_b;
 

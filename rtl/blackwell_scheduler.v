@@ -119,6 +119,15 @@ module blackwell_scheduler #(
     input  wire [$clog2(NUM_WARPS)-1:0] fu_conflict_sb_clr_warp,
     input  wire [4:0]              fu_conflict_sb_clr_rd,
     input  wire                     pipeline_stall_slot1,
+    // Per-slot dispatch acceptance from SM issue stage
+    input  wire [NUM_SCHEDULERS-1:0] dispatch_fire,
+    // Branch flush rollback: decode instruction consumed by scheduler but squashed before execute
+    input  wire                     branch_flush_sb_clr0_valid,
+    input  wire [$clog2(NUM_WARPS)-1:0] branch_flush_sb_clr0_warp,
+    input  wire [4:0]              branch_flush_sb_clr0_rd,
+    input  wire                     branch_flush_sb_clr1_valid,
+    input  wire [$clog2(NUM_WARPS)-1:0] branch_flush_sb_clr1_warp,
+    input  wire [4:0]              branch_flush_sb_clr1_rd,
     // Tensor scoreboard deferred SET: SM signals when tensor push actually succeeds
     input  wire                     tensor_sb_set_valid,
     input  wire [$clog2(NUM_WARPS)-1:0] tensor_sb_set_warp,
@@ -441,6 +450,39 @@ module blackwell_scheduler #(
                 issue_consume_r[issue_warp_r[s]] = 1'b0;
             end
         end
+
+        // Memory issue is only wired on SM slot0 path; move slot1 memory issue to slot0.
+        if (NUM_SCHEDULERS >= 2 && issue_valid_r[1] &&
+            warp_is_memory[issue_warp_r[1]] &&
+            (!issue_valid_r[0] || !warp_is_memory[issue_warp_r[0]])) begin
+            reg                 tmp_valid;
+            reg [WARP_W-1:0]    tmp_warp;
+            reg [INST_WIDTH-1:0] tmp_inst;
+            reg [2:0]           tmp_pipe;
+            reg                 tmp_async;
+            reg [3:0]           tmp_async_id;
+
+            tmp_valid = issue_valid_r[0];
+            tmp_warp = issue_warp_r[0];
+            tmp_inst = issue_inst_r[0];
+            tmp_pipe = issue_pipe_r[0];
+            tmp_async = issue_is_async_mma_r[0];
+            tmp_async_id = issue_async_mma_id_r[0];
+
+            issue_valid_r[0] = issue_valid_r[1];
+            issue_warp_r[0] = issue_warp_r[1];
+            issue_inst_r[0] = issue_inst_r[1];
+            issue_pipe_r[0] = issue_pipe_r[1];
+            issue_is_async_mma_r[0] = issue_is_async_mma_r[1];
+            issue_async_mma_id_r[0] = issue_async_mma_id_r[1];
+
+            issue_valid_r[1] = tmp_valid;
+            issue_warp_r[1] = tmp_warp;
+            issue_inst_r[1] = tmp_inst;
+            issue_pipe_r[1] = tmp_pipe;
+            issue_is_async_mma_r[1] = tmp_async;
+            issue_async_mma_id_r[1] = tmp_async_id;
+        end
 end
 
     // Output async MMA info
@@ -453,14 +495,19 @@ end
 
     // Suppress consume when stalled OR when slot 1 tensor was suppressed
     wire [NUM_WARPS-1:0] conflict_mask = tensor_issue_conflict ? (1 << issue_warp_r[1]) : {NUM_WARPS{1'b0}};
-    // Per-slot stall: even warps (0,2) use slot 0 stall, odd warps (1,3) use slot 1 stall
-    wire [NUM_WARPS-1:0] stall_mask;
-    genvar sm_w;
-    generate
-        for (sm_w = 0; sm_w < NUM_WARPS; sm_w = sm_w + 1) begin : gen_stall_mask
-            assign stall_mask[sm_w] = (sm_w % 2 == 0) ? pipeline_stall : pipeline_stall_slot1;
+    // Build stall mask from the actual selected slot, not warp parity.
+    // This keeps stall gating correct when slot1 memory gets swapped into slot0.
+    reg [NUM_WARPS-1:0] stall_mask;
+    integer sm_w;
+    always @(*) begin
+        stall_mask = {NUM_WARPS{1'b0}};
+        for (sm_w = 0; sm_w < NUM_SCHEDULERS; sm_w = sm_w + 1) begin
+            if (issue_valid_r[sm_w] &&
+                ((sm_w % 2 == 0) ? pipeline_stall : pipeline_stall_slot1)) begin
+                stall_mask[issue_warp_r[sm_w]] = 1'b1;
+            end
         end
-    endgenerate
+    end
     assign warp_inst_consume = (issue_consume_r & ~conflict_mask & ~stall_mask);
 
     //------------------------------------------------------------------------
@@ -488,8 +535,8 @@ end
             // NOP/BAR_SYNC/etc. won't set scoreboard because warp_writes_reg=0 for them
             for (sb_s = 0; sb_s < NUM_SCHEDULERS; sb_s = sb_s + 1) begin
                 // Skip scoreboard SET when pipeline stalled or when slot 1 tensor was suppressed
-                if (issue_valid_r[sb_s] &&
-                    !((issue_warp_r[sb_s][0]) ? pipeline_stall_slot1 : pipeline_stall) &&
+                if (issue_valid_r[sb_s] && dispatch_fire[sb_s] &&
+                    !((sb_s % 2 == 0) ? pipeline_stall : pipeline_stall_slot1) &&
                     !(sb_s > 0 && tensor_issue_conflict) &&
                     !(sb_s > 0 && sched_fu_conflict)) begin
                     // Standard register scoreboard update
@@ -498,6 +545,13 @@ end
                     if (warp_writes_reg[issue_warp_r[sb_s]] &&
                         issue_pipe_r[sb_s] != PIPE_TENSOR) begin
                         scoreboard[issue_warp_r[sb_s]][warp_rd[issue_warp_r[sb_s]*5 +: 5]] <= 1'b1;
+`ifdef SIMULATION
+                        if (issue_warp_r[sb_s] == {{(WARP_W-1){1'b0}},1'b1} &&
+                            warp_rd[issue_warp_r[sb_s]*5 +: 5] == 5'd4) begin
+                            $display("[%0t SCHED DBG_SET_W1_R4] slot=%0d stall0=%b stall1=%b consume=%b",
+                                     $time, sb_s, pipeline_stall, pipeline_stall_slot1, warp_inst_consume[issue_warp_r[sb_s]]);
+                        end
+`endif
                     end
 
                     // Async MMA scoreboard update (Blackwell)
@@ -522,7 +576,7 @@ end
                     // tcgen05.dealloc is required before kernel exit
 
                     // Update round-robin pointer for fairness (gated by stall and conflict)
-                    if (!((issue_warp_r[sb_s][0]) ? pipeline_stall_slot1 : pipeline_stall) &&
+                    if (!((sb_s % 2 == 0) ? pipeline_stall : pipeline_stall_slot1) &&
                         !(sb_s > 0 && tensor_issue_conflict) &&
                         !(sb_s > 0 && sched_fu_conflict))
                         begin : rr_ptr_wrap
@@ -548,11 +602,34 @@ end
             // Clear scoreboard on writeback
             if (wb_valid) begin
                 scoreboard[wb_warp_id][wb_rd] <= 1'b0;
+`ifdef SIMULATION
+                if (wb_warp_id == {{(WARP_W-1){1'b0}},1'b1} && wb_rd == 5'd4) begin
+                    $display("[%0t SCHED DBG_CLR_WB_W1_R4]", $time);
+                end
+`endif
             end
 
             // Rollback scoreboard SET for issue-stage FU conflict (slot 1 dropped)
             if (fu_conflict_sb_clr_valid) begin
                 scoreboard[fu_conflict_sb_clr_warp][fu_conflict_sb_clr_rd] <= 1'b0;
+`ifdef SIMULATION
+                if (fu_conflict_sb_clr_warp == {{(WARP_W-1){1'b0}},1'b1} && fu_conflict_sb_clr_rd == 5'd4) begin
+                    $display("[%0t SCHED DBG_CLR_FU_W1_R4]", $time);
+                end
+`endif
+            end
+
+            // Rollback scoreboard SET for branch-flushed decode entries (slot 0 / slot 1)
+            if (branch_flush_sb_clr0_valid) begin
+                scoreboard[branch_flush_sb_clr0_warp][branch_flush_sb_clr0_rd] <= 1'b0;
+            end
+            if (branch_flush_sb_clr1_valid) begin
+                scoreboard[branch_flush_sb_clr1_warp][branch_flush_sb_clr1_rd] <= 1'b0;
+`ifdef SIMULATION
+                if (branch_flush_sb_clr1_warp == {{(WARP_W-1){1'b0}},1'b1} && branch_flush_sb_clr1_rd == 5'd4) begin
+                    $display("[%0t SCHED DBG_CLR_FLUSH1_W1_R4]", $time);
+                end
+`endif
             end
 
             // Clear scoreboard on WGMMA completion

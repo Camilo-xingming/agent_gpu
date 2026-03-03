@@ -258,6 +258,43 @@ module tb_bench_divergence;
             end
             if (!irq_kernel_done) begin
                 timeout = 1'b1;
+                $display("[TB-DBG] timeout cycles=%0d irq_done=%b kernel_done=%b", cycles, irq_kernel_done, u_dut.sm_gen[0].u_sm.kernel_done);
+                $display("[TB-DBG] warp_valid=%b exit_pending=%b stalled_branch=%b stalled_mem=%b stalled_sync=%b stalled_async=%b",
+                         u_dut.sm_gen[0].u_sm.warp_valid, u_dut.sm_gen[0].u_sm.warp_exit_pending,
+                         u_dut.sm_gen[0].u_sm.warp_stalled_branch, u_dut.sm_gen[0].u_sm.warp_stalled_mem,
+                         u_dut.sm_gen[0].u_sm.warp_stalled_sync, u_dut.sm_gen[0].u_sm.warp_stalled_async);
+                $display("[TB-DBG] warp0 pc=%h fetch_pc=%h mask=%h sb=%h",
+                         u_dut.sm_gen[0].u_sm.warp_pc[0], u_dut.sm_gen[0].u_sm.warp_fetch_pc[0],
+                         u_dut.sm_gen[0].u_sm.warp_mask[0], u_dut.sm_gen[0].u_sm.u_scheduler.scoreboard[0]);
+                $display("[TB-DBG] warp1 pc=%h fetch_pc=%h mask=%h sb=%h",
+                         u_dut.sm_gen[0].u_sm.warp_pc[1], u_dut.sm_gen[0].u_sm.warp_fetch_pc[1],
+                         u_dut.sm_gen[0].u_sm.warp_mask[1], u_dut.sm_gen[0].u_sm.u_scheduler.scoreboard[1]);
+                $display("[TB-DBG] fetch_pending=%b inst_buf_valid=%b",
+                         u_dut.sm_gen[0].u_sm.warp_fetch_pending,
+                         u_dut.sm_gen[0].u_sm.warp_inst_buf_valid);
+                $display("[TB-DBG] pending store=%b mem=%b smem=%b atomic=%b gmem_lat=%b smem_lat=%b",
+                         u_dut.sm_gen[0].u_sm.store_pending_valid, u_dut.sm_gen[0].u_sm.mem_pending_valid,
+                         u_dut.sm_gen[0].u_sm.smem_pending_valid, u_dut.sm_gen[0].u_sm.atomic_pending_valid,
+                         u_dut.sm_gen[0].u_sm.gmem_resp_latched, u_dut.sm_gen[0].u_sm.smem_resp_latched);
+                $display("[TB-DBG] inst_fast_valid=%b inst_fast_w0=%h inst_fast_w1=%h",
+                         u_dut.sm_gen[0].u_sm.warp_inst_valid_fast,
+                         u_dut.sm_gen[0].u_sm.warp_inst_buf_fast[0],
+                         u_dut.sm_gen[0].u_sm.warp_inst_buf_fast[1]);
+                $display("[TB-DBG] warp_ready=%b elig=%b has_haz=%b",
+                         u_dut.sm_gen[0].u_sm.warp_ready,
+                         u_dut.sm_gen[0].u_sm.u_scheduler.warp_eligible,
+                         u_dut.sm_gen[0].u_sm.u_scheduler.warp_has_hazard);
+                $display("[TB-DBG] fire0=%b fire1=%b dec0_v=%b dec1_v=%b stall_any=%b stall0=%b stall1=%b lane_conf=%b consume=%b",
+                         u_dut.sm_gen[0].u_sm.issue0_fire, u_dut.sm_gen[0].u_sm.issue1_fire,
+                         u_dut.sm_gen[0].u_sm.dec0_valid, u_dut.sm_gen[0].u_sm.dec1_valid,
+                         u_dut.sm_gen[0].u_sm.decode_stalled_any, u_dut.sm_gen[0].u_sm.decode_stalled_slot0,
+                         u_dut.sm_gen[0].u_sm.decode_stalled_slot1, u_dut.sm_gen[0].u_sm.lane_unit_conflict,
+                         u_dut.sm_gen[0].u_sm.warp_inst_consume);
+                $display("[TB-DBG] sched_valid=%b w0=%0d p0=%0d w1=%0d p1=%0d dec0_inst=%h dec1_inst=%h",
+                         u_dut.sm_gen[0].u_sm.sched_issue_valid_mask,
+                         u_dut.sm_gen[0].u_sm.sched_issue_warp_id[0], u_dut.sm_gen[0].u_sm.sched_issue_pipe[0],
+                         u_dut.sm_gen[0].u_sm.sched_issue_warp_id[1], u_dut.sm_gen[0].u_sm.sched_issue_pipe[1],
+                         u_dut.sm_gen[0].u_sm.dec0_instruction, u_dut.sm_gen[0].u_sm.dec1_instruction);
             end
         end
     endtask

@@ -1950,8 +1950,16 @@ module streaming_multiprocessor_v2 #(
                 2'b10: mem_pipe_inflight <= mem_pipe_inflight + 3'd1;  // Issue, no response
                 2'b01: mem_pipe_inflight <= (mem_pipe_inflight > 0) ? mem_pipe_inflight - 3'd1 : 3'd0;  // Response, no issue
                 // 2'b11: no change (issue and response same cycle)
-                // 2'b00: no change
-                default: ;
+                // 2'b00: no change unless bookkeeping got stale
+                default: begin
+                    // Self-heal stale inflight count when no real memory op is pending.
+                    // Store operations may not produce a return beat; once pending flags drain,
+                    // any leftover inflight count is stale and would deadlock memory issue.
+                    if ((mem_pipe_inflight != 0) &&
+                        !mem_pending_valid && !smem_pending_valid && !store_pending_valid) begin
+                        mem_pipe_inflight <= 3'd0;
+                    end
+                end
             endcase
         end
     end
@@ -2010,6 +2018,25 @@ module streaming_multiprocessor_v2 #(
     wire [NUM_WARPS*32-1:0] sched_scoreboard_flat;
     wire [NUM_WARPS*4-1:0] sched_issue_seq_flat;
     wire [3:0] sched_issue_seq [0:NUM_WARPS-1];
+    wire [SCHED_LANES-1:0] sched_dispatch_fire_mask;
+
+    assign sched_dispatch_fire_mask[0] = issue0_fire;
+    generate
+        if (SCHED_LANES > 1) begin : gen_sched_dispatch1
+            assign sched_dispatch_fire_mask[1] = issue1_fire;
+        end
+        if (SCHED_LANES > 2) begin : gen_sched_dispatch_unused
+            assign sched_dispatch_fire_mask[SCHED_LANES-1:2] = {(SCHED_LANES-2){1'b0}};
+        end
+    endgenerate
+
+    // Roll back scoreboard SET when decode entry is flushed by resolved branch
+    wire branch_flush_sb_clr0_valid = dec_valid && branch_flush_dec0 && dec_reg_write;
+    wire [WARP_ID_W-1:0] branch_flush_sb_clr0_warp = dec0_warp_id_d;
+    wire [4:0] branch_flush_sb_clr0_rd = dec_rd;
+    wire branch_flush_sb_clr1_valid = dec1_valid && branch_flush_dec1 && dec1_reg_write;
+    wire [WARP_ID_W-1:0] branch_flush_sb_clr1_warp = dec1_warp_id_d;
+    wire [4:0] branch_flush_sb_clr1_rd = dec1_rd;
 
     genvar si;
     generate
@@ -2083,9 +2110,16 @@ module streaming_multiprocessor_v2 #(
                                sched_issue_pipe[0] == 3'd2 && sched_issue_pipe[1] == 3'd2),
         .pipeline_stall(decode_stalled_slot0),
         .pipeline_stall_slot1(decode_stalled_slot1),
+        .dispatch_fire(sched_dispatch_fire_mask),
         .fu_conflict_sb_clr_valid(fu_conflict_sb_clr_valid),
         .fu_conflict_sb_clr_warp(issue1_warp_id),
         .fu_conflict_sb_clr_rd(issue1_rd),
+        .branch_flush_sb_clr0_valid(branch_flush_sb_clr0_valid),
+        .branch_flush_sb_clr0_warp(branch_flush_sb_clr0_warp),
+        .branch_flush_sb_clr0_rd(branch_flush_sb_clr0_rd),
+        .branch_flush_sb_clr1_valid(branch_flush_sb_clr1_valid),
+        .branch_flush_sb_clr1_warp(branch_flush_sb_clr1_warp),
+        .branch_flush_sb_clr1_rd(branch_flush_sb_clr1_rd),
         // Deferred tensor scoreboard SET: only set when tensor push actually succeeds
         .tensor_sb_set_valid(tensor_issue_push_fire),
         .tensor_sb_set_warp(tensor_push_lane0 ? issue_warp_id : issue1_warp_id),
@@ -2174,7 +2208,8 @@ module streaming_multiprocessor_v2 #(
     wire decode_stalled_any = dec0_valid && !lane0_ready;
     wire decode_stalled_slot0 = dec0_valid && !lane0_ready;
     wire lane1_tensor_can_push = dec1_valid && dec1_tensor_op && !tensor_issue_full_next;
-    wire decode_stalled_slot1 = dec1_valid && !lane1_ready && !lane1_tensor_can_push;
+    wire decode_stalled_slot1 = dec1_valid &&
+                              ((!lane1_ready && !lane1_tensor_can_push) || lane_unit_conflict);
     wire [NUM_WARPS-1:0] decode_stalled_per_warp;
     assign decode_stalled_per_warp = {NUM_WARPS{decode_stalled_any}} & (1 << dec0_warp_id);
     wire decode_stalled = decode_stalled_any; // Keep for backward compat in single-warp cases
@@ -4625,7 +4660,7 @@ module streaming_multiprocessor_v2 #(
     // WGMMA Unit (Hopper+ Warpgroup MMA)
     // Handles wgmma.mma_async, wgmma.fence, wgmma.commit_group, wgmma.wait_group
     //------------------------------------------------------------------------
-    wire wgmma_issue_fire = wgmma_issue_slot0 || wgmma_issue_slot1;
+    wire wgmma_issue0_fire = wgmma_issue_slot0 || wgmma_issue_slot1;
     wire [5:0] wgmma_issue_func = wgmma_issue_slot0 ? issue_func : issue1_func;
     wire [WARP_ID_W-1:0] wgmma_issue_warp = wgmma_issue_slot0 ? issue_warp_id : issue1_warp_id;
     wire [2:0] wgmma_issue_warpgroup = {1'b0, wgmma_issue_warp} >> 2;
@@ -4673,7 +4708,7 @@ module streaming_multiprocessor_v2 #(
             wgmma_valid_in_r <= 1'b0;
             wgmma_smem_rd_en_r <= 1'b0;
 
-            if (wgmma_issue_fire) begin
+            if (wgmma_issue0_fire) begin
                 wgmma_func_r <= wgmma_issue_func;
                 wgmma_warpgroup_r <= wgmma_issue_warpgroup;
                 wgmma_wait_count_r <= wgmma_issue_wait_count;
@@ -5373,6 +5408,71 @@ module streaming_multiprocessor_v2 #(
     assign rf_wr_en = wb_valid;
     assign rf_wr_data = wb_data;
     assign rf_wr_mask = wb_mask;
+
+`ifdef SIMULATION
+    always @(posedge clk) begin
+        if (dec_valid && !branch_flush_dec0 && dec_reg_write && dec_rd == 5'd6) begin
+            $display("[%0t SM%0d DBG_DEC_R6] warp=%0d pc=%h mask=%h reconv=%b",
+                     $time, SM_ID, dec0_warp_id_d, dec0_pc_d,
+                     (dec0_at_reconverge ? dec0_merged_mask : warp_mask[dec0_warp_id_d]),
+                     dec0_at_reconverge);
+        end
+        if (issue_valid && issue_reg_write && issue_rd == 5'd6) begin
+            $display("[%0t SM%0d DBG_ISSUE_R6] warp=%0d pc=%h mask=%h",
+                     $time, SM_ID, issue_warp_id, issue_pc, issue_mask);
+        end
+        if (wb_valid && wb_warp_id == {WARP_ID_W{1'b0}} && wb_rd == 5'd6) begin
+            $display("[%0t SM%0d DBG_WB_R6] mask=%h data_lane0=%h",
+                     $time, SM_ID, wb_mask, wb_data[31:0]);
+        end
+        if (dec1_valid && branch_flush_dec1 && dec1_reg_write) begin
+            $display("[%0t SM%0d DBG_FLUSH_CLR1] warp=%0d rd=%0d pc=%h",
+                     $time, SM_ID, dec1_warp_id_d, dec1_rd, dec1_pc_d);
+        end
+        if (issue1_valid && issue1_reg_write && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd2) begin
+            $display("[%0t SM%0d DBG_ISSUE1_R2] pc=%h mask=%h opcode=%02h memR=%b memW=%b alu=%b",
+                     $time, SM_ID, issue1_pc, issue1_mask, issue1_opcode,
+                     issue1_mem_read, issue1_mem_write, issue1_alu_op);
+        end
+        if (wb_valid && wb_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && wb_rd == 5'd2) begin
+            $display("[%0t SM%0d DBG_WB1_R2] mask=%h data_lane0=%h",
+                     $time, SM_ID, wb_mask, wb_data[31:0]);
+        end
+        if (dec1_dec_valid && dec1_warp_id_d == {{(WARP_ID_W-1){1'b0}},1'b1}) begin
+            $display("[%0t SM%0d DBG_DEC1_W1] pc=%h inst=%h rd=%0d opcode=%02h regW=%b",
+                     $time, SM_ID, dec1_pc_d, dec1_instruction, dec1_rd, dec1_opcode, dec1_reg_write);
+        end
+        if (issue1_valid && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1}) begin
+            $display("[%0t SM%0d DBG_ISSUE1_W1] pc=%h opcode=%02h rd=%0d regW=%b",
+                     $time, SM_ID, issue1_pc, issue1_opcode, issue1_rd, issue1_reg_write);
+        end
+        if (dec1_dec_valid && dec1_warp_id_d == {{(WARP_ID_W-1){1'b0}},1'b1} && dec1_rd == 5'd4) begin
+            $display("[%0t SM%0d DBG_DEC1_R4] pc=%h opcode=%02h regW=%b memR=%b memW=%b alu=%b",
+                     $time, SM_ID, dec1_pc_d, dec1_opcode, dec1_reg_write, dec1_mem_read, dec1_mem_write, dec1_alu_op);
+        end
+        if (issue1_valid && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd4) begin
+            $display("[%0t SM%0d DBG_ISSUE1_RAW_R4] pc=%h opcode=%02h regW=%b memR=%b memW=%b alu=%b",
+                     $time, SM_ID, issue1_pc, issue1_opcode, issue1_reg_write, issue1_mem_read, issue1_mem_write, issue1_alu_op);
+        end
+        if (issue1_valid && issue1_reg_write && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd4) begin
+            $display("[%0t SM%0d DBG_ISSUE1_R4] pc=%h mask=%h opcode=%02h memR=%b memW=%b alu=%b fu_conflict=%b",
+                     $time, SM_ID, issue1_pc, issue1_mask, issue1_opcode,
+                     issue1_mem_read, issue1_mem_write, issue1_alu_op, issue_fu_conflict);
+        end
+        if (wb_valid && wb_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && wb_rd == 5'd4) begin
+            $display("[%0t SM%0d DBG_WB1_R4] mask=%h data_lane0=%h",
+                     $time, SM_ID, wb_mask, wb_data[31:0]);
+        end
+        if (fu_conflict_sb_clr_valid && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd4) begin
+            $display("[%0t SM%0d DBG_CLR_FU_R4] warp=%0d rd=%0d",
+                     $time, SM_ID, issue1_warp_id, issue1_rd);
+        end
+        if (dec1_valid && branch_flush_dec1 && dec1_warp_id_d == {{(WARP_ID_W-1){1'b0}},1'b1} && dec1_rd == 5'd4) begin
+            $display("[%0t SM%0d DBG_CLR_FLUSH_R4] warp=%0d rd=%0d pc=%h",
+                     $time, SM_ID, dec1_warp_id_d, dec1_rd, dec1_pc_d);
+        end
+    end
+`endif
 
 
 
