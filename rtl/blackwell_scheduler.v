@@ -270,9 +270,11 @@ module blackwell_scheduler #(
         end
     endgenerate
 
-    // Standard eligibility: valid, ready, has instruction, no hazard, not diverged, not at barrier
+    // Standard eligibility: valid, ready, has instruction, no hazard, not at barrier.
+    // NOTE: do NOT gate on warp_diverged here; diverged warps must continue issuing
+    // active path instructions until reconvergence.
     wire [NUM_WARPS-1:0] warp_eligible_base = warp_valid & warp_ready & warp_inst_valid &
-                                               ~warp_has_hazard & ~warp_diverged & ~warp_at_barrier;
+                                               ~warp_has_hazard & ~warp_at_barrier;
 
     // Blackwell enhancement: tcgen05 ops don't require warp synchronization
     // Per-thread tensor ops can be issued even if warp is diverged (only active threads execute)
@@ -286,7 +288,7 @@ module blackwell_scheduler #(
     // Scheduler-centric IFetch stall: no warp eligible, but at least one warp
     // WOULD be eligible if it had a valid instruction (IFetch is the bottleneck)
     wire [NUM_WARPS-1:0] warp_ifetch_blocked = warp_valid & warp_ready & ~warp_inst_valid
-                                              & ~warp_has_hazard & ~warp_diverged & ~warp_at_barrier;
+                                              & ~warp_has_hazard & ~warp_at_barrier;
     assign perf_sched_stall_ifetch = (warp_eligible == {NUM_WARPS{1'b0}}) && (|warp_ifetch_blocked);
 
     //------------------------------------------------------------------------
