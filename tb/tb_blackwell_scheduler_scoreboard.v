@@ -63,6 +63,7 @@ module tb_blackwell_scheduler_scoreboard;
     reg [WARP_W-1:0] fu_conflict_sb_clr_warp;
     reg [4:0] fu_conflict_sb_clr_rd;
     reg pipeline_stall_slot1;
+    reg [NUM_SCHEDULERS-1:0] dispatch_fire;
     reg tensor_sb_set_valid;
     reg [WARP_W-1:0] tensor_sb_set_warp;
     reg [4:0] tensor_sb_set_rd;
@@ -153,6 +154,13 @@ module tb_blackwell_scheduler_scoreboard;
         .fu_conflict_sb_clr_warp(fu_conflict_sb_clr_warp),
         .fu_conflict_sb_clr_rd(fu_conflict_sb_clr_rd),
         .pipeline_stall_slot1(pipeline_stall_slot1),
+        .dispatch_fire(dispatch_fire),
+        .branch_flush_sb_clr0_valid(1'b0),
+        .branch_flush_sb_clr0_warp({WARP_W{1'b0}}),
+        .branch_flush_sb_clr0_rd(5'b0),
+        .branch_flush_sb_clr1_valid(1'b0),
+        .branch_flush_sb_clr1_warp({WARP_W{1'b0}}),
+        .branch_flush_sb_clr1_rd(5'b0),
         .tensor_sb_set_valid(tensor_sb_set_valid),
         .tensor_sb_set_warp(tensor_sb_set_warp),
         .tensor_sb_set_rd(tensor_sb_set_rd),
@@ -250,6 +258,7 @@ module tb_blackwell_scheduler_scoreboard;
         fu_conflict_sb_clr_warp = {WARP_W{1'b0}};
         fu_conflict_sb_clr_rd = 5'b0;
         pipeline_stall_slot1 = 1'b0;
+        dispatch_fire = {NUM_SCHEDULERS{1'b1}};
         tensor_sb_set_valid = 1'b0;
         tensor_sb_set_warp = {WARP_W{1'b0}};
         tensor_sb_set_rd = 5'b0;
