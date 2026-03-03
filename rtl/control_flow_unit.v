@@ -183,7 +183,7 @@ module control_flow_unit #(
                                 pc_valid <= 1'b1;
                             end
 
-                            BR_IF_TRUE: begin
+                            BR_IF_TRUE, BR_IF_OVERFLOW: begin
                                 if (threads_diverge) begin
                                     // Push reconvergence point
                                     div_stack_pc[warp_id][curr_div_stack_ptr] <= pc_current + 4;
