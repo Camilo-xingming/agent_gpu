@@ -46,3 +46,4 @@
 | Sprint 28 | 2026-03-02 | 可观测性完成 — Warp 占用率 tracking (#324) + L1D/L2 cache 命中率基线 (#325) | 2 | 2 | 0 | 100% | auto-generated |
 | Sprint 29 | 2026-03-02 | Core Efficiency & Stall Debugging — FU utilization fix + Tensor WB spike + bench_divergence guard | 3 | 3 | 0 | 100% | bonus: #333 memory_heavy fix |
 | Sprint 30 | 2026-03-02 | GPU 性能修复 — Tensor WB 4096/4096 完整 fix + bench_divergence scoreboard deadlock + lint 清理 | 0 | 5 | 5 | 0% | carry-over: #337 #338 #339 #340 #341 |
+| Sprint 31 | 2026-03-02 | Tensor WB 4096/4096 完整修復 + bench_divergence deadlock fix + lint 收尾 | 6 | 6 | 0 | 100% | #337 #338 #339 #340 #341 #343 全部关闭，6/6 完成 |
