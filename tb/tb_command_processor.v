@@ -192,19 +192,21 @@ module tb_command_processor;
         repeat (2) @(posedge clk);
 
         //====================================================================
-        // Test 1: Legacy mode — single kernel, 1 block
+        // Test 1: Modern dispatch — single kernel, 1 block
         //====================================================================
-        $display("\n=== Test 1: Legacy mode single kernel ===");
-        write_csr(CSR_KERNEL_PC, 32'h0000_1000);
-        write_csr(CSR_GRID_DIM_X, 32'd1);
-        write_csr(CSR_GRID_DIM_Y, 32'd1);
-        write_csr(CSR_GRID_DIM_Z, 32'd1);
-        write_csr(CSR_BLOCK_DIM_X, 32'd32);
-        write_csr(CSR_BLOCK_DIM_Y, 32'd1);
-        write_csr(CSR_BLOCK_DIM_Z, 32'd1);
+        $display("\n=== Test 1: Modern dispatch single kernel ===");
+        write_csr(CSR_GPU_STATUS, 32'h1);
+        write_csr(CSR_GPU_CONTROL, 32'h2); // queue mode
 
-        // bit[0]=start, bit[1]=cp_enable
-        write_csr(CSR_GPU_CONTROL, 32'h1);
+        write_desc_word(0, 32'h0000_1000);
+        write_desc_word(1, 32'd1);
+        write_desc_word(2, 32'd1);
+        write_desc_word(3, 32'd1);
+        write_desc_word(4, 32'd32);
+        write_desc_word(5, 32'd1);
+        write_desc_word(6, 32'd1);
+        write_desc_word(10, 32'd11);
+        write_csr(CSR_CMD_QUEUE_TAIL, 32'd5);
 
         repeat (5) @(posedge clk);
         check_val("T1 gpu_busy", {31'b0, gpu_busy}, 32'd1);
@@ -221,17 +223,19 @@ module tb_command_processor;
         check_val("T1 idle", {31'b0, gpu_busy}, 32'd0);
 
         //====================================================================
-        // Test 2: Legacy mode — 4 blocks across 2 SMs
+        // Test 2: Modern dispatch — 4 blocks across 2 SMs
         //====================================================================
-        $display("\n=== Test 2: Legacy mode 4 blocks ===");
+        $display("\n=== Test 2: Modern dispatch 4 blocks ===");
         write_csr(CSR_GPU_STATUS, 32'h1);
+        write_csr(CSR_GPU_CONTROL, 32'h2);
         repeat (2) @(posedge clk);
 
-        write_csr(CSR_KERNEL_PC, 32'h0000_2000);
-        write_csr(CSR_GRID_DIM_X, 32'd2);
-        write_csr(CSR_GRID_DIM_Y, 32'd2);
-        write_csr(CSR_GRID_DIM_Z, 32'd1);
-        write_csr(CSR_GPU_CONTROL, 32'h1);
+        write_desc_word(0, 32'h0000_2000);
+        write_desc_word(1, 32'd2);
+        write_desc_word(2, 32'd2);
+        write_desc_word(3, 32'd1);
+        write_desc_word(10, 32'd22);
+        write_csr(CSR_CMD_QUEUE_TAIL, 32'd6);
 
         repeat (5) @(posedge clk);
         check_val("T2 gpu_busy", {31'b0, gpu_busy}, 32'd1);
@@ -361,14 +365,14 @@ module tb_command_processor;
             integer i;
             for (i = 0; i < 8; i = i + 1) begin
                 write_desc_word(0, 32'h0000_B000 + i);
-                write_csr(CSR_CMD_QUEUE_TAIL, 32'd5 + i);
+                write_csr(CSR_CMD_QUEUE_TAIL, 32'd7 + i);
                 repeat(2) @(posedge clk);
             end
         end
         
         // 3. Push 1 more Kernel (overflow)
         write_desc_word(0, 32'h0000_DEAD);
-        write_csr(CSR_CMD_QUEUE_TAIL, 32'd13);
+        write_csr(CSR_CMD_QUEUE_TAIL, 32'd17);
         repeat(5) @(posedge clk);
 
         // 4. Check error flag
@@ -394,35 +398,44 @@ module tb_command_processor;
         check_val("T5 idle", {31'b0, gpu_busy}, 32'd0);
 
         //====================================================================
-        // Test 6: Mixed mode (Legacy launch during Queued mode execution)
+        // Test 6: Multiple Queued kernels (Replaces Mixed mode)
         //====================================================================
-        $display("\n=== Test 6: Mixed mode ===");
+        $display("\n=== Test 6: Multiple Queued kernels ===");
         write_csr(CSR_GPU_CONTROL, 32'h2); // queue mode
         
-        // Push Queued kernel
+        // Push first Queued kernel
         write_desc_word(0, 32'h0000_6000);
         write_desc_word(1, 32'd2);
         write_desc_word(2, 32'd2);
         write_desc_word(3, 32'd1);
         write_desc_word(10, 32'd600);
-        write_csr(CSR_CMD_QUEUE_TAIL, 32'd14);
+        write_csr(CSR_CMD_QUEUE_TAIL, 32'd18);
         
         repeat (10) @(posedge clk);
         check_val("T6 queued kernel_pc", sm_kernel_pc, 32'h0000_6000);
         
-        // Legacy launch attempt
-        write_csr(CSR_KERNEL_PC, 32'h0000_BAD0);
-        write_csr(CSR_GRID_DIM_X, 32'd1);
-        write_csr(CSR_GPU_CONTROL, 32'h3); // Start=1, Enable=1
+        // Push second Queued kernel
+        write_desc_word(0, 32'h0000_6100);
+        write_desc_word(1, 32'd1);
+        write_desc_word(2, 32'd1);
+        write_desc_word(3, 32'd1);
+        write_desc_word(10, 32'd601);
+        write_csr(CSR_CMD_QUEUE_TAIL, 32'd19); // bump tail ahead
         
         repeat(10) @(posedge clk);
         check_val("T6 state machine robust", sm_kernel_pc, 32'h0000_6000);
 
-        // Finish Queued kernel (4 blocks)
+        // Finish first Queued kernel (4 blocks)
         fork sim_sm_done(0, 5); sim_sm_done(1, 5); join
         repeat (10) @(posedge clk);
         fork sim_sm_done(0, 5); sim_sm_done(1, 5); join
         
+        repeat (20) @(posedge clk);
+        check_val("T6 second kernel_pc", sm_kernel_pc, 32'h0000_6100);
+
+        // Finish second Queued kernel (1 block)
+        fork sim_sm_done(0, 5); join
+
         wait_idle(200);
         check_val("T6 idle", {31'b0, gpu_busy}, 32'd0);
 
