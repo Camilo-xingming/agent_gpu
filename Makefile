@@ -114,6 +114,7 @@ TB_MEMCTRL = $(TB_DIR)/tb_memory_controller.v
 TB_L1_DATA_CACHE = $(TB_DIR)/tb_l1_data_cache.v
 TB_TENSOR_FP4 = $(TB_DIR)/tb_tensor_core_fp4.v
 TB_TENSOR_FP4_FP8 = $(TB_DIR)/tb_tensor_fp4_fp8.v
+TB_CFU = $(TB_DIR)/tb_control_flow_unit.v
 
 TB_TENSOR_FP4_FP8_FRM_GEN = $(BUILD_DIR)/tb_tensor_fp4_fp8_frm_generated.v
 
@@ -140,7 +141,7 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all regression
-.PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_warp test_sfu test_cvt_unit benchmark
+.PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_warp test_control_flow_unit test_sfu test_cvt_unit benchmark
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_phase2 test_warp_valid_d1
 
@@ -291,6 +292,15 @@ test_warp: $(BUILD_DIR)/tb_warp_scheduler.vvp
 
 $(BUILD_DIR)/tb_warp_scheduler.vvp: $(RTL_DIR)/warp_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_WARP) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_WARP) $(RTL_DIR)/warp_scheduler.v
+
+test_control_flow_unit: $(BUILD_DIR)/tb_control_flow_unit.vvp
+	@echo "========================================"
+	@echo "Running Control Flow Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_control_flow_unit.vvp
+
+$(BUILD_DIR)/tb_control_flow_unit.vvp: $(RTL_DIR)/control_flow_unit.v $(RTL_DIR)/gpu_defines.vh $(TB_CFU) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_CFU) $(RTL_DIR)/control_flow_unit.v
 
 test_warp_ops: $(BUILD_DIR)/tb_warp_ops.vvp
 	@echo "========================================"
