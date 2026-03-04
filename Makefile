@@ -121,6 +121,7 @@ TB_TENSOR_FP4_FP8 = $(TB_DIR)/tb_tensor_fp4_fp8.v
 TB_CFU = $(TB_DIR)/tb_control_flow_unit.v
 TB_CHI_CTRL = $(TB_DIR)/tb_chi_controller.v
 TB_RECONV = $(TB_DIR)/tb_reconvergence_stack.v
+TB_LZ4_DECOMP = $(TB_DIR)/tb_lz4_decompressor.v
 
 TB_TENSOR_FP4_FP8_FRM_GEN = $(BUILD_DIR)/tb_tensor_fp4_fp8_frm_generated.v
 
@@ -147,7 +148,7 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all regression
-.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_memory_qos test_reconvergence_stack test_chi_controller test_warp test_control_flow_unit test_sfu test_cvt_unit benchmark
+.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_memory_qos test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_control_flow_unit test_sfu test_cvt_unit benchmark
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_icache_lru test_phase2 test_warp_valid_d1
 
@@ -353,6 +354,15 @@ test_reconvergence_stack: $(BUILD_DIR)/tb_reconvergence_stack.vvp
 
 $(BUILD_DIR)/tb_reconvergence_stack.vvp: $(RTL_DIR)/reconvergence_stack.v $(RTL_DIR)/gpu_defines.vh $(TB_RECONV) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_RECONV) $(RTL_DIR)/reconvergence_stack.v
+
+test_lz4_decompressor: $(BUILD_DIR)/tb_lz4_decompressor.vvp
+	@echo "========================================"
+	@echo "Running LZ4 Decompressor Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_lz4_decompressor.vvp
+
+$(BUILD_DIR)/tb_lz4_decompressor.vvp: $(RTL_DIR)/lz4_decompressor.v $(TB_LZ4_DECOMP) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_LZ4_DECOMP) $(RTL_DIR)/lz4_decompressor.v
 
 test_warp_ops: $(BUILD_DIR)/tb_warp_ops.vvp
 	@echo "========================================"
@@ -842,7 +852,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_memory_qos test_reconvergence_stack test_chi_controller test_warp test_warp_ops test_video_unit test_tensor_core_e2e test_texture_unit test_command_queue test_command_processor test_wb_fifo
+test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_memory_qos test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_warp_ops test_video_unit test_tensor_core_e2e test_texture_unit test_command_queue test_command_processor test_wb_fifo
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
