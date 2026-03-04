@@ -38,7 +38,14 @@ Sprint Goal: [目标]
 
 - [ ] Milestone 创建且状态 = open
 - [ ] 所有 Sprint items 关联到 Milestone
+- [ ] 每个 Issue 有 assignee（无 assignee → 不进 Sprint）
 - [ ] 结果同步给 Jerry（#ralphgpu 简报）
+
+## Sprint 启动后 2h 内（Watchdog 检查点）
+
+- [ ] 每个 assigned issue 已建 branch `issue-NUM/{coder-name}`
+- [ ] 每个 branch 有 WIP comment in GitHub Issue（"WIP: 开始编码，branch: issue-NUM/..."）
+- [ ] branch 建立后 24h 内必须开 PR（有 branch 无 PR → watchdog 告警）
 
 ## 常见问题（从 RETRO 总结）
 
