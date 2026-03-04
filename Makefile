@@ -1226,3 +1226,14 @@ test_performance_counters: $(BUILD_DIR)/tb_performance_counters.vvp
 
 $(BUILD_DIR)/tb_performance_counters.vvp: $(RTL_DIR)/performance_counters.v $(RTL_DIR)/gpu_defines.vh $(TB_PERFORMANCE_COUNTERS) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(RTL_DIR)/performance_counters.v $(TB_PERFORMANCE_COUNTERS)
+
+TB_ASYNC_COPY_ENGINE = $(TB_DIR)/tb_async_copy_engine.v
+
+test_async_copy_engine: $(BUILD_DIR)/tb_async_copy_engine.vvp
+	@echo "========================================"
+	@echo "Running Async Copy Engine Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_async_copy_engine.vvp
+
+$(BUILD_DIR)/tb_async_copy_engine.vvp: $(RTL_DIR)/async_copy_engine.v $(RTL_DIR)/tma_unit.v $(RTL_DIR)/gpu_defines.vh $(TB_ASYNC_COPY_ENGINE) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_ASYNC_COPY_ENGINE) $(RTL_DIR)/async_copy_engine.v $(RTL_DIR)/tma_unit.v
