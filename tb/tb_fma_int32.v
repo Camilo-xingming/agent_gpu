@@ -128,6 +128,7 @@ module tb_fma_int32;
     reg [NUM_UNITS*32-1:0] exp_a;
     reg [NUM_UNITS*32-1:0] exp_b;
     integer t;
+    integer pulse_count;
 
     initial begin
         pass_count = 0;
@@ -181,6 +182,60 @@ module tb_fma_int32;
             exp[i*32 +: 32] = fma_model(vec_a[i*32 +: 32], vec_b[i*32 +: 32], vec_c[i*32 +: 32], 1'b1);
         end
         run_vector_case("signed wrap edges", 1'b1, vec_a, vec_b, vec_c, exp);
+
+        // Unsigned max/wrap edges
+        vec_a = {32'hFFFF_FFFF, 32'hFFFF_FFFF, 32'h8000_0000, 32'h7FFF_FFFF};
+        vec_b = {32'hFFFF_FFFF, 32'h0000_0002, 32'h0000_0002, 32'h0000_0002};
+        vec_c = {32'h0000_0001, 32'h0000_0001, 32'hFFFF_FFFF, 32'hFFFF_FFFF};
+        for (i = 0; i < NUM_UNITS; i = i + 1) begin
+            exp[i*32 +: 32] = fma_model(vec_a[i*32 +: 32], vec_b[i*32 +: 32], vec_c[i*32 +: 32], 1'b0);
+        end
+        run_vector_case("unsigned wrap edges", 1'b0, vec_a, vec_b, vec_c, exp);
+
+        // Signed min/max edges
+        vec_a = {32'h8000_0000, 32'h7FFF_FFFF, 32'h8000_0000, 32'h7FFF_FFFF};
+        vec_b = {32'h0000_0001, 32'h0000_0001, 32'hFFFF_FFFF, 32'hFFFF_FFFF};
+        vec_c = {32'h0000_0000, 32'h0000_0000, 32'h7FFF_FFFF, 32'h8000_0000};
+        for (i = 0; i < NUM_UNITS; i = i + 1) begin
+            exp[i*32 +: 32] = fma_model(vec_a[i*32 +: 32], vec_b[i*32 +: 32], vec_c[i*32 +: 32], 1'b1);
+        end
+        run_vector_case("signed min/max edges", 1'b1, vec_a, vec_b, vec_c, exp);
+
+        // Single-shot request should produce exactly one valid_out pulse
+        vec_a = {32'd13, 32'd11, 32'd7, 32'd5};
+        vec_b = {32'd4, 32'd3, 32'd2, 32'd1};
+        vec_c = {32'd3, 32'd2, 32'd1, 32'd0};
+        for (i = 0; i < NUM_UNITS; i = i + 1) begin
+            exp[i*32 +: 32] = fma_model(vec_a[i*32 +: 32], vec_b[i*32 +: 32], vec_c[i*32 +: 32], 1'b0);
+        end
+
+        @(posedge clk);
+        valid_in <= 1'b1;
+        a <= vec_a;
+        b <= vec_b;
+        c <= vec_c;
+        is_signed <= 1'b0;
+        @(posedge clk);
+        valid_in <= 1'b0;
+        a <= {NUM_UNITS*32{1'b0}};
+        b <= {NUM_UNITS*32{1'b0}};
+        c <= {NUM_UNITS*32{1'b0}};
+
+        pulse_count = 0;
+        for (t = 0; t < 8; t = t + 1) begin
+            @(posedge clk);
+            if (valid_out) begin
+                pulse_count = pulse_count + 1;
+                if (pulse_count == 1)
+                    check_current_result("single-shot pulse", exp);
+            end
+        end
+        if (pulse_count == 1)
+            pass_count = pass_count + 1;
+        else begin
+            fail_count = fail_count + 1;
+            $display("[FAIL] single-shot pulse expected 1 valid_out pulse, got %0d", pulse_count);
+        end
 
         // Back-to-back throughput check (pipeline should emit consecutive valid_out)
         exp_a[0*32 +: 32] = fma_model(32'd10, 32'd1, 32'd1, 1'b0);
