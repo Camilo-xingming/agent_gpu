@@ -49,3 +49,6 @@
 | Sprint 31 | 2026-03-02 | Tensor WB 4096/4096 完整修復 + bench_divergence deadlock fix + lint 收尾 | 6 | 6 | 0 | 100% | #337 #338 #339 #340 #341 #343 全部关闭，6/6 完成 |
 | Sprint 33 | 2026-03-03 | Correctness & stability blockers from tech debt audit (#346) — BR_IF_OVF + CFU warp_diverged + ALU overflow + ST_GLOBAL fix | 4 | 4 | 0 | 100% | #347 #348 #349 #353 全部关闭，PRs #350 #351 #352 merged | auto-generated |
 | Sprint 34 | 2026-03-03 | Test blind spots & correctness — NOP retirement (#354) + WB FIFO silent drop (#355) + Texture bilinear (#356) | 3 | 3 | 0 | 100% | PRs #357 #358 #360 merged | cd /Users/jerry/.openclaw/workspace-main/RalphGPU
+| Sprint 35 | 2026-03-03 | Tech debt workaround resolution — ICache LRU fix + Scheduler scoreboard completeness + CP TB modernization | 3 | 3 | 0 | 100% | #361 #362 #363 全部关闭 | auto-generated |
+| Sprint 36 | 2026-03-03 | Verification: Blackwell scheduler lint + FP4/FP8 Tensor Core + Texture/Surface unit | 3 | 3 | 0 | 100% | #367 #368 #369 全部关闭 | auto-generated |
+| Sprint 37 | 2026-03-04 | Verification coverage expansion — TB for memory_interface + atomic_unit + reconvergence_stack | 3 | 3 | 0 | 100% | #371 #372 #373 全部关闭，PRs #374 #375 #376 merged | auto-generated |
