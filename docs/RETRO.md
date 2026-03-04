@@ -471,3 +471,32 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - Sprint 37：3/3 (100%) — #371 #372 #373
 - CI：billing-limited 🟡（持续中）
 - 趋势：连续多 Sprint 100%，TB coverage 扩展阶段完成
+
+# Sprint Retrospective Sprint 39 (2026-03-04)
+
+## Sprint Goal
+TB coverage expansion — chi_controller (CHI protocol) + l2_interconnect + fma_int32
+
+## ✅ Went Well
+- **Velocity 100% (3/3)**：#382 chi_controller TB + #383 l2_interconnect TB + #384 fma_int32 TB 全部关闭，PRs 全部 merged
+- **TB coverage 批次交付稳定**：Issue→WIP→验证→PR→Issue 同步闭环，交付可复现（CoderCodex 反馈）
+- **节奏连续**：Sprint 38→39 无 milestone gap，ceremony 链路正常
+
+## ❌ Didn't Go Well
+- **CoderGemini Retro 未响应**：60s 内无回复，连续多 Sprint 模式
+- **CI 仍 billing-limited**：所有 CI runs queued，本地验证替代，问题持续未解决
+- **review SLA 不明确**：CoderCodex 反馈 cross-review 等待时间需有明确上限（30min）
+
+## 💬 Coder Feedback
+- **CoderCodex**：做得好 — TB coverage 批次推进节奏稳定，WIP→验证→PR→Issue 同步闭环；需改进 — cross-review SLA 需明确（建议 30min），WIP=1 在 Sprint 切换时需及时清理已完成分配
+- **CoderGemini**：无响应（60s 超时）
+
+## 🔧 Action Items (Sprint 40 必须参考)
+- [ ] **cross-review SLA 30min**：收到 review 请求后 30min 内必须给出 PASS/FAIL，否则 Lily 重新分配
+- [ ] **GitHub Actions billing 修复**：联系 Jerry 恢复 CI（连续多 Sprint 未解决，本地验证为 workaround）
+- [ ] **CoderGemini Retro 参与率**：连续多 Sprint 无回复，确认 heartbeat cron 是否正常
+
+## 📈 Velocity
+- Sprint 39：3/3 (100%) — #382 #383 #384
+- CI：billing-limited (queued) 🟡
+- 趋势：TB coverage 扩展阶段持续稳定交付，进入 Sprint 40 更复杂模块（sm_fetch_pipeline, tensor_memory 等）
