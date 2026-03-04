@@ -1238,3 +1238,8 @@ test_wgmma_tile_engine: $(BUILD_DIR)/tb_wgmma_tile_engine.vvp
 
 $(BUILD_DIR)/tb_wgmma_tile_engine.vvp: $(RTL_DIR)/wgmma_tile_engine.v $(RTL_DIR)/gpu_defines.vh tb/tb_wgmma_tile_engine.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_wgmma_tile_engine.v $(RTL_DIR)/wgmma_tile_engine.v
+TB_ADV_SCHED = $(TB_DIR)/tb_advanced_scheduler.v
+test_advanced_scheduler: $(BUILD_DIR)/tb_advanced_scheduler.vvp
+	cd $(BUILD_DIR) && $(VVP) tb_advanced_scheduler.vvp
+$(BUILD_DIR)/tb_advanced_scheduler.vvp: $(RTL_DIR)/advanced_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_ADV_SCHED) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_ADV_SCHED) $(RTL_DIR)/advanced_scheduler.v
