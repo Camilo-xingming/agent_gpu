@@ -442,3 +442,20 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - Sprint 34：3/3 (100%) — #354 #355 #356
 - CI：billing-limited (queued) 🟡
 - 趋势：连续多 Sprint 100%，tech debt audit 全部清零，进入 workaround 修复阶段
+
+---
+
+# Sprint Retrospective Sprint 37 (2026-03-04)
+
+**Sprint Goal**: Verification coverage expansion — testbenches for critical untested RTL modules
+**Result**: ✅ 3/3 完成 — #371 #372 #373 全部关闭，PRs #374 #375 #376 merged
+
+## 🌟 What Went Well
+- **高速交付**：3 个 TB 全部在当日完成，velocity 100%
+- **覆盖深度**：memory_interface (burst protocol) + atomic_unit (CAS/ADD/MIN/MAX) + reconvergence_stack (SIMT diverge/reconverge) 均有完整测试
+
+## 🔧 What Didn't Go Well
+- **Sprint 37 milestone 未自动关闭**：0 open issues 但 milestone 保持 open，ceremony 延迟处理
+
+## 📋 Action Items (Sprint 38 必须参考)
+- Sprint 37：3/3 (100%) — #371 #372 #373
