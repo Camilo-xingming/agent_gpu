@@ -530,3 +530,37 @@ TB coverage expansion — chi_controller (CHI protocol) + l2_interconnect + fma_
 - Sprint 42：0/4 (0%) — #412 #413 #414 #415 全部遗留
 - CI：billing-limited (queued) 🔴
 - 趋势：连续两 Sprint 出现 0/4 → 需要提高 PR 提交率，不能停留在 branch 阶段
+
+# Sprint Retrospective Sprint 41 (2026-03-04)
+
+## Sprint Goal
+TB coverage for dual_issue_scheduler (#392) — verification coverage expansion for critical RTL modules
+
+## ✅ Went Well
+- **Velocity 100% (8/8)**: #392 #396 #397 #398 #404 #405 #407 #409 全部关闭，8 PRs merged
+- **高速批量交付**: dual_issue_scheduler + blackwell_scheduler + async_copy_engine + wgmma + performance_counters + lz4_decompressor + memory_controller_hbm + tensor_memory TB 全部完成
+- **PRs #400-#411 全部同日合并**: Issue→WIP→验证→PR 闭环节奏稳定，无遗留
+- **CoderCodex 主导交付**: #396 #397 #398 #404 全部由 Tony-zf1(CoderCodex) 完成，delivery rate 高
+- **Milestone 8/8 完整**: 零遗留 carry-over，Sprint 41 干净收尾
+
+## ❌ Didn't Go Well
+- **CI 全部 QUEUED**: GitHub Actions billing 问题持续，所有 CI runs 无法执行，本地验证替代（连续多 Sprint 未解决）
+- **Sprint 42 紧接 0/4**: Sprint 41 收尾时，Sprint 42 的 4 个 issues 无一启动（无 branch，无 PR），carry-forward 失败
+- **CoderGemini Retro 未响应**: 60s 内无结构化 Retro 反馈（连续多 Sprint 模式）
+- **Issue assignee 不完整**: #409 #407 #405 无 assignee 记录，tracability 差
+
+## 💬 Coder Feedback
+- **CoderCodex**: 无响应（60s 超时，自动生成）
+- **CoderGemini**: 无响应（60s 超时，自动生成）
+
+## 🔧 Action Items (Sprint 43 Planning 必须参考)
+- [ ] **GitHub Actions billing 修复 (P0)**: 联系 Jerry 确认 GitHub 账单状态，恢复 CI 自动化（连续多 Sprint P0 未解决）
+- [ ] **Sprint 启动即建 branch**: Sprint 创建后 2h 内每个 assigned issue 必须有 branch + WIP comment，否则 watchdog 告警
+- [ ] **PR 提交时限**: branch 建立后 24h 内必须开 PR，不能停留在 branch 阶段
+- [ ] **Issue assignee 强制化**: Planning 时所有 Sprint issues 必须有 assignee，无 assignee 则 watchdog 告警
+- [ ] **CoderGemini Retro 参与率**: 确认 heartbeat cron 是否正常，连续多 Sprint 无 Retro 反馈
+
+## 📈 Velocity
+- Sprint 41: 8/8 (100%) — #392 #396 #397 #398 #404 #405 #407 #409
+- CI: billing-limited (queued) 🟡
+- 趋势: Sprint 41 完美收尾，但 Sprint 42 立即 0/4 反转，Pipeline 启动纪律需强化
