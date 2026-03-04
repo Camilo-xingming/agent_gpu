@@ -117,8 +117,8 @@ module tb_memory_controller_hbm;
         if (l2_resp_id === 8'h02 && l2_resp_rdata === 1024'hDEADBEEF) begin
             $display("PASS: Read response correct");
         end else begin
+            fail_count = fail_count + 1;
             $display("FAIL: Read response incorrect. ID: %h, Data: %h", l2_resp_id, l2_resp_rdata);
-            $finish;
         end
 
         @(posedge clk);
@@ -157,16 +157,28 @@ module tb_memory_controller_hbm;
 
         // Wait for both reads
         wait(l2_resp_valid && l2_resp_id == 8'h05);
-        if (l2_resp_rdata === 1024'hCAFEBABE) $display("PASS: CH0 read");
-        else $display("FAIL: CH0 read");
+        if (l2_resp_rdata === 1024'hCAFEBABE) begin
+            $display("PASS: CH0 read");
+        end else begin
+            fail_count = fail_count + 1;
+            $display("FAIL: CH0 read. Expected %h, got %h", 1024'hCAFEBABE, l2_resp_rdata);
+        end
 
         @(posedge clk);
         wait(l2_resp_valid && l2_resp_id == 8'h06);
-        if (l2_resp_rdata === 1024'h11112222) $display("PASS: CH1 read");
-        else $display("FAIL: CH1 read");
+        if (l2_resp_rdata === 1024'h11112222) begin
+            $display("PASS: CH1 read");
+        end else begin
+            fail_count = fail_count + 1;
+            $display("FAIL: CH1 read. Expected %h, got %h", 1024'h11112222, l2_resp_rdata);
+        end
 
         #1000;
-        $display("ALL TESTS PASSED");
+        if (fail_count == 0) begin
+            $display("ALL TESTS PASSED");
+        end else begin
+            $display("TESTS FAILED with %0d errors", fail_count);
+        end
         $finish;
     end
 endmodule
