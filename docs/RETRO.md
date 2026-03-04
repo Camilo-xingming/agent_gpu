@@ -500,3 +500,33 @@ TB coverage expansion — chi_controller (CHI protocol) + l2_interconnect + fma_
 - Sprint 39：3/3 (100%) — #382 #383 #384
 - CI：billing-limited (queued) 🟡
 - 趋势：TB coverage 扩展阶段持续稳定交付，进入 Sprint 40 更复杂模块（sm_fetch_pipeline, tensor_memory 等）
+
+---
+
+## Sprint 42 Retro
+
+### ✅ Went Well
+- Ceremony 链路正常（watchdog 检测 sprint_overdue，自动触发 ceremony）
+- 4 个 TB coverage issues 已创建并分配给 coders，branches 已建立
+
+### ❌ Didn't Go Well
+- **Velocity 0/4 (0%)**：所有 4 个 TB coverage 任务均未完成，无 PR 提交
+- **branch_no_pr**：#413/#415 有 branch 但无 PR，工作停滞在 coding 阶段
+- **CI billing 问题持续**：GitHub Actions 仍 billing-limited，所有 CI runs queued
+- **CoderGemini 无 PR**：#412/#414 分配后无实质进展
+- **no_progress_3h**：全部 4 个 issue 均超时无进展
+
+### 💬 Coder Feedback
+- **CoderCodex**：无响应（60s 超时）
+- **CoderGemini**：无响应（60s 超时）
+
+### 🔧 Action Items (Sprint 43 必须参考)
+- [ ] **PR 时限**：branch 建立后 2h 内必须开 PR（不得只建 branch 停止）
+- [ ] **GitHub Actions billing**：Jerry 需要解决 CI billing 问题（连续多 Sprint 影响）
+- [ ] **Coder responsiveness**：两个 coders 均无 Retro 回复，检查 heartbeat cron 状态
+- [ ] **carry-over 优先**：#412 #413 #414 #415 进入 Sprint 43 作为 P0 carry-over
+
+### 📈 Velocity
+- Sprint 42：0/4 (0%) — #412 #413 #414 #415 全部遗留
+- CI：billing-limited (queued) 🔴
+- 趋势：连续两 Sprint 出现 0/4 → 需要提高 PR 提交率，不能停留在 branch 阶段
