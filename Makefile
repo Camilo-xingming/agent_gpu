@@ -99,6 +99,7 @@ TB_SRCS = $(TB_DIR)/tb_ralph_gpu.v
 
 # 单元测试文件
 TB_ALU = $(TB_DIR)/tb_alu.v
+TB_PERFORMANCE_COUNTERS = $(TB_DIR)/tb_performance_counters.v
 TB_MUL = $(TB_DIR)/tb_mul_unit.v
 TB_FMA_INT32 = $(TB_DIR)/tb_fma_int32.v
 TB_DEC = $(TB_DIR)/tb_decoder.v
@@ -913,7 +914,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_wgmma test_blackwell_scheduler test_dual_issue_scheduler test_warp_ops test_video_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_memory_controller_hbm
+test: test_performance_counters test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_wgmma test_blackwell_scheduler test_dual_issue_scheduler test_warp_ops test_video_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_memory_controller_hbm
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
@@ -1219,3 +1220,9 @@ test_memory_controller_hbm: $(BUILD_DIR)/tb_memory_controller_hbm.vvp
 
 $(BUILD_DIR)/tb_memory_controller_hbm.vvp: $(RTL_DIR)/memory_controller_hbm.v $(RTL_DIR)/gpu_defines.vh $(RTL_DIR)/memory_config.vh tb/tb_memory_controller_hbm.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_memory_controller_hbm.v $(RTL_DIR)/memory_controller_hbm.v
+
+test_performance_counters: $(BUILD_DIR)/tb_performance_counters.vvp
+	cd $(BUILD_DIR) && $(VVP) tb_performance_counters.vvp
+
+$(BUILD_DIR)/tb_performance_counters.vvp: $(RTL_DIR)/performance_counters.v $(RTL_DIR)/gpu_defines.vh $(TB_PERFORMANCE_COUNTERS) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(RTL_DIR)/performance_counters.v $(TB_PERFORMANCE_COUNTERS)
