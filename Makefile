@@ -118,6 +118,7 @@ TB_MULTI = $(TB_DIR)/tb_multi_sm.v
 TB_MEMSYS = $(TB_DIR)/tb_memory_subsystem.v
 TB_MEMCTRL = $(TB_DIR)/tb_memory_controller.v
 TB_L1_DATA_CACHE = $(TB_DIR)/tb_l1_data_cache.v
+TB_L1_DATA_CACHE_OPT = $(TB_DIR)/tb_l1_data_cache_optimized.v
 TB_ICACHE_LRU = $(TB_DIR)/tb_icache_lru_conflict.v
 TB_TENSOR_FP4 = $(TB_DIR)/tb_tensor_core_fp4.v
 TB_TENSOR_FP4_FP8 = $(TB_DIR)/tb_tensor_fp4_fp8.v
@@ -153,9 +154,13 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all regression
+<<<<<<< HEAD
+.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_l1_data_cache_optimized test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_dual_issue_scheduler test_control_flow_unit test_sfu test_cvt_unit benchmark
+=======
 .PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_memory_interface_wide test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_dual_issue_scheduler test_control_flow_unit test_sfu test_cvt_unit benchmark
+>>>>>>> origin/master
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
-.PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_icache_lru test_phase2 test_warp_valid_d1
+.PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_l1_data_cache_optimized test_icache_lru test_phase2 test_warp_valid_d1
 
 # Audited must-run regression suite (stable gates for local + CI).
 # Non-gating/extended tests are tracked separately and can be run via:
@@ -611,6 +616,15 @@ test_l1_data_cache: $(BUILD_DIR)/tb_l1_data_cache.vvp
 $(BUILD_DIR)/tb_l1_data_cache.vvp: $(TB_L1_DATA_CACHE) $(RTL_DIR)/l1_data_cache.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_L1_DATA_CACHE) $(RTL_DIR)/l1_data_cache.v
 
+test_l1_data_cache_optimized: $(BUILD_DIR)/tb_l1_data_cache_optimized.vvp
+	@echo "========================================"
+	@echo "Running Optimized L1 Data Cache Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_l1_data_cache_optimized.vvp
+
+$(BUILD_DIR)/tb_l1_data_cache_optimized.vvp: $(TB_L1_DATA_CACHE_OPT) $(RTL_DIR)/l1_data_cache_optimized.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_L1_DATA_CACHE_OPT) $(RTL_DIR)/l1_data_cache_optimized.v
+
 test_icache_lru: $(BUILD_DIR)/tb_icache_lru_conflict.vvp
 	@echo "========================================"
 	@echo "Running I-Cache LRU Conflict Test"
@@ -902,7 +916,11 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
+<<<<<<< HEAD
+test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_l1_data_cache_optimized test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_dual_issue_scheduler test_warp_ops test_video_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_memory_controller_hbm test_async_copy_engine
+=======
 test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_memory_interface_wide test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_dual_issue_scheduler test_warp_ops test_video_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_memory_controller_hbm test_async_copy_engine
+>>>>>>> origin/master
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
