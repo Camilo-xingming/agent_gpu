@@ -100,6 +100,7 @@ TB_SRCS = $(TB_DIR)/tb_ralph_gpu.v
 # 单元测试文件
 TB_ALU = $(TB_DIR)/tb_alu.v
 TB_MUL = $(TB_DIR)/tb_mul_unit.v
+TB_FMA_INT32 = $(TB_DIR)/tb_fma_int32.v
 TB_DEC = $(TB_DIR)/tb_decoder.v
 TB_REG = $(TB_DIR)/tb_register_file.v
 TB_REG_BANKED = $(TB_DIR)/tb_register_file_banked.v
@@ -144,7 +145,7 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all regression
-.PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_reconvergence_stack test_warp test_control_flow_unit test_sfu test_cvt_unit benchmark
+.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_reconvergence_stack test_warp test_control_flow_unit test_sfu test_cvt_unit benchmark
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_icache_lru test_phase2 test_warp_valid_d1
 
@@ -191,7 +192,7 @@ REGRESSION_EXTENDED_TARGETS = \
 	bench_divergence
 
 # Allow temporary suite override from CLI:
-# make regression REGRESSION_TARGETS="test_alu test_mul"
+# make regression REGRESSION_TARGETS="test_alu test_mul test_fma_int32"
 REGRESSION_TARGETS ?= $(REGRESSION_MUST_RUN_TARGETS)
 
 # Top-level L1D cache mode for perf counter integration TB:
@@ -233,6 +234,15 @@ test_mul: $(BUILD_DIR)/tb_mul_unit.vvp
 
 $(BUILD_DIR)/tb_mul_unit.vvp: $(RTL_DIR)/mul_unit.v $(RTL_DIR)/gpu_defines.vh $(TB_MUL) | $(BUILD_DIR)
 	$(IVERILOG) $(INCLUDES) -o $@ $(TB_MUL) $(RTL_DIR)/mul_unit.v
+
+test_fma_int32: $(BUILD_DIR)/tb_fma_int32.vvp
+	@echo "========================================"
+	@echo "Running FMA INT32 Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_fma_int32.vvp
+
+$(BUILD_DIR)/tb_fma_int32.vvp: $(RTL_DIR)/fma_int32.v $(RTL_DIR)/gpu_defines.vh $(TB_FMA_INT32) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_FMA_INT32) $(RTL_DIR)/fma_int32.v
 
 test_decoder: $(BUILD_DIR)/tb_decoder.vvp
 	@echo "========================================"
@@ -812,7 +822,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_reconvergence_stack test_warp test_warp_ops test_video_unit test_tensor_core_e2e test_texture_unit test_command_queue test_command_processor test_wb_fifo
+test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_reconvergence_stack test_warp test_warp_ops test_video_unit test_tensor_core_e2e test_texture_unit test_command_queue test_command_processor test_wb_fifo
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
