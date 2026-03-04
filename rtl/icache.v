@@ -463,7 +463,11 @@ module icache #(
                                 // (same set, different tag is fine for read)
                                 if (cache_hit_b) begin
                                     hit_count <= hit_count + 1;
-                                    // Skip LRU update to avoid conflict with Port A
+                                    // Update LRU even under bank conflict so slot1 hit
+                                    // traffic is reflected in replacement policy.
+                                    // If Port A also updates the same set this cycle,
+                                    // the later Port B update wins deterministically.
+                                    update_lru(req_index_b, hit_way_b);
                                 end
                                 // Port B miss with bank conflict: queue it
                                 else if (!cache_hit_b && !prefetch_buffer_hit_b) begin

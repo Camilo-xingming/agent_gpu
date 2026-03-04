@@ -112,6 +112,7 @@ TB_MULTI = $(TB_DIR)/tb_multi_sm.v
 TB_MEMSYS = $(TB_DIR)/tb_memory_subsystem.v
 TB_MEMCTRL = $(TB_DIR)/tb_memory_controller.v
 TB_L1_DATA_CACHE = $(TB_DIR)/tb_l1_data_cache.v
+TB_ICACHE_LRU = $(TB_DIR)/tb_icache_lru_conflict.v
 TB_TENSOR_FP4 = $(TB_DIR)/tb_tensor_core_fp4.v
 TB_TENSOR_FP4_FP8 = $(TB_DIR)/tb_tensor_fp4_fp8.v
 TB_CFU = $(TB_DIR)/tb_control_flow_unit.v
@@ -143,7 +144,7 @@ endif
 .PHONY: all sim wave clean assemble help test test_all regression
 .PHONY: test_alu test_mul test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_warp test_control_flow_unit test_sfu test_cvt_unit benchmark
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
-.PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_phase2 test_warp_valid_d1
+.PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_icache_lru test_phase2 test_warp_valid_d1
 
 # Audited must-run regression suite (stable gates for local + CI).
 # Non-gating/extended tests are tracked separately and can be run via:
@@ -181,6 +182,7 @@ REGRESSION_EXTENDED_TARGETS = \
 	test_sm_v2_perf_tensor \
 	test_sm_v2_perf_tensor_multiwarp \
 	test_l1_data_cache \
+	test_icache_lru \
 	test_dual_fetch \
 	test_ptx \
 	bench_atomics \
@@ -498,6 +500,15 @@ test_l1_data_cache: $(BUILD_DIR)/tb_l1_data_cache.vvp
 
 $(BUILD_DIR)/tb_l1_data_cache.vvp: $(TB_L1_DATA_CACHE) $(RTL_DIR)/l1_data_cache.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_L1_DATA_CACHE) $(RTL_DIR)/l1_data_cache.v
+
+test_icache_lru: $(BUILD_DIR)/tb_icache_lru_conflict.vvp
+	@echo "========================================"
+	@echo "Running I-Cache LRU Conflict Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_icache_lru_conflict.vvp
+
+$(BUILD_DIR)/tb_icache_lru_conflict.vvp: $(TB_ICACHE_LRU) $(RTL_DIR)/icache.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_ICACHE_LRU) $(RTL_DIR)/icache.v
 
 test_phase2: test_memsys
 	@echo "========================================"
