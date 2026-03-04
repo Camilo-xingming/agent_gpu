@@ -331,7 +331,21 @@ module blackwell_scheduler #(
     wire [NUM_WARPS-1:0] tensor_like_warp_mask = warp_is_tensor | warp_is_tcgen05;
     wire [NUM_WARPS-1:0] tensor_like_lockout_mask = tensor_push_locked & tensor_like_warp_mask;
     integer s, sw;
+    reg                 tmp_valid;
+    reg [WARP_W-1:0]    tmp_warp;
+    reg [INST_WIDTH-1:0] tmp_inst;
+    reg [2:0]           tmp_pipe;
+    reg                 tmp_async;
+    reg [3:0]           tmp_async_id;
+
     always @(*) begin
+        tmp_valid = 0;
+        tmp_warp = 0;
+        tmp_inst = 0;
+        tmp_pipe = 0;
+        tmp_async = 0;
+        tmp_async_id = 0;
+
         issue_valid_r = 0;
         sched_fu_conflict = 1'b0;
         issue_consume_r = 0;
@@ -457,12 +471,6 @@ module blackwell_scheduler #(
         if (NUM_SCHEDULERS >= 2 && issue_valid_r[1] &&
             warp_is_memory[issue_warp_r[1]] &&
             (!issue_valid_r[0] || !warp_is_memory[issue_warp_r[0]])) begin
-            reg                 tmp_valid;
-            reg [WARP_W-1:0]    tmp_warp;
-            reg [INST_WIDTH-1:0] tmp_inst;
-            reg [2:0]           tmp_pipe;
-            reg                 tmp_async;
-            reg [3:0]           tmp_async_id;
 
             tmp_valid = issue_valid_r[0];
             tmp_warp = issue_warp_r[0];
