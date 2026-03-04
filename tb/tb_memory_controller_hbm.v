@@ -69,7 +69,10 @@ module tb_memory_controller_hbm;
         forever #5 mem_clk = ~mem_clk;
     end
 
+    integer fail_count;
+
     initial begin
+        fail_count = 0;
         // Initialize
         rst_n = 0;
         l2_req_valid = 0;
