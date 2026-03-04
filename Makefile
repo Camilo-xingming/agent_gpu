@@ -1077,3 +1077,14 @@ test_wb_fifo: $(BUILD_DIR)/tb_wb_fifo.vvp
 
 $(BUILD_DIR)/tb_wb_fifo.vvp: $(RTL_DIR)/wb_fifo.v tb/tb_wb_fifo_overflow.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_wb_fifo_overflow.v $(RTL_DIR)/wb_fifo.v
+
+TB_ATOMIC = $(TB_DIR)/tb_atomic_unit.v
+
+test_atomic: $(BUILD_DIR)/tb_atomic_unit.vvp
+	@echo "========================================"
+	@echo "Running Atomic Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_atomic_unit.vvp
+
+$(BUILD_DIR)/tb_atomic_unit.vvp: $(RTL_DIR)/atomic_unit.v $(RTL_DIR)/gpu_defines.vh $(TB_ATOMIC) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_ATOMIC) $(RTL_DIR)/atomic_unit.v
