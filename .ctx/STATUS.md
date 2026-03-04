@@ -95,4 +95,16 @@
 Gemini #1 (FP4/FP8 Tensor Core e2e) or Gemini #2 (Texture/Surface verification)
 
 ## Last Updated
-2026-02-19
+2026-02-28 (21:41 UTC) — Sprint 16 complete
+
+## Sprint 16 Status (COMPLETE)
+| Task | Status | PR | Notes |
+|------|--------|----|----|
+| #248 | ✅ Closed | — | Stale branch cleanup (19 branches deleted) |
+| #251 | ✅ Closed | #252 | manifest-check `.gitignore` filter fix. Merged. Local verification passed on ist-mac-s. |
+
+## Health Status
+- Discord: ✅ Stable
+- CI: 🔴 GitHub Actions billing failure (spending limit exceeded) — awaiting Jerry account fix
+- Both sprint tasks closed in ~20 min. Coders standby.
+- Blockers: GitHub Actions billing — escalated to Jerry

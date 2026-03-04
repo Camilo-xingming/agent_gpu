@@ -84,6 +84,18 @@ Coder 需回答 3 个问题（Standup cron 自动收集 GitHub activity）：
 
 > 注：Standup 由 cron 自动执行，从 GitHub 数据采集，不需要 Coder 主动发消息。异常（无进展、Blocker）时 Lily 在 #ralphgpu-dev 跟进。
 
+## Sprint 会议（Thread 形式，2026-02-28 起执行）
+
+所有 Sprint 会议在 **#ralphgpu** 以 thread 形式进行，Lily 不得单独决定 Sprint 内容。
+
+| 会议 | Thread 标题 | 流程 |
+|------|------------|------|
+| Planning | "Sprint N Planning" | Lily 提候选 → Coders 讨论 → 共识 → 创建 Issues |
+| Review | "Sprint N Review" | 逐 Issue 验收 → 记录到 GitHub |
+| Retro | "Sprint N Retro" | 收集 lessons → 更新 KNOWLEDGE.md |
+
+Thread 即会议记录，讨论完产出最终文档到 GitHub。
+
 ## 信息持久化原则
 
 Discord 只是通知副本，所有有价值的信息必须沉淀到文档：
@@ -92,10 +104,11 @@ Discord 只是通知副本，所有有价值的信息必须沉淀到文档：
 |------|------------|
 | Sprint Review 结果 | GitHub Milestone description + Issue comments |
 | Sprint Planning 结果 | GitHub Milestone description |
+| Sprint 会议讨论过程 | #ralphgpu thread（自动保留） |
 | Blocker / 无进展 | GitHub Issue comment |
 | 技术决策 | `docs/pm/decision-log.md` |
 | 经验教训 | `docs/RETRO.md` |
 
 ---
 
-*更新时间: 2026-02-24*
+*更新时间: 2026-02-28*

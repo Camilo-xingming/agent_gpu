@@ -23,3 +23,23 @@
 
 - 长任务无心跳 → Lily 会 timeout 并 reassign
 - 心跳内容必须是结果/进展，不是"我在看…"（禁止想出声）
+
+## Sprint 会议流程（2026-02-28 起执行）
+
+所有 Sprint 会议必须在 **#ralphgpu** 频道以 **thread** 形式公开讨论。Lily 不得单独决定 Sprint 内容。
+
+### 三个会议
+
+| 会议 | Thread 标题 | 参与者 | 产出 |
+|------|------------|--------|------|
+| Planning | "Sprint N Planning" | Lily + 全部 Coders | Lily 提候选 items → Coders 讨论可行性/工作量 → 共识 → 创建 Issues + Milestone |
+| Review | "Sprint N Review" | Lily + 全部 Coders | 逐 Issue 验收结果，记录到 Issue comment + Milestone description |
+| Retro | "Sprint N Retro" | Lily + 全部 Coders | 收集 lessons learned → 更新 KNOWLEDGE.md + docs/RETRO.md |
+
+### 流程
+
+1. Lily 在 #ralphgpu 开 thread（标题格式固定如上）
+2. Lily 提议议题/候选 items，引导讨论
+3. Coders 在 thread 内参与讨论（评估工作量、提出风险、建议优先级）
+4. 达成共识后，Lily 将结论写入 GitHub（Issue/Milestone/RETRO.md）
+5. Thread 本身即会议记录，可追溯

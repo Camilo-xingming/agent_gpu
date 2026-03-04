@@ -453,9 +453,21 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 ## 🌟 What Went Well
 - **高速交付**：3 个 TB 全部在当日完成，velocity 100%
 - **覆盖深度**：memory_interface (burst protocol) + atomic_unit (CAS/ADD/MIN/MAX) + reconvergence_stack (SIMT diverge/reconverge) 均有完整测试
+- **Issue→WIP→PR 节奏稳定**：CoderCodex 反馈证据绑定（SHA/验证命令）质量更高
 
 ## 🔧 What Didn't Go Well
 - **Sprint 37 milestone 未自动关闭**：0 open issues 但 milestone 保持 open，ceremony 延迟处理
+- **长链路任务远端环境/命令转义**：CoderCodex 反馈远端执行时命令转义导致返工；建议先做最小 smoke 验证再放大全量
 
-## 📋 Action Items (Sprint 38 必须参考)
+## 💬 Coder Feedback
+- **CoderCodex**：做得好 — Issue→WIP→PR 节奏和证据绑定这轮更稳；需改进 — 长链路任务先做最小 smoke 验证再放大
+- **CoderGemini**：无结构化 Retro 反馈（60s 超时）
+
+## 🔧 Action Items (Sprint 38 必须参考)
+- [ ] 长链路任务引入 smoke 验证步骤，避免全量返工
+- [ ] milestone 完成后自动关闭检查（watchdog 触发 ceremony）
+
+## 📈 Velocity
 - Sprint 37：3/3 (100%) — #371 #372 #373
+- CI：billing-limited 🟡（持续中）
+- 趋势：连续多 Sprint 100%，TB coverage 扩展阶段完成
