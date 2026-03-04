@@ -185,7 +185,7 @@ module tb_lz4_decompressor;
         fail_count = 0;
 
         //============================================================
-        // Test 1: empty input
+        // Test 1: empty input (zero-length fields)
         //============================================================
         reset_dut();
         start_decompress(32'd0, 32'd0);
@@ -195,7 +195,7 @@ module tb_lz4_decompressor;
         expect_true(stat_bytes_in == 32'd0, "empty: stat_bytes_in should be 0");
 
         //============================================================
-        // Test 2: literal-only sequence
+        // Test 2: literal-only sequence (max literal token nibble = 15)
         //============================================================
         reset_dut();
         start_decompress(32'd17, 32'd15);
@@ -209,7 +209,7 @@ module tb_lz4_decompressor;
         expect_true(!error, "literal-only: should not assert error");
 
         //============================================================
-        // Test 3: short-offset match copy
+        // Test 3: minimum token sizes (token=0x00) + short-offset match
         //============================================================
         reset_dut();
         start_decompress(32'd3, 32'd4);
@@ -221,7 +221,7 @@ module tb_lz4_decompressor;
         expect_true(!error, "short-offset: should not assert error");
 
         //============================================================
-        // Test 4: long-offset + match-len extension path
+        // Test 4: long-offset + match-len extension path (max match nibble=15)
         //============================================================
         reset_dut();
         start_decompress(32'd4, 32'd19);
@@ -233,7 +233,21 @@ module tb_lz4_decompressor;
         expect_true(!error, "long-offset: should not assert error");
 
         //============================================================
-        // Test 5: multi-block stream (two tokens)
+        // Test 5: mixed literal + offset parsing path
+        // token=0xF0 -> literal block followed by offset bytes
+        //============================================================
+        reset_dut();
+        start_decompress(32'd19, 32'd19);
+        send_qword(pack8(8'hF0,8'h00,8'h41,8'h42,8'h43,8'h44,8'h45,8'h46), 1'b0);
+        send_qword(pack8(8'h47,8'h48,8'h49,8'h4A,8'h4B,8'h4C,8'h4D,8'h4E), 1'b0);
+        send_qword(pack8(8'h4F,8'h01,8'h00,8'h00,8'h00,8'h00,8'h00,8'h00), 1'b1);
+        run_cycles(700);
+        expect_true(seen_states[ST_COPY_LITERAL], "mixed: should visit ST_COPY_LITERAL");
+        expect_true(stat_literal_count > 0, "mixed: literal counter should increase");
+        expect_true(!error, "mixed: should not assert error");
+
+        //============================================================
+        // Test 6: multi-block stream (two tokens)
         //============================================================
         reset_dut();
         start_decompress(32'd6, 32'd8);
@@ -245,7 +259,7 @@ module tb_lz4_decompressor;
         expect_true(!error, "multi-block: should not assert error");
 
         //============================================================
-        // Test 6: back-to-back decompressions without reset
+        // Test 7: back-to-back decompressions without reset
         //============================================================
         reset_dut();
 
@@ -267,6 +281,8 @@ module tb_lz4_decompressor;
         expect_true(read_token_hits >= 1, "b2b: parser activity should be observed");
         expect_true(seen_states[ST_READ_TOKEN], "b2b: should revisit ST_READ_TOKEN");
         expect_true(!error, "b2b: should not assert error");
+        expect_true(bytes_in_a > 0, "b2b: first run should consume input");
+        expect_true(stat_bytes_in > 0, "b2b: second run should consume input");
 
         $display("============================================================");
         $display("tb_lz4_decompressor Summary: %0d PASSED, %0d FAILED", pass_count, fail_count);
