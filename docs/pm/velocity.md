@@ -52,3 +52,4 @@
 | Sprint 35 | 2026-03-03 | Tech debt workaround resolution — ICache LRU fix + Scheduler scoreboard completeness + CP TB modernization | 3 | 3 | 0 | 100% | #361 #362 #363 全部关闭 | auto-generated |
 | Sprint 36 | 2026-03-03 | Verification: Blackwell scheduler lint + FP4/FP8 Tensor Core + Texture/Surface unit | 3 | 3 | 0 | 100% | #367 #368 #369 全部关闭 | auto-generated |
 | Sprint 37 | 2026-03-04 | Verification coverage expansion — TB for memory_interface + atomic_unit + reconvergence_stack | 3 | 3 | 0 | 100% | #371 #372 #373 全部关闭，PRs #374 #375 #376 merged | auto-generated |
+| Sprint 39 | 2026-03-04 | TB coverage: chi_controller, l2_interconnect, fma_int32 | 3 | 3 | 0 | 100% | #382 #383 #384 全部关闭 | auto-generated |
