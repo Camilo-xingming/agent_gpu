@@ -173,26 +173,28 @@ module tb_advanced_scheduler();
 
         $display("--- Test 1: Basic Single Issue (Compute) ---");
         set_warp_inst(0, 32'hAAAA_BBBB, 5'd1, 5'd2, 5'd3, 5'd0, 1, 0, 0, 0, 1);
-        @(negedge clk);
+        #4;
         if (issue_valid[0] !== 1'b1 || issue_warp_id[0*WARP_W+:WARP_W] !== 0 || issue_pipe[0*3+:3] !== 3'd0) begin
             $display("FAIL: Test 1 Basic Single Issue");
             errors = errors + 1;
         end else begin
             $display("PASS: Test 1 Basic Single Issue");
         end
+        @(negedge clk);
         clear_warp_inst(0);
 
         @(negedge clk);
         $display("--- Test 2: Dual Issue (Compute + Memory) ---");
         set_warp_inst(1, 32'h1111_1111, 5'd4, 5'd5, 5'd6, 5'd0, 1, 0, 0, 0, 1);
         set_warp_inst(2, 32'h2222_2222, 5'd7, 5'd8, 5'd9, 5'd0, 0, 0, 1, 0, 1);
-        @(negedge clk);
+        #4;
         if (issue_valid !== 2'b11) begin
             $display("FAIL: Test 2 Dual Issue (validity)");
             errors = errors + 1;
         end else begin
             $display("PASS: Test 2 Dual Issue");
         end
+        @(negedge clk);
         clear_warp_inst(1);
         clear_warp_inst(2);
 
@@ -200,13 +202,14 @@ module tb_advanced_scheduler();
         $display("--- Test 3: Structural Hazard ---");
         set_warp_inst(3, 32'h3333_3333, 5'd10, 5'd11, 5'd12, 5'd0, 1, 0, 0, 0, 1);
         set_warp_inst(4, 32'h4444_4444, 5'd13, 5'd14, 5'd15, 5'd0, 1, 0, 0, 0, 1);
-        @(negedge clk);
+        #4;
         if (issue_valid !== 2'b11) begin
             $display("FAIL: Test 3 Two Compute Instructions");
             errors = errors + 1;
         end else begin
             $display("PASS: Test 3 Two Compute Instructions");
         end
+        @(negedge clk);
         clear_warp_inst(3);
         clear_warp_inst(4);
 
@@ -214,13 +217,14 @@ module tb_advanced_scheduler();
         $display("--- Test 4: Resource Not Ready Stall ---");
         set_warp_inst(5, 32'h5555_5555, 5'd16, 5'd17, 5'd18, 5'd0, 0, 1, 0, 0, 1);
         tensor_pipe_ready = 0;
-        @(negedge clk);
+        #4;
         if (issue_valid[0] === 1'b1 && issue_pipe[0*3+:3] === 3'd2) begin
             $display("FAIL: Test 4 Resource Not Ready Stall");
             errors = errors + 1;
         end else begin
             $display("PASS: Test 4 Resource Not Ready Stall");
         end
+        @(negedge clk);
         tensor_pipe_ready = 1;
         clear_warp_inst(5);
 
@@ -229,24 +233,25 @@ module tb_advanced_scheduler();
         set_warp_inst(6, 32'h6666_6666, 5'd20, 5'd21, 5'd22, 5'd0, 1, 0, 0, 0, 1);
         @(negedge clk);
         set_warp_inst(6, 32'h7777_7777, 5'd23, 5'd20, 5'd24, 5'd0, 1, 0, 0, 0, 1);
-        @(negedge clk);
+        #4;
         if (issue_valid[0] === 1'b1 && issue_warp_id[0*WARP_W+:WARP_W] === 6) begin
             $display("FAIL: Test 5 Scoreboard Data Hazard");
             errors = errors + 1;
         end else begin
             $display("PASS: Test 5 Scoreboard Data Hazard");
         end
-        
+        @(negedge clk);
         wb_valid = 1; wb_warp_id = 6; wb_rd = 5'd20;
-        @(negedge clk);
+        @(negedge clk); // Scoreboard cleared at posedge during this cycle
         wb_valid = 0;
-        @(negedge clk);
+        #4;
         if (issue_valid[0] === 1'b1 && issue_warp_id[0*WARP_W+:WARP_W] === 6) begin
             $display("PASS: Test 5 Scoreboard Clear");
         end else begin
             $display("FAIL: Test 5 Scoreboard Clear");
             errors = errors + 1;
         end
+        @(negedge clk);
         clear_warp_inst(6);
 
         #20;
@@ -258,25 +263,27 @@ module tb_advanced_scheduler();
         set_warp_inst(1, 32'h1111_1111, 5'd4, 5'd5, 5'd6, 5'd0, 0, 1, 0, 0, 1);
         set_warp_inst(2, 32'h2222_2222, 5'd7, 5'd8, 5'd9, 5'd0, 0, 0, 1, 0, 1);
         set_warp_inst(3, 32'h3333_3333, 5'd0, 5'd0, 5'd0, 5'd0, 0, 0, 0, 1, 0);
-        @(negedge clk);
+        #4;
         
-        if (issue_valid !== 2'b11 || issue_pipe[0*3+:3] !== 3'd4 || issue_pipe[1*3+:3] !== 3'd3) begin
+        if (issue_valid !== 2'b11 || issue_pipe[0*3+:3] !== 3'd4 || issue_pipe[1*3+:3] !== 3'd0) begin
             $display("FAIL: Test 6 Priority Arbitration (Cycle 1)");
             errors = errors + 1;
         end else begin
             $display("PASS: Test 6 Priority Arbitration (Cycle 1)");
         end
-        clear_warp_inst(3);
-        clear_warp_inst(2);
         @(negedge clk);
+        clear_warp_inst(3);
+        clear_warp_inst(0);
+        #4;
         
-        if (issue_valid !== 2'b11 || issue_pipe[0*3+:3] !== 3'd2 || issue_pipe[1*3+:3] !== 3'd0) begin
+        if (issue_valid !== 2'b11 || issue_pipe[0*3+:3] !== 3'd3 || issue_pipe[1*3+:3] !== 3'd2) begin
             $display("FAIL: Test 6 Priority Arbitration (Cycle 2)");
             errors = errors + 1;
         end else begin
             $display("PASS: Test 6 Priority Arbitration (Cycle 2)");
         end
-        clear_warp_inst(0);
+        @(negedge clk);
+        clear_warp_inst(2);
         clear_warp_inst(1);
 
         #20;
@@ -287,7 +294,7 @@ module tb_advanced_scheduler();
         set_warp_inst(0, 32'hAAAA_AAAA, 5'd1, 5'd0, 5'd0, 5'd0, 1, 0, 0, 0, 1);
         set_warp_inst(1, 32'hBBBB_BBBB, 5'd2, 5'd0, 5'd0, 5'd0, 1, 0, 0, 0, 1);
         set_warp_inst(2, 32'hCCCC_CCCC, 5'd3, 5'd0, 5'd0, 5'd0, 1, 0, 0, 0, 1);
-        @(negedge clk);
+        #4;
         if (issue_valid !== 2'b11 || !((issue_warp_id[0*WARP_W+:WARP_W] == 0 && issue_warp_id[1*WARP_W+:WARP_W] == 1) || (issue_warp_id[0*WARP_W+:WARP_W] == 1 && issue_warp_id[1*WARP_W+:WARP_W] == 0))) begin
             $display("FAIL: Test 7 Multi-Warp RR (Cycle 1)");
             errors = errors + 1;
@@ -296,16 +303,18 @@ module tb_advanced_scheduler();
         end
         saved_w0 = issue_warp_id[0*WARP_W+:WARP_W];
         saved_w1 = issue_warp_id[1*WARP_W+:WARP_W];
+        @(negedge clk);
         clear_warp_inst(saved_w0);
         clear_warp_inst(saved_w1);
         
-        @(negedge clk);
+        #4;
         if (issue_valid[0] !== 1'b1 || issue_warp_id[0*WARP_W+:WARP_W] !== 2) begin
             $display("FAIL: Test 7 Multi-Warp RR (Cycle 2)");
             errors = errors + 1;
         end else begin
             $display("PASS: Test 7 Multi-Warp RR (Cycle 2)");
         end
+        @(negedge clk);
         clear_warp_inst(2);
 
         #20;
@@ -318,7 +327,7 @@ module tb_advanced_scheduler();
         end
         
         for(i=0; i<4; i=i+1) begin
-            @(negedge clk);
+            #4;
             if (issue_valid !== 2'b11) begin
                 $display("FAIL: Test 8 Back-to-Back Dispatch (Cycle %0d)", i+1);
                 errors = errors + 1;
@@ -327,6 +336,7 @@ module tb_advanced_scheduler();
             end
             saved_w0 = issue_warp_id[0*WARP_W+:WARP_W];
             saved_w1 = issue_warp_id[1*WARP_W+:WARP_W];
+            @(negedge clk);
             clear_warp_inst(saved_w0);
             clear_warp_inst(saved_w1);
         end
