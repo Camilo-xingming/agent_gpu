@@ -487,6 +487,57 @@ module tb_tensor_memory;
         expect32("cp read col8", cp_rd_data[287:256], 32'hC300_1008);
         expect32("cp read col15", cp_rd_data[511:480], 32'hC300_100F);
 
+        // --------------------------------------------------------------------
+        // Test 6: Boundary clipping + max-width transfers
+        // --------------------------------------------------------------------
+        $display("=== Test 6: boundary clipping + max-width transfers ===");
+
+        st_pack = 256'd0;
+        for (i = 0; i < 8; i = i + 1) begin
+            st_pack[i*32 +: 32] = 32'h8800_0000 + i;
+        end
+        pulse_store(7'd63, 9'd200, 4'd8, st_pack, 8'hFF);
+        expect1("store x8 ready", st_ready, 1'b1);
+        pulse_load(7'd63, 9'd200, 4'd8);
+        expect32("store x8 col0", ld_data[31:0], 32'h8800_0000);
+        expect32("store x8 col7", ld_data[255:224], 32'h8800_0007);
+
+        st_pack = 256'd0;
+        st_pack[31:0]   = 32'hF100_0001;
+        st_pack[63:32]  = 32'hF200_0002;
+        st_pack[95:64]  = 32'hF300_0003;
+        st_pack[127:96] = 32'hF400_0004;
+        pulse_store(7'd60, 9'd509, 4'd4, st_pack, 8'b0000_1111);
+        pulse_load(7'd60, 9'd509, 4'd4);
+        expect32("boundary st/ld col509", ld_data[31:0], 32'hF100_0001);
+        expect32("boundary st/ld col510", ld_data[63:32], 32'hF200_0002);
+        expect32("boundary st/ld col511", ld_data[95:64], 32'hF300_0003);
+        expect32("boundary st/ld col512 clipped", ld_data[127:96], 32'h0000_0000);
+
+        mma_pack = 512'd0;
+        for (i = 0; i < 16; i = i + 1) begin
+            mma_pack[i*32 +: 32] = 32'hBEEF_1000 + i;
+        end
+        pulse_mma_write(7'd61, 9'd506, mma_pack, 16'hFFFF);
+        mma_row = 7'd61;
+        mma_col_base = 9'd506;
+        pulse_mma_read();
+        expect32("mma boundary col506", mma_rd_data[31:0], 32'hBEEF_1000);
+        expect32("mma boundary col511", mma_rd_data[191:160], 32'hBEEF_1005);
+        expect32("mma boundary col512 clipped", mma_rd_data[223:192], 32'h0000_0000);
+        expect32("mma boundary high lanes clipped", mma_rd_data[511:480], 32'h0000_0000);
+
+        cp_pack = 512'd0;
+        for (i = 0; i < 16; i = i + 1) begin
+            cp_pack[i*32 +: 32] = 32'hD00D_2000 + i;
+        end
+        pulse_cp_write(7'd62, 9'd508, cp_pack);
+        pulse_cp_read(7'd62, 9'd508);
+        expect32("cp boundary col508", cp_rd_data[31:0], 32'hD00D_2000);
+        expect32("cp boundary col511", cp_rd_data[127:96], 32'hD00D_2003);
+        expect32("cp boundary col512 clipped", cp_rd_data[159:128], 32'h0000_0000);
+        expect32("cp boundary high lanes clipped", cp_rd_data[511:480], 32'h0000_0000);
+
         $display("============================================================");
         $display("tb_tensor_memory Summary: %0d PASSED, %0d FAILED", pass_count, fail_count);
         $display("============================================================");
