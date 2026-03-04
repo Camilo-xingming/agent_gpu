@@ -42,7 +42,9 @@ module tb_advanced_scheduler();
     task set_inst(input [WARP_W-1:0] w_id, input [INST_WIDTH-1:0] inst, input [4:0] rd, input [4:0] rs1, input [4:0] rs2, input [4:0] rs3, input is_compute, input is_tensor, input is_mem, input is_br, input w_reg);
     begin
         warp_valid[w_id] = 1; warp_ready[w_id] = 1; warp_inst_valid[w_id] = 1;
-        warp_inst[w_id*INST_WIDTH +: INST_WIDTH] = inst;
+        // Properly pack register fields into instruction if it is supposed to be decoded later
+        // But for the scoreboard, it looks at issue_inst_r[25:21] for rd
+        warp_inst[w_id*INST_WIDTH +: INST_WIDTH] = (inst & ~(32'h03FFF800)) | (rd << 21) | (rs1 << 16) | (rs2 << 11) | (rs3 << 6);
         warp_rd[w_id*5 +: 5] = rd; warp_rs1[w_id*5 +: 5] = rs1; warp_rs2[w_id*5 +: 5] = rs2; warp_rs3[w_id*5 +: 5] = rs3;
         warp_reads_rs3[w_id] = (rs3 != 0);
         warp_is_compute[w_id] = is_compute; warp_is_tensor[w_id] = is_tensor; warp_is_memory[w_id] = is_mem; warp_is_branch[w_id] = is_br; warp_writes_reg[w_id] = w_reg;
@@ -56,7 +58,11 @@ module tb_advanced_scheduler();
     endtask
 
     integer errors;
+    integer i;
     initial begin
+        $dumpfile("tb_advanced_scheduler.vcd");
+        $dumpvars(0, tb_advanced_scheduler);
+
         clk = 0; rst_n = 0;
         warp_valid = 0; warp_ready = 0; warp_diverged = 0; warp_at_barrier = 0; warp_inst = 0; warp_inst_valid = 0;
         warp_rd = 0; warp_rs1 = 0; warp_rs2 = 0; warp_rs3 = 0; warp_reads_rs3 = 0;
@@ -116,6 +122,34 @@ module tb_advanced_scheduler();
         if (issue_valid !== 2'b11) begin $display("ERROR: T5 dual compute valid: %b", issue_valid); errors++; end
         @(negedge clk);
         clear_inst(0); clear_inst(1);
+
+        // Test 6: Full queues / back-to-back dispatch
+        for (i=0; i<8; i=i+1) begin
+            set_inst(i[WARP_W-1:0], 32'h00200000, 5'd10+i[4:0], 5'd0, 5'd0, 5'd0, 1, 0, 0, 0, 1);
+        end
+        #4;
+        if (issue_valid !== 2'b11) begin $display("ERROR: T6 B2B cycle 1 valid %b", issue_valid); errors++; end
+        @(negedge clk);
+        clear_inst(issue_warp_id[WARP_W-1:0]);
+        clear_inst(issue_warp_id[2*WARP_W-1:WARP_W]);
+        
+        #4;
+        if (issue_valid !== 2'b11) begin $display("ERROR: T6 B2B cycle 2 valid %b", issue_valid); errors++; end
+        @(negedge clk);
+        clear_inst(issue_warp_id[WARP_W-1:0]);
+        clear_inst(issue_warp_id[2*WARP_W-1:WARP_W]);
+
+        #4;
+        if (issue_valid !== 2'b11) begin $display("ERROR: T6 B2B cycle 3 valid %b, w0=%0d, w1=%0d", issue_valid, issue_warp_id[WARP_W-1:0], issue_warp_id[2*WARP_W-1:WARP_W]); errors++; end
+        @(negedge clk);
+        clear_inst(issue_warp_id[WARP_W-1:0]);
+        clear_inst(issue_warp_id[2*WARP_W-1:WARP_W]);
+
+        #4;
+        if (issue_valid !== 2'b11) begin $display("ERROR: T6 B2B cycle 4 valid %b, w0=%0d, w1=%0d", issue_valid, issue_warp_id[WARP_W-1:0], issue_warp_id[2*WARP_W-1:WARP_W]); errors++; end
+        @(negedge clk);
+        clear_inst(issue_warp_id[WARP_W-1:0]);
+        clear_inst(issue_warp_id[2*WARP_W-1:WARP_W]);
 
         if (errors == 0) $display("TB PASS: All tests passed!");
         else $display("TB FAIL: %0d errors found.", errors);
