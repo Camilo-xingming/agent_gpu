@@ -112,6 +112,7 @@ TB_MEM_IF = $(TB_DIR)/tb_memory_interface.v
 TB_SM_FETCH_PIPE = $(TB_DIR)/tb_sm_fetch_pipeline.v
 TB_MEM_QOS = $(TB_DIR)/tb_memory_qos.v
 TB_WARP = $(TB_DIR)/tb_warp_scheduler.v
+TB_WGMMA = $(TB_DIR)/tb_wgmma.v
 TB_DUAL_ISSUE_SCHED = $(TB_DIR)/tb_dual_issue_scheduler.v
 TB_VADD = $(TB_DIR)/tb_vector_add.v
 TB_MULTI = $(TB_DIR)/tb_multi_sm.v
@@ -153,7 +154,7 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all regression
-.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_blackwell_scheduler test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_dual_issue_scheduler test_control_flow_unit test_sfu test_cvt_unit benchmark
+.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_blackwell_scheduler test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_wgmma test_dual_issue_scheduler test_control_flow_unit test_sfu test_cvt_unit benchmark
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_icache_lru test_phase2 test_warp_valid_d1
 
@@ -360,6 +361,16 @@ test_warp: $(BUILD_DIR)/tb_warp_scheduler.vvp
 $(BUILD_DIR)/tb_warp_scheduler.vvp: $(RTL_DIR)/warp_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_WARP) | $(BUILD_DIR)
 
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_WARP) $(RTL_DIR)/warp_scheduler.v
+
+test_wgmma: $(BUILD_DIR)/tb_wgmma.vvp
+	@echo "========================================"
+	@echo "Running WGMMA Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_wgmma.vvp
+
+$(BUILD_DIR)/tb_wgmma.vvp: $(RTL_DIR)/wgmma.v $(RTL_DIR)/gpu_defines.vh $(TB_WGMMA) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_WGMMA) $(RTL_DIR)/wgmma.v
+
 test_dual_issue_scheduler: $(BUILD_DIR)/tb_dual_issue_scheduler.vvp
 	@echo "========================================"
 	@echo "Running Dual Issue Scheduler Unit Test"
@@ -902,7 +913,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_blackwell_scheduler test_dual_issue_scheduler test_warp_ops test_video_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_memory_controller_hbm
+test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_wgmma test_blackwell_scheduler test_dual_issue_scheduler test_warp_ops test_video_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_memory_controller_hbm
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
@@ -1047,7 +1058,7 @@ help:
 	@echo "  test_memory_coalescing_unit - Test memory coalescing logic"
 	@echo "  test_smem     - Test shared memory"
 	@echo "  test_dual_issue_scheduler - Test dual-issue scheduler"
-	@echo  test_dual_issue_scheduler - Test dual-issue scheduler
+	@echo "  test_wgmma - Test WGMMA unit"
 	@echo "  test_cvt_unit - Test CVT conversion unit"
 	@echo "  test_tensor_core_fp4 - Tensor Core FP4 sanity test"
 	@echo "  test_tensor_fp4_fp8 - Tensor Core FP4/FP8 handwritten e2e test"
