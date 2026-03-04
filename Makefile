@@ -892,7 +892,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_dual_issue_scheduler test_warp_ops test_video_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_memory_controller_hbm test_async_copy_engine
+test: test_wgmma_tile_engine test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_dual_issue_scheduler test_warp_ops test_video_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_memory_controller_hbm test_async_copy_engine
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
@@ -1209,3 +1209,12 @@ test_async_copy_engine: $(BUILD_DIR)/tb_async_copy_engine.vvp
 
 $(BUILD_DIR)/tb_async_copy_engine.vvp: $(RTL_DIR)/async_copy_engine.v $(RTL_DIR)/tma_unit.v $(RTL_DIR)/gpu_defines.vh $(TB_ASYNC_COPY_ENGINE) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_ASYNC_COPY_ENGINE) $(RTL_DIR)/async_copy_engine.v $(RTL_DIR)/tma_unit.v
+
+test_wgmma_tile_engine: $(BUILD_DIR)/tb_wgmma_tile_engine.vvp
+	@echo "========================================"
+	@echo "Running WGMMA Tile Engine Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_wgmma_tile_engine.vvp
+
+$(BUILD_DIR)/tb_wgmma_tile_engine.vvp: $(RTL_DIR)/wgmma_tile_engine.v $(RTL_DIR)/gpu_defines.vh tb/tb_wgmma_tile_engine.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_wgmma_tile_engine.v $(RTL_DIR)/wgmma_tile_engine.v
