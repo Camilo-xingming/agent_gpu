@@ -124,7 +124,7 @@ module wgmma_tile_engine #(
     // Prefetch tracking
     reg prefetch_a_done;
     reg prefetch_b_done;
-    reg [8:0] prefetch_offset;
+    reg [11:0] prefetch_offset;
 
     //------------------------------------------------------------------------
     // Accumulator
@@ -143,17 +143,17 @@ module wgmma_tile_engine #(
     //------------------------------------------------------------------------
     function [13:0] calc_smem_addr_a;
         input [STAGE_PTR_W-1:0] stage;
-        input [8:0] offset;
+        input [11:0] offset;
         begin
-            calc_smem_addr_a = (stage * SMEM_STAGE_STRIDE) + SMEM_A_BASE + {5'b0, offset};
+            calc_smem_addr_a = (stage * SMEM_STAGE_STRIDE) + SMEM_A_BASE + {2'b0, offset};
         end
     endfunction
 
     function [13:0] calc_smem_addr_b;
         input [STAGE_PTR_W-1:0] stage;
-        input [8:0] offset;
+        input [11:0] offset;
         begin
-            calc_smem_addr_b = (stage * SMEM_STAGE_STRIDE) + SMEM_B_BASE + {5'b0, offset};
+            calc_smem_addr_b = (stage * SMEM_STAGE_STRIDE) + SMEM_B_BASE + {2'b0, offset};
         end
     endfunction
 
@@ -163,20 +163,20 @@ module wgmma_tile_engine #(
     function [31:0] calc_gmem_addr_a;
         input [31:0] m_off;
         input [K_PTR_W-1:0] k_tile;
-        input [8:0] offset;
+        input [11:0] offset;
         begin
             // A[m_off : m_off + TILE_M, k_tile * TILE_K : (k_tile+1) * TILE_K]
-            calc_gmem_addr_a = m_off * 1024 + (k_tile * TILE_K * (DATA_WIDTH/8)) + {23'b0, offset};
+            calc_gmem_addr_a = m_off * 1024 + (k_tile * TILE_K * (DATA_WIDTH/8)) + {20'b0, offset};
         end
     endfunction
 
     function [31:0] calc_gmem_addr_b;
         input [31:0] n_off;
         input [K_PTR_W-1:0] k_tile;
-        input [8:0] offset;
+        input [11:0] offset;
         begin
             // B[k_tile * TILE_K : (k_tile+1) * TILE_K, n_off : n_off + TILE_N]
-            calc_gmem_addr_b = n_off * 1024 + (k_tile * TILE_K * (DATA_WIDTH/8)) + {23'b0, offset};
+            calc_gmem_addr_b = n_off * 1024 + (k_tile * TILE_K * (DATA_WIDTH/8)) + {20'b0, offset};
         end
     endfunction
 
@@ -375,19 +375,20 @@ module wgmma_tile_engine #(
                         stage_computing[compute_stage] <= 0;
                         tiles_computed <= tiles_computed + 1;
 
-                        // Check if more tiles to process
-                        if (compute_stage != load_stage || k_tile_idx >= k_tiles_total) begin
+                        if (tiles_computed + 1 >= k_tiles_total) begin
+                            state <= ST_WRITEBACK;
+                        end else begin
                             compute_stage <= compute_stage + 1'b1;
-
-                            if (compute_stage + 1'b1 == load_stage &&
-                                k_tile_idx >= k_tiles_total) begin
-                                state <= ST_WRITEBACK;
+                            if (k_tile_idx + 1 < k_tiles_total) begin
+                                load_stage <= load_stage + 1'b1;
+                                k_tile_idx <= k_tile_idx + 1;
+                                prefetch_a_done <= 0;
+                                prefetch_b_done <= 0;
+                                prefetch_offset <= 0;
+                                state <= ST_PREFETCH_A;
                             end else begin
                                 state <= ST_LOAD_A;
                             end
-                        end else begin
-                            // More prefetching needed
-                            state <= ST_PREFETCH_A;
                         end
                     end
                 end
