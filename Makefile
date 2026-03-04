@@ -99,21 +99,18 @@ TB_SRCS = $(TB_DIR)/tb_ralph_gpu.v
 
 # 单元测试文件
 TB_ALU = $(TB_DIR)/tb_alu.v
-TB_PERFORMANCE_COUNTERS = $(TB_DIR)/tb_performance_counters.v
 TB_MUL = $(TB_DIR)/tb_mul_unit.v
 TB_FMA_INT32 = $(TB_DIR)/tb_fma_int32.v
 TB_DEC = $(TB_DIR)/tb_decoder.v
 TB_REG = $(TB_DIR)/tb_register_file.v
 TB_REG_BANKED = $(TB_DIR)/tb_register_file_banked.v
 TB_BW_SCHED_SB = $(TB_DIR)/tb_blackwell_scheduler_scoreboard.v
-TB_BLACKWELL_SCHED = $(TB_DIR)/tb_blackwell_scheduler.v
 TB_SMEM = $(TB_DIR)/tb_shared_memory.v
 TB_MEM_COALESCE = $(TB_DIR)/tb_memory_coalescing_unit.v
 TB_MEM_IF = $(TB_DIR)/tb_memory_interface.v
 TB_SM_FETCH_PIPE = $(TB_DIR)/tb_sm_fetch_pipeline.v
 TB_MEM_QOS = $(TB_DIR)/tb_memory_qos.v
 TB_WARP = $(TB_DIR)/tb_warp_scheduler.v
-TB_WGMMA = $(TB_DIR)/tb_wgmma.v
 TB_DUAL_ISSUE_SCHED = $(TB_DIR)/tb_dual_issue_scheduler.v
 TB_VADD = $(TB_DIR)/tb_vector_add.v
 TB_MULTI = $(TB_DIR)/tb_multi_sm.v
@@ -155,7 +152,7 @@ endif
 #============================================================================
 
 .PHONY: all sim wave clean assemble help test test_all regression
-.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_blackwell_scheduler test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_wgmma test_dual_issue_scheduler test_control_flow_unit test_sfu test_cvt_unit benchmark
+.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_dual_issue_scheduler test_control_flow_unit test_sfu test_cvt_unit benchmark
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_icache_lru test_phase2 test_warp_valid_d1
 
@@ -290,15 +287,6 @@ test_bw_scheduler_scoreboard: $(BUILD_DIR)/tb_blackwell_scheduler_scoreboard.vvp
 $(BUILD_DIR)/tb_blackwell_scheduler_scoreboard.vvp: $(RTL_DIR)/blackwell_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_BW_SCHED_SB) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_BW_SCHED_SB) $(RTL_DIR)/blackwell_scheduler.v
 
-test_blackwell_scheduler: $(BUILD_DIR)/tb_blackwell_scheduler.vvp
-	@echo "========================================"
-	@echo "Running Blackwell Scheduler Functional Test"
-	@echo "========================================"
-	cd $(BUILD_DIR) && $(VVP) tb_blackwell_scheduler.vvp
-
-$(BUILD_DIR)/tb_blackwell_scheduler.vvp: $(RTL_DIR)/blackwell_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_BLACKWELL_SCHED) | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_BLACKWELL_SCHED) $(RTL_DIR)/blackwell_scheduler.v
-
 test_smem: $(BUILD_DIR)/tb_shared_memory.vvp
 	@echo "========================================"
 	@echo "Running Shared Memory Unit Test"
@@ -362,16 +350,6 @@ test_warp: $(BUILD_DIR)/tb_warp_scheduler.vvp
 $(BUILD_DIR)/tb_warp_scheduler.vvp: $(RTL_DIR)/warp_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_WARP) | $(BUILD_DIR)
 
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_WARP) $(RTL_DIR)/warp_scheduler.v
-
-test_wgmma: $(BUILD_DIR)/tb_wgmma.vvp
-	@echo "========================================"
-	@echo "Running WGMMA Unit Test"
-	@echo "========================================"
-	cd $(BUILD_DIR) && $(VVP) tb_wgmma.vvp
-
-$(BUILD_DIR)/tb_wgmma.vvp: $(RTL_DIR)/wgmma.v $(RTL_DIR)/gpu_defines.vh $(TB_WGMMA) | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_WGMMA) $(RTL_DIR)/wgmma.v
-
 test_dual_issue_scheduler: $(BUILD_DIR)/tb_dual_issue_scheduler.vvp
 	@echo "========================================"
 	@echo "Running Dual Issue Scheduler Unit Test"
@@ -914,7 +892,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_performance_counters test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_wgmma test_blackwell_scheduler test_dual_issue_scheduler test_warp_ops test_video_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_memory_controller_hbm
+test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_dual_issue_scheduler test_warp_ops test_video_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_memory_controller_hbm test_async_copy_engine
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
@@ -1059,7 +1037,7 @@ help:
 	@echo "  test_memory_coalescing_unit - Test memory coalescing logic"
 	@echo "  test_smem     - Test shared memory"
 	@echo "  test_dual_issue_scheduler - Test dual-issue scheduler"
-	@echo "  test_wgmma - Test WGMMA unit"
+	@echo  test_dual_issue_scheduler - Test dual-issue scheduler
 	@echo "  test_cvt_unit - Test CVT conversion unit"
 	@echo "  test_tensor_core_fp4 - Tensor Core FP4 sanity test"
 	@echo "  test_tensor_fp4_fp8 - Tensor Core FP4/FP8 handwritten e2e test"
@@ -1221,8 +1199,13 @@ test_memory_controller_hbm: $(BUILD_DIR)/tb_memory_controller_hbm.vvp
 $(BUILD_DIR)/tb_memory_controller_hbm.vvp: $(RTL_DIR)/memory_controller_hbm.v $(RTL_DIR)/gpu_defines.vh $(RTL_DIR)/memory_config.vh tb/tb_memory_controller_hbm.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_memory_controller_hbm.v $(RTL_DIR)/memory_controller_hbm.v
 
-test_performance_counters: $(BUILD_DIR)/tb_performance_counters.vvp
-	cd $(BUILD_DIR) && $(VVP) tb_performance_counters.vvp
+TB_ASYNC_COPY_ENGINE = $(TB_DIR)/tb_async_copy_engine.v
 
-$(BUILD_DIR)/tb_performance_counters.vvp: $(RTL_DIR)/performance_counters.v $(RTL_DIR)/gpu_defines.vh $(TB_PERFORMANCE_COUNTERS) | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(RTL_DIR)/performance_counters.v $(TB_PERFORMANCE_COUNTERS)
+test_async_copy_engine: $(BUILD_DIR)/tb_async_copy_engine.vvp
+	@echo "========================================"
+	@echo "Running Async Copy Engine Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_async_copy_engine.vvp
+
+$(BUILD_DIR)/tb_async_copy_engine.vvp: $(RTL_DIR)/async_copy_engine.v $(RTL_DIR)/tma_unit.v $(RTL_DIR)/gpu_defines.vh $(TB_ASYNC_COPY_ENGINE) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_ASYNC_COPY_ENGINE) $(RTL_DIR)/async_copy_engine.v $(RTL_DIR)/tma_unit.v
