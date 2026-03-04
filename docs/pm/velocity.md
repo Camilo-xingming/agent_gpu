@@ -54,3 +54,4 @@
 | Sprint 37 | 2026-03-04 | Verification coverage expansion — TB for memory_interface + atomic_unit + reconvergence_stack | 3 | 3 | 0 | 100% | #371 #372 #373 全部关闭，PRs #374 #375 #376 merged | auto-generated |
 | Sprint 39 | 2026-03-04 | TB coverage: chi_controller, l2_interconnect, fma_int32 | 3 | 3 | 0 | 100% | #382 #383 #384 全部关闭 | auto-generated |
 | Sprint 40 | 2026-03-04 | TB Coverage: sm_fetch_pipeline, tensor_memory, dual_issue_scheduler, memory_controller_hbm | 4 | 3 | 1 | 75% | #389 #390 #391 closed; #392 carry-over | auto-generated |
+| Sprint 42 | 2026-03-04 | TB coverage for uncovered RTL modules | 4 | 0 | 4 | 0% | #412 #413 #414 #415 全部遗留，0完成，已移回 backlog |
