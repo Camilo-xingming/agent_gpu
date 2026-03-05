@@ -1223,12 +1223,12 @@ $(BUILD_DIR)/tb_dual_fetch.vvp: $(SM_V2_SRCS) $(TB_DUAL_FETCH) | $(BUILD_DIR)
 # WB FIFO Unit Test
 test_wb_fifo: $(BUILD_DIR)/tb_wb_fifo.vvp
 	@echo "========================================"
-	@echo "Running WB FIFO Unit Test (Overflow Coverage)"
+	@echo "Running WB FIFO Unit Test (Functional Coverage)"
 	@echo "========================================"
 	cd $(BUILD_DIR) && $(VVP) tb_wb_fifo.vvp
 
-$(BUILD_DIR)/tb_wb_fifo.vvp: $(RTL_DIR)/wb_fifo.v tb/tb_wb_fifo_overflow.v | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_wb_fifo_overflow.v $(RTL_DIR)/wb_fifo.v
+$(BUILD_DIR)/tb_wb_fifo.vvp: $(RTL_DIR)/wb_fifo.v tb/tb_wb_fifo.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_wb_fifo.v $(RTL_DIR)/wb_fifo.v
 
 TB_ATOMIC = $(TB_DIR)/tb_atomic_unit.v
 
