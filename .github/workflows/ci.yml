@@ -8,14 +8,14 @@ on:
 
 jobs:
   lint:
-    runs-on: self-hosted
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Verilator Lint
         run: make lint VERILATOR=verilator
 
   synth:
-    runs-on: self-hosted
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     steps:
       - uses: actions/checkout@v4
       - name: "DoD #4: Yosys Synthesis Check"
@@ -31,18 +31,16 @@ jobs:
           body=$(printf '**❌ Synthesis Failed (DoD #4)**\n\n```\n%s\n```\n\nFix synthesis errors before merge. [Full log](%s).' "$errors" "$RUN_URL")
           gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$body"
 
-  regression:
-    runs-on: self-hosted
+  unit-test:
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     needs: lint
     steps:
       - uses: actions/checkout@v4
-      - name: Generate tests
-        run: python3 tools/test_generator.py --gen all
-      - name: Run Audited Regression Suite
-        run: make regression IVERILOG=iverilog VVP=vvp
+      - name: Run Unit Test Suite
+        run: make test IVERILOG=iverilog VVP=vvp
 
   dod-check:
-    runs-on: self-hosted
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4

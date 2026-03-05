@@ -7,7 +7,7 @@ on:
 
 jobs:
   full-regression:
-    runs-on: self-hosted
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     steps:
       - uses: actions/checkout@v4
 
