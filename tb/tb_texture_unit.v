@@ -719,11 +719,57 @@ module tb_texture_unit;
         tex_wrap_s = 4'h0;
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd128, 0, 0, 50);
         check_result_r(32'h00000000, "repeat s=128 wraps to 0");
+        //====================================================================
+        // 18. Descriptor format + LOD stress coverage
+        //====================================================================
+        $display("\n=== Section 18: Descriptor Format + LOD Stress ===");
+        tex_base_addr = 32'h000C_0000;
+        tex_width = 16'd64; tex_height = 16'd64; tex_depth = 16'd1;
+        tex_wrap_s = 4'h1; tex_wrap_t = 4'h1;
+        tex_filter = 4'h0;
+        num_mip_levels = 4'd8;
+
+        // Address for (9,5): base + 5*(64*4) + 9*4 = 0x000C0524 => R=0x24
+        tex_format = 4'h0; // RGBA8_UNORM
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd9, 32'd5, 0, 50);
+        check_result_r(32'h00000024, "format RGBA8_UNORM sample");
+
+        tex_format = 4'h2; // RGBA16_FLOAT
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd9, 32'd5, 0, 50);
+        check_result_r(32'h00000024, "format RGBA16_FLOAT sample");
+
+        tex_format = 4'h3; // RGBA32_FLOAT
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd9, 32'd5, 0, 50);
+        check_result_r(32'h00000024, "format RGBA32_FLOAT sample");
+
+        tex_format = 4'h6; // R8_UNORM
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd9, 32'd5, 0, 50);
+        check_result_r(32'h00000024, "format R8_UNORM sample");
+
+        // Exercise LOD/trilinear control fields with non-zero gradients.
+        tex_filter = 4'h2;
+        lod = 32'h0000_0000;
+        dsdx = 32'h0000_0020; dsdy = 32'h0000_0010;
+        dtdx = 32'h0000_0010; dtdy = 32'h0000_0020;
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd9, 32'd5, 0, 80);
+        check_completed("trilinear lod=0 completes");
+        check_result_r(32'h00000022, "trilinear lod=0 sample");
+
+        lod = 32'h0003_0000;
+        dsdx = 32'h0000_0800; dsdy = 32'h0000_0400;
+        dtdx = 32'h0000_0200; dtdy = 32'h0000_0100;
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd9, 32'd5, 0, 80);
+        check_completed("trilinear lod=3 completes");
+        check_result_r(32'h00000022, "trilinear lod=3 sample");
+
+        tex_filter = 4'h0;
+        tex_format = 4'h0;
+        lod = 0; dsdx = 0; dsdy = 0; dtdx = 0; dtdy = 0;
 
         //====================================================================
-        // 18. Unknown opcode — DUT must not hang; next valid op succeeds
+        // 19. Unknown opcode — DUT must not hang; next valid op succeeds
         //====================================================================
-        $display("\n=== Section 18: Unknown Opcode Recovery ===");
+        $display("\n=== Section 19: Unknown Opcode Recovery ===");
         // Send unknown opcode (RTL goes IDLE→busy=1→default→IDLE, busy stays)
         @(posedge clk);
         opcode <= 6'b111111; // undefined
