@@ -437,6 +437,17 @@ test_lz4_decompressor: $(BUILD_DIR)/tb_lz4_decompressor.vvp
 $(BUILD_DIR)/tb_lz4_decompressor.vvp: $(RTL_DIR)/lz4_decompressor.v $(TB_LZ4_DECOMP) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_LZ4_DECOMP) $(RTL_DIR)/lz4_decompressor.v
 
+
+test_warp_collective_unit: $(BUILD_DIR)/tb_warp_collective_unit.vvp
+	@echo "========================================"
+	@echo "Running Warp Collective Unit Test"
+	@echo "========================================"
+	vvp $<
+
+$(BUILD_DIR)/tb_warp_collective_unit.vvp: $(TB_DIR)/tb_warp_collective_unit.v $(RTL_DIR)/warp_collective_unit.v
+	@mkdir -p $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $^
+
 test_warp_ops: $(BUILD_DIR)/tb_warp_ops.vvp
 	@echo "========================================"
 	@echo "Running Warp Ops Functional Test"
