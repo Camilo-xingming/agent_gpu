@@ -67,6 +67,51 @@ module tb_video_unit;
         end
     endtask
 
+    // Check result plus overflow/saturate behavior for boundary cases.
+    task check_with_flags;
+        input [5:0]  t_func;
+        input        t_signed;
+        input [31:0] t_a, t_b, t_c;
+        input [31:0] expected;
+        input        expected_overflow;
+        input        expected_saturate;
+        input [255:0] name;
+        begin
+            test_num = test_num + 1;
+            @(posedge clk);
+            func      <= t_func;
+            is_signed <= t_signed;
+            valid_in  <= 1'b1;
+            operand_a <= t_a;
+            operand_b <= t_b;
+            operand_c <= t_c;
+            @(posedge clk);
+            @(posedge clk);
+            #1;
+            valid_in <= 1'b0;
+
+            if (valid_out !== 1'b1) begin
+                $display("FAIL #%0d %0s: valid_out=%b expected=1", test_num, name, valid_out);
+                fail_count = fail_count + 1;
+            end else if ((result === expected) &&
+                         (overflow === expected_overflow) &&
+                         (saturate_flag === expected_saturate)) begin
+                pass_count = pass_count + 1;
+            end else begin
+                $display("FAIL #%0d %0s: got result=%08h ovf=%b sat=%b, expected result=%08h ovf=%b sat=%b",
+                         test_num,
+                         name,
+                         result,
+                         overflow,
+                         saturate_flag,
+                         expected,
+                         expected_overflow,
+                         expected_saturate);
+                fail_count = fail_count + 1;
+            end
+        end
+    endtask
+
     initial begin
         // Reset
         rst_n = 0; valid_in = 0; func = 0;
@@ -166,9 +211,29 @@ module tb_video_unit;
         check(`VIDEO_DP4A_ALU, 0, 32'h04030201, 32'h08070605, 32'd100,
               32'h000000AA, "dp4a_alu");
 
+        // DP4A boundary: unsigned accumulate overflow wraps; no saturation flags.
+        check_with_flags(`VIDEO_DP4A, 0, 32'hFFFFFFFF, 32'hFFFFFFFF, 32'hFFFFFFFF,
+                         32'h0003F803, 1'b0, 1'b0, "dp4a u wrap boundary");
+
+        // DP4A boundary: signed positive overflow wraps through sign bit.
+        check_with_flags(`VIDEO_DP4A, 1, 32'h7F7F7F7F, 32'h7F7F7F7F, 32'h7FFF1000,
+                         32'h80000C04, 1'b0, 1'b0, "dp4a s wrap pos");
+
+        // DP4A boundary: signed negative underflow wraps; no saturation.
+        check_with_flags(`VIDEO_DP4A, 1, 32'h80808080, 32'h7F7F7F7F, 32'h80000010,
+                         32'h7FFF0210, 1'b0, 1'b0, "dp4a s wrap neg");
+
+        // DP4A ALU-routed variants hit the same wrap/flag behavior.
+        check_with_flags(`VIDEO_DP4A_ALU, 0, 32'hFFFFFFFF, 32'hFFFFFFFF, 32'hFFFFFFFF,
+                         32'h0003F803, 1'b0, 1'b0, "dp4a alu u wrap");
+        check_with_flags(`VIDEO_DP4A_ALU, 1, 32'h7F7F7F7F, 32'h7F7F7F7F, 32'h7FFF1000,
+                         32'h80000C04, 1'b0, 1'b0, "dp4a alu s wrap");
+
         //==================================================================
         // DP2A - 2-element dot product with accumulate (INT16)
         //==================================================================
+
+        // NOTE: lane packing is {half1, half0} in [31:16] and [15:0].
 
         // DP2A unsigned: a={5, 3} b={6, 4} c=10
         // dot = 3*4 + 5*6 = 12+30 = 42, result = 52 = 0x34
@@ -196,6 +261,24 @@ module tb_video_unit;
         // DP2A via ALU path
         check(`VIDEO_DP2A_ALU, 0, 32'h00050003, 32'h00060004, 32'd10,
               32'h00000034, "dp2a_alu");
+
+        // DP2A boundary: unsigned accumulate overflow wraps; no saturation flags.
+        check_with_flags(`VIDEO_DP2A, 0, 32'hFFFFFFFF, 32'hFFFFFFFF, 32'hFFFFFFFF,
+                         32'hFFFC0001, 1'b0, 1'b0, "dp2a u wrap boundary");
+
+        // DP2A boundary: signed positive overflow wraps.
+        check_with_flags(`VIDEO_DP2A, 1, 32'h7FFF0001, 32'h7FFF0001, 32'h7FFFFFFF,
+                         32'hBFFF0001, 1'b0, 1'b0, "dp2a s wrap pos");
+
+        // DP2A boundary: signed negative underflow wraps.
+        check_with_flags(`VIDEO_DP2A, 1, 32'h8000FFFF, 32'h7FFF7FFF, 32'h80000000,
+                         32'h40000001, 1'b0, 1'b0, "dp2a s wrap neg");
+
+        // DP2A ALU-routed variants hit the same wrap/flag behavior.
+        check_with_flags(`VIDEO_DP2A_ALU, 0, 32'hFFFFFFFF, 32'hFFFFFFFF, 32'hFFFFFFFF,
+                         32'hFFFC0001, 1'b0, 1'b0, "dp2a alu u wrap");
+        check_with_flags(`VIDEO_DP2A_ALU, 1, 32'h8000FFFF, 32'h7FFF7FFF, 32'h80000000,
+                         32'h40000001, 1'b0, 1'b0, "dp2a alu s wrap");
 
         //==================================================================
         // Scalar 32-bit operations
