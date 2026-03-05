@@ -304,6 +304,27 @@ module tb_warp_collective_unit;
         end
     endtask
 
+    task set_all_lanes;
+        input [31:0] value;
+        integer lane;
+        begin
+            for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin
+                set_lane_data(lane, value);
+            end
+        end
+    endtask
+
+    task set_alternating_lanes;
+        input [31:0] even_value;
+        input [31:0] odd_value;
+        integer lane;
+        begin
+            for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin
+                set_lane_data(lane, lane[0] ? odd_value : even_value);
+            end
+        end
+    endtask
+
     //------------------------------------------------------------------------
     // Main Test Sequence
     //------------------------------------------------------------------------
@@ -346,21 +367,46 @@ module tb_warp_collective_unit;
         test_match_any(32'h0000000F, 32'd100, 32'h00000000);  // No lane has 100
 
         //--------------------------------------------------------------------
-        // Test 3: match.sync.all - all lanes have same value
+        // Test 3: match.sync.any - all-zero boundary, full warp should match
         //--------------------------------------------------------------------
-        // Set all lanes to same value for this test
-        for (i = 0; i < NUM_LANES; i = i + 1) begin
-            set_lane_data(i, 32'hDEADBEEF);
-        end
+        set_all_lanes(32'h00000000);
+        @(posedge clk);
+        test_match_any(32'hFFFFFFFF, 32'h00000000, 32'hFFFFFFFF);
+
+        //--------------------------------------------------------------------
+        // Test 4: match.sync.any - alternating lane values
+        //--------------------------------------------------------------------
+        set_alternating_lanes(32'h11111111, 32'h22222222);
+        @(posedge clk);
+        test_match_any(32'hFFFFFFFF, 32'h22222222, 32'hAAAAAAAA);
+
+        //--------------------------------------------------------------------
+        // Test 5: match.sync.all - all lanes have same value
+        //--------------------------------------------------------------------
+        set_all_lanes(32'hDEADBEEF);
         @(posedge clk);
         test_match_all(32'hFFFFFFFF, 32'hDEADBEEF, 1'b1);
 
         //--------------------------------------------------------------------
-        // Test 4: match.sync.all - not all lanes match
+        // Test 6: match.sync.all - single-lane mismatch should fail
         //--------------------------------------------------------------------
         set_lane_data(0, 32'hCAFEBABE);  // Different value in lane 0
         @(posedge clk);
         test_match_all(32'hFFFFFFFF, 32'hDEADBEEF, 1'b0);
+
+        //--------------------------------------------------------------------
+        // Test 7: match.sync.all - all-one boundary
+        //--------------------------------------------------------------------
+        set_all_lanes(32'hFFFFFFFF);
+        @(posedge clk);
+        test_match_all(32'hFFFFFFFF, 32'hFFFFFFFF, 1'b1);
+
+        //--------------------------------------------------------------------
+        // Test 8: match.sync.all - alternating values should fail
+        //--------------------------------------------------------------------
+        set_alternating_lanes(32'hAAAAAAAA, 32'h55555555);
+        @(posedge clk);
+        test_match_all(32'hFFFFFFFF, 32'hAAAAAAAA, 1'b0);
 
         // Restore sequential values
         for (i = 0; i < NUM_LANES; i = i + 1) begin
@@ -369,27 +415,32 @@ module tb_warp_collective_unit;
         @(posedge clk);
 
         //--------------------------------------------------------------------
-        // Test 5: elect.sync - full mask, should elect lane 0
+        // Test 9: elect.sync - full mask, should elect lane 0
         //--------------------------------------------------------------------
         test_elect_sync(32'hFFFFFFFF, 5'd0);
 
         //--------------------------------------------------------------------
-        // Test 6: elect.sync - mask starting at lane 4
+        // Test 10: elect.sync - mask starting at lane 4
         //--------------------------------------------------------------------
         test_elect_sync(32'hFFFFFFF0, 5'd4);
 
         //--------------------------------------------------------------------
-        // Test 7: elect.sync - only lane 16
+        // Test 11: elect.sync - only lane 16
         //--------------------------------------------------------------------
         test_elect_sync(32'h00010000, 5'd16);
 
         //--------------------------------------------------------------------
-        // Test 8: elect.sync - sparse mask (lanes 3, 7, 15)
+        // Test 12: elect.sync - sparse mask (lanes 3, 7, 15)
         //--------------------------------------------------------------------
         test_elect_sync(32'h00008088, 5'd3);  // Lowest is lane 3
 
         //--------------------------------------------------------------------
-        // Test 9: red.async.add - sum lanes 0-3 (0+1+2+3=6)
+        // Test 13: elect.sync - alternating odd lanes
+        //--------------------------------------------------------------------
+        test_elect_sync(32'hAAAAAAAA, 5'd1);
+
+        //--------------------------------------------------------------------
+        // Test 14: red.async.add - sum lanes 0-3 (0+1+2+3=6)
         //--------------------------------------------------------------------
         for (i = 0; i < NUM_LANES; i = i + 1) begin
             set_lane_data(i, i);
@@ -398,17 +449,28 @@ module tb_warp_collective_unit;
         test_red_async_add(32'h0000000F, 14'h100, 32'd6);
 
         //--------------------------------------------------------------------
-        // Test 10: red.async.add - sum all 32 lanes (0+1+...+31 = 496)
+        // Test 15: red.async.add - sum all 32 lanes (0+1+...+31 = 496)
         //--------------------------------------------------------------------
         test_red_async_add(32'hFFFFFFFF, 14'h200, 32'd496);
 
         //--------------------------------------------------------------------
-        // Test 11: red.async.max - find max of lanes 0-7 (max=7)
+        // Test 16: red.async.add - alternating lanes boundary (16*1 + 16*2)
         //--------------------------------------------------------------------
+        set_alternating_lanes(32'd1, 32'd2);
+        @(posedge clk);
+        test_red_async_add(32'hFFFFFFFF, 14'h280, 32'd48);
+
+        //--------------------------------------------------------------------
+        // Test 17: red.async.max - find max of lanes 0-7 (max=7)
+        //--------------------------------------------------------------------
+        for (i = 0; i < NUM_LANES; i = i + 1) begin
+            set_lane_data(i, i);
+        end
+        @(posedge clk);
         test_red_async_max(32'h000000FF, 14'h300, 32'd7);
 
         //--------------------------------------------------------------------
-        // Test 12: red.async.max - non-sequential values
+        // Test 18: red.async.max - non-sequential values
         //--------------------------------------------------------------------
         set_lane_data(0, 100);
         set_lane_data(1, 50);
@@ -416,6 +478,13 @@ module tb_warp_collective_unit;
         set_lane_data(3, 75);
         @(posedge clk);
         test_red_async_max(32'h0000000F, 14'h400, 32'd200);
+
+        //--------------------------------------------------------------------
+        // Test 19: red.async.max - all-zero boundary
+        //--------------------------------------------------------------------
+        set_all_lanes(32'h00000000);
+        @(posedge clk);
+        test_red_async_max(32'hFFFFFFFF, 14'h480, 32'd0);
 
         //--------------------------------------------------------------------
         // Summary
