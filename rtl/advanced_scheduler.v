@@ -353,7 +353,7 @@ module advanced_warp_scheduler #(
         if (issue_valid_r[0]) begin
             // Try to issue to a different pipe
             if (issue_pipe_r[0] != PIPE_COMPUTE0 && found_compute0 && compute_pipe0_ready &&
-                !check_issue_conflict(issue_warp_r[0], selected_compute0, warp_rd[issue_warp_r[0]],
+                !check_issue_conflict(issue_warp_r[0], selected_compute0, warp_rd[issue_warp_r[0]*5 +: 5],
                                      warp_rs1[selected_compute0*5 +: 5], warp_rs2[selected_compute0*5 +: 5], warp_rs3[selected_compute0*5 +: 5])) begin
                 issue_valid_r[1] = 1'b1;
                 issue_warp_r[1] = selected_compute0;
@@ -361,7 +361,7 @@ module advanced_warp_scheduler #(
                 issue_pipe_r[1] = PIPE_COMPUTE0;
                 issue_writes_reg_r[1] = warp_writes_reg[selected_compute0];
             end else if (issue_pipe_r[0] != PIPE_COMPUTE1 && found_compute1 && compute_pipe1_ready &&
-                        !check_issue_conflict(issue_warp_r[0], selected_compute1, warp_rd[issue_warp_r[0]],
+                        !check_issue_conflict(issue_warp_r[0], selected_compute1, warp_rd[issue_warp_r[0]*5 +: 5],
                                              warp_rs1[selected_compute1*5 +: 5], warp_rs2[selected_compute1*5 +: 5], warp_rs3[selected_compute1*5 +: 5])) begin
                 issue_valid_r[1] = 1'b1;
                 issue_warp_r[1] = selected_compute1;
@@ -369,7 +369,7 @@ module advanced_warp_scheduler #(
                 issue_pipe_r[1] = PIPE_COMPUTE1;
                 issue_writes_reg_r[1] = warp_writes_reg[selected_compute1];
             end else if (issue_pipe_r[0] != PIPE_TENSOR && found_tensor && tensor_pipe_ready &&
-                        !check_issue_conflict(issue_warp_r[0], selected_tensor, warp_rd[issue_warp_r[0]],
+                        !check_issue_conflict(issue_warp_r[0], selected_tensor, warp_rd[issue_warp_r[0]*5 +: 5],
                                              warp_rs1[selected_tensor*5 +: 5], warp_rs2[selected_tensor*5 +: 5], warp_rs3[selected_tensor*5 +: 5])) begin
                 issue_valid_r[1] = 1'b1;
                 issue_warp_r[1] = selected_tensor;
@@ -377,7 +377,7 @@ module advanced_warp_scheduler #(
                 issue_pipe_r[1] = PIPE_TENSOR;
                 issue_writes_reg_r[1] = warp_writes_reg[selected_tensor];
             end else if (issue_pipe_r[0] != PIPE_MEMORY && found_memory && memory_pipe_ready &&
-                        !check_issue_conflict(issue_warp_r[0], selected_memory, warp_rd[issue_warp_r[0]],
+                        !check_issue_conflict(issue_warp_r[0], selected_memory, warp_rd[issue_warp_r[0]*5 +: 5],
                                              warp_rs1[selected_memory*5 +: 5], warp_rs2[selected_memory*5 +: 5], warp_rs3[selected_memory*5 +: 5])) begin
                 issue_valid_r[1] = 1'b1;
                 issue_warp_r[1] = selected_memory;
