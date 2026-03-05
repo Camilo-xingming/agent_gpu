@@ -418,7 +418,7 @@ module tb_sm_v2_integration;
         run_kernel(500);
         report_and_check(2,
                          "Reduction-like video SIMD",
-                         4,
+                         5,
                          x_before);
 
         //------------------------------------------------------------------------
@@ -429,7 +429,7 @@ module tb_sm_v2_integration;
         run_kernel(700);
         report_and_check(3,
                          "Memory-coalescing style stream",
-                         5,
+                         6,
                          x_before);
 
         $display("\n============================================================");
