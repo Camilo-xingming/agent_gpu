@@ -978,7 +978,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_l1_data_cache_active test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_warp_collective_unit test_dual_issue_scheduler test_warp_ops test_video_unit test_dpx_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_sm_wbq_bank test_memory_controller_hbm test_async_copy_engine test_advanced_scheduler
+test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_l1_data_cache_active test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_warp_collective_unit test_dual_issue_scheduler test_warp_ops test_video_unit test_dpx_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_sm_wbq_bank test_memory_controller_hbm test_async_copy_engine test_advanced_scheduler test_wgmma_throughput test_ray_tracing_core test_wgmma_tile_engine test_tensor_core_mma test_st_async test_tensor_core_fp4 test_cpasync_bandwidth test_wb_fifo_overflow test_memory_controller test_tensor_fp4_fp8 test_cpasync test_tensor_core test_multimem_unit test_tma_unit
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
@@ -1337,3 +1337,103 @@ test_sm_v2_comprehensive: $(BUILD_DIR)/tb_sm_v2_comprehensive.vvp
 $(BUILD_DIR)/tb_sm_v2_comprehensive.vvp: $(SM_V2_SRCS) $(TB_SM_V2_COMPREHENSIVE) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_SM_V2_COMPREHENSIVE) $(filter %.v,$(SM_V2_SRCS))
 
+
+
+test_wgmma_throughput: $(BUILD_DIR)/tb_wgmma_throughput.vvp
+	@echo "========================================"
+	@echo "Running test_wgmma_throughput"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_wgmma_throughput.vvp
+
+$(BUILD_DIR)/tb_wgmma_throughput.vvp: $(TB_DIR)/tb_wgmma_throughput.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
+
+test_ray_tracing_core: $(BUILD_DIR)/tb_ray_tracing_core.vvp
+	@echo "========================================"
+	@echo "Running test_ray_tracing_core"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_ray_tracing_core.vvp
+
+$(BUILD_DIR)/tb_ray_tracing_core.vvp: $(TB_DIR)/tb_ray_tracing_core.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
+
+test_tensor_core_mma: $(BUILD_DIR)/tb_tensor_core_mma.vvp
+	@echo "========================================"
+	@echo "Running test_tensor_core_mma"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_tensor_core_mma.vvp
+
+$(BUILD_DIR)/tb_tensor_core_mma.vvp: $(TB_DIR)/tb_tensor_core_mma.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
+
+test_st_async: $(BUILD_DIR)/tb_st_async.vvp
+	@echo "========================================"
+	@echo "Running test_st_async"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_st_async.vvp
+
+$(BUILD_DIR)/tb_st_async.vvp: $(TB_DIR)/tb_st_async.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
+
+test_cpasync_bandwidth: $(BUILD_DIR)/tb_cpasync_bandwidth.vvp
+	@echo "========================================"
+	@echo "Running test_cpasync_bandwidth"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_cpasync_bandwidth.vvp
+
+$(BUILD_DIR)/tb_cpasync_bandwidth.vvp: $(TB_DIR)/tb_cpasync_bandwidth.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
+
+test_wb_fifo_overflow: $(BUILD_DIR)/tb_wb_fifo_overflow.vvp
+	@echo "========================================"
+	@echo "Running test_wb_fifo_overflow"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_wb_fifo_overflow.vvp
+
+$(BUILD_DIR)/tb_wb_fifo_overflow.vvp: $(TB_DIR)/tb_wb_fifo_overflow.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
+
+test_cpasync: $(BUILD_DIR)/tb_cpasync.vvp
+	@echo "========================================"
+	@echo "Running test_cpasync"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_cpasync.vvp
+
+$(BUILD_DIR)/tb_cpasync.vvp: $(TB_DIR)/tb_cpasync.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
+
+test_tensor_core: $(BUILD_DIR)/tb_tensor_core.vvp
+	@echo "========================================"
+	@echo "Running test_tensor_core"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_tensor_core.vvp
+
+$(BUILD_DIR)/tb_tensor_core.vvp: $(TB_DIR)/tb_tensor_core.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
+
+test_multimem_unit: $(BUILD_DIR)/tb_multimem_unit.vvp
+	@echo "========================================"
+	@echo "Running test_multimem_unit"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_multimem_unit.vvp
+
+$(BUILD_DIR)/tb_multimem_unit.vvp: $(TB_DIR)/tb_multimem_unit.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
+
+test_tma_unit: $(BUILD_DIR)/tb_tma_unit.vvp
+	@echo "========================================"
+	@echo "Running test_tma_unit"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_tma_unit.vvp
+
+$(BUILD_DIR)/tb_tma_unit.vvp: $(TB_DIR)/tb_tma_unit.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
