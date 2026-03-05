@@ -155,9 +155,9 @@ endif
 #=====================================================================# 目标
 #=====================================================================
 .PHONY: all sim wave clean assemble help test test_all regression
-.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_memory_interface_wide test_l1_data_cache_optimized test_l1_data_cache_active test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_warp_collective_unit test_dual_issue_scheduler test_control_flow_unit test_sfu test_cvt_unit test_dpx_unit benchmark
+.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_memory_interface_wide test_l1_data_cache_optimized test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_warp_collective_unit test_dual_issue_scheduler test_control_flow_unit test_sfu test_cvt_unit test_dpx_unit benchmark
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
-.PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_sm_wbq_bank test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_l1_data_cache_optimized test_l1_data_cache_active test_icache_lru test_phase2 test_warp_valid_d1
+.PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_sm_wbq_bank test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_l1_data_cache_optimized test_icache_lru test_phase2 test_warp_valid_d1
 
 # Audited must-run regression suite (stable gates for local + CI).
 # Non-gating/extended tests are tracked separately and can be run via:
@@ -678,13 +678,11 @@ test_l1_data_cache_optimized: $(BUILD_DIR)/tb_l1_data_cache_optimized.vvp
 $(BUILD_DIR)/tb_l1_data_cache_optimized.vvp: $(TB_L1_DATA_CACHE_OPT) $(RTL_DIR)/l1_data_cache_optimized.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_L1_DATA_CACHE_OPT) $(RTL_DIR)/l1_data_cache_optimized.v
 
-test_l1_data_cache_active: $(BUILD_DIR)/tb_l1_data_cache_active.vvp
 	@echo "========================================"
 	@echo "Running Active L1 Data Cache Test (L1D enabled path)"
 	@echo "========================================"
 	cd $(BUILD_DIR) && $(VVP) tb_l1_data_cache_active.vvp
 
-$(BUILD_DIR)/tb_l1_data_cache_active.vvp: $(TB_L1_DATA_CACHE_ACTIVE) $(RTL_DIR)/l1_data_cache_optimized.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_L1_DATA_CACHE_ACTIVE) $(RTL_DIR)/l1_data_cache_optimized.v
 
 test_icache_lru: $(BUILD_DIR)/tb_icache_lru_conflict.vvp
@@ -978,7 +976,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_l1_data_cache_active test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_warp_collective_unit test_dual_issue_scheduler test_warp_ops test_video_unit test_dpx_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_sm_wbq_bank test_memory_controller_hbm test_async_copy_engine test_advanced_scheduler
+test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_warp_collective_unit test_dual_issue_scheduler test_warp_ops test_video_unit test_dpx_unit test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_sm_wbq_bank test_memory_controller_hbm test_async_copy_engine test_advanced_scheduler test_wgmma_throughput test_wgmma_tile_engine test_tensor_core_fp4 test_memory_controller test_tensor_fp4_fp8
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
@@ -1336,4 +1334,16 @@ test_sm_v2_comprehensive: $(BUILD_DIR)/tb_sm_v2_comprehensive.vvp
 
 $(BUILD_DIR)/tb_sm_v2_comprehensive.vvp: $(SM_V2_SRCS) $(TB_SM_V2_COMPREHENSIVE) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_SM_V2_COMPREHENSIVE) $(filter %.v,$(SM_V2_SRCS))
+
+
+
+test_wgmma_throughput: $(BUILD_DIR)/tb_wgmma_throughput.vvp
+	@echo "========================================"
+	@echo "Running test_wgmma_throughput"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_wgmma_throughput.vvp
+
+$(BUILD_DIR)/tb_wgmma_throughput.vvp: $(TB_DIR)/tb_wgmma_throughput.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
 
