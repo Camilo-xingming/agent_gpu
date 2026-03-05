@@ -56,3 +56,4 @@
 | Sprint 40 | 2026-03-04 | TB Coverage: sm_fetch_pipeline, tensor_memory, dual_issue_scheduler, memory_controller_hbm | 4 | 3 | 1 | 75% | #389 #390 #391 closed; #392 carry-over | auto-generated |
 | Sprint 41 | 2026-03-04 | TB coverage for dual_issue_scheduler (#392) | 8 | 8 | 0 | 100% | #392 #396 #397 #398 #404 #405 #407 #409 全部关闭，PRs #400 #401 #402 #403 #406 #408 #410 #411 merged | auto-generated |
 | Sprint 42 | 2026-03-04 | TB coverage for uncovered RTL modules | 4 | 0 | 4 | 0% | #412 #413 #414 #415 全部遗留，0完成，已移回 backlog |
+| Sprint 43 | 2026-03-04 | TB coverage carry-over — advanced_scheduler, l1_data_cache_optimized, wgmma_tile_engine, memory_interface_wide | 4 | 4 | 0 | 100% | #412 #413 #414 #415 全部关闭，PRs #416 #417 #418 #419 merged | auto-generated |
