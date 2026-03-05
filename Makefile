@@ -1040,7 +1040,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_alu test_mul test_fma_int32 test_decoder test_regfile test_smem test_memory_coalescing_unit test_memory_interface test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_warp test_warp_collective_unit test_dual_issue_scheduler test_warp_ops test_video_unit test_fpu test_fp16_unit test_fpu64 test_sfu test_cvt_unit test_dpx_unit test_control_flow_unit test_branch_predictor test_icache test_cache_policy_unit test_forwarding_unit test_l1_data_cache_optimized test_tensor_core_e2e test_tensor_memory test_texture_unit test_command_queue test_command_processor test_wb_fifo test_sm_wbq_bank test_memory_controller_hbm test_async_copy_engine test_advanced_scheduler test_wgmma_throughput test_wgmma_tile_engine test_tensor_core_fp4 test_memory_controller test_tensor_fp4_fp8 test_atomic test_mbarrier_unit test_tma_unit test_multimem_unit test_cluster_barrier_unit test_warp_shuffle test_tlb test_tlb_enhanced test_performance_counters test_stack_debug_unit test_griddep_unit test_st_bulk_unit
+test: test_advanced_scheduler test_alu test_async_copy_engine test_atomic test_branch_predictor test_cache_policy_unit test_chi_controller test_cluster_barrier_unit test_command_processor test_command_queue test_control_flow_unit test_cvt_unit test_decoder test_dpx_unit test_dual_issue_scheduler test_fma_int32 test_forwarding_unit test_fp16_unit test_fpu test_fpu64 test_griddep_unit test_icache test_l1_data_cache_optimized test_l2_cache test_l2_interconnect test_lz4_decompressor test_mbarrier_unit test_memory_coalescing_unit test_memory_controller test_memory_controller_hbm test_memory_interface test_memory_interface_wide test_memory_qos test_mul test_multimem_unit test_performance_counters test_reconvergence_stack test_regfile test_register_file_banked test_sfu test_sm_fetch_pipeline test_sm_gmem_arbiter test_sm_special_reg test_sm_wbq_bank test_sm_writeback_arbiter test_smem test_st_bulk_unit test_stack_debug_unit test_tensor_core_e2e test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_memory test_texture_smem_gmem_integration test_texture_unit test_tlb test_tlb_enhanced test_tma_unit test_video_unit test_warp test_warp_collective_unit test_warp_ops test_warp_shuffle test_wb_fifo test_wgmma_throughput test_wgmma_tile_engine
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
@@ -1523,3 +1523,22 @@ test_st_bulk_unit: $(BUILD_DIR)/tb_st_bulk_unit.vvp
 
 $(BUILD_DIR)/tb_st_bulk_unit.vvp: $(RTL_DIR)/st_bulk_unit.v $(RTL_DIR)/gpu_defines.vh tb/tb_st_bulk_unit.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_st_bulk_unit.v $(RTL_DIR)/st_bulk_unit.v
+
+test_l2_cache: $(BUILD_DIR)/tb_l2_cache.vvp
+	@echo "========================================"
+	@echo "Running L2 Cache Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_l2_cache.vvp
+
+$(BUILD_DIR)/tb_l2_cache.vvp: $(RTL_DIR)/l2_cache.v $(RTL_DIR)/l2_interconnect.v tb/tb_l2_cache.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_l2_cache.v $(RTL_DIR)/l2_cache.v $(RTL_DIR)/l2_interconnect.v
+
+
+test_register_file_banked: $(BUILD_DIR)/tb_register_file_banked.vvp
+	@echo "========================================"
+	@echo "Running Register File Banked Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_register_file_banked.vvp
+
+$(BUILD_DIR)/tb_register_file_banked.vvp: $(RTL_DIR)/register_file_banked.v tb/tb_register_file_banked.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_register_file_banked.v $(RTL_DIR)/register_file_banked.v
