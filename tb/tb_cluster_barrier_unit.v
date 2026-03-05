@@ -27,16 +27,16 @@ module tb_cluster_barrier_unit;
     // DUT Interface
     //------------------------------------------------------------------------
     reg  [NUM_SM-1:0]            sm_arrive_valid;
-    reg  [BARRIER_ID_W-1:0]      sm_arrive_barrier_id [0:NUM_SM-1];
-    reg  [THREAD_COUNT_W-1:0]    sm_arrive_count [0:NUM_SM-1];
+    reg  [NUM_SM-1:0][BARRIER_ID_W-1:0] sm_arrive_barrier_id;
+    reg  [NUM_SM-1:0][THREAD_COUNT_W-1:0] sm_arrive_count;
 
     reg  [NUM_SM-1:0]            sm_wait_valid;
-    reg  [BARRIER_ID_W-1:0]      sm_wait_barrier_id [0:NUM_SM-1];
+    reg  [NUM_SM-1:0][BARRIER_ID_W-1:0] sm_wait_barrier_id;
     wire [NUM_SM-1:0]            sm_wait_complete;
 
     reg  [NUM_SM-1:0]            sm_init_valid;
-    reg  [BARRIER_ID_W-1:0]      sm_init_barrier_id [0:NUM_SM-1];
-    reg  [THREAD_COUNT_W-1:0]    sm_init_count [0:NUM_SM-1];
+    reg  [NUM_SM-1:0][BARRIER_ID_W-1:0] sm_init_barrier_id;
+    reg  [NUM_SM-1:0][THREAD_COUNT_W-1:0] sm_init_count;
 
     wire [NUM_BARRIERS-1:0]      barrier_active;
     wire [NUM_BARRIERS-1:0]      barrier_complete;
