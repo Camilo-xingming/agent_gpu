@@ -458,11 +458,20 @@ $(BUILD_DIR)/tb_warp_ops.vvp: $(RTL_DIR)/warp_shuffle.v $(RTL_DIR)/gpu_defines.v
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_warp_ops.v $(RTL_DIR)/warp_shuffle.v
 
 
+test_video_unit_ext: $(BUILD_DIR)/tb_video_unit_ext.vvp
+	@echo "========================================"
+	@echo "Running Extended Video Unit Test (SIMD Masking)"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_video_unit_ext.vvp
+
 test_video_unit: $(BUILD_DIR)/tb_video_unit.vvp
 	@echo "========================================"
 	@echo "Running Video Unit SIMD Test"
 	@echo "========================================"
 	cd $(BUILD_DIR) && $(VVP) tb_video_unit.vvp
+
+$(BUILD_DIR)/tb_video_unit_ext.vvp: $(RTL_DIR)/video_unit.v tb/tb_video_unit_ext.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_video_unit_ext.v $(RTL_DIR)/video_unit.v
 
 $(BUILD_DIR)/tb_video_unit.vvp: $(RTL_DIR)/video_unit.v $(RTL_DIR)/gpu_defines.vh $(TB_DIR)/tb_video_unit.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_video_unit.v $(RTL_DIR)/video_unit.v
