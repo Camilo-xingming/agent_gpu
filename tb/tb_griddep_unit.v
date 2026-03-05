@@ -52,7 +52,7 @@ module tb_griddep_unit;
     // Dependency status
     reg  [MAX_GRIDS-1:0]     dep_satisfied;
     reg  [MAX_GRIDS-1:0]     grid_active;
-    reg  [TOKEN_WIDTH-1:0]   current_tokens [0:MAX_GRIDS-1];
+    reg  [MAX_GRIDS*TOKEN_WIDTH-1:0]   current_tokens;
 
     //------------------------------------------------------------------------
     // DUT Instantiation
@@ -119,7 +119,7 @@ module tb_griddep_unit;
         dep_satisfied = 0;
         grid_active = 0;
         for (i = 0; i < MAX_GRIDS; i = i + 1) begin
-            current_tokens[i] = 0;
+            current_tokens[i*TOKEN_WIDTH +: TOKEN_WIDTH] = 0;
         end
         #20;
         rst_n = 1;
@@ -235,7 +235,7 @@ module tb_griddep_unit;
 
         // Setup: Grid 3 is active with token 200, and dependency is satisfied
         grid_active[3] = 1'b1;
-        current_tokens[3] = 16'd200;
+        current_tokens[3*TOKEN_WIDTH +: TOKEN_WIDTH] = 16'd200;
         dep_satisfied[3] = 1'b1;
 
         issue_griddep_op(`GRIDDEP_WAIT, 32'd200, 32'h0);
@@ -273,7 +273,7 @@ module tb_griddep_unit;
 
         // Setup: Grid 4 is active with token 300, dependency NOT satisfied
         grid_active[4] = 1'b1;
-        current_tokens[4] = 16'd300;
+        current_tokens[4*TOKEN_WIDTH +: TOKEN_WIDTH] = 16'd300;
         dep_satisfied[4] = 1'b0;
 
         // Start wait in background
@@ -362,7 +362,7 @@ module tb_griddep_unit;
         // but internal grid_completed[2] should be set)
         // Let's set up a new scenario
         grid_active[6] = 1'b1;
-        current_tokens[6] = 16'd600;
+        current_tokens[6*TOKEN_WIDTH +: TOKEN_WIDTH] = 16'd600;
         dep_satisfied[6] = 1'b0;  // Not satisfied via scheduler
 
         // Signal completion for grid 6
