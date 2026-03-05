@@ -1,11 +1,9 @@
 SHELL := /bin/bash
 export PATH := /opt/homebrew/bin:$(PATH)
 
-#============================================================================
-# RalphGPU Makefile
+#=====================================================================# RalphGPU Makefile
 # CUDA/PTX兼容GPU IP
-#============================================================================
-
+#=====================================================================
 # 工具
 IVERILOG = iverilog
 VVP = vvp
@@ -153,10 +151,8 @@ ifneq ($(GPU_PROFILE),)
 RTL_DEFINES += -DGPU_PROFILE_$(GPU_PROFILE)
 endif
 
-#============================================================================
-# 目标
-#============================================================================
-
+#=====================================================================# 目标
+#=====================================================================
 .PHONY: all sim wave clean assemble help test test_all regression
 .PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_memory_interface_wide test_l1_data_cache_optimized test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_dual_issue_scheduler test_control_flow_unit test_sfu test_cvt_unit benchmark
 .PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
@@ -1131,10 +1127,8 @@ help:
 	@echo "  doc/      - Documentation"
 	@echo "  build/    - Build outputs"
 
-#============================================================================
-# 配置选项 (可通过make参数覆盖)
-#============================================================================
-# NUM_SM=4 make sim  - 使用4个SM仿真
+#=====================================================================# 配置选项 (可通过make参数覆盖)
+#=====================================================================# NUM_SM=4 make sim  - 使用4个SM仿真
 # 注意: 需要修改gpu_defines.vh中的参数
 
 # warp_inst_valid_d1 stall scenario test
@@ -1296,3 +1290,11 @@ test_texture_smem_gmem_integration: $(BUILD_DIR)/tb_texture_smem_gmem_integratio
 
 $(BUILD_DIR)/tb_texture_smem_gmem_integration.vvp: $(RTL_DIR)/texture_unit.v $(RTL_DIR)/sm_gmem_arbiter.v $(RTL_DIR)/shared_memory.v $(RTL_DIR)/gpu_defines.vh $(TB_TEX_SMEM_GMEM_INT) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_TEX_SMEM_GMEM_INT) $(RTL_DIR)/texture_unit.v $(RTL_DIR)/sm_gmem_arbiter.v $(RTL_DIR)/shared_memory.v
+TB_SM_V2_COMPREHENSIVE = $(TB_DIR)/tb_sm_v2_comprehensive.v
+
+test_sm_v2_comprehensive: $(BUILD_DIR)/tb_sm_v2_comprehensive.vvp
+	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_comprehensive.vvp
+
+$(BUILD_DIR)/tb_sm_v2_comprehensive.vvp: $(SM_V2_SRCS) $(TB_SM_V2_COMPREHENSIVE) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_SM_V2_COMPREHENSIVE) $(filter %.v,$(SM_V2_SRCS))
+
