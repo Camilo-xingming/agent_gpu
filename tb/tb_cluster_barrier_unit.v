@@ -27,16 +27,16 @@ module tb_cluster_barrier_unit;
     // DUT Interface
     //------------------------------------------------------------------------
     reg  [NUM_SM-1:0]            sm_arrive_valid;
-    reg  [BARRIER_ID_W-1:0]      sm_arrive_barrier_id [0:NUM_SM-1];
-    reg  [THREAD_COUNT_W-1:0]    sm_arrive_count [0:NUM_SM-1];
+    reg  [NUM_SM*BARRIER_ID_W-1:0]      sm_arrive_barrier_id;
+    reg  [NUM_SM*THREAD_COUNT_W-1:0]    sm_arrive_count;
 
     reg  [NUM_SM-1:0]            sm_wait_valid;
-    reg  [BARRIER_ID_W-1:0]      sm_wait_barrier_id [0:NUM_SM-1];
+    reg  [NUM_SM*BARRIER_ID_W-1:0]      sm_wait_barrier_id;
     wire [NUM_SM-1:0]            sm_wait_complete;
 
     reg  [NUM_SM-1:0]            sm_init_valid;
-    reg  [BARRIER_ID_W-1:0]      sm_init_barrier_id [0:NUM_SM-1];
-    reg  [THREAD_COUNT_W-1:0]    sm_init_count [0:NUM_SM-1];
+    reg  [NUM_SM*BARRIER_ID_W-1:0]      sm_init_barrier_id;
+    reg  [NUM_SM*THREAD_COUNT_W-1:0]    sm_init_count;
 
     wire [NUM_BARRIERS-1:0]      barrier_active;
     wire [NUM_BARRIERS-1:0]      barrier_complete;
@@ -91,11 +91,11 @@ module tb_cluster_barrier_unit;
         sm_wait_valid = 0;
         sm_init_valid = 0;
         for (i = 0; i < NUM_SM; i = i + 1) begin
-            sm_arrive_barrier_id[i] = 0;
-            sm_arrive_count[i] = 0;
-            sm_wait_barrier_id[i] = 0;
-            sm_init_barrier_id[i] = 0;
-            sm_init_count[i] = 0;
+            sm_arrive_barrier_id[i*BARRIER_ID_W +: BARRIER_ID_W] = 0;
+            sm_arrive_count[i*THREAD_COUNT_W +: THREAD_COUNT_W] = 0;
+            sm_wait_barrier_id[i*BARRIER_ID_W +: BARRIER_ID_W] = 0;
+            sm_init_barrier_id[i*BARRIER_ID_W +: BARRIER_ID_W] = 0;
+            sm_init_count[i*THREAD_COUNT_W +: THREAD_COUNT_W] = 0;
         end
         #20;
         rst_n = 1;
@@ -110,8 +110,8 @@ module tb_cluster_barrier_unit;
     begin
         @(posedge clk);
         sm_init_valid[sm_id] = 1;
-        sm_init_barrier_id[sm_id] = barrier_id;
-        sm_init_count[sm_id] = thread_count;
+        sm_init_barrier_id[sm_id*BARRIER_ID_W +: BARRIER_ID_W] = barrier_id;
+        sm_init_count[sm_id*THREAD_COUNT_W +: THREAD_COUNT_W] = thread_count;
         @(posedge clk);
         sm_init_valid = 0;
         #10;
@@ -125,8 +125,8 @@ module tb_cluster_barrier_unit;
     begin
         @(posedge clk);
         sm_arrive_valid[sm_id] = 1;
-        sm_arrive_barrier_id[sm_id] = barrier_id;
-        sm_arrive_count[sm_id] = count;
+        sm_arrive_barrier_id[sm_id*BARRIER_ID_W +: BARRIER_ID_W] = barrier_id;
+        sm_arrive_count[sm_id*THREAD_COUNT_W +: THREAD_COUNT_W] = count;
         @(posedge clk);
         sm_arrive_valid = 0;
         #10;
@@ -140,7 +140,7 @@ module tb_cluster_barrier_unit;
     begin
         @(posedge clk);
         sm_wait_valid[sm_id] = 1;
-        sm_wait_barrier_id[sm_id] = barrier_id;
+        sm_wait_barrier_id[sm_id*BARRIER_ID_W +: BARRIER_ID_W] = barrier_id;
         @(posedge clk);
         complete = sm_wait_complete[sm_id];
         sm_wait_valid = 0;
@@ -259,8 +259,8 @@ module tb_cluster_barrier_unit;
         @(posedge clk);
         sm_arrive_valid = 4'b1111;
         for (i = 0; i < NUM_SM; i = i + 1) begin
-            sm_arrive_barrier_id[i] = 4'd4;
-            sm_arrive_count[i] = 16'd32;
+            sm_arrive_barrier_id[i*BARRIER_ID_W +: BARRIER_ID_W] = 4'd4;
+            sm_arrive_count[i*THREAD_COUNT_W +: THREAD_COUNT_W] = 16'd32;
         end
         @(posedge clk);
         sm_arrive_valid = 0;
