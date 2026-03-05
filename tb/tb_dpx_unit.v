@@ -286,7 +286,33 @@ module tb_dpx_unit;
         test_dpx_op(`DPX_EXP2, 32'd10, 32'd0, 32'd0, 32'd1024, 32'hx, "EXP2: 2^10 = 1024");
 
         //====================================================================
-        // Test 16: Sparse MMA Unit - Compress operation
+        //====================================================================
+        // Test 16: TANH boundary and saturation behavior
+        //====================================================================
+        test_dpx_op(`DPX_TANH, 32'sd4, 32'd0, 32'd0, 32'd1, 32'hx, "TANH: saturate high at +1");
+        test_dpx_op(`DPX_TANH, -32'sd4, 32'd0, 32'd0, 32'hFFFFFFFF, 32'hx, "TANH: saturate low at -1");
+        test_dpx_op(`DPX_TANH, 32'sd1, 32'd0, 32'd0, 32'd1, 32'hx, "TANH: linear region at +1");
+        test_dpx_op(`DPX_TANH, 32'sd2, 32'd0, 32'd0, 32'd1, 32'hx, "TANH: piecewise positive region");
+
+        //====================================================================
+        // Test 17: EXP2 boundary behavior (negative and saturation)
+        //====================================================================
+        test_dpx_op(`DPX_EXP2, -32'sd1, 32'd0, 32'd0, 32'd0, 32'hx, "EXP2: negative input rounds to 0");
+        test_dpx_op(`DPX_EXP2, 32'd31, 32'd0, 32'd0, 32'h80000000, 32'hx, "EXP2: saturate at bit31");
+        test_dpx_op(`DPX_EXP2, 32'd40, 32'd0, 32'd0, 32'h80000000, 32'hx, "EXP2: saturate when input > 31");
+
+        //====================================================================
+        // Test 18: VIADDMIN/VIADDMAX overflow and abs edge behavior
+        //====================================================================
+        test_dpx_op(`DPX_VIADDMIN, 32'h7FFFFFFF, 32'd1, 32'h7FFFFFFF, 32'h80000000, 32'hx,
+                    "VIADDMIN: signed overflow path");
+        test_dpx_op(`DPX_VIADDMAX, 32'h7FFFFFFF, 32'd1, 32'h7FFFFFFF, 32'h7FFFFFFF, 32'hx,
+                    "VIADDMAX: signed overflow path");
+        test_dpx_op(`DPX_VIADDMINMAX, 32'h7FFFFFFF, 32'd1, 32'h7FFFFFFF, 32'h80000000, 32'h7FFFFFFF,
+                    "VIADDMINMAX: overflow min/max pair");
+        test_dpx_op(`DPX_VIMINABS, 32'h80000000, 32'd1, 32'd0, 32'd1, 32'hx,
+                    "VIMINABS: abs(INT_MIN) edge case");
+        // Test 24: Sparse MMA Unit - Compress operation
         //====================================================================
         $display("\n[TEST %0d] Sparse MMA Unit: Compress operation", test_num + 1);
         test_num = test_num + 1;
@@ -326,7 +352,7 @@ module tb_dpx_unit;
         #20;
 
         //====================================================================
-        // Test 17: Sparse MMA Unit - Decompress operation
+        // Test 25: Sparse MMA Unit - Decompress operation
         //====================================================================
         $display("\n[TEST %0d] Sparse MMA Unit: Decompress operation", test_num + 1);
         test_num = test_num + 1;
@@ -367,7 +393,7 @@ module tb_dpx_unit;
         #20;
 
         //====================================================================
-        // Test 18: Sparse MMA Unit - MMA operation
+        // Test 26: Sparse MMA Unit - MMA operation
         //====================================================================
         $display("\n[TEST %0d] Sparse MMA Unit: MMA operation", test_num + 1);
         test_num = test_num + 1;
