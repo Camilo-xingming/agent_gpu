@@ -112,6 +112,8 @@ module texture_unit #(
     reg [31:0] lod_r;
     reg [15:0] tex_w_r, tex_h_r, tex_d_r;
     reg [3:0]  filter_r, wrap_s_r, wrap_t_r;
+    reg [3:0]  format_r;
+    reg [4:0]  texel_size_r;
 
     // Calculated addresses and weights
     reg [31:0] texel_addr [0:7];  // Up to 8 texels for trilinear
@@ -195,7 +197,7 @@ module texture_unit #(
         input [31:0] base;
         input [15:0] x, y;
         input [15:0] pitch;  // Bytes per row
-        input [3:0]  bpp;    // Bytes per pixel
+        input [4:0]  bpp;    // Bytes per pixel
         begin
             calc_2d_addr = base + ({16'b0, y} * {16'b0, pitch}) +
                           ({16'b0, x} * {28'b0, bpp});
@@ -263,6 +265,15 @@ module texture_unit #(
                         tex_d_r <= tex_depth;
                         filter_r <= tex_filter;
                         wrap_s_r <= tex_wrap_s;
+                        format_r <= tex_format;
+                        case (tex_format)
+                            FMT_R8_UNORM: texel_size_r <= 5'd1;
+                            FMT_RG8_UNORM, FMT_R16_FLOAT: texel_size_r <= 5'd2;
+                            FMT_RGBA8_UNORM, FMT_RGBA8_SNORM, FMT_R32_FLOAT, FMT_RG16_FLOAT: texel_size_r <= 5'd4;
+                            FMT_RGBA16_FLOAT, FMT_RG32_FLOAT: texel_size_r <= 5'd8;
+                            FMT_RGBA32_FLOAT: texel_size_r <= 5'd16;
+                            default: texel_size_r <= 5'd4;
+                        endcase
                         wrap_t_r <= tex_wrap_t;
 
                         case (opcode)
@@ -279,7 +290,7 @@ module texture_unit #(
                     case (func_r)
                         `TEX_1D: begin
                             texel_addr[0] <= tex_base_addr +
-                                wrap_coord(int_s, tex_w_r, wrap_s_r);
+                                wrap_coord(int_s, tex_w_r, wrap_s_r) * {27'b0, texel_size_r};
                             num_texels <= 3'd1;
                         end
 
@@ -290,8 +301,8 @@ module texture_unit #(
                                     tex_base_addr,
                                     wrap_s_trunc,
                                     wrap_t_trunc,
-                                    tex_w_r * 4,  // Assuming RGBA8
-                                    4'd4
+                                    tex_w_r * {11'b0, texel_size_r},  // Assuming RGBA8
+                                    texel_size_r[4:0]
                                 );
                                 num_texels <= 3'd1;
                             end else begin
@@ -301,19 +312,19 @@ module texture_unit #(
                                 texel_addr[0] <= calc_2d_addr(tex_base_addr,
                                     wrap_s_trunc,
                                     wrap_t_trunc,
-                                    tex_w_r * 4, 4'd4);
+                                    tex_w_r * {11'b0, texel_size_r}, texel_size_r);
                                 texel_addr[1] <= calc_2d_addr(tex_base_addr,
                                     wrap_s1_trunc,
                                     wrap_t_trunc,
-                                    tex_w_r * 4, 4'd4);
+                                    tex_w_r * {11'b0, texel_size_r}, texel_size_r);
                                 texel_addr[2] <= calc_2d_addr(tex_base_addr,
                                     wrap_s_trunc,
                                     wrap_t1_trunc,
-                                    tex_w_r * 4, 4'd4);
+                                    tex_w_r * {11'b0, texel_size_r}, texel_size_r);
                                 texel_addr[3] <= calc_2d_addr(tex_base_addr,
                                     wrap_s1_trunc,
                                     wrap_t1_trunc,
-                                    tex_w_r * 4, 4'd4);
+                                    tex_w_r * {11'b0, texel_size_r}, texel_size_r);
                                 // Fractional weights from low bits of coord
                                 blend_frac_s <= coord_s_r[7:0];
                                 blend_frac_t <= coord_t_r[7:0];
@@ -324,9 +335,9 @@ module texture_unit #(
                         `TEX_3D: begin
                             // 3D texture addressing
                             texel_addr[0] <= tex_base_addr +
-                                wrap_coord(int_r, tex_d_r, tex_wrap_r) * (tex_w_r * tex_h_r * 4) +
-                                wrap_coord(int_t, tex_h_r, wrap_t_r) * (tex_w_r * 4) +
-                                wrap_coord(int_s, tex_w_r, wrap_s_r) * 4;
+                                wrap_coord(int_r, tex_d_r, tex_wrap_r) * (tex_w_r * tex_h_r * {11'b0, texel_size_r}) +
+                                wrap_coord(int_t, tex_h_r, wrap_t_r) * (tex_w_r * {11'b0, texel_size_r}) +
+                                wrap_coord(int_s, tex_w_r, wrap_s_r) * {27'b0, texel_size_r};
                             num_texels <= 3'd1;
                         end
 
@@ -346,11 +357,32 @@ module texture_unit #(
                             mem_addr <= texel_addr[fetch_idx];
                             req_pending <= 1'b1;
                         end else if (mem_valid && req_pending) begin
-                            // Store fetched texel (RGBA8)
-                            texel_r[fetch_idx] <= {24'b0, mem_rdata[7:0]};
-                            texel_g[fetch_idx] <= {24'b0, mem_rdata[15:8]};
-                            texel_b[fetch_idx] <= {24'b0, mem_rdata[23:16]};
-                            texel_a[fetch_idx] <= {24'b0, mem_rdata[31:24]};
+                            case (format_r)
+                                FMT_R8_UNORM: begin
+                                    texel_r[fetch_idx] <= {24'b0, mem_rdata[7:0]};
+                                    texel_g[fetch_idx] <= 32'b0;
+                                    texel_b[fetch_idx] <= 32'b0;
+                                    texel_a[fetch_idx] <= 32'h000000FF;
+                                end
+                                FMT_RGBA16_FLOAT: begin
+                                    texel_r[fetch_idx] <= {16'b0, mem_rdata[15:0]};
+                                    texel_g[fetch_idx] <= {16'b0, mem_rdata[31:16]};
+                                    texel_b[fetch_idx] <= {16'b0, mem_rdata[47:32]};
+                                    texel_a[fetch_idx] <= {16'b0, mem_rdata[63:48]};
+                                end
+                                FMT_RGBA32_FLOAT: begin
+                                    texel_r[fetch_idx] <= mem_rdata[31:0];
+                                    texel_g[fetch_idx] <= mem_rdata[63:32];
+                                    texel_b[fetch_idx] <= mem_rdata[95:64];
+                                    texel_a[fetch_idx] <= mem_rdata[127:96];
+                                end
+                                default: begin
+                                    texel_r[fetch_idx] <= {24'b0, mem_rdata[7:0]};
+                                    texel_g[fetch_idx] <= {24'b0, mem_rdata[15:8]};
+                                    texel_b[fetch_idx] <= {24'b0, mem_rdata[23:16]};
+                                    texel_a[fetch_idx] <= {24'b0, mem_rdata[31:24]};
+                                end
+                            endcase
                             fetch_idx <= fetch_idx + 1;
                             req_pending <= 1'b0;
                         end
@@ -412,8 +444,8 @@ module texture_unit #(
                         if (!mem_req && mem_ready) begin
                             mem_req <= 1'b1;
                             mem_addr <= tex_base_addr +
-                                       int_t * (tex_w_r * 4) +
-                                       int_s * 4;
+                                       int_t * (tex_w_r * {11'b0, texel_size_r}) +
+                                       int_s * {27'b0, texel_size_r};
                         end else if (mem_valid) begin
                             result <= mem_rdata;
                             state <= OUTPUT;
@@ -424,8 +456,8 @@ module texture_unit #(
                             mem_req <= 1'b1;
                             mem_write <= 1'b1;
                             mem_addr <= tex_base_addr +
-                                       int_t * (tex_w_r * 4) +
-                                       int_s * 4;
+                                       int_t * (tex_w_r * {11'b0, texel_size_r}) +
+                                       int_s * {27'b0, texel_size_r};
                             mem_wdata <= store_data;
                         end else if (mem_valid) begin
                             state <= OUTPUT;

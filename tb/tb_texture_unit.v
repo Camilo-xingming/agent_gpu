@@ -262,10 +262,10 @@ module tb_texture_unit;
         tex_filter = 4'h0; tex_wrap_s = 4'h1;
 
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd5, 0, 0, 50);
-        check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h00000005}, "TEX 1D s=5");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h00000014}, "TEX 1D s=5");
 
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd100, 0, 0, 50);
-        check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h00000064}, "TEX 1D s=100");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000001, 32'h00000090}, "TEX 1D s=100");
 
         // coord=0 (first texel)
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd0, 0, 0, 50);
@@ -273,7 +273,7 @@ module tb_texture_unit;
 
         // coord=255 (last texel in 256-wide)
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd255, 0, 0, 50);
-        check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h000000FF}, "TEX 1D s=255 (last)");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000003, 32'h000000FC}, "TEX 1D s=255 (last)");
 
         //====================================================================
         // 3. TEX 1D wrap modes
@@ -287,7 +287,7 @@ module tb_texture_unit;
 
         // CLAMP overflow
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd300, 0, 0, 50);
-        check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h000000FF}, "TEX 1D clamp(300)=255");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000003, 32'h000000FC}, "TEX 1D clamp(300)=255");
 
         // CLAMP large negative
         issue_and_wait(`OP_TEX, `TEX_1D, 32'h80000000, 0, 0, 50);
@@ -296,23 +296,23 @@ module tb_texture_unit;
         // REPEAT
         tex_wrap_s = 4'h0;
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd260, 0, 0, 50);
-        check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h00000004}, "TEX 1D repeat(260%256)=4");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h00000010}, "TEX 1D repeat(260%256)=4");
 
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd512, 0, 0, 50);
         check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h00000000}, "TEX 1D repeat(512%256)=0");
 
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd257, 0, 0, 50);
-        check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h00000001}, "TEX 1D repeat(257%256)=1");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h00000004}, "TEX 1D repeat(257%256)=1");
 
         // MIRROR
         tex_wrap_s = 4'h2;
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd300, 0, 0, 50);
         // mirror(300,256): 300%512=300, 300>=256 → 512-300-1=211=0xD3
-        check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h000000D3}, "TEX 1D mirror(300)=211");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000003, 32'h0000004C}, "TEX 1D mirror(300)=211");
 
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd256, 0, 0, 50);
         // mirror(256,256): 256%512=256, 256>=256 → 512-256-1=255=0xFF
-        check_result({32'h000000FF, 32'h000000AA, 32'h00000000, 32'h000000FF}, "TEX 1D mirror(256)=255");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000003, 32'h000000FC}, "TEX 1D mirror(256)=255");
 
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd511, 0, 0, 50);
         // mirror(511,256): 511%512=511, 511>=256 → 512-511-1=0
@@ -548,19 +548,19 @@ module tb_texture_unit;
 
         // Issue 5 consecutive TEX 1D ops without extra delays
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd10, 0, 0, 50);
-        check_result_r(32'h0000000A, "back-to-back #1 s=10 R=0x0A");
+        check_result_r(32'h00000028, "back-to-back #1 s=10 R=0x28");
 
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd20, 0, 0, 50);
-        check_result_r(32'h00000014, "back-to-back #2 s=20 R=0x14");
+        check_result_r(32'h00000050, "back-to-back #2 s=20 R=0x50");
 
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd30, 0, 0, 50);
-        check_result_r(32'h0000001E, "back-to-back #3 s=30 R=0x1E");
+        check_result_r(32'h00000078, "back-to-back #3 s=30 R=0x78");
 
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd40, 0, 0, 50);
-        check_result_r(32'h00000028, "back-to-back #4 s=40 R=0x28");
+        check_result_r(32'h000000A0, "back-to-back #4 s=40 R=0xA0");
 
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd50, 0, 0, 50);
-        check_result_r(32'h00000032, "back-to-back #5 s=50 R=0x32");
+        check_result_r(32'h000000C8, "back-to-back #5 s=50 R=0xC8");
 
         // Mix TEX and TXQ back to back
         tex_width = 16'd128;
@@ -568,7 +568,7 @@ module tb_texture_unit;
         check_result({96'b0, 32'd128}, "back-to-back TXQ after TEX");
 
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd7, 0, 0, 50);
-        check_result_r(32'h00000007, "back-to-back TEX after TXQ R=0x07");
+        check_result_r(32'h0000001C, "back-to-back TEX after TXQ R=0x1C");
 
         // Mix TEX → SULD → SUST back to back
         tex_base_addr = 32'h0007_0000;
@@ -615,7 +615,7 @@ module tb_texture_unit;
         tex_base_addr = 32'h0002_0000;
         tex_width = 16'd256; tex_wrap_s = 4'h1;
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd99, 0, 0, 50);
-        check_result_r(32'h00000063, "Post-reset TEX 1D s=99 R=0x63");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000001, 32'h0000008C}, "Post-reset TEX 1D s=99 R=0x18C");
 
         //====================================================================
         // 13. Small texture dimensions
@@ -709,11 +709,11 @@ module tb_texture_unit;
 
         // Exact last valid coord
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd127, 0, 0, 50);
-        check_result_r(32'h0000007F, "clamp s=127 exact boundary");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000001, 32'h000000FC}, "clamp s=127 exact boundary");
 
         // One past last (clamps to 127)
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd128, 0, 0, 50);
-        check_result_r(32'h0000007F, "clamp s=128 clamps to 127");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000001, 32'h000000FC}, "clamp s=128 clamps to 127");
 
         // Repeat: size wraps to 0
         tex_wrap_s = 4'h0;
@@ -736,17 +736,18 @@ module tb_texture_unit;
 
         tex_format = 4'h2; // RGBA16_FLOAT
         issue_and_wait(`OP_TEX, `TEX_2D, 32'd9, 32'd5, 0, 50);
-        check_result_r(32'h00000024, "format RGBA16_FLOAT sample");
+        check_result_r(32'h00000A48, "format RGBA16_FLOAT sample");
 
         tex_format = 4'h3; // RGBA32_FLOAT
         issue_and_wait(`OP_TEX, `TEX_2D, 32'd9, 32'd5, 0, 50);
-        check_result_r(32'h00000024, "format RGBA32_FLOAT sample");
+        check_result_r(32'hFFAA1490, "format RGBA32_FLOAT sample");
 
         tex_format = 4'h6; // R8_UNORM
         issue_and_wait(`OP_TEX, `TEX_2D, 32'd9, 32'd5, 0, 50);
-        check_result_r(32'h00000024, "format R8_UNORM sample");
+        check_result({32'h000000FF, 32'h00000000, 32'h00000000, 32'h00000049}, "format R8_UNORM sample");
 
         // Exercise LOD/trilinear control fields with non-zero gradients.
+        tex_format = 4'h0;
         tex_filter = 4'h2;
         lod = 32'h0000_0000;
         dsdx = 32'h0000_0020; dsdy = 32'h0000_0010;
@@ -783,7 +784,7 @@ module tb_texture_unit;
         tex_base_addr = 32'h0002_0000;
         tex_width = 16'd256; tex_wrap_s = 4'h1;
         issue_and_wait(`OP_TEX, `TEX_1D, 32'd77, 0, 0, 50);
-        check_result_r(32'h0000004D, "Post-unknown-opcode TEX 1D s=77 R=0x4D");
+        check_result({32'h000000FF, 32'h000000AA, 32'h00000001, 32'h00000034}, "Post-unknown-opcode TEX 1D s=77 R=0x134");
 
         //====================================================================
         // Summary
