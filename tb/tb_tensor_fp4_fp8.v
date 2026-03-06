@@ -377,6 +377,25 @@ module tb_tensor_fp4_fp8;
         check_fp32_tol(32'h41C00000, 32'd16, "Chain step 3: dot8+16=24.0");
 
         //====================================================================
+        // Section 8: Non-exit Path Precision Vectors
+        //====================================================================
+        $display("\n=== Section 8: Non-exit Path Precision ===");
+
+        issue_and_wait(`TC_DATA_FP8_E4M3, 32'h3C3C3C3C, 32'h38383838, 32'h00000000, 50);
+        check_fp32_tol(32'h40C00000, 32'd16, "FP8 E4M3: 1.5x1.0 dot4=6.0");
+
+        issue_and_wait(`TC_DATA_FP8_E4M3, 32'h3C3C3C3C, 32'h38383838, 32'h40000000, 50);
+        check_fp32_tol(32'h41000000, 32'd16, "FP8 E4M3: dot4 + C(2.0) => 8.0");
+
+        issue_and_wait(`TC_DATA_FP8_E5M2, 32'h3E3E3E3E, 32'h3C3C3C3C, 32'h00000000, 50);
+        check_fp32_tol(32'h40C00000, 32'd16, "FP8 E5M2: 1.5x1.0 dot4=6.0");
+
+        issue_and_wait(`TC_DATA_FP8_E5M2, 32'h40404040, 32'h3C3C3C3C, 32'hC0800000, 50);
+        check_fp32_tol(32'h40800000, 32'd16, "FP8 E5M2: dot4(8.0) + C(-4.0) => 4.0");
+
+        issue_and_wait(`TC_DATA_FP4_E2M1, 32'h11111111, 32'h22222222, 32'h3F800000, 50);
+        check_fp32_tol(32'h40A00000, 32'd16, "FP4 E2M1: dot8(4.0) + C(1.0) => 5.0");
+
         // Summary
         //====================================================================
         $display("\n========================================");
