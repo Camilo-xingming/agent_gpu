@@ -37,6 +37,7 @@ module tb_decoder;
     wire        branch_op, sync_op, special_reg;
     wire        reg_write, pred_write;
     wire [2:0]  pred_addr;
+    wire        illegal_inst;
 
     //------------------------------------------------------------------------
     // DUT 实例化
@@ -67,7 +68,8 @@ module tb_decoder;
         .special_reg (special_reg),
         .reg_write   (reg_write),
         .pred_write  (pred_write),
-        .pred_addr   (pred_addr)
+        .pred_addr   (pred_addr),
+        .illegal_inst(illegal_inst)
     );
 
     //------------------------------------------------------------------------
@@ -102,6 +104,7 @@ module tb_decoder;
         input        exp_sync_op;
         input        exp_special_reg;
         input        exp_reg_write;
+        input        exp_illegal_inst;
         input [127:0] test_name;
         reg all_match;
         begin
@@ -122,7 +125,8 @@ module tb_decoder;
                        (branch_op === exp_branch_op) &&
                        (sync_op === exp_sync_op) &&
                        (special_reg === exp_special_reg) &&
-                       (reg_write === exp_reg_write);
+                       (reg_write === exp_reg_write) &&
+                       (illegal_inst === exp_illegal_inst);
 
             if (valid_out && all_match) begin
                 $display("[PASS] %s: opcode=0x%02X, rd=%0d, ra=%0d, rb=%0d, func=0x%02X",
@@ -130,11 +134,11 @@ module tb_decoder;
                 passed = passed + 1;
             end else begin
                 $display("[FAIL] %s", test_name);
-                $display("       Got: alu=%b mul=%b mem_r=%b mem_w=%b shared=%b br=%b sync=%b spec=%b reg_wr=%b",
-                         alu_op, mul_op, mem_read, mem_write, mem_shared, branch_op, sync_op, special_reg, reg_write);
-                $display("       Exp: alu=%b mul=%b mem_r=%b mem_w=%b shared=%b br=%b sync=%b spec=%b reg_wr=%b",
+                $display("       Got: alu=%b mul=%b mem_r=%b mem_w=%b shared=%b br=%b sync=%b spec=%b reg_wr=%b ill=%b",
+                         alu_op, mul_op, mem_read, mem_write, mem_shared, branch_op, sync_op, special_reg, reg_write, illegal_inst);
+                $display("       Exp: alu=%b mul=%b mem_r=%b mem_w=%b shared=%b br=%b sync=%b spec=%b reg_wr=%b ill=%b",
                          exp_alu_op, exp_mul_op, exp_mem_read, exp_mem_write, exp_mem_shared,
-                         exp_branch_op, exp_sync_op, exp_special_reg, exp_reg_write);
+                         exp_branch_op, exp_sync_op, exp_special_reg, exp_reg_write, exp_illegal_inst);
                 failed = failed + 1;
             end
         end
@@ -165,28 +169,28 @@ module tb_decoder;
         decode_and_check(
             make_alu_inst(`OP_ALU, 5'd1, 5'd2, 5'd3, 5'd0, `FUNC_ADD),
             1, 0, 0, 0, 0, 0, 0, 0, 1,  // alu_op=1, reg_write=1
-            "ADD r1,r2,r3"
+            0, "ADD r1,r2,r3"
         );
 
         // sub.s32 r4, r5, r6
         decode_and_check(
             make_alu_inst(`OP_ALU, 5'd4, 5'd5, 5'd6, 5'd0, `FUNC_SUB),
             1, 0, 0, 0, 0, 0, 0, 0, 1,
-            "SUB r4,r5,r6"
+            0, "SUB r4,r5,r6"
         );
 
         // and.b32 r7, r8, r9
         decode_and_check(
             make_alu_inst(`OP_ALU, 5'd7, 5'd8, 5'd9, 5'd0, `FUNC_AND),
             1, 0, 0, 0, 0, 0, 0, 0, 1,
-            "AND r7,r8,r9"
+            0, "AND r7,r8,r9"
         );
 
         // shl.b32 r10, r11, r12
         decode_and_check(
             make_alu_inst(`OP_ALU, 5'd10, 5'd11, 5'd12, 5'd0, `FUNC_SHL),
             1, 0, 0, 0, 0, 0, 0, 0, 1,
-            "SHL r10,r11,r12"
+            0, "SHL r10,r11,r12"
         );
 
         //====================================================================
@@ -198,14 +202,14 @@ module tb_decoder;
         decode_and_check(
             make_alu_inst(`OP_MUL, 5'd1, 5'd2, 5'd3, 5'd0, `FUNC_MUL_LO),
             0, 1, 0, 0, 0, 0, 0, 0, 1,  // mul_op=1, reg_write=1
-            "MUL.LO r1,r2,r3"
+            0, "MUL.LO r1,r2,r3"
         );
 
         // mad.lo r4, r5, r6, r7
         decode_and_check(
             make_alu_inst(`OP_MUL, 5'd4, 5'd5, 5'd6, 5'd7, `FUNC_MAD_LO),
             0, 1, 0, 0, 0, 0, 0, 0, 1,
-            "MAD.LO r4,r5,r6,r7"
+            0, "MAD.LO r4,r5,r6,r7"
         );
 
         //====================================================================
@@ -217,28 +221,28 @@ module tb_decoder;
         decode_and_check(
             make_alu_inst(`OP_LD_GLOBAL, 5'd1, 5'd2, 5'd0, 5'd0, 6'd0),
             0, 0, 1, 0, 0, 0, 0, 0, 1,  // mem_read=1, reg_write=1
-            "LD.GLOBAL r1,[r2]"
+            0, "LD.GLOBAL r1,[r2]"
         );
 
         // st.global [r1], r2
         decode_and_check(
             make_alu_inst(`OP_ST_GLOBAL, 5'd0, 5'd1, 5'd2, 5'd0, 6'd0),
             0, 0, 0, 1, 0, 0, 0, 0, 0,  // mem_write=1
-            "ST.GLOBAL [r1],r2"
+            0, "ST.GLOBAL [r1],r2"
         );
 
         // ld.shared r3, [r4]
         decode_and_check(
             make_alu_inst(`OP_LD_SHARED, 5'd3, 5'd4, 5'd0, 5'd0, 6'd0),
             0, 0, 1, 0, 1, 0, 0, 0, 1,  // mem_read=1, mem_shared=1, reg_write=1
-            "LD.SHARED r3,[r4]"
+            0, "LD.SHARED r3,[r4]"
         );
 
         // st.shared [r5], r6
         decode_and_check(
             make_alu_inst(`OP_ST_SHARED, 5'd0, 5'd5, 5'd6, 5'd0, 6'd0),
             0, 0, 0, 1, 1, 0, 0, 0, 0,  // mem_write=1, mem_shared=1
-            "ST.SHARED [r5],r6"
+            0, "ST.SHARED [r5],r6"
         );
 
         //====================================================================
@@ -250,14 +254,14 @@ module tb_decoder;
         decode_and_check(
             make_alu_inst(`OP_MOV_SPECIAL, 5'd0, `SREG_TID_X, 5'd0, 5'd0, 6'd0),
             0, 0, 0, 0, 0, 0, 0, 1, 1,  // special_reg=1, reg_write=1
-            "MOV r0,%tid.x"
+            0, "MOV r0,%tid.x"
         );
 
         // mov r1, %ctaid.x
         decode_and_check(
             make_alu_inst(`OP_MOV_SPECIAL, 5'd1, `SREG_CTAID_X, 5'd0, 5'd0, 6'd0),
             0, 0, 0, 0, 0, 0, 0, 1, 1,
-            "MOV r1,%ctaid.x"
+            0, "MOV r1,%ctaid.x"
         );
 
         //====================================================================
@@ -267,16 +271,16 @@ module tb_decoder;
 
         // branch
         decode_and_check(
-            make_alu_inst(`OP_BRANCH, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0),
+            make_alu_inst(`OP_BRANCH, 5'd0, 5'd0, 5'd0, 5'd0, 6'b111111),
             0, 0, 0, 0, 0, 1, 0, 0, 0,  // branch_op=1
-            "BRANCH"
+            0, "BRANCH"
         );
 
         // bar.sync
         decode_and_check(
-            make_alu_inst(`OP_BAR_SYNC, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0),
+            make_alu_inst(`OP_BAR_SYNC, 5'd0, 5'd0, 5'd0, 5'd0, 6'b111111),
             0, 0, 0, 0, 0, 0, 1, 0, 0,  // sync_op=1
-            "BAR.SYNC"
+            0, "BAR.SYNC"
         );
 
         //====================================================================
@@ -285,9 +289,9 @@ module tb_decoder;
         $display("\n--- NOP Test ---");
 
         decode_and_check(
-            make_alu_inst(`OP_NOP, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0),
+            make_alu_inst(`OP_NOP, 5'd0, 5'd0, 5'd0, 5'd0, 6'b111111),
             0, 0, 0, 0, 0, 0, 0, 0, 0,  // 所有控制信号为0
-            "NOP"
+            0, "NOP"
         );
 
         //====================================================================
@@ -296,6 +300,26 @@ module tb_decoder;
         $display("\n--- Register Field Tests ---");
 
         @(posedge clk);
+
+        //====================================================================
+        // Illegal Opcode and Edge Cases Tests
+        //====================================================================
+        $display("\n--- Illegal Opcode Tests ---");
+
+        // Undefined opcode 6'b110101
+        decode_and_check(
+            make_alu_inst(6'b110101, 5'd0, 5'd0, 5'd0, 5'd0, 6'b111111),
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  // illegal_inst=1
+            "Illegal FUNC under OP_STACK"
+        );
+
+        // Illegal FUNC under OP_ALU
+        decode_and_check(
+            make_alu_inst(`OP_ALU, 5'd1, 5'd2, 5'd3, 5'd0, 6'b111111),
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  // illegal_inst=1
+            "Illegal FUNC under OP_ALU"
+        );
+
         instruction <= make_alu_inst(`OP_ALU, 5'd31, 5'd30, 5'd29, 5'd28, `FUNC_ADD);
         valid_in <= 1;
         @(posedge clk);
