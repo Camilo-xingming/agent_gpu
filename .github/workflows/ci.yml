@@ -105,3 +105,10 @@ jobs:
             exit 1
           fi
           echo "✅ Cross-review passed. Reviewers: $reviewers"
+
+  regression:
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run make test
+        run: make test VERILATOR=verilator
