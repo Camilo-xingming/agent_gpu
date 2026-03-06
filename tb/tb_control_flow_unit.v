@@ -616,6 +616,7 @@ module tb_control_flow_unit;
             $display("SOME TESTS FAILED");
         $display("");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -625,6 +626,7 @@ module tb_control_flow_unit;
     initial begin
         #(CLK_PERIOD * 2000);
         $display("[TIMEOUT] Simulation exceeded maximum cycles");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

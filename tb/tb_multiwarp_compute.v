@@ -233,7 +233,7 @@ module tb_multiwarp_compute;
         if (warp_valid == 0)
             $display("[PASS] All 4 warps exited");
         else
-            $display("[FAIL] warp_valid=%b (expected 0000)", warp_valid);
+            $fatal(1, "[FAIL] warp_valid=%b (expected 0000)", warp_valid);
 
         if (wb_count >= NUM_OPS * NUM_WARPS)
             $display("[PASS] WB count %0d >= expected %0d", wb_count, NUM_OPS * NUM_WARPS);

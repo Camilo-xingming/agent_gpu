@@ -83,6 +83,7 @@ module tb_video_unit_ext;
         end
 
         $display("Summary: %0d PASS, %0d FAIL", pass, fail);
+        if (fail > 0) $fatal(1, "Test Failed");
         $finish;
     end
 endmodule

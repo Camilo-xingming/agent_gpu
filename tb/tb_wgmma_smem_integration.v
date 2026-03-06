@@ -460,6 +460,7 @@ module tb_wgmma_smem_integration;
         $display("============================================================");
 
         #100;
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -467,6 +468,7 @@ module tb_wgmma_smem_integration;
     initial begin
         #200000;
         $display("ERROR: Test timeout!");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

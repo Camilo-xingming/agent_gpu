@@ -523,6 +523,7 @@ module tb_register_file_banked;
         else
             $display("  STATUS    : FAILED");
         $display("============================================================\n");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -532,6 +533,7 @@ module tb_register_file_banked;
     initial begin
         #100000;
         $display("ERROR: Testbench timed out!");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

@@ -467,6 +467,7 @@ module tb_shared_memory;
             $display("*** SOME TESTS FAILED ***");
         end
 
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -481,6 +482,7 @@ module tb_shared_memory;
     initial begin
         #50000;
         $display("ERROR: Timeout!");
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

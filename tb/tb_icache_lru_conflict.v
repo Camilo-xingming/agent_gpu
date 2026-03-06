@@ -273,12 +273,14 @@ module tb_icache_lru_conflict;
         else
             $display("*** TESTS FAILED ***");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
     initial begin
         #200000;
         $display("[TIMEOUT] tb_icache_lru_conflict");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

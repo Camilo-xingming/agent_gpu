@@ -393,7 +393,7 @@ module tb_matmul_4x4;
             if (data_memory[128+i] === expected_c[i])
                 $display("  C[%0d][%0d] = %0d [PASS]", i/4, i%4, data_memory[128+i]);
             else
-                $display("  C[%0d][%0d] = %0d (expected %0d) [FAIL]",
+                $fatal(1, "  C[%0d][%0d] = %0d (expected %0d) [FAIL]",
                     i/4, i%4, data_memory[128+i], expected_c[i]);
         end
 

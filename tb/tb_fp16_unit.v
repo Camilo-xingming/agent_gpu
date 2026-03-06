@@ -241,6 +241,7 @@ module tb_fp16_unit;
         else
             $display("SOME TESTS FAILED");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -258,6 +259,7 @@ module tb_fp16_unit;
     initial begin
         #100000;
         $display("TIMEOUT: simulation exceeded 100us");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

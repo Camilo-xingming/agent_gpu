@@ -99,7 +99,7 @@ module tb_command_queue;
                 $display("[PASS] %0s: 0x%08h", name, actual);
             end else begin
                 failed_tests = failed_tests + 1;
-                $display("[FAIL] %0s: expected 0x%08h got 0x%08h", name, expected, actual);
+                $fatal(1, "[FAIL] %0s: expected 0x%08h got 0x%08h", name, expected, actual);
             end
         end
     endtask
@@ -110,7 +110,7 @@ module tb_command_queue;
             if (!push_ready) begin
                 failed_tests = failed_tests + 1;
                 total_tests = total_tests + 1;
-                $display("[FAIL] push_ready was low before push");
+                $fatal(1, "[FAIL] push_ready was low before push");
             end
             push_kernel_pc          <= 32'h1000_0000 + base;
             push_grid_dim_x         <= base + 32'd1;
@@ -149,7 +149,7 @@ module tb_command_queue;
             if (!pop_valid) begin
                 failed_tests = failed_tests + 1;
                 total_tests = total_tests + 1;
-                $display("[FAIL] pop_valid was low before pop");
+                $fatal(1, "[FAIL] pop_valid was low before pop");
             end
             pop_ready <= 1'b1;
             @(posedge clk);

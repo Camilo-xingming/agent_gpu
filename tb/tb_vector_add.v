@@ -498,6 +498,7 @@ module tb_vector_add;
             $display("*** SOME TESTS FAILED ***");
         end
 
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -526,6 +527,7 @@ module tb_vector_add;
     initial begin
         #200000;
         $display("ERROR: Global Timeout!");
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

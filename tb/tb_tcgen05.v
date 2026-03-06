@@ -548,6 +548,7 @@ module tb_tcgen05;
             $display("C[0] = 0xDEAD");  // Failure marker
         end
 
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -562,6 +563,7 @@ module tb_tcgen05;
     initial begin
         #50000;
         $display("ERROR: Timeout!");
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

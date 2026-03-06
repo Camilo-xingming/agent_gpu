@@ -304,6 +304,7 @@ module tb_tensor_core_e2e;
             $display("ALL TESTS PASSED");
         else
             $display("FAILURES: %0d", fail_count);
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -311,6 +312,7 @@ module tb_tensor_core_e2e;
     initial begin
         #100000;
         $display("TIMEOUT");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

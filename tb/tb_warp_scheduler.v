@@ -432,6 +432,7 @@ module tb_warp_scheduler;
             $display("*** SOME TESTS FAILED ***");
         end
 
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -446,6 +447,7 @@ module tb_warp_scheduler;
     initial begin
         #50000;
         $display("ERROR: Timeout!");
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

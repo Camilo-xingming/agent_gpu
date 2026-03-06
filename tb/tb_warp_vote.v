@@ -148,6 +148,7 @@ module tb_warp_vote;
             $display("  %0d TESTS FAILED", fail_count);
         $display("============================================================");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

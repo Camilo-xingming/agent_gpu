@@ -352,6 +352,7 @@ module tb_dp4a_top;
             $display("TEST FAILED: Some operations did not produce expected results");
         end
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

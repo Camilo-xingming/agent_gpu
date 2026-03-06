@@ -278,12 +278,12 @@ module tb_multiwarp_mixed_fu;
         if (warp_valid == 0)
             $display("[PASS] All 4 warps exited");
         else
-            $display("[FAIL] warp_valid=%b (expected 0000)", warp_valid);
+            $fatal(1, "[FAIL] warp_valid=%b (expected 0000)", warp_valid);
 
         if (s1_issues > 0)
             $display("[PASS] Slot 1 fired %0d times — dual-issue VERIFIED", s1_issues);
         else
-            $display("[FAIL] Slot 1 never fired — dual-issue NOT working");
+            $fatal(1, "[FAIL] Slot 1 never fired — dual-issue NOT working");
 
         if (alu_mul_dual > 0)
             $display("[PASS] Cross-FU dual-issue (ALU+MUL) = %0d", alu_mul_dual);

@@ -376,6 +376,7 @@ module tb_cpasync;
         $display("========================================");
 
         #100;
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -383,6 +384,7 @@ module tb_cpasync;
     initial begin
         #50000;
         $display("TIMEOUT: simulation exceeded 50000ns");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

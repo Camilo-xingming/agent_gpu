@@ -459,6 +459,7 @@ module tb_matmul_4x4_fp16_parallel;
         end
         $display("============================================================\n");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -466,6 +467,7 @@ module tb_matmul_4x4_fp16_parallel;
     initial begin
         #10_000_000;
         $display("ERROR: Timeout!");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

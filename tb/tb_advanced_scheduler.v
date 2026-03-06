@@ -351,6 +351,7 @@ module tb_advanced_scheduler();
             $display("TEST FAILED (%0d errors)", errors);
             $display("=================================================");
         end
+        if (errors > 0) $fatal(1, "Test Failed");
         $finish;
     end
 endmodule
