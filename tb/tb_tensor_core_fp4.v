@@ -55,6 +55,9 @@ module tb_tensor_core_fp4;
     end
 
     integer timeout;
+    integer pass_count;
+    integer fail_count;
+    integer test_count;
 
     task run_fp4_case;
         input [3:0] dtype;
@@ -62,6 +65,7 @@ module tb_tensor_core_fp4;
         input [31:0] a_val;
         input [31:0] b_val;
         begin
+            test_count = test_count + 1;
             op_type = dtype;
             frag_a = a_val;
             frag_b = b_val;
@@ -82,14 +86,18 @@ module tb_tensor_core_fp4;
             end
 
             if (!result_valid) begin
-                $display("FAIL: timeout waiting for result");
+                $display("FAIL test %0d: timeout waiting for result", test_count);
+                fail_count = fail_count + 1;
             end else if (result_data !== expected) begin
-                $display("FAIL: expected 0x%08x, got 0x%08x", expected, result_data);
+                $display("FAIL test %0d: expected 0x%08x, got 0x%08x", test_count, expected, result_data);
+                fail_count = fail_count + 1;
             end else begin
-                $display("PASS: dtype=%0d produced expected result", dtype);
+                $display("PASS test %0d: dtype=%0d produced expected result", test_count, dtype);
+                pass_count = pass_count + 1;
             end
         end
     endtask
+
     initial begin
         $display("========================================");
         $display("Tensor Core FP4 Sanity Test");
@@ -101,6 +109,9 @@ module tb_tensor_core_fp4;
         frag_a = 32'b0;
         frag_b = 32'b0;
         frag_c = 32'b0;
+        pass_count = 0;
+        fail_count = 0;
+        test_count = 0;
 
         repeat (5) @(posedge clk);
         rst_n = 1;
@@ -112,7 +123,23 @@ module tb_tensor_core_fp4;
         // FP4 E3M0: 0x2 encodes 0.5 -> sum(0.5*0.5) = 2.0
         run_fp4_case(`TC_DATA_FP4_E3M0, 32'h4000_0000, 32'h2222_2222, 32'h2222_2222);
 
+        $display("========================================");
+        $display("Tensor Core FP4 Sanity Tests: %0d/%0d passed", pass_count, test_count);
+        if (fail_count == 0)
+            $display("ALL TESTS PASSED");
+        else
+            $display("SOME TESTS FAILED (%0d failures)", fail_count);
+
+        if (fail_count > 0)
+            $fatal(1, "Tensor Core FP4 sanity test failed");
+
         $finish;
+    end
+
+    // Timeout watchdog: never allow hang to be reported as success.
+    initial begin
+        #500000;
+        $fatal(1, "TIMEOUT: tb_tensor_core_fp4");
     end
 
 endmodule
