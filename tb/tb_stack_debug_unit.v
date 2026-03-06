@@ -46,7 +46,16 @@ module tb_stack_debug_unit;
 
     // Configuration
     reg  [7:0]               max_reg_limit;
+    wire [NUM_WARPS*8-1:0]   warp_max_regs_flat;
     wire [7:0]               warp_max_regs [0:NUM_WARPS-1];
+
+    // Unpack DUT packed per-warp register limit bus for easier checks
+    genvar w;
+    generate
+        for (w = 0; w < NUM_WARPS; w = w + 1) begin : unpack_warp_max_regs
+            assign warp_max_regs[w] = warp_max_regs_flat[w*8 +: 8];
+        end
+    endgenerate
 
     //------------------------------------------------------------------------
     // DUT Instantiation
@@ -75,7 +84,7 @@ module tb_stack_debug_unit;
         .pmevent_id(pmevent_id),
         .warp_stall(warp_stall),
         .max_reg_limit(max_reg_limit),
-        .warp_max_regs(warp_max_regs)
+        .warp_max_regs(warp_max_regs_flat)
     );
 
     //------------------------------------------------------------------------
