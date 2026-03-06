@@ -39,6 +39,14 @@ module tb_forwarding_unit;
     wire load_use_hazard;
     reg  ex_is_load;
 
+    // Scoreboard signals
+    reg issue_valid;
+    reg [4:0] issue_rd;
+    reg issue_reg_write;
+    reg complete_valid;
+    reg [4:0] complete_rd;
+    wire ra_busy, rb_busy, rc_busy, any_hazard;
+
     integer i;
     integer pass_count;
     integer fail_count;
@@ -76,6 +84,25 @@ module tb_forwarding_unit;
         .ex_is_load(ex_is_load)
     );
 
+    scoreboard #(
+        .NUM_REGS(32)
+    ) sb (
+        .clk(clk),
+        .rst_n(rst_n),
+        .issue_valid(issue_valid),
+        .issue_rd(issue_rd),
+        .issue_reg_write(issue_reg_write),
+        .complete_valid(complete_valid),
+        .complete_rd(complete_rd),
+        .check_ra(id_ra),
+        .check_rb(id_rb),
+        .check_rc(id_rc),
+        .ra_busy(ra_busy),
+        .rb_busy(rb_busy),
+        .rc_busy(rc_busy),
+        .any_hazard(any_hazard)
+    );
+
     initial begin
         clk = 1'b0;
         forever #5 clk = ~clk;
@@ -110,6 +137,11 @@ module tb_forwarding_unit;
             wb_rd = 0;
             wb_reg_write = 0;
             ex_is_load = 0;
+            issue_valid = 0;
+            issue_rd = 0;
+            issue_reg_write = 0;
+            complete_valid = 0;
+            complete_rd = 0;
         end
     endtask
 
@@ -224,6 +256,77 @@ module tb_forwarding_unit;
         ex_is_load = 1'b0;
         #1;
         check_result(load_use_hazard == 1'b0, "hazard cleared when producer is not load");
+
+        // Test 8: Multi-source conflict (EX, MEM, WB all same)
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] Multi-source conflict - Priority resolution (EX > MEM > WB)", test_num);
+        clear_inputs();
+        id_ra = 5'd15;
+        id_use_ra = 1'b1;
+        ex_rd = 5'd15;
+        ex_reg_write = 1'b1;
+        mem_rd = 5'd15;
+        mem_reg_write = 1'b1;
+        wb_rd = 5'd15;
+        wb_reg_write = 1'b1;
+        #1;
+        check_result(forward_a == 2'b01, "EX priority wins over MEM and WB");
+        check_result(forwarded_a[31:0] == ex_result[31:0], "Data comes from EX");
+        
+        ex_reg_write = 1'b0; // disable EX
+        #1;
+        check_result(forward_a == 2'b10, "MEM priority wins over WB when EX inactive");
+        check_result(forwarded_a[31:0] == mem_result[31:0], "Data comes from MEM");
+
+        mem_reg_write = 1'b0; // disable MEM
+        #1;
+        check_result(forward_a == 2'b11, "WB selected when EX/MEM inactive");
+        check_result(forwarded_a[31:0] == wb_result[31:0], "Data comes from WB");
+
+        // Test 9: Scoreboard interaction - Mark busy on issue
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] Scoreboard interaction - Mark busy on issue", test_num);
+        clear_inputs();
+        @(negedge clk);
+        issue_valid = 1'b1;
+        issue_rd = 5'd20;
+        issue_reg_write = 1'b1;
+        @(posedge clk);
+        #1;
+        issue_valid = 1'b0;
+
+        id_ra = 5'd20;
+        id_use_ra = 1'b1;
+        #1;
+        check_result(ra_busy == 1'b1, "Scoreboard marks ra as busy after issue");
+        check_result(any_hazard == 1'b1, "Any hazard asserted");
+
+        // Test 10: Scoreboard clearing (Complete)
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] Scoreboard - Clear on complete", test_num);
+        @(negedge clk);
+        complete_valid = 1'b1;
+        complete_rd = 5'd20;
+        @(posedge clk);
+        #1;
+        complete_valid = 1'b0;
+        #1;
+        check_result(ra_busy == 1'b0, "Scoreboard clears ra busy after complete");
+        check_result(any_hazard == 1'b0, "Any hazard cleared");
+
+        // Test 11: Stale forwarding prevention
+        test_num = test_num + 1;
+        $display("\n[TEST %0d] Stale forwarding prevention", test_num);
+        clear_inputs();
+        id_ra = 5'd25;
+        id_use_ra = 1'b1;
+        wb_rd = 5'd25;
+        wb_reg_write = 1'b1;
+        #1;
+        check_result(forward_a == 2'b11, "Forwarding from WB active");
+        wb_reg_write = 1'b0; // Instruction moves out of WB
+        #1;
+        check_result(forward_a == 2'b00, "Forwarding stopped after consumer already read / instruction left WB");
 
         $display("\n====================================================");
         $display("RESULT: PASS=%0d FAIL=%0d", pass_count, fail_count);
