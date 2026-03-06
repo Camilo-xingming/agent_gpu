@@ -2,11 +2,11 @@
 `include "gpu_defines.vh"
 
 module tb_reconvergence_stack;
-    localparam NUM_WARPS   = 2;
+    localparam NUM_WARPS   = 4;
     localparam STACK_DEPTH = 4;
     localparam NUM_THREADS = 32;
     localparam ADDR_WIDTH  = 32;
-    localparam WARP_W      = 1;
+    localparam WARP_W      = (NUM_WARPS > 1) ? $clog2(NUM_WARPS) : 1;
 
     reg                     clk;
     reg                     rst_n;
@@ -32,6 +32,12 @@ module tb_reconvergence_stack;
     integer pass_count;
     integer fail_count;
     integer test_num;
+    integer warp_iter;
+    integer depth_iter;
+
+    reg [31:0] lane_active_pattern;
+    reg [31:0] lane_waiting_pattern;
+    reg [31:0] expected_rpc;
 
     reconvergence_stack #(
         .NUM_WARPS(NUM_WARPS),
@@ -58,6 +64,30 @@ module tb_reconvergence_stack;
         .stack_empty(stack_empty),
         .stack_depth(stack_depth)
     );
+
+    function [31:0] warp_active_mask_pattern;
+        input [WARP_W-1:0] wid;
+        begin
+            case (wid)
+                2'd0: warp_active_mask_pattern = 32'h0000_00F0;
+                2'd1: warp_active_mask_pattern = 32'h0000_0F00;
+                2'd2: warp_active_mask_pattern = 32'h0000_F000;
+                default: warp_active_mask_pattern = 32'h000F_0000;
+            endcase
+        end
+    endfunction
+
+    function [31:0] warp_waiting_mask_pattern;
+        input [WARP_W-1:0] wid;
+        begin
+            case (wid)
+                2'd0: warp_waiting_mask_pattern = 32'h0000_0300;
+                2'd1: warp_waiting_mask_pattern = 32'h0000_3000;
+                2'd2: warp_waiting_mask_pattern = 32'h0003_0000;
+                default: warp_waiting_mask_pattern = 32'h0030_0000;
+            endcase
+        end
+    endfunction
 
     initial begin
         clk = 1'b0;
@@ -215,6 +245,73 @@ module tb_reconvergence_stack;
         check("underflow edge: stack_empty stays asserted", stack_empty === 1'b1);
         check("underflow edge: no reconvergence pulse", at_reconvergence === 1'b0);
         check("underflow edge: no pc_valid pulse", pc_valid === 1'b0);
+
+        //====================================================================
+        // Test 8: All-warps reconvergence PC + lane-mask integrity
+        //====================================================================
+        for (warp_iter = 0; warp_iter < NUM_WARPS; warp_iter = warp_iter + 1) begin
+            clear_inputs();
+            warp_id = warp_iter[WARP_W-1:0];
+            lane_active_pattern = warp_active_mask_pattern(warp_id);
+            lane_waiting_pattern = warp_waiting_mask_pattern(warp_id);
+            expected_rpc = 32'h0000_5004 + (warp_iter * 32'h100);
+            current_pc = expected_rpc;
+            active_mask = lane_active_pattern;
+
+            dut.stack_ptr[warp_iter] = 1;
+            dut.state[warp_iter] = 3'd0; // ST_NORMAL
+            dut.stack_mem[warp_iter][0] = {expected_rpc, lane_waiting_pattern, expected_rpc};
+
+            @(posedge clk);
+            #1;
+            check("all-warps reconv: at_reconvergence asserted", at_reconvergence === 1'b1);
+            check("all-warps reconv: next_pc == expected RPC", next_pc === expected_rpc);
+            check("all-warps reconv: merged mask preserved",
+                  next_active_mask === (lane_waiting_pattern | lane_active_pattern));
+            check("all-warps reconv: stack popped", stack_depth === 0);
+        end
+
+        //====================================================================
+        // Test 9: Dynamic depth fill to limit + overflow guard
+        //====================================================================
+        dut.stack_ptr[3] = 0;
+        dut.state[3] = 3'd0;
+
+        for (depth_iter = 0; depth_iter < STACK_DEPTH; depth_iter = depth_iter + 1) begin
+            clear_inputs();
+            warp_id = 2'd3;
+            current_pc = 32'h0000_7000 + (depth_iter * 32'h0100);
+            branch_valid = 1'b1;
+            branch_target = current_pc + 32'h0000_0040;
+            fallthrough_pc = current_pc + 32'h0000_0004;
+            branch_taken_mask = depth_iter[0] ? 32'hAAAA_AAAA : 32'h5555_5555;
+            active_mask = 32'hFFFF_FFFF;
+            is_uniform = 1'b0;
+
+            @(posedge clk);
+            #1;
+            check("depth fill: pc_valid asserted", pc_valid === 1'b1);
+            check("depth fill: stack depth increments", stack_depth === (depth_iter + 1));
+        end
+
+        #1;
+        check("depth fill: stack_overflow asserted at full depth", stack_overflow === 1'b1);
+
+        clear_inputs();
+        warp_id = 2'd3;
+        current_pc = 32'h0000_7F00;
+        branch_valid = 1'b1;
+        branch_target = 32'h0000_7F40;
+        fallthrough_pc = 32'h0000_7F04;
+        branch_taken_mask = 32'h0F0F_F0F0;
+        active_mask = 32'hFFFF_FFFF;
+        is_uniform = 1'b0;
+
+        @(posedge clk);
+        #1;
+        check("depth guard: stack depth clamped at limit", stack_depth === STACK_DEPTH);
+        check("depth guard: stack_overflow remains asserted", stack_overflow === 1'b1);
+        check("depth guard: no extra pc_valid pulse", pc_valid === 1'b0);
 
         $display("============================================================");
         $display("tb_reconvergence_stack Summary: %0d PASSED, %0d FAILED, total %0d",
