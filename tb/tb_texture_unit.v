@@ -129,10 +129,10 @@ module tb_texture_unit;
         begin
             test_num = test_num + 1;
             if (result === expected) begin
-                $display("PASS test %0d: %0s", test_num, label);
+                $display("\nPASS test %0d: %0s", test_num, label);
                 pass_count = pass_count + 1;
             end else begin
-                $display("FAIL test %0d: %0s — got %h, expected %h", test_num, label, result, expected);
+                $display("\nFAIL test %0d: %0s — got %h, expected %h", test_num, label, result, expected);
                 fail_count = fail_count + 1;
             end
         end
@@ -144,10 +144,10 @@ module tb_texture_unit;
         begin
             test_num = test_num + 1;
             if (result[31:0] === expected_r) begin
-                $display("PASS test %0d: %0s (R=%h)", test_num, label, result[31:0]);
+                $display("\nPASS test %0d: %0s (R=%h)", test_num, label, result[31:0]);
                 pass_count = pass_count + 1;
             end else begin
-                $display("FAIL test %0d: %0s — R got %h, expected %h", test_num, label, result[31:0], expected_r);
+                $display("\nFAIL test %0d: %0s — R got %h, expected %h", test_num, label, result[31:0], expected_r);
                 fail_count = fail_count + 1;
             end
         end
@@ -158,10 +158,10 @@ module tb_texture_unit;
         begin
             test_num = test_num + 1;
             if (last_op_completed) begin
-                $display("PASS test %0d: %0s (completed)", test_num, label);
+                $display("\nPASS test %0d: %0s (completed)", test_num, label);
                 pass_count = pass_count + 1;
             end else begin
-                $display("FAIL test %0d: %0s — timed out, no valid_out", test_num, label);
+                $display("\nFAIL test %0d: %0s — timed out, no valid_out", test_num, label);
                 fail_count = fail_count + 1;
             end
         end
@@ -174,10 +174,10 @@ module tb_texture_unit;
             @(posedge clk);
             #1;
             if (!busy) begin
-                $display("PASS test %0d: %0s (busy deasserted)", test_num, label);
+                $display("\nPASS test %0d: %0s (busy deasserted)", test_num, label);
                 pass_count = pass_count + 1;
             end else begin
-                $display("FAIL test %0d: %0s — busy still high", test_num, label);
+                $display("\nFAIL test %0d: %0s — busy still high", test_num, label);
                 fail_count = fail_count + 1;
             end
         end
@@ -219,7 +219,7 @@ module tb_texture_unit;
         //====================================================================
         // 1. TXQ tests
         //====================================================================
-        $display("\n=== Section 1: TXQ Tests ===");
+        $display("\n\n=== Section 1: TXQ Tests ===");
 
         tex_width = 16'd512; tex_height = 16'd256;
         tex_depth = 16'd64;  num_mip_levels = 4'd8;
@@ -256,7 +256,7 @@ module tb_texture_unit;
         //====================================================================
         // 2. TEX 1D point sampling
         //====================================================================
-        $display("\n=== Section 2: TEX 1D Point Sampling ===");
+        $display("\n\n=== Section 2: TEX 1D Point Sampling ===");
         tex_base_addr = 32'h0002_0000;
         tex_width = 16'd256; tex_height = 16'd1; tex_depth = 16'd1;
         tex_filter = 4'h0; tex_wrap_s = 4'h1;
@@ -278,7 +278,7 @@ module tb_texture_unit;
         //====================================================================
         // 3. TEX 1D wrap modes
         //====================================================================
-        $display("\n=== Section 3: TEX 1D Wrap Modes ===");
+        $display("\n\n=== Section 3: TEX 1D Wrap Modes ===");
 
         // CLAMP negative
         tex_wrap_s = 4'h1;
@@ -321,7 +321,7 @@ module tb_texture_unit;
         //====================================================================
         // 4. TEX 2D point sampling
         //====================================================================
-        $display("\n=== Section 4: TEX 2D Point Sampling ===");
+        $display("\n\n=== Section 4: TEX 2D Point Sampling ===");
         tex_base_addr = 32'h0003_0000;
         tex_width = 16'd64; tex_height = 16'd64;
         tex_filter = 4'h0; tex_wrap_s = 4'h1; tex_wrap_t = 4'h1;
@@ -345,7 +345,7 @@ module tb_texture_unit;
         //====================================================================
         // 5. TEX 2D wrap modes
         //====================================================================
-        $display("\n=== Section 5: TEX 2D Wrap Modes ===");
+        $display("\n\n=== Section 5: TEX 2D Wrap Modes ===");
         tex_base_addr = 32'h0003_0000;
         tex_width = 16'd64; tex_height = 16'd64;
 
@@ -381,7 +381,7 @@ module tb_texture_unit;
         //====================================================================
         // 6. TEX 3D point sampling
         //====================================================================
-        $display("\n=== Section 6: TEX 3D Point Sampling ===");
+        $display("\n\n=== Section 6: TEX 3D Point Sampling ===");
         tex_base_addr = 32'h0004_0000;
         tex_width = 16'd16; tex_height = 16'd16; tex_depth = 16'd16;
         tex_wrap_s = 4'h1; tex_wrap_t = 4'h1; tex_wrap_r = 4'h1;
@@ -408,7 +408,7 @@ module tb_texture_unit;
         //====================================================================
         // 7. Bilinear filter path (TEX 2D with FILTER_LINEAR)
         //====================================================================
-        $display("\n=== Section 7: Bilinear Filter Path ===");
+        $display("\n\n=== Section 7: Bilinear Filter Path ===");
         tex_base_addr = 32'h0005_0000;
         tex_width = 16'd64; tex_height = 16'd64;
         tex_filter = 4'h1; // FILTER_LINEAR
@@ -461,7 +461,7 @@ module tb_texture_unit;
         //====================================================================
         // 8. Surface Load (SULD)
         //====================================================================
-        $display("\n=== Section 8: Surface Load (SULD) ===");
+        $display("\n\n=== Section 8: Surface Load (SULD) ===");
         tex_base_addr = 32'h0006_0000;
         tex_width = 16'd32;
 
@@ -480,7 +480,7 @@ module tb_texture_unit;
         //====================================================================
         // 9. Surface Store (SUST)
         //====================================================================
-        $display("\n=== Section 9: Surface Store (SUST) ===");
+        $display("\n\n=== Section 9: Surface Store (SUST) ===");
         tex_base_addr = 32'h0006_0000;
         tex_width = 16'd32;
 
@@ -491,19 +491,19 @@ module tb_texture_unit;
 
         test_num = test_num + 1;
         if (store_captured && last_store_addr == 32'h0006_0088) begin
-            $display("PASS test %0d: SUST (2,1) addr=0x%h", test_num, last_store_addr);
+            $display("\nPASS test %0d: SUST (2,1) addr=0x%h", test_num, last_store_addr);
             pass_count = pass_count + 1;
         end else begin
-            $display("FAIL test %0d: SUST addr got 0x%h exp 0x60088 cap=%b", test_num, last_store_addr, store_captured);
+            $display("\nFAIL test %0d: SUST addr got 0x%h exp 0x60088 cap=%b", test_num, last_store_addr, store_captured);
             fail_count = fail_count + 1;
         end
 
         test_num = test_num + 1;
         if (last_store_wdata === 128'hDEAD_BEEF_CAFE_BABE_1234_5678_9ABC_DEF0) begin
-            $display("PASS test %0d: SUST data correct", test_num);
+            $display("\nPASS test %0d: SUST data correct", test_num);
             pass_count = pass_count + 1;
         end else begin
-            $display("FAIL test %0d: SUST data got %h", test_num, last_store_wdata);
+            $display("\nFAIL test %0d: SUST data got %h", test_num, last_store_wdata);
             fail_count = fail_count + 1;
         end
 
@@ -514,26 +514,26 @@ module tb_texture_unit;
 
         test_num = test_num + 1;
         if (store_captured && last_store_addr == 32'h0006_0000) begin
-            $display("PASS test %0d: SUST (0,0) addr=0x%h", test_num, last_store_addr);
+            $display("\nPASS test %0d: SUST (0,0) addr=0x%h", test_num, last_store_addr);
             pass_count = pass_count + 1;
         end else begin
-            $display("FAIL test %0d: SUST (0,0) addr got 0x%h exp 0x60000", test_num, last_store_addr);
+            $display("\nFAIL test %0d: SUST (0,0) addr got 0x%h exp 0x60000", test_num, last_store_addr);
             fail_count = fail_count + 1;
         end
 
         test_num = test_num + 1;
         if (last_store_wdata === 128'h0000_0000_0000_0000_FFFF_FFFF_FFFF_FFFF) begin
-            $display("PASS test %0d: SUST (0,0) data correct", test_num);
+            $display("\nPASS test %0d: SUST (0,0) data correct", test_num);
             pass_count = pass_count + 1;
         end else begin
-            $display("FAIL test %0d: SUST (0,0) data got %h", test_num, last_store_wdata);
+            $display("\nFAIL test %0d: SUST (0,0) data got %h", test_num, last_store_wdata);
             fail_count = fail_count + 1;
         end
 
         //====================================================================
         // 10. Surface Reduction (SURED) — no-op path, must not hang
         //====================================================================
-        $display("\n=== Section 10: Surface Reduction (SURED) ===");
+        $display("\n\n=== Section 10: Surface Reduction (SURED) ===");
         issue_and_wait(`OP_SURED, 6'b0, 32'd1, 32'd1, 0, 50);
         check_completed("SURED completes (no-op path)");
         check_busy_low("SURED busy deasserts after completion");
@@ -541,7 +541,7 @@ module tb_texture_unit;
         //====================================================================
         // 11. Back-to-back operations
         //====================================================================
-        $display("\n=== Section 11: Back-to-Back Operations ===");
+        $display("\n\n=== Section 11: Back-to-Back Operations ===");
         tex_base_addr = 32'h0002_0000;
         tex_width = 16'd256; tex_height = 16'd1; tex_depth = 16'd1;
         tex_filter = 4'h0; tex_wrap_s = 4'h1;
@@ -587,7 +587,7 @@ module tb_texture_unit;
         //====================================================================
         // 12. Reset recovery
         //====================================================================
-        $display("\n=== Section 12: Reset Recovery ===");
+        $display("\n\n=== Section 12: Reset Recovery ===");
         // Issue an op then assert reset mid-flight
         @(posedge clk);
         opcode <= `OP_TEX; func <= `TEX_1D;
@@ -604,10 +604,10 @@ module tb_texture_unit;
         // Verify DUT is usable after reset
         test_num = test_num + 1;
         if (!busy && !valid_out) begin
-            $display("PASS test %0d: Reset clears state (busy=0 valid_out=0)", test_num);
+            $display("\nPASS test %0d: Reset clears state (busy=0 valid_out=0)", test_num);
             pass_count = pass_count + 1;
         end else begin
-            $display("FAIL test %0d: Reset state busy=%b valid_out=%b", test_num, busy, valid_out);
+            $display("\nFAIL test %0d: Reset state busy=%b valid_out=%b", test_num, busy, valid_out);
             fail_count = fail_count + 1;
         end
 
@@ -620,7 +620,7 @@ module tb_texture_unit;
         //====================================================================
         // 13. Small texture dimensions
         //====================================================================
-        $display("\n=== Section 13: Small Texture Dimensions ===");
+        $display("\n\n=== Section 13: Small Texture Dimensions ===");
         tex_base_addr = 32'h0008_0000;
         tex_width = 16'd1; tex_height = 16'd1; tex_depth = 16'd1;
         tex_wrap_s = 4'h1; tex_wrap_t = 4'h1;
@@ -639,7 +639,7 @@ module tb_texture_unit;
         //====================================================================
         // 14. TEX 3D non-clamp wrap modes
         //====================================================================
-        $display("\n=== Section 14: TEX 3D Wrap Modes ===");
+        $display("\n\n=== Section 14: TEX 3D Wrap Modes ===");
         tex_base_addr = 32'h0004_0000;
         tex_width = 16'd16; tex_height = 16'd16; tex_depth = 16'd16;
 
@@ -657,7 +657,7 @@ module tb_texture_unit;
         //====================================================================
         // 15. SULD + SUST round-trip
         //====================================================================
-        $display("\n=== Section 15: Surface Round-Trip ===");
+        $display("\n\n=== Section 15: Surface Round-Trip ===");
         tex_base_addr = 32'h000A_0000;
         tex_width = 16'd32;
 
@@ -669,10 +669,10 @@ module tb_texture_unit;
 
         test_num = test_num + 1;
         if (store_captured && last_store_wdata === 128'hCAFE_BABE_DEAD_BEEF_1111_2222_3333_4444) begin
-            $display("PASS test %0d: SUST round-trip data ok", test_num);
+            $display("\nPASS test %0d: SUST round-trip data ok", test_num);
             pass_count = pass_count + 1;
         end else begin
-            $display("FAIL test %0d: SUST round-trip data bad", test_num);
+            $display("\nFAIL test %0d: SUST round-trip data bad", test_num);
             fail_count = fail_count + 1;
         end
 
@@ -683,7 +683,7 @@ module tb_texture_unit;
         //====================================================================
         // 16. Rapid TXQ sequence
         //====================================================================
-        $display("\n=== Section 16: Rapid TXQ Sequence ===");
+        $display("\n\n=== Section 16: Rapid TXQ Sequence ===");
         tex_width = 16'd800; tex_height = 16'd600;
         tex_depth = 16'd32; num_mip_levels = 4'd10;
 
@@ -702,7 +702,7 @@ module tb_texture_unit;
         //====================================================================
         // 17. Boundary coordinates
         //====================================================================
-        $display("\n=== Section 17: Boundary Coordinates ===");
+        $display("\n\n=== Section 17: Boundary Coordinates ===");
         tex_base_addr = 32'h000B_0000;
         tex_width = 16'd128; tex_height = 16'd1;
         tex_wrap_s = 4'h1; // CLAMP
@@ -722,7 +722,7 @@ module tb_texture_unit;
         //====================================================================
         // 18. Descriptor format + LOD stress coverage
         //====================================================================
-        $display("\n=== Section 18: Descriptor Format + LOD Stress ===");
+        $display("\n\n=== Section 18: Descriptor Format + LOD Stress ===");
         tex_base_addr = 32'h000C_0000;
         tex_width = 16'd64; tex_height = 16'd64; tex_depth = 16'd1;
         tex_wrap_s = 4'h1; tex_wrap_t = 4'h1;
@@ -770,7 +770,7 @@ module tb_texture_unit;
         //====================================================================
         // 19. Unknown opcode — DUT must not hang; next valid op succeeds
         //====================================================================
-        $display("\n=== Section 19: Unknown Opcode Recovery ===");
+        $display("\n\n=== Section 19: Unknown Opcode Recovery ===");
         // Send unknown opcode (RTL goes IDLE→busy=1→default→IDLE, busy stays)
         @(posedge clk);
         opcode <= 6'b111111; // undefined
@@ -787,15 +787,35 @@ module tb_texture_unit;
         check_result({32'h000000FF, 32'h000000AA, 32'h00000001, 32'h00000034}, "Post-unknown-opcode TEX 1D s=77 R=0x134");
 
         //====================================================================
+        // 20. Extended Format Verification (Wide Format Stride)
+        //====================================================================
+        $display("\n=== Section 20: Extended Format Verification ===");
+        tex_base_addr = 32'h000D_0000;
+        tex_width = 16'd64; tex_height = 16'd64;
+        tex_wrap_s = 4'h1; tex_wrap_t = 4'h1;
+
+        // RGBA16_FLOAT (8 bytes per pixel)
+        // Correct addr for (1,0) should be base + 1*8 = 0x000D0008
+        tex_format = 4'h2;
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd1, 32'd0, 0, 50);
+        check_result_r(32'h00000008, "format RGBA16_FLOAT stride check");
+
+        // RGBA32_FLOAT (16 bytes per pixel)
+        // Correct addr for (1,0) should be base + 1*16 = 0x000D0010
+        tex_format = 4'h3;
+        issue_and_wait(`OP_TEX, `TEX_2D, 32'd1, 32'd0, 0, 50);
+        check_result_r(32'h00000010, "format RGBA32_FLOAT stride check");
+
+        tex_format = 4'h0; // Reset
         // Summary
         //====================================================================
-        $display("\n========================================");
-        $display("Texture/Surface Unit Tests: %0d/%0d passed", pass_count, pass_count + fail_count);
+        $display("\n\n========================================");
+        $display("\nTexture/Surface Unit Tests: %0d/%0d passed", pass_count, pass_count + fail_count);
         if (fail_count == 0)
-            $display("ALL TESTS PASSED");
+            $display("\nALL TESTS PASSED");
         else
-            $display("SOME TESTS FAILED (%0d failures)", fail_count);
-        $display("========================================");
+            $display("\nSOME TESTS FAILED (%0d failures)", fail_count);
+        $display("\n========================================");
         if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
