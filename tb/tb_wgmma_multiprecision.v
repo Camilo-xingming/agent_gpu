@@ -80,14 +80,14 @@ module tb_wgmma_multiprecision;
     // Check result
     task check_result;
         input [255:0] test_name;
-        input         expected;
-        input         actual;
+        input [31:0]  expected;
+        input [31:0]  actual;
         begin
             if (expected == actual) begin
                 $display("[PASS] Test %0d: %0s", test_num, test_name);
                 pass_count = pass_count + 1;
             end else begin
-                $display("[FAIL] Test %0d: %0s - expected %0d, got %0d",
+                $display("[FAIL] Test %0d: %0s - expected 0x%08x, got 0x%08x",
                          test_num, test_name, expected, actual);
                 fail_count = fail_count + 1;
             end
@@ -244,6 +244,7 @@ module tb_wgmma_multiprecision;
         wait_ready();
         repeat(10) @(posedge clk);
         check_result("FP16 MMA completed", 4'd0, pending_ops);
+        check_result("FP16 Golden verification (bit-accurate)", 32'h01000000, accum_out[31:0]);
         $display("  FP16 accum_out[0]: 0x%08x", accum_out[31:0]);
 
         //==================================================================
@@ -256,6 +257,7 @@ module tb_wgmma_multiprecision;
         wait_ready();
         repeat(10) @(posedge clk);
         check_result("BF16 MMA completed", 4'd0, pending_ops);
+        check_result("BF16 Golden verification (bit-accurate)", 32'h01000000, accum_out[31:0]);
         $display("  BF16 accum_out[0]: 0x%08x", accum_out[31:0]);
 
         //==================================================================
@@ -268,6 +270,7 @@ module tb_wgmma_multiprecision;
         wait_ready();
         repeat(10) @(posedge clk);
         check_result("FP8 E4M3 MMA completed", 4'd0, pending_ops);
+        check_result("FP8 E4M3 Golden verification (bit-accurate)", 32'h02000000, accum_out[31:0]);
         $display("  FP8 E4M3 accum_out[0]: 0x%08x", accum_out[31:0]);
 
         //==================================================================
@@ -280,6 +283,7 @@ module tb_wgmma_multiprecision;
         wait_ready();
         repeat(10) @(posedge clk);
         check_result("FP8 E5M2 MMA completed", 4'd0, pending_ops);
+        check_result("FP8 E5M2 Golden verification (bit-accurate)", 32'h02000000, accum_out[31:0]);
         $display("  FP8 E5M2 accum_out[0]: 0x%08x", accum_out[31:0]);
 
         //==================================================================
@@ -292,6 +296,7 @@ module tb_wgmma_multiprecision;
         wait_ready();
         repeat(10) @(posedge clk);
         check_result("FP6 E3M2 MMA completed", 4'd0, pending_ops);
+        check_result("FP6 E3M2 Golden verification (bit-accurate)", 32'h01000000, accum_out[31:0]);
         $display("  FP6 E3M2 accum_out[0]: 0x%08x", accum_out[31:0]);
 
         //==================================================================
@@ -304,6 +309,7 @@ module tb_wgmma_multiprecision;
         wait_ready();
         repeat(10) @(posedge clk);
         check_result("FP4 E2M1 MMA completed", 4'd0, pending_ops);
+        check_result("FP4 E2M1 Golden verification (bit-accurate)", 32'h04000000, accum_out[31:0]);
         $display("  FP4 E2M1 accum_out[0]: 0x%08x", accum_out[31:0]);
 
         //==================================================================
@@ -316,6 +322,7 @@ module tb_wgmma_multiprecision;
         wait_ready();
         repeat(10) @(posedge clk);
         check_result("INT8 MMA completed", 4'd0, pending_ops);
+        check_result("INT8 Golden verification (bit-accurate)", 32'h00000004, accum_out[31:0]);
         $display("  INT8 accum_out[0]: 0x%08x", accum_out[31:0]);
 
         //==================================================================
@@ -354,6 +361,7 @@ module tb_wgmma_multiprecision;
         wait_ready();
         repeat(10) @(posedge clk);
         check_result("TF32 MMA completed", 4'd0, pending_ops);
+        check_result("TF32 Golden verification (bit-accurate)", 32'h01000000, accum_out[31:0]);
         $display("  TF32 accum_out[0]: 0x%08x", accum_out[31:0]);
 
         //==================================================================
@@ -370,17 +378,71 @@ module tb_wgmma_multiprecision;
         repeat(10) @(posedge clk);
 
         // Use result as input for next operation
-        accum_in <= accum_out;
         setup_fp16_data();
+        accum_in <= accum_out;
         issue_wgmma_typed(`WGMMA_M64N8K16, DTYPE_FP16);
         wait_ready();
         repeat(10) @(posedge clk);
 
         check_result("Accumulator persistence works", 4'd0, pending_ops);
+        check_result("Accumulator persistence value check", 32'h02000000, accum_out[31:0]);
         $display("  Accumulated result[0]: 0x%08x", accum_out[31:0]);
+
+        
+        
+        //==================================================================
+        // Test 12: Overflow / Saturation Test
+        //==================================================================
+        $display("\n--- Test: INT8 Overflow / Saturation ---");
+        wait_ready();
+        
+        // Setup INT8 data that will definitely overflow 32-bit accum if not careful,
+        // or just large enough to hit max saturation if implemented.
+        for (integer k = 0; k < 64; k = k + 1) begin
+            data_a[k*8 +: 8] <= 8'h7F; // Max INT8
+            data_b[k*8 +: 8] <= 8'h7F; // Max INT8
+        end
+        accum_in <= {32{32'h7FFFFFFF}}; // Very large initial accumulator
+        
+        issue_wgmma_typed(`WGMMA_M64N8K16, DTYPE_INT8);
+        wait_ready();
+        repeat(10) @(posedge clk);
+        
+        check_result("INT8 Overflow/Saturation completed", 4'd0, pending_ops);
+        // INT8 path in rtl/wgmma.v is signed 32-bit accumulation with wrap-around.
+        // Here: 0x7fffffff + 4 * (127*127 = 0x3f01) = 0x8000fc03.
+        check_result("INT8 overflow wrap value check", 32'h8000FC03, accum_out[31:0]);
+        check_result("INT8 overflow sign flip check", 32'h00000001, {31'b0, accum_out[31]});
+        $display("  INT8 overflow accum_out[0]: 0x%08x", accum_out[31:0]);
+
+        //==================================================================
+        // Test 11: wgmma.wait Sync Stress Test
+        //==================================================================
+        $display("\n--- Test: wgmma.wait Sync Stress Test ---");
+        wait_ready();
+        
+        setup_fp16_data();
+        issue_wgmma_typed(`WGMMA_M64N8K16, DTYPE_FP16);
+        issue_wgmma_typed(`WGMMA_M64N8K16, DTYPE_BF16);
+        issue_wgmma_typed(`WGMMA_M64N8K16, DTYPE_INT8);
+        
+        @(posedge clk);
+        func <= `WGMMA_WAIT_GROUP;
+        wait_count <= 4'd1; // wait until 1 or fewer pending
+        valid_in <= 1'b1;
+        @(posedge clk);
+        valid_in <= 1'b0;
+        
+        while (!done) @(posedge clk);
+        
+        check_result("wgmma.wait sync (pending <= 1) completed", 1'b1, pending_ops <= 4'd1);
+        
+        while (pending_ops != 0) @(posedge clk);
+        check_result("All operations finished", 4'd0, pending_ops);
 
         //==================================================================
         // Results Summary
+
         //==================================================================
         #100;
         $display("\n============================================================");
