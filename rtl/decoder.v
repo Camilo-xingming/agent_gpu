@@ -339,18 +339,38 @@ module decoder (
             /* verilator lint_off CASEOVERLAP */
             case (inst_opcode)
                 `OP_ALU: begin
-                    alu_op    <= 1'b1;
-                    reg_write <= 1'b1;
+                    case (inst_func)
+                        `FUNC_ADD, `FUNC_SUB, `FUNC_AND, `FUNC_OR, `FUNC_XOR, `FUNC_NOT, `FUNC_SHL, `FUNC_SHR_U, `FUNC_SHR_S,
+                        `FUNC_ABS, `FUNC_MIN_S, `FUNC_MIN_U, `FUNC_MAX_S, `FUNC_MAX_U, `FUNC_POPC, `FUNC_CLZ, `FUNC_BFIND,
+                        `FUNC_BREV, `FUNC_BFE_S, `FUNC_BFE_U, `FUNC_BFI, `FUNC_PRMT, `FUNC_SAD, `FUNC_BMSK, `FUNC_SZEXT,
+                        `FUNC_FNS, `FUNC_SHF_L, `FUNC_SHF_R, `FUNC_LOP3, `FUNC_SELP, `FUNC_SLCT, `FUNC_ADD_CC, `FUNC_ADDC,
+                        `FUNC_SUB_CC, `FUNC_SUBC: begin
+                            alu_op    <= 1'b1;
+                            reg_write <= 1'b1;
+                        end
+                        default: begin
+                            illegal_inst <= 1'b1;
+                        end
+                    endcase
                 end
 
                 `OP_ALU_IMM: begin
-                    // ALU with 16-bit immediate: rd = ra op imm16
-                    // Format: [31:26]=opcode, [25:21]=rd, [20:16]=ra, [15:10]=func, [9:0]=imm10
-                    alu_op    <= 1'b1;
-                    use_imm   <= 1'b1;
-                    reg_write <= 1'b1;
-                    func      <= inst_imm16[15:10];  // func from upper bits of imm16
-                    imm16     <= {6'b0, inst_imm16[9:0]};  // 10-bit immediate
+                    case (inst_imm16[15:10])
+                        `FUNC_ADD, `FUNC_SUB, `FUNC_AND, `FUNC_OR, `FUNC_XOR, `FUNC_NOT, `FUNC_SHL, `FUNC_SHR_U, `FUNC_SHR_S,
+                        `FUNC_ABS, `FUNC_MIN_S, `FUNC_MIN_U, `FUNC_MAX_S, `FUNC_MAX_U, `FUNC_POPC, `FUNC_CLZ, `FUNC_BFIND,
+                        `FUNC_BREV, `FUNC_BFE_S, `FUNC_BFE_U, `FUNC_BFI, `FUNC_PRMT, `FUNC_SAD, `FUNC_BMSK, `FUNC_SZEXT,
+                        `FUNC_FNS, `FUNC_SHF_L, `FUNC_SHF_R, `FUNC_LOP3, `FUNC_SELP, `FUNC_SLCT, `FUNC_ADD_CC, `FUNC_ADDC,
+                        `FUNC_SUB_CC, `FUNC_SUBC: begin
+                            alu_op    <= 1'b1;
+                            use_imm   <= 1'b1;
+                            reg_write <= 1'b1;
+                            func      <= inst_imm16[15:10];
+                            imm16     <= {6'b0, inst_imm16[9:0]};
+                        end
+                        default: begin
+                            illegal_inst <= 1'b1;
+                        end
+                    endcase
                 end
 
                 `OP_MUL: begin

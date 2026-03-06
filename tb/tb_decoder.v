@@ -271,14 +271,14 @@ module tb_decoder;
 
         // branch
         decode_and_check(
-            make_alu_inst(`OP_BRANCH, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0),
+            make_alu_inst(`OP_BRANCH, 5'd0, 5'd0, 5'd0, 5'd0, 6'b111111),
             0, 0, 0, 0, 0, 1, 0, 0, 0,  // branch_op=1
             0, "BRANCH"
         );
 
         // bar.sync
         decode_and_check(
-            make_alu_inst(`OP_BAR_SYNC, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0),
+            make_alu_inst(`OP_BAR_SYNC, 5'd0, 5'd0, 5'd0, 5'd0, 6'b111111),
             0, 0, 0, 0, 0, 0, 1, 0, 0,  // sync_op=1
             0, "BAR.SYNC"
         );
@@ -289,7 +289,7 @@ module tb_decoder;
         $display("\n--- NOP Test ---");
 
         decode_and_check(
-            make_alu_inst(`OP_NOP, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0),
+            make_alu_inst(`OP_NOP, 5'd0, 5'd0, 5'd0, 5'd0, 6'b111111),
             0, 0, 0, 0, 0, 0, 0, 0, 0,  // 所有控制信号为0
             0, "NOP"
         );
@@ -306,11 +306,11 @@ module tb_decoder;
         //====================================================================
         $display("\n--- Illegal Opcode Tests ---");
 
-        // Undefined opcode 6'b111010
+        // Undefined opcode 6'b110101
         decode_and_check(
-            make_alu_inst(6'b111010, 5'd0, 5'd0, 5'd0, 5'd0, 6'd0),
+            make_alu_inst(6'b110101, 5'd0, 5'd0, 5'd0, 5'd0, 6'b111111),
             0, 0, 0, 0, 0, 0, 0, 0, 0, 1,  // illegal_inst=1
-            "Undefined Opcode 111010"
+            "Illegal FUNC under OP_STACK"
         );
 
         // Illegal FUNC under OP_ALU
