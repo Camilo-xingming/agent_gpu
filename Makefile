@@ -156,7 +156,7 @@ endif
 #=====================================================================# 目标
 #=====================================================================
 .PHONY: all sim wave clean assemble help test test_all regression
-.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_blackwell_scheduler test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_memory_interface_wide test_l1_data_cache_optimized test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_warp_collective_unit test_dual_issue_scheduler test_control_flow_unit test_branch_predictor test_icache test_cache_policy_unit test_forwarding_unit test_fpu test_fp16_unit test_fpu64 test_sfu test_cvt_unit test_dpx_unit benchmark test_atomic test_mbarrier_unit test_tma_unit test_multimem_unit test_cluster_barrier_unit test_warp_shuffle test_tlb test_tlb_enhanced test_performance_counters test_stack_debug_unit test_griddep_unit test_st_bulk_unit
+.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_register_file_banked test_blackwell_scheduler test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_memory_interface_wide test_l1_data_cache_optimized test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_warp_collective_unit test_dual_issue_scheduler test_control_flow_unit test_branch_predictor test_icache test_cache_policy_unit test_forwarding_unit test_fpu test_fp16_unit test_fpu64 test_sfu test_cvt_unit test_dpx_unit benchmark test_atomic test_mbarrier_unit test_tma_unit test_multimem_unit test_cluster_barrier_unit test_warp_shuffle test_tlb test_tlb_enhanced test_performance_counters test_stack_debug_unit test_griddep_unit test_st_bulk_unit
 .PHONY: test_sm_v2_integration test_sm_v2_full test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
 .PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_sm_wbq_bank test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_l1_data_cache_optimized test_icache_lru test_phase2 test_warp_valid_d1
 
@@ -165,7 +165,7 @@ endif
 # make regression REGRESSION_TARGETS="$(REGRESSION_EXTENDED_TARGETS)"
 REGRESSION_MUST_RUN_TARGETS = \
 	test \
-	test_regfile_banked \
+	test_register_file_banked \
 	test_bw_scheduler_scoreboard \
 	test_sfu \
 	test_cvt_unit \
@@ -273,7 +273,7 @@ test_regfile: $(BUILD_DIR)/tb_register_file.vvp
 $(BUILD_DIR)/tb_register_file.vvp: $(RTL_DIR)/register_file.v $(RTL_DIR)/gpu_defines.vh $(TB_REG) | $(BUILD_DIR)
 	$(IVERILOG) $(INCLUDES) -o $@ $(TB_REG) $(RTL_DIR)/register_file.v
 
-test_regfile_banked: $(BUILD_DIR)/tb_register_file_banked.vvp
+test_register_file_banked: $(BUILD_DIR)/tb_register_file_banked.vvp
 	@echo "========================================"
 	@echo "Running Banked Register File Unit Test"
 	@echo "========================================"
@@ -1547,12 +1547,3 @@ test_l2_cache: $(BUILD_DIR)/tb_l2_cache.vvp
 $(BUILD_DIR)/tb_l2_cache.vvp: $(RTL_DIR)/l2_cache.v $(RTL_DIR)/l2_interconnect.v tb/tb_l2_cache.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_l2_cache.v $(RTL_DIR)/l2_cache.v $(RTL_DIR)/l2_interconnect.v
 
-
-test_register_file_banked: $(BUILD_DIR)/tb_register_file_banked.vvp
-	@echo "========================================"
-	@echo "Running Register File Banked Unit Test"
-	@echo "========================================"
-	cd $(BUILD_DIR) && $(VVP) tb_register_file_banked.vvp
-
-$(BUILD_DIR)/tb_register_file_banked.vvp: $(RTL_DIR)/register_file_banked.v tb/tb_register_file_banked.v | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_register_file_banked.v $(RTL_DIR)/register_file_banked.v
