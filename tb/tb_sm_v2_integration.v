@@ -360,7 +360,7 @@ module tb_sm_v2_integration;
 
     initial begin
         $display("============================================================");
-        $display("RalphGPU SM V2 Top-level Integration (Issue #451)");
+        $display("RalphGPU SM V2 Top-level Integration (Issue #474)");
         $display("Scenarios: GEMM-like, reduction-like, memory-coalescing");
         $display("Checks: WB reference count + X propagation");
         $display("============================================================");
