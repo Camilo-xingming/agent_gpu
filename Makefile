@@ -390,21 +390,24 @@ test_l2_interconnect: $(BUILD_DIR)/tb_l2_interconnect.vvp
 $(BUILD_DIR)/tb_l2_interconnect.vvp: $(RTL_DIR)/l2_interconnect.v $(RTL_DIR)/gpu_defines.vh $(RTL_DIR)/memory_config.vh $(TB_L2_INTERCONNECT) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_L2_INTERCONNECT) $(RTL_DIR)/l2_interconnect.v
 
-test_warp: $(BUILD_DIR)/tb_warp_scheduler.vvp
-	@echo "========================================"
-	@echo "Running Warp Scheduler Unit Test"
-	@echo "========================================"
-	cd $(BUILD_DIR) && $(VVP) tb_warp_scheduler.vvp
-
-$(BUILD_DIR)/tb_warp_scheduler.vvp: $(RTL_DIR)/warp_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_WARP) | $(BUILD_DIR)
-
-	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_WARP) $(RTL_DIR)/warp_scheduler.v
 test_dual_issue_scheduler: $(BUILD_DIR)/tb_dual_issue_scheduler.vvp
 	@echo "========================================"
 	@echo "Running Dual Issue Scheduler Unit Test"
 	@echo "========================================"
 	cd $(BUILD_DIR) && $(VVP) tb_dual_issue_scheduler.vvp
 
+test_warp: $(BUILD_DIR)/tb_warp_scheduler.vvp
+	@echo "========================================"
+	@echo "Running Warp Scheduler Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_warp_scheduler.vvp
+
+$(BUILD_DIR)/tb_dual_issue_scheduler.vvp: tb/tb_dual_issue_scheduler.v $(RTL_DIR)/dual_issue_scheduler.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $^
+
+$(BUILD_DIR)/tb_warp_scheduler.vvp: $(RTL_DIR)/warp_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_WARP) | $(BUILD_DIR)
+
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_WARP) $(RTL_DIR)/warp_scheduler.v
 $(BUILD_DIR)/tb_dual_issue_scheduler.vvp: $(RTL_DIR)/dual_issue_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_DUAL_ISSUE_SCHED) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DUAL_ISSUE_SCHED) $(RTL_DIR)/dual_issue_scheduler.v
 
