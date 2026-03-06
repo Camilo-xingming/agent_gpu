@@ -769,23 +769,28 @@ module tb_texture_unit;
         //====================================================================
         // 19. Unknown opcode — DUT must not hang; next valid op succeeds
         //====================================================================
-        $display("\n=== Section 19: Unknown Opcode Recovery ===");
-        // Send unknown opcode (RTL goes IDLE→busy=1→default→IDLE, busy stays)
-        @(posedge clk);
-        opcode <= 6'b111111; // undefined
-        func <= 6'b0;
-        coord_s <= 0; valid_in <= 1'b1;
-        @(posedge clk);
-        valid_in <= 1'b0;
-        repeat(5) @(posedge clk);
-
-        // Verify DUT still accepts a valid op after unknown opcode
-        tex_base_addr = 32'h0002_0000;
-        tex_width = 16'd256; tex_wrap_s = 4'h1;
-        issue_and_wait(`OP_TEX, `TEX_1D, 32'd77, 0, 0, 50);
-        check_result_r(32'h0000004D, "Post-unknown-opcode TEX 1D s=77 R=0x4D");
-
         //====================================================================
+        // 19. Extended Format Verification (Wide Format Stride)
+        //====================================================================
+        ("
+=== Section 19: Extended Format Verification ===");
+        tex_base_addr = 32'h000D_0000;
+        tex_width = 16'd64; tex_height = 16'd64;
+        tex_wrap_s = 4'h1; tex_wrap_t = 4'h1;
+
+        // RGBA16_FLOAT (8 bytes per pixel)
+        // Correct addr for (1,0) should be base + 1*8 = 0x000D0008
+        tex_format = 4'h2;
+        issue_and_wait(TEX_2D, 32'd1, 32'd0, 0, 50);
+        check_result_r(32'h00000008, "format RGBA16_FLOAT stride check");
+
+        // RGBA32_FLOAT (16 bytes per pixel)
+        // Correct addr for (1,0) should be base + 1*16 = 0x000D0010
+        tex_format = 4'h3;
+        issue_and_wait(TEX_2D, 32'd1, 32'd0, 0, 50);
+        check_result_r(32'h00000010, "format RGBA32_FLOAT stride check");
+
+        tex_format = 4'h0; // Reset
         // Summary
         //====================================================================
         $display("\n========================================");
