@@ -238,6 +238,8 @@ module l2_interconnect #(
     reg [OST_W-1:0] pending_tail [0:NUM_SM-1];
 
     integer stat_sm, stat_sl, stat_i;
+    integer reqs_this_cycle;
+    integer conflicts_this_cycle;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             total_requests <= 0;
@@ -252,23 +254,25 @@ module l2_interconnect #(
                 end
             end
         end else begin
-            // Count requests
+                        // Count requests and conflicts for this cycle.
+            reqs_this_cycle = 0;
+            conflicts_this_cycle = 0;
             for (stat_sm = 0; stat_sm < NUM_SM; stat_sm = stat_sm + 1) begin
                 if (sm_req_valid[stat_sm] && sm_req_ready_r[stat_sm]) begin
-                    total_requests <= total_requests + 1;
+                    reqs_this_cycle = reqs_this_cycle + 1;
                     // Track latency start
                     pending_latency[stat_sm][pending_tail[stat_sm]] <= 0;
                     pending_tail[stat_sm] <= (pending_tail[stat_sm] + 1) % MAX_OUTSTANDING;
                 end
             end
+            total_requests <= total_requests + reqs_this_cycle;
 
-            // Count conflicts (multiple SMs requesting same slice)
             for (stat_sl = 0; stat_sl < NUM_L2_SLICES; stat_sl = stat_sl + 1) begin
-                // Count requestors for this slice
                 if (($countones(slice_requestors[stat_sl])) > 1) begin
-                    xbar_conflicts <= xbar_conflicts + 1;
+                    conflicts_this_cycle = conflicts_this_cycle + 1;
                 end
             end
+            xbar_conflicts <= xbar_conflicts + conflicts_this_cycle;
 
             // Update latency counters and track responses
             for (stat_sm = 0; stat_sm < NUM_SM; stat_sm = stat_sm + 1) begin
