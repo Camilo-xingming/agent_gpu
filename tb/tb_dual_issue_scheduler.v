@@ -210,31 +210,63 @@ module tb_dual_issue_scheduler;
         check(issue0_valid && issue0_warp_id == 1 && issue0_unit == 3'd0, "Case6: scheduler should skip blocked warp0 and issue warp1");
         check(!issue1_valid, "Case6: no second issue expected");
 
-        // 7a) Scoreboard interaction proxy: warp0 not ready (stalled), warp1 issues.
+        // 7) Barrier/sync proxy: branch unit unavailable should skip branch-like warp.
+        clear_inputs();
+        branch_ready = 1'b0;
+        set_warp(0, INST_BRANCH, 1'b1, 1'b1, 1'b0, 1'b0, 1'b0, 0, 0, 0);
+        set_warp(1, INST_ALU,    1'b1, 1'b1, 1'b1, 1'b0, 1'b0, 19, 3, 4);
+        step();
+        check(issue0_valid && issue0_warp_id == 1 && issue0_unit == 3'd0, "Case7: branch-unready warp should be skipped");
+        check(!issue1_valid, "Case7: no second issue expected when first ready warp is skipped");
+
+        // 8a) Predication proxy: warp_ready=0 models predicated-off instruction.
         clear_inputs();
         set_warp(0, INST_ALU,    1'b1, 1'b0, 1'b1, 1'b0, 1'b0, 17, 1, 2);
-        set_warp(1, INST_BRANCH, 1'b1, 1'b1, 1'b0, 1'b0, 1'b0,  0, 0, 0);
+        set_warp(1, INST_BRANCH, 1'b1, 1'b1, 1'b0, 1'b0, 1'b0, 0, 0, 0);
         step();
-        check(issue0_valid && issue0_warp_id == 1, "Case7a: stalled warp0 should not issue; warp1 should issue");
-        check(!warp_consumed[0] && warp_consumed[1], "Case7a: only warp1 consumed");
+        check(issue0_valid && issue0_warp_id == 1, "Case8a: predicated-off warp0 should not issue; warp1 should issue");
+        check(!warp_consumed[0] && warp_consumed[1], "Case8a: only warp1 consumed");
 
-        // 7b) Replay-like behavior: unstall warp0 next cycle and ensure it issues.
+        // 8b) Replay-like behavior: unstall warp0 next cycle and ensure it issues.
         clear_inputs();
         set_warp(0, INST_ALU, 1'b1, 1'b1, 1'b1, 1'b0, 1'b0, 18, 1, 2);
         step();
-        check(issue0_valid && issue0_warp_id == 0, "Case7b: previously stalled warp0 should issue when ready");
-        check(warp_consumed[0], "Case7b: warp0 consumed after ready");
+        check(issue0_valid && issue0_warp_id == 0, "Case8b: previously blocked warp0 should issue when ready");
+        check(warp_consumed[0], "Case8b: warp0 consumed after ready");
 
-        // 8) Full stall cycle: no eligible warp => stall counter increments.
+        // 9) WAR hazard: warp0 reads R21, warp1 writes R21 => block pairing.
+        clear_inputs();
+        set_warp(0, INST_ALU, 1'b1, 1'b1, 1'b1, 1'b0, 1'b0, 23, 21, 2);
+        set_warp(1, INST_FMA, 1'b1, 1'b1, 1'b1, 1'b0, 1'b0, 21, 3, 4);
+        step();
+        check(issue0_valid && issue0_warp_id == 0, "Case9: slot0 should pick warp0");
+        check(!issue1_valid, "Case9: slot1 should be blocked by WAR hazard");
+
+        // 10a) Back-to-back dependency: producer issues first, dependent blocked.
+        clear_inputs();
+        set_warp(0, INST_ALU,  1'b1, 1'b1, 1'b1, 1'b0, 1'b0, 24, 1, 2);
+        set_warp(1, INST_LOAD, 1'b1, 1'b1, 1'b1, 1'b1, 1'b0, 25, 24, 4);
+        step();
+        check(issue0_valid && issue0_warp_id == 0, "Case10a: producer warp should issue first");
+        check(!issue1_valid, "Case10a: dependent warp should be blocked in same cycle");
+
+        // 10b) Next cycle, dependent warp can issue once producer is gone.
+        clear_inputs();
+        set_warp(1, INST_LOAD, 1'b1, 1'b1, 1'b1, 1'b1, 1'b0, 25, 24, 4);
+        step();
+        check(issue0_valid && issue0_warp_id == 1 && issue0_unit == 3'd2, "Case10b: dependent warp should issue in follow-up cycle");
+        check(warp_consumed[1], "Case10b: warp1 consumed in follow-up cycle");
+
+        // 11) Full stall cycle: no eligible warp => stall counter increments.
         stall_before = stat_stall_cycles;
         clear_inputs();
         step();
-        check(!issue0_valid && !issue1_valid, "Case8: no issue expected in full stall cycle");
+        check(!issue0_valid && !issue1_valid, "Case11: no issue expected in full stall cycle");
 
         // Final counter checks across all cases.
         check(stat_dual_issue == 32'd1, "Final: stat_dual_issue should be 1");
-        check(stat_single_issue == 32'd7, "Final: stat_single_issue should be 7");
-        check(stat_stall_cycles == stall_before + 1, "Final: stat_stall_cycles should increment by 1 in Case8");
+        check(stat_single_issue == 32'd11, "Final: stat_single_issue should be 11");
+        check(stat_stall_cycles == stall_before + 1, "Final: stat_stall_cycles should increment by 1 in Case11");
 
         if (fail_count == 0) begin
             $display("========================================");
