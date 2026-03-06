@@ -1,6 +1,6 @@
 //============================================================================
 // RalphGPU - SM V2 Comprehensive Multiwarp Testbench
-// Tests: Scoreboard, FU Latency Hiding, Round-Robin Writeback, CFU
+// Tests: warp lifecycle, fairness, stall recovery, bank conflict, barrier sync
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -16,6 +16,8 @@ module tb_sm_v2_comprehensive;
     localparam NUM_WARPS  = `WARPS_PER_SM;
     localparam NUM_LANES  = `THREADS_PER_WARP;
     localparam DATA_WIDTH = `DATA_WIDTH;
+    localparam WARP_ID_W  = (NUM_WARPS > 1) ? $clog2(NUM_WARPS) : 1;
+    localparam TEST_INIT_WARPS = (NUM_WARPS >= 4) ? 4 : NUM_WARPS;
     localparam CLK_PERIOD = 10;  // 100 MHz
 
     //------------------------------------------------------------------------
@@ -27,13 +29,16 @@ module tb_sm_v2_comprehensive;
     initial begin
         clk = 0;
     end
+
+    // Hard timeout to prevent stuck simulation
     initial begin
-        #500000;
+        #600000;
         $display("ABSOLUTE TIMEOUT");
         $finish;
     end
+
     initial begin
-        clk = 0; // dummy to replace
+        clk = 0;
         forever #(CLK_PERIOD/2) clk = ~clk;
     end
 
@@ -52,7 +57,7 @@ module tb_sm_v2_comprehensive;
     wire        imem_req;
     wire [31:0] imem_addr;
     wire        imem_ready;
-    wire [63:0] imem_data;  // 64-bit for 8-byte cache line
+    wire [63:0] imem_data;
     reg         imem_valid;
 
     // AXI memory interface (simplified for test)
@@ -85,16 +90,25 @@ module tb_sm_v2_comprehensive;
     reg         l1d_resp_hit;
 
     //------------------------------------------------------------------------
-    // Performance Counters
-    real ipc;
-
+    // Monitors
     //------------------------------------------------------------------------
     integer cycle_count;
     integer instruction_count;
-    integer stall_cycles_raw;
-    integer stall_cycles_fu;
-    integer stall_cycles_mem;
     integer warp_switch_count;
+    integer max_active_warps;
+    integer pass_count;
+    integer fail_count;
+    integer active_warp_now;
+
+    reg monitor_enable;
+    reg saw_warp_launch;
+    reg saw_mem_stall;
+    reg saw_sync_stall;
+    reg saw_bank_conflict;
+    reg saw_issue;
+    reg [WARP_ID_W-1:0] last_issue_warp;
+    reg [NUM_WARPS-1:0] issued_warp_mask;
+    integer scenario_select;
 
     //------------------------------------------------------------------------
     // Instruction Memory (ROM)
@@ -117,18 +131,14 @@ module tb_sm_v2_comprehensive;
         end
     end
 
-    // Return 2 words (64 bits) for 8-byte cache line fills
-    // Cache line address is 8-byte aligned, so bits [2:0] = 0
-    // Words at offset 0 and 4 within the line
     reg [63:0] imem_data_wide;
     always @(posedge clk) begin
         imem_valid <= imem_valid_pipe[1];
         if (imem_valid_pipe[1]) begin
-            // imem_addr is cache-line aligned (8-byte), return both words
             imem_data_wide <= {imem[imem_addr_pipe[1][11:2] + 1], imem[imem_addr_pipe[1][11:2]]};
         end
     end
-    assign imem_data = imem_data_wide;  // Full 64-bit data for 8-byte cache line
+    assign imem_data = imem_data_wide;
 
     //------------------------------------------------------------------------
     // DUT Instantiation
@@ -137,7 +147,8 @@ module tb_sm_v2_comprehensive;
         .SM_ID(0),
         .NUM_WARPS(NUM_WARPS),
         .NUM_LANES(NUM_LANES),
-        .DATA_WIDTH(DATA_WIDTH)
+        .DATA_WIDTH(DATA_WIDTH),
+        .INIT_WARPS(TEST_INIT_WARPS)
     ) dut (
         .clk           (clk),
         .rst_n         (rst_n),
@@ -214,7 +225,7 @@ module tb_sm_v2_comprehensive;
         end else begin
             if (m_axi_arvalid && m_axi_arready) begin
                 mem_pending <= 1'b1;
-                mem_latency_counter <= 8'd20;  // 20-cycle global memory latency
+                mem_latency_counter <= 8'd20;
                 m_axi_arready <= 1'b0;
             end else if (mem_pending && mem_latency_counter > 0) begin
                 mem_latency_counter <= mem_latency_counter - 1;
@@ -231,24 +242,57 @@ module tb_sm_v2_comprehensive;
     end
 
     //------------------------------------------------------------------------
+    // Monitor logic
+    //------------------------------------------------------------------------
+    function integer count_warps;
+        input [NUM_WARPS-1:0] mask;
+        integer i;
+        begin
+            count_warps = 0;
+            for (i = 0; i < NUM_WARPS; i = i + 1) begin
+                if (mask[i])
+                    count_warps = count_warps + 1;
+            end
+        end
+    endfunction
+
+    always @(posedge clk) begin
+        if (monitor_enable) begin
+            if (dut.wb_valid)
+                instruction_count <= instruction_count + 1;
+
+            if (dut.issue_valid) begin
+                issued_warp_mask[dut.issue_warp_id] <= 1'b1;
+                if (saw_issue && (last_issue_warp != dut.issue_warp_id))
+                    warp_switch_count <= warp_switch_count + 1;
+                last_issue_warp <= dut.issue_warp_id;
+                saw_issue <= 1'b1;
+            end
+
+            if (dut.warp_valid != {NUM_WARPS{1'b0}})
+                saw_warp_launch <= 1'b1;
+            if (|dut.warp_stalled_mem)
+                saw_mem_stall <= 1'b1;
+            if (|dut.warp_stalled_sync)
+                saw_sync_stall <= 1'b1;
+            if (dut.rf_conflict_a || dut.rf_conflict_b || dut.rf_conflict_c ||
+                dut.rf1_conflict_a || dut.rf1_conflict_b || dut.rf1_conflict_c)
+                saw_bank_conflict <= 1'b1;
+
+            active_warp_now = count_warps(dut.warp_valid);
+            if (active_warp_now > max_active_warps)
+                max_active_warps <= active_warp_now;
+        end
+    end
+
+    //------------------------------------------------------------------------
     // Test Instruction Encoding Helpers
     //------------------------------------------------------------------------
-    // Simplified instruction format:
-    // [31:26] opcode, [25:21] rd, [20:16] ra, [15:11] rb, [10:6] rc, [5:0] func
-
     function [31:0] encode_alu;
         input [4:0] rd, ra, rb;
         input [5:0] func;
         begin
-            encode_alu = {`OP_ALU, rd, ra, rb, 5'b0, func};  // ALU opcode
-        end
-    endfunction
-
-    function [31:0] encode_fpu;
-        input [4:0] rd, ra, rb;
-        input [5:0] func;
-        begin
-            encode_fpu = {`OP_FP32_ARITH, rd, ra, rb, 5'b0, func};  // FPU opcode
+            encode_alu = {`OP_ALU, rd, ra, rb, 5'b0, func};
         end
     endfunction
 
@@ -256,128 +300,231 @@ module tb_sm_v2_comprehensive;
         input [4:0] rd, ra;
         input [15:0] offset;
         begin
-            encode_load = {`OP_LD_GLOBAL, rd, ra, offset};  // LOAD opcode
+            encode_load = {`OP_LD_GLOBAL, rd, ra, offset};
+        end
+    endfunction
+
+    function [31:0] encode_bar_sync;
+        input [15:0] barrier_id;
+        begin
+            encode_bar_sync = {`OP_BAR_SYNC, 10'b0, barrier_id};
         end
     endfunction
 
     function [31:0] encode_exit;
         begin
-            encode_exit = {`OP_EXIT, 26'b0};  // EXIT opcode
+            encode_exit = {`OP_EXIT, 26'b0};
         end
     endfunction
 
     //------------------------------------------------------------------------
     // Test Programs
     //------------------------------------------------------------------------
-
-    
-    // Test: Multiwarp Comprehensive with Hazards
-    task load_multiwarp_comprehensive;
+    task clear_imem;
+        integer i;
         begin
-
-            $display("\n[TEST] Multiwarp Comprehensive with Hazards");
-            // Instruction 0: Global Load -> stalls warp, long latency RAW on R1
-            imem[0] = encode_load(5'd1, 5'd0, 16'h0000);
-
-            // Instruction 1: FPU operation -> 4 cycle latency, RAW on R2
-            imem[1] = encode_fpu(5'd2, 5'd0, 5'd0, 6'h00);
-
-            // Instruction 2: ALU operation -> 1 cycle latency
-            imem[2] = encode_alu(5'd3, 5'd0, 5'd0, 6'h00);
-
-            // Instruction 3: ALU operation with RAW hazard on R2 (from FPU)
-            imem[3] = encode_alu(5'd4, 5'd2, 5'd3, 6'h00);
-
-            // Instruction 4: ALU operation with RAW hazard on R1 (from LOAD)
-            imem[4] = encode_alu(5'd5, 5'd1, 5'd4, 6'h00);
-
-            // Instruction 5: Another FPU op to test structural hazards when multiple warps issue
-            imem[5] = encode_fpu(5'd6, 5'd5, 5'd0, 6'h00);
-
-            // Instruction 6: Exit
-            imem[6] = encode_exit();
+            for (i = 0; i < 1024; i = i + 1)
+                imem[i] = 32'b0;
         end
     endtask
-// Main Test Sequence
+
+    // Multi-warp lifecycle + fairness + stall recovery
+    task load_lifecycle_fairness_stall;
+        begin
+            clear_imem();
+            imem[0] = encode_load(5'd1, 5'd0, 16'h0000);
+            imem[1] = encode_alu(5'd2, 5'd1, 5'd0, 6'h00);
+            imem[2] = encode_alu(5'd3, 5'd2, 5'd0, 6'h00);
+            imem[3] = encode_alu(5'd4, 5'd3, 5'd1, 6'h00);
+            imem[4] = encode_exit();
+        end
+    endtask
+
+    // Bank conflict stress: source register pairs mapped to same modulo-4 bank
+    task load_bank_conflict_program;
+        begin
+            clear_imem();
+            imem[0] = encode_alu(5'd4, 5'd1, 5'd5, 6'h00);
+            imem[1] = encode_alu(5'd8, 5'd2, 5'd6, 6'h00);
+            imem[2] = encode_alu(5'd12, 5'd3, 5'd7, 6'h00);
+            imem[3] = encode_alu(5'd16, 5'd4, 5'd8, 6'h00);
+            imem[4] = encode_exit();
+        end
+    endtask
+
+    // Cross-warp barrier sync
+    task load_barrier_sync_program;
+        begin
+            clear_imem();
+            imem[0] = encode_alu(5'd1, 5'd0, 5'd0, 6'h00);
+            imem[1] = encode_bar_sync(16'h0000);
+            imem[2] = encode_alu(5'd2, 5'd1, 5'd0, 6'h00);
+            imem[3] = encode_exit();
+        end
+    endtask
+
     //------------------------------------------------------------------------
-    integer test_num;
-    integer test_cycles;
+    // Helper Tasks
+    //------------------------------------------------------------------------
+    task reset_monitors;
+        begin
+            cycle_count = 0;
+            instruction_count = 0;
+            warp_switch_count = 0;
+            max_active_warps = 0;
+            saw_warp_launch = 1'b0;
+            saw_mem_stall = 1'b0;
+            saw_sync_stall = 1'b0;
+            saw_bank_conflict = 1'b0;
+            saw_issue = 1'b0;
+            last_issue_warp = {WARP_ID_W{1'b0}};
+            issued_warp_mask = {NUM_WARPS{1'b0}};
+            active_warp_now = 0;
+        end
+    endtask
 
+    task run_kernel;
+        input integer timeout;
+        begin
+            rst_n = 0;
+            repeat(10) @(posedge clk);
+            rst_n = 1;
+            repeat(5) @(posedge clk);
+
+            reset_monitors();
+            monitor_enable = 1'b1;
+
+            kernel_start = 1;
+            @(posedge clk);
+            kernel_start = 0;
+
+            while (!kernel_done && cycle_count < timeout) begin
+                @(posedge clk);
+                cycle_count = cycle_count + 1;
+            end
+
+            monitor_enable = 1'b0;
+        end
+    endtask
+
+    task check_true;
+        input [255:0] name;
+        input cond;
+        begin
+            if (cond) begin
+                pass_count = pass_count + 1;
+                $display("  [PASS] %s", name);
+            end else begin
+                fail_count = fail_count + 1;
+                $display("  [FAIL] %s", name);
+            end
+        end
+    endtask
+
+    task report_metrics;
+        input [255:0] name;
+        begin
+            $display("  [%s] cycles=%0d wb=%0d issued_warps=%0d switches=%0d max_active=%0d",
+                     name,
+                     cycle_count,
+                     instruction_count,
+                     count_warps(issued_warp_mask),
+                     warp_switch_count,
+                     max_active_warps);
+        end
+    endtask
+
+    //------------------------------------------------------------------------
+    // Main Test Sequence
+    //------------------------------------------------------------------------
     initial begin
-        $dumpfile("tb_sm_v2_comprehensive.vcd");
-        $dumpvars(0, tb_sm_v2_comprehensive);
         $display("============================================================");
-        $display("RalphGPU SM V2 Integration Test");
-        $display("Testing: Scoreboard, FU Tracking, WB Arbitration");
+        $display("RalphGPU SM V2 Comprehensive Coverage Test (Issue #531)");
+        $display("Lifecycle/Fairness/Stall/BankConflict/Barrier");
         $display("============================================================");
 
-        // Initialize
+        // Initialize static TB inputs
         rst_n = 0;
         kernel_start = 0;
         kernel_pc = 0;
         block_id_x = 0; block_id_y = 0; block_id_z = 0;
-        
-        // Initialize for Multiwarp (4 warps = 128 threads)
-        block_dim_x = 128; block_dim_y = 1; block_dim_z = 1;
+        block_dim_x = TEST_INIT_WARPS * NUM_LANES;
+        block_dim_y = 1;
+        block_dim_z = 1;
         grid_dim_x = 1; grid_dim_y = 1; grid_dim_z = 1;
         imem_valid = 0;
         l1d_resp_valid = 0;
         l1d_resp_hit = 0;
+        l1d_resp_rdata = {NUM_LANES*32{1'b0}};
         m_axi_awready = 1;
         m_axi_wready = 1;
         m_axi_bvalid = 0;
+        m_axi_bid = 0;
+        m_axi_bresp = 0;
+        m_axi_arready = 1;
+        m_axi_rid = 0;
+        m_axi_rresp = 0;
+        m_axi_rdata = 0;
+        m_axi_rlast = 0;
+        monitor_enable = 1'b0;
 
-        // Clear instruction memory
-        for (test_num = 0; test_num < 1024; test_num = test_num + 1) begin
-            imem[test_num] = 32'b0;
+        pass_count = 0;
+        fail_count = 0;
+
+        scenario_select = 0;
+        if ($value$plusargs("SCENARIO=%d", scenario_select))
+            $display("[INFO] Running single scenario SCENARIO=%0d", scenario_select);
+
+        //--------------------------------------------------------------------
+        // Scenario 1: Warp lifecycle + fairness + memory stall recovery
+        //--------------------------------------------------------------------
+        if (scenario_select == 0 || scenario_select == 1) begin
+            $display("\n[SCENARIO 1] lifecycle/fairness/stall recovery");
+            load_lifecycle_fairness_stall();
+            run_kernel(80);
+            report_metrics("S1");
+
+            check_true("S1 warp launched", saw_warp_launch);
+            check_true("S1 active warps reached target", max_active_warps >= TEST_INIT_WARPS);
+            check_true("S1 fairness: multiple warps issued", count_warps(issued_warp_mask) >= 2);
+            check_true("S1 fairness: warp switched", warp_switch_count >= 1);
+            check_true("S1 memory stall observed", saw_mem_stall);
         end
 
-        // Wait for reset to complete
-        // wait (rst_n == 1);
-        repeat(10) @(posedge clk); cycle_count = cycle_count + 1;
+        //--------------------------------------------------------------------
+        // Scenario 2: Register bank conflict handling
+        //--------------------------------------------------------------------
+        if (scenario_select == 0 || scenario_select == 2) begin
+            $display("\n[SCENARIO 2] register-bank conflict");
+            load_bank_conflict_program();
+            run_kernel(80);
+            report_metrics("S2");
 
-        // Run Multiwarp Comprehensive Test
-        load_multiwarp_comprehensive();
-        run_kernel(500);
-        report_test(1, "Multiwarp Comprehensive Execution");
+            check_true("S2 multiple warps issued", count_warps(issued_warp_mask) >= 2);
+            check_true("S2 register-bank conflict observed", saw_bank_conflict);
+        end
 
-        $display("TEST SUMMARY");
+        //--------------------------------------------------------------------
+        // Scenario 3: Barrier synchronization across warps
+        //--------------------------------------------------------------------
+        if (scenario_select == 0 || scenario_select == 3) begin
+            $display("\n[SCENARIO 3] barrier synchronization");
+            load_barrier_sync_program();
+            run_kernel(100);
+            report_metrics("S3");
+
+            check_true("S3 sync stall observed", saw_sync_stall);
+        end
+
+        $display("\n============================================================");
+        $display("Coverage summary: PASS=%0d FAIL=%0d", pass_count, fail_count);
         $display("============================================================");
-        $display("All comprehensive multiwarp tests completed.");
-        $display("============================================================\n");
+
+        if (fail_count != 0) begin
+            $fatal(1, "tb_sm_v2_comprehensive: %0d checks failed", fail_count);
+        end
+
         $finish;
-
     end
-
-    //------------------------------------------------------------------------
-    // Helper Tasks
-    task run_kernel;
-        input integer timeout;
-        begin
-            rst_n = 0; repeat(10) @(posedge clk); cycle_count = cycle_count + 1; rst_n = 1; repeat(5) @(posedge clk); cycle_count = cycle_count + 1;
-            cycle_count = 0;
-            instruction_count = 0;
-            kernel_start = 1;
-            @(posedge clk); cycle_count = cycle_count + 1;
-            kernel_start = 0;
-            while (!kernel_done && cycle_count < timeout) begin
-                @(posedge clk); cycle_count = cycle_count + 1;
-            end
-        end
-    endtask
-    task report_test;
-        input integer num;
-        input [255:0] name;
-        begin
-            ipc = (cycle_count > 0) ? (1.0 * instruction_count / cycle_count) : 0.0;
-            $display("  Test %0d: %s", num, name);
-            $display("    Cycles: %0d, Instructions: %0d, IPC: %0.3f",
-                     cycle_count, instruction_count, ipc);
-            if (kernel_done)
-                $display("    Status: PASSED (kernel completed)");
-            else
-                $display("    Status: TIMEOUT");
-        end
-    endtask
 
 endmodule
