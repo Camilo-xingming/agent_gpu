@@ -1431,7 +1431,9 @@ $(BUILD_DIR)/tb_texture_smem_gmem_integration.vvp: $(RTL_DIR)/texture_unit.v $(R
 TB_SM_V2_COMPREHENSIVE = $(TB_DIR)/tb_sm_v2_comprehensive.v
 
 test_sm_v2_comprehensive: $(BUILD_DIR)/tb_sm_v2_comprehensive.vvp
-	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_comprehensive.vvp
+	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_comprehensive.vvp +SCENARIO=1
+	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_comprehensive.vvp +SCENARIO=2
+	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_comprehensive.vvp +SCENARIO=3
 
 $(BUILD_DIR)/tb_sm_v2_comprehensive.vvp: $(SM_V2_SRCS) $(TB_SM_V2_COMPREHENSIVE) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_SM_V2_COMPREHENSIVE) $(filter %.v,$(SM_V2_SRCS))
