@@ -393,9 +393,7 @@ module tb_tensor_fp4_fp8;
     // Timeout watchdog
     initial begin
         #500000;
-        $display("TIMEOUT");
-        if (fail_count > 0) $fatal(1, "Test Failed");
-        $finish;
+        $fatal(1, "TIMEOUT: tb_tensor_fp4_fp8");
     end
 
 endmodule
