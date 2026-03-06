@@ -80,14 +80,14 @@ module tb_wgmma_multiprecision;
     // Check result
     task check_result;
         input [255:0] test_name;
-        input         expected;
-        input         actual;
+        input [31:0]  expected;
+        input [31:0]  actual;
         begin
             if (expected == actual) begin
                 $display("[PASS] Test %0d: %0s", test_num, test_name);
                 pass_count = pass_count + 1;
             end else begin
-                $display("[FAIL] Test %0d: %0s - expected %0d, got %0d",
+                $display("[FAIL] Test %0d: %0s - expected 0x%08x, got 0x%08x",
                          test_num, test_name, expected, actual);
                 fail_count = fail_count + 1;
             end
@@ -409,10 +409,11 @@ module tb_wgmma_multiprecision;
         repeat(10) @(posedge clk);
         
         check_result("INT8 Overflow/Saturation completed", 4'd0, pending_ops);
-        // We verify that the result saturated to positive max 32'h7FFFFFFF or properly handles overflow
-        // Since original behavior isn't fully defined here, we will just ensure it doesn't output zero or garbage.
-        // Let's assume it saturates or wraps. We'll check != 0 for now just to log it.
-        $display("  INT8 Saturated/Overflowed accum_out[0]: 0x%08x", accum_out[31:0]);
+        // INT8 path in rtl/wgmma.v is signed 32-bit accumulation with wrap-around.
+        // Here: 0x7fffffff + 4 * (127*127 = 0x3f01) = 0x8000fc03.
+        check_result("INT8 overflow wrap value check", 32'h8000FC03, accum_out[31:0]);
+        check_result("INT8 overflow sign flip check", 32'h00000001, {31'b0, accum_out[31]});
+        $display("  INT8 overflow accum_out[0]: 0x%08x", accum_out[31:0]);
 
         //==================================================================
         // Test 11: wgmma.wait Sync Stress Test
