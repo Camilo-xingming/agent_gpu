@@ -594,7 +594,7 @@ module l2_cache_bank #(
                     mem_req_write <= 1'b1;
                     mem_req_addr  <= victim_addr;
                     mem_req_wdata <= data_array[req_index][way_reg];
-                    if (mem_req_ready) begin
+                    if (mem_req_valid && mem_req_ready) begin
                         mem_req_valid <= 1'b0;
                         state <= S_FILL_REQ;
                     end
@@ -604,7 +604,7 @@ module l2_cache_bank #(
                     mem_req_valid <= 1'b1;
                     mem_req_write <= 1'b0;
                     mem_req_addr  <= {req_tag, req_index, {OFFSET_BITS{1'b0}}};
-                    if (mem_req_ready) begin
+                    if (mem_req_valid && mem_req_ready) begin
                         mem_req_valid <= 1'b0;
                         state <= S_WAIT_FILL;
                     end

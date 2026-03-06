@@ -127,8 +127,7 @@ module tb_l2_cache;
         req_wdata = 0;
         req_wmask = 0;
         mem_req_ready = 1;
-        mem_fill_valid = 0;
-        mem_fill_data = 0;
+        
         repeat (5) @(posedge clk);
         rst_n = 1;
         @(posedge clk);
@@ -202,6 +201,25 @@ module tb_l2_cache;
     //------------------------------------------------------------------------
     // Main test sequence
     //------------------------------------------------------------------------
+    
+    // Automated Memory Responder
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            mem_fill_valid <= 0;
+            mem_fill_data <= 0;
+        end else begin
+            mem_fill_valid <= 0;
+            if (mem_req_valid && mem_req_ready && !mem_req_write) begin
+                mem_fill_valid <= 1;
+                if (mem_req_addr[ADDR_WIDTH-1:INDEX_BITS+OFFSET_BITS] == 21'h00_0001) begin
+                    mem_fill_data <= 128'hDEADBEEF_CAFEBABE_12345678_AABBCCDD;
+                end else begin
+                    mem_fill_data <= 128'hFFFFFFFF_FFFFFFFF_FFFFFFFF_FFFFFFFF;
+                end
+            end
+        end
+    end
+
     initial begin
         $display("============================================================");
         $display("  L2 Cache Bank Testbench");
@@ -240,37 +258,18 @@ module tb_l2_cache;
             addr_a = make_addr(21'h00_0001, 7'h00, 4'h0);  // tag=1, set=0
             fill_a = 128'hDEADBEEF_CAFEBABE_12345678_AABBCCDD;
 
-            // Send read request
             send_request(0, addr_a, {LINE_BITS{1'b0}}, {LINE_SIZE{1'b0}});
-
-            // FSM: IDLE(accept) -> TAG_CHECK(miss) -> FILL_REQ
-            // In FILL_REQ the bank checks mem_fill_valid in the same cycle.
-            // We need to provide fill data right when it reaches FILL_REQ.
-
-            // Wait for miss pulse (TAG_CHECK cycle)
             wait_for_event(10);
             check("Read miss: miss asserted", miss === 1);
 
-            // Drive fill data so FILL_REQ state sees it
-            mem_fill_valid = 1;
-            mem_fill_data  = fill_a;
             @(posedge clk);
-            // FILL_REQ state: mem_req_valid should be high
             check("Read miss: mem_req_valid asserted", mem_req_valid === 1);
             check("Read miss: mem_req_write=0 (read)", mem_req_write === 0);
-            // resp_valid should be asserted in FILL_REQ with the fill data
-            check("Read miss: resp_valid after fill", resp_valid === 1);
-            check("Read miss: resp_rdata matches fill",
-                  resp_rdata === fill_a);
-            mem_fill_valid = 0;
-            mem_fill_data  = 0;
-            @(posedge clk);
-        end
 
-        //====================================================================
-        // Test 3: Read hit after fill
-        // Same address should now be cached - expect hit=1.
-        //====================================================================
+            wait_resp(10);
+            check("Read miss: resp_valid after fill", resp_valid === 1);
+            check("Read miss: resp_rdata matches fill", resp_rdata === fill_a);
+        end
         $display("\n--- Test 3: Read hit after fill ---");
         begin : test3_block
             reg [ADDR_WIDTH-1:0] addr_a;
@@ -338,8 +337,7 @@ module tb_l2_cache;
             wait_for_event(10);
             check("Write miss: miss asserted", miss === 1);
 
-            // S_WRITE_ALLOC happens next cycle, produces resp_valid
-            @(posedge clk);
+            wait_resp(20);
             check("Write miss: resp_valid after alloc", resp_valid === 1);
             check("Write miss: resp_rdata = written data",
                   resp_rdata === wdata_b);
@@ -390,13 +388,11 @@ module tb_l2_cache;
             check("Eviction: miss asserted", miss === 1);
             check("Eviction: writeback asserted", writeback === 1);
 
-            // S_WRITEBACK issues mem_req_valid+mem_req_write
-            @(posedge clk);
+            while (!mem_req_valid) @(posedge clk);
             check("Eviction: mem_req_valid for writeback", mem_req_valid === 1);
             check("Eviction: mem_req_write=1", mem_req_write === 1);
 
-            // After writeback, FSM goes to WRITE_ALLOC (write miss)
-            @(posedge clk);
+            wait_resp(30);
             check("Eviction: resp_valid after write-alloc", resp_valid === 1);
             check("Eviction: resp_rdata = new data",
                   resp_rdata === wdata_t3);
