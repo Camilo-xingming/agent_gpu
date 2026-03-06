@@ -278,7 +278,7 @@ module tb_raw_hazard;
         if (warp_valid == 0)
             $display("[PASS] All warps exited");
         else
-            $display("[FAIL] warp_valid=%b", warp_valid);
+            $fatal(1, "[FAIL] warp_valid=%b", warp_valid);
 
         // Before P2 fix: raw_stalls = 0 (hardcoded 1'b0)
         // After P2 fix:  raw_stalls > 0 (RAW dependencies detected)

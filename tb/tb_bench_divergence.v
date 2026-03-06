@@ -519,6 +519,7 @@ module tb_bench_divergence;
         $display("Divergence Microbenchmarks Complete");
         $display("Summary: %0d passed, %0d failed", total_pass, total_fail);
         $display("============================================================\n");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

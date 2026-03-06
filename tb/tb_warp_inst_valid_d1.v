@@ -177,12 +177,14 @@ module tb_warp_inst_valid_d1;
             $display("❌ SOME TESTS FAILED");
         end
         
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
     initial begin
         #50000;
         $display("[TIMEOUT]");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

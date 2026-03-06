@@ -259,6 +259,7 @@ module tb_warp_shuffle;
             $display("ALL TESTS PASSED");
         else
             $display("SOME TESTS FAILED");
+        if (errors > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

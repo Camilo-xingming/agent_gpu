@@ -260,14 +260,14 @@ module tb_llm_operators;
 
         result = gmem[32'h1000 >> 2];
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] Dot Product: TIMEOUT");
+            $fatal(1, "[FAIL] Dot Product: TIMEOUT");
             total_fail = total_fail + 1;
         end else if (result == expected_result) begin
             $display("[PASS] Dot Product: %0d cycles, result=%0d (expected %0d)",
                      cycle_count, result, expected_result);
             total_pass = total_pass + 1;
         end else begin
-            $display("[FAIL] Dot Product: result=%0d (expected %0d)",
+            $fatal(1, "[FAIL] Dot Product: result=%0d (expected %0d)",
                      result, expected_result);
             total_fail = total_fail + 1;
         end
@@ -289,7 +289,7 @@ module tb_llm_operators;
         run_kernel(TIMEOUT_CYCLES, cycle_count);
 
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] GEMM 2x2: TIMEOUT");
+            $fatal(1, "[FAIL] GEMM 2x2: TIMEOUT");
             total_fail = total_fail + 1;
         end else begin
             result = gmem[32'h1000 >> 2];
@@ -303,7 +303,7 @@ module tb_llm_operators;
                          gmem[32'h1008 >> 2], gmem[32'h100C >> 2]);
                 total_pass = total_pass + 1;
             end else begin
-                $display("[FAIL] GEMM 2x2: Wrong result");
+                $fatal(1, "[FAIL] GEMM 2x2: Wrong result");
                 $display("       C[0][0]=%0d (exp 19) C[0][1]=%0d (exp 22)",
                          gmem[32'h1000 >> 2], gmem[32'h1004 >> 2]);
                 $display("       C[1][0]=%0d (exp 43) C[1][1]=%0d (exp 50)",
@@ -330,14 +330,14 @@ module tb_llm_operators;
 
         result = gmem[32'h1000 >> 2];
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] ReLU: TIMEOUT");
+            $fatal(1, "[FAIL] ReLU: TIMEOUT");
             total_fail = total_fail + 1;
         end else if (result == expected_result) begin
             $display("[PASS] ReLU: %0d cycles, sum=%0d (expected %0d)",
                      cycle_count, result, expected_result);
             total_pass = total_pass + 1;
         end else begin
-            $display("[FAIL] ReLU: sum=%0d (expected %0d)",
+            $fatal(1, "[FAIL] ReLU: sum=%0d (expected %0d)",
                      result, expected_result);
             total_fail = total_fail + 1;
         end
@@ -360,14 +360,14 @@ module tb_llm_operators;
 
         result = gmem[32'h1000 >> 2];
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] Attention Score: TIMEOUT");
+            $fatal(1, "[FAIL] Attention Score: TIMEOUT");
             total_fail = total_fail + 1;
         end else if (result == expected_result) begin
             $display("[PASS] Attention Score: %0d cycles, score=%0d (expected %0d)",
                      cycle_count, result, expected_result);
             total_pass = total_pass + 1;
         end else begin
-            $display("[FAIL] Attention Score: score=%0d (expected %0d)",
+            $fatal(1, "[FAIL] Attention Score: score=%0d (expected %0d)",
                      result, expected_result);
             total_fail = total_fail + 1;
         end
@@ -390,7 +390,7 @@ module tb_llm_operators;
 
         result = gmem[32'h1000 >> 2];
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] Residual Add: TIMEOUT");
+            $fatal(1, "[FAIL] Residual Add: TIMEOUT");
             total_fail = total_fail + 1;
         end else if (result == expected_result &&
                      gmem[32'h1004 >> 2] == 11 &&
@@ -404,7 +404,7 @@ module tb_llm_operators;
                      gmem[32'h100C >> 2], gmem[32'h1010 >> 2]);
             total_pass = total_pass + 1;
         end else begin
-            $display("[FAIL] Residual Add: checksum=%0d (expected %0d)",
+            $fatal(1, "[FAIL] Residual Add: checksum=%0d (expected %0d)",
                      result, expected_result);
             total_fail = total_fail + 1;
         end

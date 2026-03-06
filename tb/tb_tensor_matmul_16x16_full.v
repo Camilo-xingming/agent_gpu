@@ -717,6 +717,7 @@ module tb_tensor_matmul_16x16_full;
             $display("TEST FAILED");
         $display("============================================================");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

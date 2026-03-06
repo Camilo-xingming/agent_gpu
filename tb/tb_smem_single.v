@@ -192,7 +192,7 @@ module tb_smem_single;
         if (global_mem[0] == 32'hCAFECAFE) begin
             $display("[PASS] Shared Memory Test");
         end else begin
-            $display("[FAIL] Shared Memory Test - got 0x%08x", global_mem[0]);
+            $fatal(1, "[FAIL] Shared Memory Test - got 0x%08x", global_mem[0]);
         end
         
         #1000;

@@ -575,6 +575,7 @@ module tb_matmul_4x4_fp16_binary;
         $display("============================================================");
 
         #100;
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -594,6 +595,7 @@ module tb_matmul_4x4_fp16_binary;
     initial begin
         #100_000_000;  // Increased for full simulation
         $display("SIMULATION TIMEOUT");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

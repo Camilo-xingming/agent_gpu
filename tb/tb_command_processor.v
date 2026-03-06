@@ -162,7 +162,7 @@ module tb_command_processor;
                 $display("[PASS] %0s: 0x%08h", name, actual);
             end else begin
                 failed_tests = failed_tests + 1;
-                $display("[FAIL] %0s: expected 0x%08h got 0x%08h", name, expected, actual);
+                $fatal(1, "[FAIL] %0s: expected 0x%08h got 0x%08h", name, expected, actual);
             end
         end
     endtask

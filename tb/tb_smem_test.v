@@ -293,7 +293,7 @@ module tb_smem_test;
             if (result == 32'h00001234) begin
                 $display("[PASS] Shared memory test passed!");
             end else begin
-                $display("[FAIL] Expected 0x1234, got 0x%08x", result);
+                $fatal(1, "[FAIL] Expected 0x1234, got 0x%08x", result);
             end
         end else begin
             $display("[TIMEOUT] Kernel did not complete in %0d cycles", timeout_counter);

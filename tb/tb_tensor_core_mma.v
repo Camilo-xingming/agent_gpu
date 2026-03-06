@@ -270,6 +270,7 @@ module tb_tensor_core_mma;
         $display("========================================");
 
         #100;
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -277,6 +278,7 @@ module tb_tensor_core_mma;
     initial begin
         #100000;
         $display("TIMEOUT: simulation exceeded 100000ns");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

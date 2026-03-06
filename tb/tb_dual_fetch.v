@@ -257,17 +257,17 @@ module tb_dual_fetch;
         if (warp_valid == 0)
             $display("[PASS] All warps exited");
         else
-            $display("[FAIL] warp_valid=%b (expected 0)", warp_valid);
+            $fatal(1, "[FAIL] warp_valid=%b (expected 0)", warp_valid);
 
         if (port_b_fires > 0)
             $display("[PASS] Port B fired %0d times — dual-fetch WORKING", port_b_fires);
         else
-            $display("[FAIL] Port B never fired — dual-fetch NOT working");
+            $fatal(1, "[FAIL] Port B never fired — dual-fetch NOT working");
 
         if (dual_issues > 0)
             $display("[PASS] Same-cycle dual-issue count = %0d", dual_issues);
         else
-            $display("[FAIL] No same-cycle dual-issue observed");
+            $fatal(1, "[FAIL] No same-cycle dual-issue observed");
 
         // IPC check: with 4 warps x 130 instructions, baseline ~520 issues
         // Dual-issue should reduce cycles, improving IPC above 1.0

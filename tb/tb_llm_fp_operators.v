@@ -317,7 +317,7 @@ module tb_llm_fp_operators;
         result = gmem[32'h1000 >> 2];
         result_real = fp32_to_real(result);
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] Softmax: TIMEOUT");
+            $fatal(1, "[FAIL] Softmax: TIMEOUT");
             total_fail = total_fail + 1;
         end else if (fp_approx_equal(result, FP_ONE)) begin
             $display("[PASS] Softmax: %0d cycles", cycle_count);
@@ -329,7 +329,7 @@ module tb_llm_fp_operators;
                      gmem[32'h1008 >> 2], fp32_to_real(gmem[32'h1008 >> 2]));
             total_pass = total_pass + 1;
         end else begin
-            $display("[FAIL] Softmax: sum=0x%08x (%.3f, expected ~1.0)",
+            $fatal(1, "[FAIL] Softmax: sum=0x%08x (%.3f, expected ~1.0)",
                      result, result_real);
             total_fail = total_fail + 1;
         end
@@ -349,7 +349,7 @@ module tb_llm_fp_operators;
         result = gmem[32'h1000 >> 2];  // sum(y^2)
         result_real = fp32_to_real(result);
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] LayerNorm: TIMEOUT");
+            $fatal(1, "[FAIL] LayerNorm: TIMEOUT");
             total_fail = total_fail + 1;
         end else if (fp_approx_equal(result, FP_FOUR)) begin
             $display("[PASS] LayerNorm: %0d cycles", cycle_count);
@@ -361,7 +361,7 @@ module tb_llm_fp_operators;
                      gmem[32'h1008 >> 2], fp32_to_real(gmem[32'h1008 >> 2]));
             total_pass = total_pass + 1;
         end else begin
-            $display("[FAIL] LayerNorm: sum(y^2)=0x%08x (%.3f, expected ~4.0)",
+            $fatal(1, "[FAIL] LayerNorm: sum(y^2)=0x%08x (%.3f, expected ~4.0)",
                      result, result_real);
             $display("       mean = 0x%08x (%.3f)",
                      gmem[32'h1004 >> 2], fp32_to_real(gmem[32'h1004 >> 2]));
@@ -383,7 +383,7 @@ module tb_llm_fp_operators;
         result = gmem[32'h1000 >> 2];  // sum of GELU outputs
         result_real = fp32_to_real(result);
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] GELU: TIMEOUT");
+            $fatal(1, "[FAIL] GELU: TIMEOUT");
             total_fail = total_fail + 1;
         end else begin
             // GELU(1.0) + GELU(2.0) should be around 2.7
@@ -398,7 +398,7 @@ module tb_llm_fp_operators;
                          gmem[32'h1008 >> 2], fp32_to_real(gmem[32'h1008 >> 2]));
                 total_pass = total_pass + 1;
             end else begin
-                $display("[FAIL] GELU: sum=0x%08x (%.3f, expected ~2.7)",
+                $fatal(1, "[FAIL] GELU: sum=0x%08x (%.3f, expected ~2.7)",
                          result, result_real);
                 total_fail = total_fail + 1;
             end
@@ -419,7 +419,7 @@ module tb_llm_fp_operators;
         result = gmem[32'h1000 >> 2];  // sum of SiLU outputs
         result_real = fp32_to_real(result);
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] SiLU: TIMEOUT");
+            $fatal(1, "[FAIL] SiLU: TIMEOUT");
             total_fail = total_fail + 1;
         end else begin
             // SiLU(1.0) + SiLU(2.0) should be around 2.5
@@ -433,7 +433,7 @@ module tb_llm_fp_operators;
                          gmem[32'h1008 >> 2], fp32_to_real(gmem[32'h1008 >> 2]));
                 total_pass = total_pass + 1;
             end else begin
-                $display("[FAIL] SiLU: sum=0x%08x (%.3f, expected ~2.5)",
+                $fatal(1, "[FAIL] SiLU: sum=0x%08x (%.3f, expected ~2.5)",
                          result, result_real);
                 total_fail = total_fail + 1;
             end
@@ -454,7 +454,7 @@ module tb_llm_fp_operators;
         result = gmem[32'h1000 >> 2];  // sum(y^2)
         result_real = fp32_to_real(result);
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] RMSNorm: TIMEOUT");
+            $fatal(1, "[FAIL] RMSNorm: TIMEOUT");
             total_fail = total_fail + 1;
         end else if (fp_approx_equal(result, FP_FOUR)) begin
             $display("[PASS] RMSNorm: %0d cycles", cycle_count);
@@ -466,7 +466,7 @@ module tb_llm_fp_operators;
                      gmem[32'h1008 >> 2], fp32_to_real(gmem[32'h1008 >> 2]));
             total_pass = total_pass + 1;
         end else begin
-            $display("[FAIL] RMSNorm: sum(y^2)=0x%08x (%.3f, expected ~4.0)",
+            $fatal(1, "[FAIL] RMSNorm: sum(y^2)=0x%08x (%.3f, expected ~4.0)",
                      result, result_real);
             total_fail = total_fail + 1;
         end

@@ -464,6 +464,7 @@ module tb_icache;
             $display("*** ALL TESTS PASSED ***");
         end
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -473,6 +474,7 @@ module tb_icache;
     initial begin
         #100000;
         $display("[TIMEOUT] Simulation exceeded 100us, aborting.");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

@@ -197,7 +197,7 @@ module tb_interrupt_exceptions;
             end
 
             if (!irq_kernel_done) begin
-                $display("[FAIL] %0s timeout", name);
+                $fatal(1, "[FAIL] %0s timeout", name);
                 $finish;
             end
 
@@ -206,15 +206,15 @@ module tb_interrupt_exceptions;
             csr_read(CSR_ERROR_WARP_MASK, err_warp_mask);
 
             if (!err_status[0]) begin
-                $display("[FAIL] %0s missing error pending", name);
+                $fatal(1, "[FAIL] %0s missing error pending", name);
                 $finish;
             end
             if (err_status[4:1] != expected_code) begin
-                $display("[FAIL] %0s wrong code got=%0d exp=%0d status=0x%08h", name, err_status[4:1], expected_code, err_status);
+                $fatal(1, "[FAIL] %0s wrong code got=%0d exp=%0d status=0x%08h", name, err_status[4:1], expected_code, err_status);
                 $finish;
             end
             if (!err_warp_mask[0]) begin
-                $display("[FAIL] %0s warp mask bit0 not set: 0x%08h", name, err_warp_mask);
+                $fatal(1, "[FAIL] %0s warp mask bit0 not set: 0x%08h", name, err_warp_mask);
                 $finish;
             end
 

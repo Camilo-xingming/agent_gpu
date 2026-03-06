@@ -464,6 +464,7 @@ module tb_l2_cache;
         else
             $display("  *** SOME TESTS FAILED ***");
         $display("============================================================");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -473,6 +474,7 @@ module tb_l2_cache;
     initial begin
         #100000;
         $display("[TIMEOUT] Testbench exceeded 100us - aborting");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

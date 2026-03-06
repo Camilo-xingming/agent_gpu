@@ -438,7 +438,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: ALU Basic | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: ALU Basic | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: ALU Basic | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -464,7 +464,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: ALU Extended | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: ALU Extended | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: ALU Extended | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -490,7 +490,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Multiply | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Multiply | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Multiply | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -516,7 +516,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: FP32 Arith | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: FP32 Arith | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: FP32 Arith | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -542,7 +542,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: FP32 Special | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: FP32 Special | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: FP32 Special | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -568,7 +568,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: FP16 Arith | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: FP16 Arith | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: FP16 Arith | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -594,7 +594,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Global Memory | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Global Memory | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Global Memory | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -620,7 +620,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Shared Memory | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Shared Memory | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Shared Memory | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -646,7 +646,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Atomics | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Atomics | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Atomics | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -672,7 +672,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: CVT | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: CVT | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: CVT | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -698,7 +698,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Special Regs | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Special Regs | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Special Regs | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -724,7 +724,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: SETP Compare | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: SETP Compare | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: SETP Compare | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -750,7 +750,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Video SIMD | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Video SIMD | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Video SIMD | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -776,7 +776,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: WMMA | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: WMMA | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: WMMA | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -802,7 +802,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Control Flow | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Control Flow | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Control Flow | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -834,7 +834,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Message Passing | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Message Passing | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Message Passing | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -860,7 +860,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Store Buffering | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Store Buffering | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Store Buffering | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -886,7 +886,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Coherence | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Coherence | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Coherence | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -912,7 +912,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Atomicity | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Atomicity | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Atomicity | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -945,7 +945,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: ALU Throughput | Cycles: %0d | IPC: %0.3f | MIPS: %0.2f", test_num, test_cycles, ipc, throughput);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: ALU Throughput | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: ALU Throughput | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -972,7 +972,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: FP32 Throughput | Cycles: %0d | IPC: %0.3f | MIPS: %0.2f", test_num, test_cycles, ipc, throughput);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: FP32 Throughput | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: FP32 Throughput | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================
@@ -998,7 +998,7 @@ module tb_ptx_tests;
             $display("[PASS] Test %0d: Memory Latency | Cycles: %0d | IPC: %0.3f", test_num, test_cycles, ipc);
         end else begin
             failed_tests = failed_tests + 1;
-            $display("[FAIL] Test %0d: Memory Latency | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
+            $fatal(1, "[FAIL] Test %0d: Memory Latency | Cycles: %0d | Result: 0x%08X", test_num, test_cycles, result);
         end
 
         //====================================================================

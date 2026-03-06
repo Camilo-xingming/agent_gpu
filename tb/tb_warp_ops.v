@@ -347,6 +347,7 @@ module tb_warp_ops;
             $display("FAILED: %0d passed, %0d failed", passed, failed);
         end
         $display("============================================================");
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

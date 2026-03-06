@@ -298,6 +298,7 @@ module tb_warp_match;
 
         $display("");
         #100;
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -307,6 +308,7 @@ module tb_warp_match;
     initial begin
         #10000;
         $display("[ERROR] Watchdog timeout - simulation aborted");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

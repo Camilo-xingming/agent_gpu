@@ -331,7 +331,7 @@ module tb_trig_operators;
         r3_real = fp32_to_real(result3);
 
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] sin.f32: TIMEOUT");
+            $fatal(1, "[FAIL] sin.f32: TIMEOUT");
             total_fail = total_fail + 1;
         end else if (fp_approx_equal(result1, FP_SQRT2_2) &&
                      fp_approx_equal(result2, FP_HALF) &&
@@ -342,7 +342,7 @@ module tb_trig_operators;
             $display("       sin(pi/2) = 0x%08x (%.4f, exp 1.000)", result3, r3_real);
             total_pass = total_pass + 1;
         end else begin
-            $display("[FAIL] sin.f32:");
+            $fatal(1, "[FAIL] sin.f32:");
             $display("       sin(pi/4) = 0x%08x (%.4f, exp 0.707)", result1, r1_real);
             $display("       sin(pi/6) = 0x%08x (%.4f, exp 0.500)", result2, r2_real);
             $display("       sin(pi/2) = 0x%08x (%.4f, exp 1.000)", result3, r3_real);
@@ -373,7 +373,7 @@ module tb_trig_operators;
         r3_real = fp32_to_real(result3);
 
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] cos.f32: TIMEOUT");
+            $fatal(1, "[FAIL] cos.f32: TIMEOUT");
             total_fail = total_fail + 1;
         end else if (fp_approx_equal(result1, FP_SQRT2_2) &&
                      fp_approx_equal(result2, FP_SQRT3_2) &&
@@ -384,7 +384,7 @@ module tb_trig_operators;
             $display("       cos(0)    = 0x%08x (%.4f, exp 1.000)", result3, r3_real);
             total_pass = total_pass + 1;
         end else begin
-            $display("[FAIL] cos.f32:");
+            $fatal(1, "[FAIL] cos.f32:");
             $display("       cos(pi/4) = 0x%08x (%.4f, exp 0.707)", result1, r1_real);
             $display("       cos(pi/6) = 0x%08x (%.4f, exp 0.866)", result2, r2_real);
             $display("       cos(0)    = 0x%08x (%.4f, exp 1.000)", result3, r3_real);
@@ -413,7 +413,7 @@ module tb_trig_operators;
         r2_real = fp32_to_real(result2);
 
         if (cycle_count >= TIMEOUT_CYCLES) begin
-            $display("[FAIL] tan: TIMEOUT");
+            $fatal(1, "[FAIL] tan: TIMEOUT");
             total_fail = total_fail + 1;
         end else if (fp_approx_equal(result1, FP_ONE) &&
                      fp_approx_equal(result2, FP_TAN30)) begin
@@ -422,7 +422,7 @@ module tb_trig_operators;
             $display("       tan(pi/6) = 0x%08x (%.4f, exp 0.577)", result2, r2_real);
             total_pass = total_pass + 1;
         end else begin
-            $display("[FAIL] tan:");
+            $fatal(1, "[FAIL] tan:");
             $display("       tan(pi/4) = 0x%08x (%.4f, exp 1.000)", result1, r1_real);
             $display("       tan(pi/6) = 0x%08x (%.4f, exp 0.577)", result2, r2_real);
             total_fail = total_fail + 1;
