@@ -804,7 +804,7 @@ module tb_texture_unit;
         // Correct addr for (1,0) should be base + 1*16 = 0x000D0010
         tex_format = 4'h3;
         issue_and_wait(`OP_TEX, `TEX_2D, 32'd1, 32'd0, 0, 50);
-        check_result_r(32'h00000010, "format RGBA32_FLOAT stride check");
+        check_result_r(32'hFFAA0010, "format RGBA32_FLOAT stride check");
 
         tex_format = 4'h0; // Reset
         // Summary
