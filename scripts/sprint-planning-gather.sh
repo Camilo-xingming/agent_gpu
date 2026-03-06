@@ -57,6 +57,7 @@ STATUS_FILE="${STATUS_FILE:-$SHARED_DIR/status/sprint-planning-gather.status.jso
 RETRO_DATA_FILE="${RETRO_DATA_FILE:-$SHARED_DIR/retro-data.json}"
 RETRO_GATHER_SCRIPT="${RETRO_GATHER_SCRIPT:-$REPO_ROOT/scripts/retro-gather.sh}"
 RETRO_MD_PATH="${RETRO_MD_PATH:-$REPO_ROOT/docs/RETRO.md}"
+WIP_SLA_HOURS="${WIP_SLA_HOURS:-2}"
 
 DISCORD_ACCOUNT="${DISCORD_ACCOUNT:-lily}"
 DISCORD_MAIN_TARGET="${DISCORD_MAIN_TARGET:-channel:1468774996301316137}"
@@ -85,10 +86,16 @@ retro_issue_states_json='[]'
 retro_data_json='{}'
 retro_auto_refresh='false'
 auto_closed_milestones_json='[]'
+wip_sla_json='{"threshold_hours":2,"active_milestone":null,"checked":[],"violations":[],"summary":{"eligible":0,"checked":0,"violations":0}}'
 
 if ! has_command jq; then
   echo "jq not found" >&2
   exit 1
+fi
+
+if ! [[ "$WIP_SLA_HOURS" =~ ^[0-9]+$ ]]; then
+  append_warning "Invalid WIP_SLA_HOURS=$WIP_SLA_HOURS; fallback to 2"
+  WIP_SLA_HOURS=2
 fi
 
 add_health_check "jq_available" "pass" "jq command available" true
@@ -264,7 +271,7 @@ if has_command "$GH_BIN"; then
     add_health_check "milestone_auto_close" "pass" "no stale open sprint milestone to close" true
   fi
 
-  if capture_with_retry open_issues_json 3 2 "$GH_BIN" issue list --repo "$GITHUB_REPO" --state open --limit 200 --json number,title,labels,assignees,milestone,state; then
+  if capture_with_retry open_issues_json 3 2 "$GH_BIN" issue list --repo "$GITHUB_REPO" --state open --limit 200 --json number,title,labels,assignees,milestone,state,createdAt,url; then
     add_health_check "open_issues_query" "pass" "open issues queried" true
   else
     append_error "Failed to query open issues"
@@ -281,6 +288,143 @@ if has_command "$GH_BIN"; then
       all_unassigned: ($pool | map(select((.assignees // []) | length == 0) | base) | sort_by(-.number))
     }
   ' 2>/dev/null || echo '{"p0":[],"p1":[],"all_unassigned":[]}')"
+
+  wip_sla_checked_json='[]'
+  wip_sla_violations_json='[]'
+  wip_sla_eligible_count=0
+  wip_sla_violation_count=0
+  wip_sla_candidates_json='[]'
+
+  if [[ "$existing_milestone_json" != 'null' ]]; then
+    active_sprint_number="$(printf '%s\n' "$existing_milestone_json" | jq -r '.number // empty' 2>/dev/null || true)"
+    active_sprint_title="$(printf '%s\n' "$existing_milestone_json" | jq -r '.title // empty' 2>/dev/null || true)"
+    wip_sla_now_epoch="$(date +%s)"
+    wip_sla_threshold_seconds=$((WIP_SLA_HOURS * 3600))
+
+    if [[ -n "$active_sprint_number" ]]; then
+      wip_sla_candidates_json="$(printf '%s\n' "$open_issues_json" | jq -c --argjson milestone "$active_sprint_number" --argjson now "$wip_sla_now_epoch" '
+        [ .[]
+          | select((.milestone // null) != null and ((.milestone.number // -1) == $milestone))
+          | select((.assignees // []) | length > 0)
+          | {
+              number,
+              title,
+              url,
+              createdAt,
+              assignees: [(.assignees // [])[]?.login],
+              age_seconds: (($now - (.createdAt | fromdateiso8601)) | floor)
+            }
+        ] | sort_by(.number)
+      ' 2>/dev/null || echo '[]')"
+
+      wip_sla_eligible_count="$(printf '%s\n' "$wip_sla_candidates_json" | jq 'length' 2>/dev/null || echo 0)"
+
+      while IFS= read -r issue_item; do
+        [[ -n "$issue_item" ]] || continue
+        issue_num="$(printf '%s\n' "$issue_item" | jq -r '.number' 2>/dev/null || echo '')"
+        issue_age_seconds="$(printf '%s\n' "$issue_item" | jq -r '.age_seconds // 0' 2>/dev/null || echo 0)"
+        enforce_now='false'
+        has_branch='false'
+        has_wip_comment='false'
+        status_label='grace_period'
+        missing_json='[]'
+
+        if [[ -n "$issue_num" && "$issue_age_seconds" -ge "$wip_sla_threshold_seconds" ]]; then
+          enforce_now='true'
+          status_label='ok'
+
+          branch_refs_json='[]'
+          if capture_with_retry branch_refs_json 2 1 "$GH_BIN" api "repos/$GITHUB_REPO/git/matching-refs/heads/issue-$issue_num/"; then
+            has_branch="$(printf '%s\n' "$branch_refs_json" | jq -r 'if (type == "array" and length > 0) then "true" else "false" end' 2>/dev/null || echo 'false')"
+          else
+            append_warning "WIP SLA: failed to query branch refs for issue #$issue_num"
+          fi
+
+          comments_json='{}'
+          if capture_with_retry comments_json 2 1 "$GH_BIN" issue view "$issue_num" --repo "$GITHUB_REPO" --json comments; then
+            has_wip_comment="$(printf '%s\n' "$comments_json" | jq -r 'if any(.comments[]?; (.body | test("WIP:[[:space:]]*branch"; "i"))) then "true" else "false" end' 2>/dev/null || echo 'false')"
+          else
+            append_warning "WIP SLA: failed to query comments for issue #$issue_num"
+          fi
+
+          if [[ "$has_branch" != 'true' ]]; then
+            missing_json="$(jq -cn --argjson arr "$missing_json" '$arr + ["branch"]')"
+            status_label='violation'
+          fi
+          if [[ "$has_wip_comment" != 'true' ]]; then
+            missing_json="$(jq -cn --argjson arr "$missing_json" '$arr + ["wip_comment"]')"
+            status_label='violation'
+          fi
+        fi
+
+        checked_item="$(jq -cn \
+          --argjson issue "$issue_item" \
+          --arg enforce "$enforce_now" \
+          --arg has_branch "$has_branch" \
+          --arg has_wip_comment "$has_wip_comment" \
+          --arg status "$status_label" \
+          --argjson missing "$missing_json" \
+          '{
+            number: $issue.number,
+            title: $issue.title,
+            url: $issue.url,
+            assignees: $issue.assignees,
+            created_at: $issue.createdAt,
+            age_seconds: ($issue.age_seconds // 0),
+            age_hours: ((($issue.age_seconds // 0) / 3600 * 100 | floor) / 100),
+            enforce_now: ($enforce == "true"),
+            has_branch: ($has_branch == "true"),
+            has_wip_comment: ($has_wip_comment == "true"),
+            status: $status,
+            missing: $missing
+          }')"
+
+        wip_sla_checked_json="$(jq -cn --argjson arr "$wip_sla_checked_json" --argjson item "$checked_item" '$arr + [$item]')"
+        if [[ "$status_label" == 'violation' ]]; then
+          wip_sla_violations_json="$(jq -cn --argjson arr "$wip_sla_violations_json" --argjson item "$checked_item" '$arr + [$item]')"
+        fi
+      done < <(printf '%s\n' "$wip_sla_candidates_json" | jq -c '.[]' 2>/dev/null)
+    fi
+
+    wip_sla_violation_count="$(printf '%s\n' "$wip_sla_violations_json" | jq 'length' 2>/dev/null || echo 0)"
+    wip_sla_json="$(jq -cn \
+      --argjson threshold "$WIP_SLA_HOURS" \
+      --arg milestone_title "$active_sprint_title" \
+      --arg milestone_number "$active_sprint_number" \
+      --argjson checked "$wip_sla_checked_json" \
+      --argjson violations "$wip_sla_violations_json" \
+      --argjson eligible "$wip_sla_eligible_count" \
+      --argjson violation_count "$wip_sla_violation_count" \
+      '{
+        threshold_hours: $threshold,
+        active_milestone: (if ($milestone_number | length) == 0 then null else {title: $milestone_title, number: ($milestone_number | tonumber)} end),
+        checked: $checked,
+        violations: $violations,
+        summary: {
+          eligible: $eligible,
+          checked: ($checked | length),
+          violations: $violation_count
+        }
+      }')"
+
+    if [[ "$wip_sla_eligible_count" -eq 0 ]]; then
+      add_health_check "wip_start_sla" "pass" "no assigned issues in active sprint" true
+    elif [[ "$wip_sla_violation_count" -gt 0 ]]; then
+      append_warning "WIP SLA violation(s): ${wip_sla_violation_count} issue(s) missing branch and/or WIP comment after ${WIP_SLA_HOURS}h"
+      add_health_check "wip_start_sla" "fail" "${wip_sla_violation_count} issue(s) violated ${WIP_SLA_HOURS}h SLA" true
+    else
+      add_health_check "wip_start_sla" "pass" "all assigned issues met ${WIP_SLA_HOURS}h WIP SLA" true
+    fi
+  else
+    wip_sla_json="$(jq -cn --argjson threshold "$WIP_SLA_HOURS" '{
+      threshold_hours: $threshold,
+      active_milestone: null,
+      checked: [],
+      violations: [],
+      summary: {eligible: 0, checked: 0, violations: 0}
+    }')"
+    add_health_check "wip_start_sla" "pass" "no active sprint milestone" true
+  fi
 
   if capture_with_retry all_issue_states_json 3 2 "$GH_BIN" issue list --repo "$GITHUB_REPO" --state all --limit 200 --json number,state,title,url; then
     add_health_check "issue_states_bulk_query" "pass" "issue states fetched in bulk" true
@@ -381,6 +525,7 @@ output_json="$(jq -cn \
   --argjson backlog "$backlog_json" \
   --argjson ci_runs "$ci_runs_json" \
   --argjson open_prs "$open_prs_json" \
+  --argjson wip_sla "$wip_sla_json" \
   --argjson yesterday_velocity "$yesterday_velocity_json" \
   --argjson retro_auto_refresh "$retro_auto_refresh" \
   --argjson scrum_health "$scrum_health_json" \
@@ -397,6 +542,7 @@ output_json="$(jq -cn \
     backlog: $backlog,
     ci_runs: $ci_runs,
     open_prs: $open_prs,
+    wip_sla: $wip_sla,
     yesterday_velocity: $yesterday_velocity,
     retro_auto_refresh: $retro_auto_refresh,
     scrum_health: $scrum_health,
