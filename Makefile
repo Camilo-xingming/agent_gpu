@@ -1065,7 +1065,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_advanced_scheduler test_blackwell_scheduler test_alu test_async_copy_engine test_atomic test_branch_predictor test_cache_policy_unit test_chi_controller test_cluster_barrier_unit test_command_processor test_command_queue test_ralph_gpu_top_smoke test_control_flow_unit test_cvt_unit test_decoder test_dpx_unit test_dual_issue_scheduler test_fma_int32 test_forwarding_unit test_fp16_unit test_fpu test_fpu64 test_griddep_unit test_icache test_l1_data_cache_optimized test_l1_data_cache_active test_l2_cache test_l2_interconnect test_lz4_decompressor test_mbarrier_unit test_memory_coalescing_unit test_memory_controller test_memory_controller_hbm test_memory_interface test_memory_interface_wide test_memory_qos test_mul test_multimem_unit test_performance_counters test_reconvergence_stack test_simt_stack_controller test_regfile test_register_file_banked test_sfu test_sm_fetch_pipeline test_sm_gmem_arbiter test_sm_special_reg test_sm_v2_integration test_sm_v2_comprehensive test_sm_wbq_bank test_sm_writeback_arbiter test_smem test_st_bulk_unit test_stack_debug_unit test_tensor_core_e2e test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_memory test_texture_smem_gmem_integration test_texture_unit test_tlb test_tlb_enhanced test_tma_unit test_video_unit test_video_unit_ext test_warp test_warp_collective_unit test_warp_ops test_warp_shuffle test_wb_fifo test_wgmma_throughput test_wgmma_tile_engine
+test: test_advanced_scheduler test_blackwell_scheduler test_alu test_async_copy_engine test_atomic test_branch_predictor test_cache_policy_unit test_chi_controller test_cluster_barrier_unit test_command_processor test_command_queue test_ralph_gpu_top_smoke test_control_flow_unit test_cvt_unit test_decoder test_dpx_unit test_dual_issue_scheduler test_fma_int32 test_forwarding_unit test_fp16_unit test_fpu test_fpu64 test_griddep_unit test_icache test_l1_data_cache_optimized test_l1_data_cache_active test_l2_cache test_l2_interconnect test_lz4_decompressor test_mbarrier_unit test_memory_coalescing_unit test_memory_controller test_memory_controller_hbm test_memory_interface test_memory_interface_wide test_memory_qos test_mul test_multimem_unit test_performance_counters test_reconvergence_stack test_simt_stack_controller test_regfile test_register_file_banked test_sfu test_sm_fetch_pipeline test_sm_gmem_arbiter test_sm_special_reg test_sm_v2_integration test_sm_v2_comprehensive test_sm_wbq_bank test_sm_writeback_arbiter test_smem test_st_bulk_unit test_stack_debug_unit test_tensor_core_e2e test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_memory test_texture_smem_gmem_integration test_texture_unit test_tlb test_tlb_enhanced test_tma_unit test_video_unit test_video_unit_ext test_warp test_warp_collective_unit test_warp_ops test_warp_shuffle test_wb_fifo test_wgmma_throughput test_wgmma_tile_engine test_wgmma_multiprecision
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
@@ -1570,3 +1570,12 @@ test_ralph_gpu_top_smoke: $(BUILD_DIR)/tb_ralph_gpu_top_smoke.vvp
 
 $(BUILD_DIR)/tb_ralph_gpu_top_smoke.vvp: $(RTL_SRCS) $(TB_DIR)/tb_ralph_gpu_top_smoke.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_ralph_gpu_top_smoke.v $(filter %.v,$(RTL_SRCS))
+
+test_wgmma_multiprecision: $(BUILD_DIR)/tb_wgmma_multiprecision.vvp
+	@echo "========================================"
+	@echo "Running test_wgmma_multiprecision"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_wgmma_multiprecision.vvp
+
+$(BUILD_DIR)/tb_wgmma_multiprecision.vvp: $(TB_DIR)/tb_wgmma_multiprecision.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
