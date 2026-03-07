@@ -5947,7 +5947,7 @@ module streaming_multiprocessor_v2 #(
             // This requires per-thread arrival tracking, similar to bar.warp.sync
             
             // Handle bar.sync from issue slot 0
-            if (issue_valid && issue_sync_op && !issue_bar_warp_sync) begin
+            if (issue_valid && issue_sync_op && !issue_bar_warp_sync && !issue_barrier_cluster_op) begin
                 // Mark which threads are arriving at the barrier
                 bar_sync_arrived[issue_warp_id] <= bar_sync_arrived[issue_warp_id] | issue_mask;
                 bar_sync_pending[issue_warp_id] <= 1'b1;
@@ -5960,7 +5960,7 @@ module streaming_multiprocessor_v2 #(
             end
             
             // Handle bar.sync from issue slot 1
-            if (issue1_valid && issue1_sync_op && !issue1_bar_warp_sync) begin
+            if (issue1_valid && issue1_sync_op && !issue1_bar_warp_sync && !issue1_barrier_cluster_op) begin
                 bar_sync_arrived[issue1_warp_id] <= bar_sync_arrived[issue1_warp_id] | issue1_mask;
                 bar_sync_pending[issue1_warp_id] <= 1'b1;
                 
