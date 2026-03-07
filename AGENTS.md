@@ -94,3 +94,8 @@ Title: process: [Sprint N Retro] <action item short name>
 3. Coders 在 thread 内参与讨论（评估工作量、提出风险、建议优先级）
 4. 达成共识后，Lily 将结论写入 GitHub（Issue/Milestone/RETRO.md）；Retro action items 必须在 1h 内映射到 GitHub Issues
 5. Thread 本身即会议记录，可追溯
+
+## Health Monitor
+
+The system uses a background health monitor (`scripts/agent-health-monitor.sh`) to detect coder heartbeat anomalies, missing progress, and missed retro responses.
+For alert paths and resolution steps, refer to the [RUNBOOK](RUNBOOK.md).
