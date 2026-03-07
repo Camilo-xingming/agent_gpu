@@ -495,6 +495,7 @@ module icache #(
                             portb_miss_pending <= 1'b0;
                             is_prefetch_miss <= 1'b0;
                             miss_count <= miss_count + 1;
+                            replace_way <= lru_array[portb_miss_addr[OFFSET_BITS +: INDEX_BITS]];
                             state <= ST_MISS_REQ;
                             fetch_ready_r <= 1'b0;
                             fetch_ready_b_r <= 1'b0;
@@ -514,7 +515,7 @@ module icache #(
                     miss_count <= miss_count + 1;
                     miss_addr <= {fetch_addr_latched[ADDR_WIDTH-1:OFFSET_BITS], {OFFSET_BITS{1'b0}}};
                     miss_word <= fetch_addr_latched[2 +: WORD_BITS];
-                    replace_way <= victim_way;
+                    replace_way <= lru_array[fetch_addr_latched[OFFSET_BITS +: INDEX_BITS]];
                     is_prefetch_miss <= 1'b0;
                     state <= ST_MISS_REQ;
                 end
