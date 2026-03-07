@@ -6,6 +6,20 @@
 - WIP/PR SLA enforcement: [#502](https://github.com/ssql2014/RalphGPU/issues/502)
 - CoderGemini Retro participation: [#503](https://github.com/ssql2014/RalphGPU/issues/503)
 
+
+## Retro Action Item Audit (Issue #558, 2026-03-07)
+
+Reviewed the latest three retros with explicit action items in this file and mapped each item to a GitHub issue/state.
+
+| Sprint | Action Item | Status | Tracking |
+|---|---|---|---|
+| Sprint 42 | Coder responsiveness: heartbeat cron health check and alerting | Open | #562 |
+| Sprint 42 | Carry-over priority for #412/#413/#414/#415 | Done | #412 #413 #414 #415 (closed) |
+| Sprint 41 | Sprint startup branch + assignee enforcement | Done | #502 + PR #560 |
+| Sprint 39 | cross-review SLA 30min enforcement | Open | #561 |
+
+Outstanding items above have been converted to `process` issues for Sprint 58 tracking.
+
 # Sprint Retrospective — Sprint 22
 
 ## Sprint Goal

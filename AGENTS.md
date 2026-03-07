@@ -39,6 +39,42 @@
 - `1`：存在 WARN（已分配但超过 2h 无 branch）
 - `2`：存在 FAIL（issue 无 assignee）
 
+## Retro Action Items → GitHub Issues（1h SLA）
+
+Retro 产出的 action items 不能只留在文档/聊天，必须进入 GitHub 跟踪。
+
+### 规则
+
+1. **时限**：Retro 结束后 1 小时内，所有未完成 action item 必须创建（或关联）GitHub Issue。
+2. **标签**：Retro action item 对应 issue 必须带 `process` label。
+3. **去重**：若已有 open issue 覆盖该项，不重复建单；在原 issue comment 增量更新并回链 Retro。
+4. **可验收**：每个 action item issue 必须写清可验证的 acceptance criteria。
+5. **可追溯**：在 Retro 记录中写明 `Action Item -> Issue #` 映射。
+
+### 模板
+
+```md
+Title: process: [Sprint N Retro] <action item short name>
+
+## Background
+- Retro source: Sprint N (RETRO.md section or ceremony issue link)
+- Problem summary:
+
+## Proposed Change
+- 
+
+## Acceptance Criteria
+- [ ]
+
+## Owner / Target Sprint
+- Owner:
+- Target Sprint:
+
+## References
+- Retro entry link
+- Related issues/PRs
+```
+
 ## Sprint 会议流程（2026-02-28 起执行）
 
 所有 Sprint 会议必须在 **#ralphgpu** 频道以 **thread** 形式公开讨论。Lily 不得单独决定 Sprint 内容。
@@ -56,5 +92,5 @@
 1. Lily 在 #ralphgpu 开 thread（标题格式固定如上）
 2. Lily 提议议题/候选 items，引导讨论
 3. Coders 在 thread 内参与讨论（评估工作量、提出风险、建议优先级）
-4. 达成共识后，Lily 将结论写入 GitHub（Issue/Milestone/RETRO.md）
+4. 达成共识后，Lily 将结论写入 GitHub（Issue/Milestone/RETRO.md）；Retro action items 必须在 1h 内映射到 GitHub Issues
 5. Thread 本身即会议记录，可追溯
