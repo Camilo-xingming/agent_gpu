@@ -24,6 +24,21 @@
 - 长任务无心跳 → Lily 会 timeout 并 reassign
 - 心跳内容必须是结果/进展，不是"我在看…"（禁止想出声）
 
+## Sprint Watchdog Cron（每 2 小时）
+
+新增 `scripts/sprint-watchdog.sh` 用于检查当前 Sprint milestone 的 issue 分配与分支启动 SLA（2h）。
+
+建议在 codex 机器安装 cron（每 2 小时执行一次）：
+
+```cron
+0 */2 * * * cd ~/RalphGPU-codex && env HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 ./scripts/sprint-watchdog.sh --repo ssql2014/RalphGPU >> ~/.openclaw/shared-memory/ralphgpu/sprint-watchdog.log 2>&1
+```
+
+脚本返回码：
+- `0`：全部 OK
+- `1`：存在 WARN（已分配但超过 2h 无 branch）
+- `2`：存在 FAIL（issue 无 assignee）
+
 ## Sprint 会议流程（2026-02-28 起执行）
 
 所有 Sprint 会议必须在 **#ralphgpu** 频道以 **thread** 形式公开讨论。Lily 不得单独决定 Sprint 内容。
