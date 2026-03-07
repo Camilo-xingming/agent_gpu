@@ -147,6 +147,18 @@ cat > "$FIXTURE_DIR/issues-open.json" << 'JSON'
 ]
 JSON
 
+cat > "$FIXTURE_DIR/issues-open-sla.json" << 'JSON'
+[
+  {
+    "number": 42,
+    "title": "Cross-review SLA item",
+    "assignees": [{"login": "alice"}],
+    "createdAt": "2026-02-20T00:00:00Z",
+    "url": "https://example.invalid/issues/42"
+  }
+]
+JSON
+
 cat > "$FIXTURE_DIR/issues-all.json" << 'JSON'
 [
   {
@@ -167,6 +179,31 @@ cat > "$FIXTURE_DIR/issues-all.json" << 'JSON'
     "title": "P0 sample",
     "url": "https://example.invalid/issues/50"
   }
+]
+JSON
+
+cat > "$FIXTURE_DIR/pr-list-sla-breach.json" << 'JSON'
+[
+  {
+    "number": 900,
+    "title": "fix: issue-42",
+    "url": "https://example.invalid/pr/900",
+    "headRefName": "issue-42/codex",
+    "comments": [
+      {
+        "id": "comment-1",
+        "author": {"login": "alice"},
+        "body": "**[Codex]** CROSS_REVIEW_REQUEST @bob Please return CROSS_REVIEW_PASS or CROSS_REVIEW_FAIL.",
+        "createdAt": "2026-02-20T00:00:00Z"
+      }
+    ]
+  }
+]
+JSON
+
+cat > "$FIXTURE_DIR/matching-refs.json" << 'JSON'
+[
+  {"ref": "refs/heads/issue-42/codex"}
 ]
 JSON
 
@@ -222,6 +259,14 @@ if [[ "$cmd" == "api" ]]; then
       ;;
     repos/*/issues\?state=all\&milestone=*)
       cat "$GH_STUB_MILESTONE_ISSUES_JSON"
+      exit 0
+      ;;
+    repos/*/git/matching-refs/heads/issue-*/)
+      if [[ -n "${GH_STUB_MATCHING_REFS_JSON:-}" && -f "${GH_STUB_MATCHING_REFS_JSON}" ]]; then
+        cat "$GH_STUB_MATCHING_REFS_JSON"
+      else
+        echo '[]'
+      fi
       exit 0
       ;;
     repos/*/milestones/*)
@@ -531,9 +576,38 @@ fi
 EOF_BASH
 }
 
+run_sprint_watchdog_review_sla_test() {
+  local out_file="$TMP_ROOT/sprint-watchdog-sla.json"
+  local rc=0
+
+  GH_LOG_FILE="$GH_LOG" \
+  GH_STUB_MILESTONES_ALL_JSON="$FIXTURE_DIR/milestones-all.json" \
+  GH_STUB_MILESTONES_OPEN_JSON="$FIXTURE_DIR/milestones-open.json" \
+  GH_STUB_MILESTONE_ISSUES_JSON="$FIXTURE_DIR/milestone-issues.json" \
+  GH_STUB_RUN_LIST_JSON="$FIXTURE_DIR/run-list.json" \
+  GH_STUB_ISSUES_OPEN_JSON="$FIXTURE_DIR/issues-open-sla.json" \
+  GH_STUB_ISSUES_ALL_JSON="$FIXTURE_DIR/issues-all.json" \
+  GH_STUB_PR_LIST_JSON="$FIXTURE_DIR/pr-list-sla-breach.json" \
+  GH_STUB_MATCHING_REFS_JSON="$FIXTURE_DIR/matching-refs.json" \
+  GH_BIN="$BIN_DIR/gh" \
+  OPENCLAW_BIN="/nonexistent/openclaw" \
+  "$SCRIPT_DIR/sprint-watchdog.sh" --repo ssql2014/RalphGPU --json --review-sla-minutes 30 --no-discord-notify > "$out_file" || rc=$?
+
+  [[ "$rc" -eq 2 ]] || fail "expected sprint-watchdog exit 2 on SLA breach, got $rc"
+  assert_jq "$out_file" '.status == "FAIL"' "sprint-watchdog status should be FAIL"
+  assert_jq "$out_file" '.cross_review_sla.violation_count == 1' "top-level review SLA violation count"
+  assert_jq "$out_file" '.cross_review_sla.notify_result == "not_triggered"' "notify should be disabled in test"
+  assert_jq "$out_file" '.results[0].status == "FAIL"' "issue status should become FAIL on SLA breach"
+  assert_jq "$out_file" '.results[0].cross_review_sla.status == "violated"' "issue review SLA status"
+  assert_jq "$out_file" '.results[0].cross_review_sla.violation_count == 1' "issue violation count"
+  assert_jq "$out_file" '.results[0].reason == "cross-review SLA violated (30m)"' "issue reason should point to review SLA"
+  assert_jq "$out_file" '.cross_review_sla.violations[0].pr_number == 900' "violation should capture PR number"
+}
+
 run_warning_vs_critical_test
 run_zero_token_and_coverage_test
 run_atomic_write_race_test
 run_heartbeat_schedule_test
+run_sprint_watchdog_review_sla_test
 
 echo "PASS: cron optimization tests completed"

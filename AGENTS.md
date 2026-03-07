@@ -26,18 +26,35 @@
 
 ## Sprint Watchdog Cron（每 2 小时）
 
-新增 `scripts/sprint-watchdog.sh` 用于检查当前 Sprint milestone 的 issue 分配与分支启动 SLA（2h）。
+新增 `scripts/sprint-watchdog.sh` 用于检查当前 Sprint milestone 的 issue 分配、分支启动 SLA（2h）和 cross-review SLA（30min）。
 
 建议在 codex 机器安装 cron（每 2 小时执行一次）：
 
 ```cron
-0 */2 * * * cd ~/RalphGPU-codex && env HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 ./scripts/sprint-watchdog.sh --repo ssql2014/RalphGPU >> ~/.openclaw/shared-memory/ralphgpu/sprint-watchdog.log 2>&1
+0 */2 * * * cd ~/RalphGPU-codex && env HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 ./scripts/sprint-watchdog.sh --repo ssql2014/RalphGPU --review-sla-minutes 30 >> ~/.openclaw/shared-memory/ralphgpu/sprint-watchdog.log 2>&1
 ```
 
 脚本返回码：
 - `0`：全部 OK
 - `1`：存在 WARN（已分配但超过 2h 无 branch）
-- `2`：存在 FAIL（issue 无 assignee）
+- `2`：存在 FAIL（issue 无 assignee，或 cross-review SLA 超时）
+
+### Cross-review SLA（30min，Issue #561）
+
+Canonical evidence path（必须在 PR comment 留痕）：
+
+1. 请求方 comment（开始计时）：
+   - `**[Codex]** CROSS_REVIEW_REQUEST @reviewer 请在 30 分钟内给出 CROSS_REVIEW_PASS / CROSS_REVIEW_FAIL`
+2. 审查方 comment（停止计时）：
+   - `**[Gemini]** CROSS_REVIEW_PASS`
+   - 或 `**[Gemini]** CROSS_REVIEW_FAIL`
+
+规则：
+
+- SLA 定义：从 `CROSS_REVIEW_REQUEST` comment 的 `createdAt` 到首个 `CROSS_REVIEW_PASS/FAIL` comment 的 `createdAt`，必须 `<= 30 min`。
+- 机检：`scripts/sprint-watchdog.sh --json` 输出 `cross_review_sla.violations[]`（含 PR 编号、请求/响应时间戳、延迟分钟）。
+- 升级：若超时，watchdog 在 `#ralphgpu-dev` 发 1 行告警并提示 Lily 立即跟进/按需重新分配 reviewer。
+- 示例详见 `docs/pm/pr-submission.md` 第 6 节。
 
 ## Retro Action Items → GitHub Issues（1h SLA）
 
