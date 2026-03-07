@@ -152,7 +152,8 @@ module tb_sm_v2_perf_gemm16_ptx;
         .NUM_WARPS(NUM_WARPS),
         .NUM_LANES(NUM_LANES),
         .DATA_WIDTH(DATA_WIDTH),
-        .INIT_WARPS(4)  // Use 4 warps to hide latency
+        .INIT_WARPS(4),
+        .ICACHE_BYPASS(1)  // Isolate core issue/wb performance from fetch cache misses
     ) dut (
         .clk           (clk),
         .rst_n         (rst_n),
@@ -396,9 +397,9 @@ module tb_sm_v2_perf_gemm16_ptx;
             @(posedge clk);
             timeout_left = timeout_left - 1;
             if ((cycle_count > 0) && ((cycle_count % progress_interval) == 0)) begin
-                $display("PROGRESS: cycle=%0d wb=%0d issue=%0d fetch=%0d stalls(raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d timeout_left=%0d",
+                $display("PROGRESS: cycle=%0d wb=%0d issue=%0d fetch=%0d stalls(raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d ifetch=%0d timeout_left=%0d",
                          cycle_count, wb_count, issue_count, fetch_count,
-                         stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq,
+                         stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq, stall_ifetch,
                          timeout_left);
             end
         end
@@ -408,8 +409,8 @@ module tb_sm_v2_perf_gemm16_ptx;
         $display("Writebacks: %0d", wb_count);
         $display("Fetches: %0d", fetch_count);
         $display("Issues: %0d", issue_count);
-        $display("Stalls: raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d",
-                 stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq);
+        $display("Stalls: raw=%0d fu=%0d mem=%0d atomic=%0d tensor=%0d wbq=%0d ifetch=%0d",
+                 stall_raw, stall_fu, stall_mem, stall_atomic, stall_tensor, stall_wbq, stall_ifetch);
         $display("IPC: %0.3f", ipc);
         $display("FU: ALU Active = %0d", fu_alu_active);
         $display("FU: FPU Active = %0d", fu_fpu_active);

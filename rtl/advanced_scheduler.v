@@ -420,6 +420,11 @@ module advanced_warp_scheduler #(
             memory_rr_ptr <= 0;
             sb_debug_cnt <= 0;
         end else begin
+            // Clear scoreboard bits on writeback
+            if (wb_valid) begin
+                scoreboard[wb_warp_id][wb_rd] <= 1'b0;
+            end
+
             // Set scoreboard bits on issue
             // IMPORTANT: Use captured instruction (issue_inst_r) to extract rd and
             // captured writes_reg flag (issue_writes_reg_r), NOT warp_rd/warp_writes_reg
@@ -435,11 +440,6 @@ module advanced_warp_scheduler #(
             for (sb_w = 0; sb_w < NUM_WARPS; sb_w = sb_w + 1) begin
                 if (warp_consume_r[sb_w])
                     issue_seq[sb_w] <= issue_seq[sb_w] + 4'd1;
-            end
-
-            // Clear scoreboard bits on writeback
-            if (wb_valid) begin
-                scoreboard[wb_warp_id][wb_rd] <= 1'b0;
             end
 
             // Update round-robin pointers
