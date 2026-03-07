@@ -494,11 +494,12 @@ module streaming_multiprocessor_v2 #(
     reg  [4:0]           exec_rd;
 
     // Writeback Stage
-    wire                  wb_valid;
+    wire                  wb_valid_raw;
     wire  [WARP_ID_W-1:0] wb_warp_id;
     wire  [4:0]           wb_rd;
     wire  [SIMD_WIDTH-1:0] wb_data;
     wire  [NUM_LANES-1:0] wb_mask;
+    wire                  wb_valid;
 
     //========================================================================
     // Decoder Signals
@@ -2152,7 +2153,7 @@ module streaming_multiprocessor_v2 #(
         .issue_pipe(sched_issue_pipe_flat),
         .issue_is_async_mma(bw_issue_is_async_mma),
         .issue_async_mma_id(bw_issue_async_mma_id_flat),
-        .wb_valid(wb_valid),
+        .wb_valid(wb_valid_raw),
         .wb_warp_id(wb_warp_id),
         .wb_rd(wb_rd),
         .stat_cycles(),
@@ -2206,7 +2207,7 @@ module streaming_multiprocessor_v2 #(
         .issue_warp_id(sched_issue_warp_id_flat),
         .issue_inst(sched_issue_inst_flat),
         .issue_pipe(sched_issue_pipe_flat),
-        .wb_valid(wb_valid),
+        .wb_valid(wb_valid_raw),
         .wb_warp_id(wb_warp_id),
         .wb_rd(wb_rd),
         .stat_cycles(),
@@ -5351,6 +5352,7 @@ module streaming_multiprocessor_v2 #(
     wire        wb_found;
     wire [4:0]  wb_sel;
     wire        tex_wbq_pop;
+    assign wb_valid = wb_valid_raw;
 
     sm_writeback_arbiter #(
         .NUM_WARPS  (NUM_WARPS),
@@ -5456,7 +5458,7 @@ module streaming_multiprocessor_v2 #(
         .multimem_wb_mask          (multimem_wb_mask),
         .multimem_result_r         (multimem_result_r),
         // Outputs
-        .wb_valid                  (wb_valid),
+        .wb_valid                  (wb_valid_raw),
         .wb_warp_id                (wb_warp_id),
         .wb_rd                     (wb_rd),
         .wb_data                   (wb_data),
