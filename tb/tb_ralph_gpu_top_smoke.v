@@ -15,6 +15,7 @@ module tb_ralph_gpu_top_smoke;
     localparam CSR_BLOCK_DIM_X = 12'h018;
     localparam CSR_BLOCK_DIM_Y = 12'h01C;
     localparam CSR_BLOCK_DIM_Z = 12'h020;
+    localparam CSR_CP_STATUS   = 12'h04C;
 
     reg clk;
     reg rst_n;
@@ -79,6 +80,11 @@ module tb_ralph_gpu_top_smoke;
     reg [31:0] last_write_data;
     reg        kernel_launch_seen;
     reg        sm_start_seen;
+    integer    kernel_launch_count;
+    integer    sim_cycle;
+    integer    last_launch_cycle;
+    integer    last_irq_rise_cycle;
+    reg        irq_prev;
     integer    wb_count;
     reg        wb_rd1_seen;
     reg [31:0] wb_rd1_data_lane0;
@@ -284,11 +290,23 @@ module tb_ralph_gpu_top_smoke;
         if (!rst_n) begin
             kernel_launch_seen <= 1'b0;
             sm_start_seen <= 1'b0;
+            kernel_launch_count <= 0;
+            sim_cycle <= 0;
+            last_launch_cycle <= -1;
+            last_irq_rise_cycle <= -1;
+            irq_prev <= 1'b0;
         end else begin
-            if (u_gpu.kernel_launch_pulse)
+            sim_cycle <= sim_cycle + 1;
+            if (u_gpu.kernel_launch_pulse) begin
                 kernel_launch_seen <= 1'b1;
+                kernel_launch_count <= kernel_launch_count + 1;
+                last_launch_cycle <= sim_cycle;
+            end
             if (u_gpu.sm_kernel_start[0])
                 sm_start_seen <= 1'b1;
+            if (!irq_prev && irq_kernel_done)
+                last_irq_rise_cycle <= sim_cycle;
+            irq_prev <= irq_kernel_done;
         end
     end
 
@@ -336,22 +354,45 @@ module tb_ralph_gpu_top_smoke;
         end
     endtask
 
+    task read_csr;
+        input [11:0] addr;
+        output [31:0] data;
+        begin
+            @(posedge clk);
+            csr_addr <= addr;
+            #1 data = csr_rd_data;
+        end
+    endtask
+
     task clear_irq;
         begin
             write_csr(CSR_GPU_STATUS, 32'h1);
         end
     endtask
 
+    task launch_kernel_cfg;
+        input [31:0] kernel_pc;
+        input [31:0] grid_x;
+        input [31:0] grid_y;
+        input [31:0] grid_z;
+        input [31:0] block_x;
+        input [31:0] block_y;
+        input [31:0] block_z;
+        begin
+            write_csr(CSR_KERNEL_PC, kernel_pc);
+            write_csr(CSR_GRID_DIM_X, grid_x);
+            write_csr(CSR_GRID_DIM_Y, grid_y);
+            write_csr(CSR_GRID_DIM_Z, grid_z);
+            write_csr(CSR_BLOCK_DIM_X, block_x);
+            write_csr(CSR_BLOCK_DIM_Y, block_y);
+            write_csr(CSR_BLOCK_DIM_Z, block_z);
+            write_csr(CSR_GPU_CONTROL, 32'h1);
+        end
+    endtask
+
     task launch_kernel;
         begin
-            write_csr(CSR_KERNEL_PC, 32'd0);
-            write_csr(CSR_GRID_DIM_X, 32'd1);
-            write_csr(CSR_GRID_DIM_Y, 32'd1);
-            write_csr(CSR_GRID_DIM_Z, 32'd1);
-            write_csr(CSR_BLOCK_DIM_X, 32'd32);
-            write_csr(CSR_BLOCK_DIM_Y, 32'd1);
-            write_csr(CSR_BLOCK_DIM_Z, 32'd1);
-            write_csr(CSR_GPU_CONTROL, 32'h1);
+            launch_kernel_cfg(32'd0, 32'd1, 32'd1, 32'd1, 32'd32, 32'd1, 32'd1);
         end
     endtask
 
@@ -369,7 +410,25 @@ module tb_ralph_gpu_top_smoke;
         end
     endtask
 
+    task wait_idle;
+        input integer timeout_cycles;
+        output integer timed_out;
+        integer cnt;
+        begin
+            cnt = 0;
+            while (u_gpu.gpu_busy && cnt < timeout_cycles) begin
+                @(posedge clk);
+                cnt = cnt + 1;
+            end
+            timed_out = u_gpu.gpu_busy ? 1 : 0;
+        end
+    endtask
+
     integer timeout_flag;
+    integer prev_irq_cycle;
+    integer reads_after_first;
+    integer writes_after_first;
+    reg [31:0] rd_data;
 
     initial begin
         $dumpfile("tb_ralph_gpu_top_smoke.vcd");
@@ -402,18 +461,63 @@ module tb_ralph_gpu_top_smoke;
         rst_n = 1'b1;
         repeat (4) @(posedge clk);
 
+        // Test 1: First kernel run + IRQ timing/clear behavior.
         clear_irq();
         launch_kernel();
         wait_irq(12000, timeout_flag);
 
-        check_true("kernel launch pulse observed", kernel_launch_seen);
-        check_true("SM start observed", sm_start_seen);
-        check_true("kernel completed (irq)", !timeout_flag);
-        check_true("axi read happened", axi_read_count > 0);
-        check_eq("read addr is source 0x1000", last_read_addr, 32'h0000_1000);
-        check_true("SM writeback observed", wb_count > 0);
-        check_true("LD writeback to R1 observed", wb_rd1_seen);
-        check_eq("R1 lane0 writeback equals source word", wb_rd1_data_lane0, 32'hDEAD_BEEF);
+        check_true("T1 kernel launch pulse observed", kernel_launch_seen);
+        check_true("T1 SM start observed", sm_start_seen);
+        check_true("T1 kernel completed (irq)", !timeout_flag);
+        check_true("T1 irq asserted at completion", irq_kernel_done);
+        check_true("T1 axi read happened", axi_read_count > 0);
+        check_eq("T1 read addr is source 0x1000", last_read_addr, 32'h0000_1000);
+        check_true("T1 SM writeback observed", wb_count > 0);
+        check_true("T1 LD writeback to R1 observed", wb_rd1_seen);
+        check_eq("T1 R1 lane0 writeback equals source word", wb_rd1_data_lane0, 32'hDEAD_BEEF);
+
+        reads_after_first = axi_read_count;
+        writes_after_first = axi_write_count;
+        prev_irq_cycle = last_irq_rise_cycle;
+
+        clear_irq();
+        @(posedge clk);
+        check_true("T1 irq clears after status write", !irq_kernel_done);
+
+        // Test 2: Error injection via invalid kernel config (block_dim_x=0).
+        launch_kernel_cfg(32'd0, 32'd1, 32'd1, 32'd1, 32'd0, 32'd1, 32'd1);
+        repeat (8) @(posedge clk);
+        check_true("T2 invalid launch does not raise irq", !irq_kernel_done);
+        read_csr(CSR_CP_STATUS, rd_data);
+        check_true("T2 invalid command bit set", rd_data[9]);
+        wait_idle(200, timeout_flag);
+        check_true("T2 gpu returns idle after invalid launch", !timeout_flag);
+
+        write_csr(CSR_GPU_CONTROL, 32'h0);
+        write_csr(CSR_CP_STATUS, 32'h0000_0200);
+        repeat (2) @(posedge clk);
+        read_csr(CSR_CP_STATUS, rd_data);
+        check_true("T2 invalid command bit clears", !rd_data[9]);
+
+        // Test 3: Second kernel run proves sequential multi-kernel execution.
+        global_mem[16'h1000 >> 2] = 32'hCAFE_1234;
+        global_mem[16'h1004 >> 2] = 32'h0000_0000;
+        wb_rd1_seen = 1'b0;
+        wb_rd1_data_lane0 = 32'b0;
+
+        launch_kernel();
+        wait_irq(12000, timeout_flag);
+        check_true("T3 second kernel completed", !timeout_flag);
+        check_true("T3 second irq asserted", irq_kernel_done);
+        check_true("T3 second irq edge observed", last_irq_rise_cycle > prev_irq_cycle);
+        check_true("T3 multi-kernel launch count >= 2", kernel_launch_count >= 2);
+        check_true("T3 axi reads increased after second launch", axi_read_count > reads_after_first);
+        check_true("T3 second LD writeback observed", wb_rd1_seen);
+        check_eq("T3 second lane0 writeback value", wb_rd1_data_lane0, 32'hCAFE_1234);
+
+        clear_irq();
+        @(posedge clk);
+        check_true("T3 irq clears after final status write", !irq_kernel_done);
 
         $display("\n========================================");
         $display("GPU Top Smoke Summary");
