@@ -194,9 +194,12 @@ module tb_gpu_top_integration;
     reg [3:0]  pending_axi_id;
     reg        pending_axi_read;
     reg [2:0]  axi_read_delay;
+    reg [7:0]  pending_axi_len;
+    reg [7:0]  pending_axi_beat;
     reg [31:0] pending_aw_addr;
     reg [3:0]  pending_aw_id;
     reg        pending_aw_valid;
+    reg        pending_axi_data_valid;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -209,6 +212,9 @@ module tb_gpu_top_integration;
             pending_axi_read <= 1'b0;
             pending_axi_addr <= 32'b0;
             axi_read_delay <= 3'b0;
+            pending_axi_len <= 8'b0;
+            pending_axi_beat <= 8'b0;
+            pending_axi_data_valid <= 1'b0;
             m_axi_awready <= 1'b1;
             m_axi_wready <= 1'b1;
             m_axi_bvalid <= 1'b0;
@@ -223,26 +229,34 @@ module tb_gpu_top_integration;
                 pending_axi_read <= 1'b1;
                 pending_axi_addr <= m_axi_araddr;
                 pending_axi_id <= m_axi_arid;
+                pending_axi_len <= m_axi_arlen;
+                pending_axi_beat <= 8'd0;
+                pending_axi_data_valid <= 1'b0;
                 m_axi_arready <= 1'b0;
                 axi_read_delay <= 3'd2;
             end else if (pending_axi_read && axi_read_delay > 0) begin
                 axi_read_delay <= axi_read_delay - 1'b1;
-            end else if (pending_axi_read && axi_read_delay == 0) begin
+            end else if (pending_axi_read && !pending_axi_data_valid && axi_read_delay == 0) begin
                 m_axi_rvalid <= 1'b1;
-                
-                begin
-                    integer r_word_offset;
-                    r_word_offset = pending_axi_addr[4:2];
-                    m_axi_rdata <= global_mem[pending_axi_addr[15:2]];
-                end
-
-                m_axi_rlast <= 1'b1;
+                m_axi_rdata <= global_mem[pending_axi_addr[15:2] + pending_axi_beat];
+                m_axi_rlast <= (pending_axi_beat == pending_axi_len);
                 m_axi_rid <= pending_axi_id;
-                pending_axi_read <= 1'b0;
+                pending_axi_data_valid <= 1'b1;
             end else if (m_axi_rvalid && m_axi_rready) begin
-                m_axi_rvalid <= 1'b0;
-                m_axi_rlast <= 1'b0;
-                m_axi_arready <= 1'b1;
+                if (pending_axi_beat == pending_axi_len) begin
+                    m_axi_rvalid <= 1'b0;
+                    m_axi_rlast <= 1'b0;
+                    m_axi_arready <= 1'b1;
+                    pending_axi_read <= 1'b0;
+                    pending_axi_data_valid <= 1'b0;
+                end else begin
+                    pending_axi_beat <= pending_axi_beat + 1'b1;
+                    m_axi_rvalid <= 1'b1;
+                    m_axi_rdata <= global_mem[pending_axi_addr[15:2] + pending_axi_beat + 1'b1];
+                    m_axi_rlast <= ((pending_axi_beat + 1'b1) == pending_axi_len);
+                    m_axi_rid <= pending_axi_id;
+                    pending_axi_data_valid <= 1'b1;
+                end
             end
 
             // Write channel
