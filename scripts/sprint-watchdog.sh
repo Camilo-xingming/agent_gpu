@@ -32,7 +32,7 @@ Options:
 Exit code:
   0: all OK
   1: WARN exists (assigned issue missing branch after threshold)
-  2: FAIL exists (issue missing assignee)
+  2: FAIL exists (issue missing assignee beyond threshold)
   3: runtime/config error
 USAGE
 }
@@ -141,8 +141,8 @@ while IFS= read -r issue_item; do
 
   age_seconds=0
   if [[ -n "$created_at" ]]; then
-    created_epoch="$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$created_at" +%s 2>/dev/null || echo 0)"
-    if [[ "$created_epoch" -gt 0 ]]; then
+    created_epoch="$(printf '%s\n' "$issue_item" | jq -r '(.createdAt // "" | fromdateiso8601? // 0)' 2>/dev/null || echo 0)"
+    if [[ "$created_epoch" =~ ^[0-9]+$ && "$created_epoch" -gt 0 ]]; then
       age_seconds=$((now_epoch - created_epoch))
       if [[ "$age_seconds" -lt 0 ]]; then
         age_seconds=0
@@ -165,9 +165,15 @@ while IFS= read -r issue_item; do
   reason='all checks passed'
 
   if [[ "$assignee_count" -eq 0 ]]; then
-    status='FAIL'
-    reason='no assignee'
-    fail_count=$((fail_count + 1))
+    if [[ "$age_seconds" -ge "$threshold_seconds" ]]; then
+      status='FAIL'
+      reason="no assignee after ${WIP_SLA_HOURS}h"
+      fail_count=$((fail_count + 1))
+    else
+      status='OK'
+      reason='no assignee (within SLA grace period)'
+      ok_count=$((ok_count + 1))
+    fi
   elif [[ "$age_seconds" -ge "$threshold_seconds" && "$has_branch" != 'true' ]]; then
     status='WARN'
     reason="no branch after ${WIP_SLA_HOURS}h"
