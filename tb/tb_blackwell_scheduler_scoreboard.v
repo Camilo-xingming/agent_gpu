@@ -308,6 +308,26 @@ module tb_blackwell_scheduler_scoreboard;
         check_expect(!dut.scoreboard[0][5], "scoreboard R5 should clear on writeback");
         check_expect(issue_valid[0], "issue should resume after writeback clears dependency");
 
+        // Case C: Same-cycle SET vs CLEAR (WAW hazard gap)
+        // 1. Issue new instruction writing R10
+        warp_writes_reg = 1'b1;
+        warp_rd = 5'd10;
+        warp_rs1 = 5'd1;
+        warp_reads_rs3 = 1'b0;
+        
+        // 2. Simultaneously writeback (CLEAR) R10 from an older instruction
+        wb_valid = 1'b1;
+        wb_warp_id = 0;
+        wb_rd = 5'd10;
+        
+        @(posedge clk);
+        wb_valid <= 1'b0;
+        warp_writes_reg <= 1'b0; // Stop issuing
+        
+        #1;
+        // The SET (new instruction) must win over the CLEAR (older instruction)
+        check_expect(dut.scoreboard[0][10] == 1'b1, "scoreboard R10 must remain SET (1) when SET and CLEAR happen in the same cycle");
+
         $display("============================================================");
         $display("Blackwell Scheduler RS3 Mask Test");
         $display("  Passed: %0d", pass_count);

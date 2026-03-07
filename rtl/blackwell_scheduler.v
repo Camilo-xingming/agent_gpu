@@ -540,6 +540,48 @@ end
             end
             warp_has_tmem_alloc <= 0;
         end else begin
+            // Clear scoreboard on writeback
+            if (wb_valid) begin
+                scoreboard[wb_warp_id][wb_rd] <= 1'b0;
+`ifdef SIMULATION
+                if (wb_warp_id == {{(WARP_W-1){1'b0}},1'b1} && wb_rd == 5'd4) begin
+                    $display("[%0t SCHED DBG_CLR_WB_W1_R4]", $time);
+                end
+`endif
+            end
+
+            // Rollback scoreboard SET for issue-stage FU conflict (slot 1 dropped)
+            if (fu_conflict_sb_clr_valid) begin
+                scoreboard[fu_conflict_sb_clr_warp][fu_conflict_sb_clr_rd] <= 1'b0;
+`ifdef SIMULATION
+                if (fu_conflict_sb_clr_warp == {{(WARP_W-1){1'b0}},1'b1} && fu_conflict_sb_clr_rd == 5'd4) begin
+                    $display("[%0t SCHED DBG_CLR_FU_W1_R4]", $time);
+                end
+`endif
+            end
+
+            // Rollback scoreboard SET for branch-flushed decode entries (slot 0 / slot 1)
+            if (branch_flush_sb_clr0_valid) begin
+                scoreboard[branch_flush_sb_clr0_warp][branch_flush_sb_clr0_rd] <= 1'b0;
+            end
+            if (branch_flush_sb_clr1_valid) begin
+                scoreboard[branch_flush_sb_clr1_warp][branch_flush_sb_clr1_rd] <= 1'b0;
+`ifdef SIMULATION
+                if (branch_flush_sb_clr1_warp == {{(WARP_W-1){1'b0}},1'b1} && branch_flush_sb_clr1_rd == 5'd4) begin
+                    $display("[%0t SCHED DBG_CLR_FLUSH1_W1_R4]", $time);
+                end
+`endif
+            end
+
+            // Clear scoreboard on WGMMA completion
+            if (wgmma_sb_clr_valid) begin
+                scoreboard[wgmma_sb_clr_warp][wgmma_sb_clr_rd] <= 1'b0;
+            end
+
+            // Clear scoreboard on pipeline replay (L1 miss rollback)
+            if (replay_sb_clr_valid) begin
+                scoreboard[replay_sb_clr_warp][replay_sb_clr_rd] <= 1'b0;
+            end
             // Set scoreboard on issue
             // Note: R0 is a normal register in GPU (not hardwired zero like RISC-V)
             // NOP/BAR_SYNC/etc. won't set scoreboard because warp_writes_reg=0 for them
@@ -609,48 +651,6 @@ end
                     issue_seq[sb_w] <= issue_seq[sb_w] + 4'd1;
             end
 
-            // Clear scoreboard on writeback
-            if (wb_valid) begin
-                scoreboard[wb_warp_id][wb_rd] <= 1'b0;
-`ifdef SIMULATION
-                if (wb_warp_id == {{(WARP_W-1){1'b0}},1'b1} && wb_rd == 5'd4) begin
-                    $display("[%0t SCHED DBG_CLR_WB_W1_R4]", $time);
-                end
-`endif
-            end
-
-            // Rollback scoreboard SET for issue-stage FU conflict (slot 1 dropped)
-            if (fu_conflict_sb_clr_valid) begin
-                scoreboard[fu_conflict_sb_clr_warp][fu_conflict_sb_clr_rd] <= 1'b0;
-`ifdef SIMULATION
-                if (fu_conflict_sb_clr_warp == {{(WARP_W-1){1'b0}},1'b1} && fu_conflict_sb_clr_rd == 5'd4) begin
-                    $display("[%0t SCHED DBG_CLR_FU_W1_R4]", $time);
-                end
-`endif
-            end
-
-            // Rollback scoreboard SET for branch-flushed decode entries (slot 0 / slot 1)
-            if (branch_flush_sb_clr0_valid) begin
-                scoreboard[branch_flush_sb_clr0_warp][branch_flush_sb_clr0_rd] <= 1'b0;
-            end
-            if (branch_flush_sb_clr1_valid) begin
-                scoreboard[branch_flush_sb_clr1_warp][branch_flush_sb_clr1_rd] <= 1'b0;
-`ifdef SIMULATION
-                if (branch_flush_sb_clr1_warp == {{(WARP_W-1){1'b0}},1'b1} && branch_flush_sb_clr1_rd == 5'd4) begin
-                    $display("[%0t SCHED DBG_CLR_FLUSH1_W1_R4]", $time);
-                end
-`endif
-            end
-
-            // Clear scoreboard on WGMMA completion
-            if (wgmma_sb_clr_valid) begin
-                scoreboard[wgmma_sb_clr_warp][wgmma_sb_clr_rd] <= 1'b0;
-            end
-
-            // Clear scoreboard on pipeline replay (L1 miss rollback)
-            if (replay_sb_clr_valid) begin
-                scoreboard[replay_sb_clr_warp][replay_sb_clr_rd] <= 1'b0;
-            end
 
             // Clear async MMA pending on completion (from tensor_core)
             if (async_mma_complete) begin
