@@ -735,27 +735,34 @@ module tb_gpu_top_integration;
         clear_imem();
         
         // Don't clear gmem, read from previous test
-        // 0: mov_special r1, SREG_CTAID_X (5'd3)
-        instruction_mem[0] = encode_mov_special(5'd1, 5'd3);
-        // 1: mov_imm r3, 4
-        instruction_mem[1] = encode_mov_imm(5'd3, 16'd2);
-        // 2: alu r4, r1, r3 (MUL24) -> offset
-        instruction_mem[2] = encode_alu(5'd4, 5'd1, 5'd3, 6'b000110);
-        // 3: ld_global r5, [r4]
-        instruction_mem[3] = encode_ld_global(5'd5, 5'd4);
-        // 4: mov_imm r6, 16
-        instruction_mem[4] = encode_mov_imm(5'd6, 16'd16);
-        // 5: alu r7, r4, r6 (ADD) -> new offset (offset + 16)
-        instruction_mem[5] = encode_alu(5'd7, 5'd4, 5'd6, 6'b000000);
-        // 6: st_global [r7], r5
-        instruction_mem[6] = encode_st_global(5'd7, 5'd5);
-        // 7: exit
-        instruction_mem[7] = encode_exit();
+        // Deterministic copy: fixed addresses, not CTAID-derived
+        // Copy gmem[0..3] -> gmem[4..7] using byte addresses 0/4/8/12 -> 16/20/24/28
+        instruction_mem[0]  = encode_mov_imm(5'd4, 16'd0);
+        instruction_mem[1]  = encode_ld_global(5'd5, 5'd4);
+        instruction_mem[2]  = encode_mov_imm(5'd7, 16'd16);
+        instruction_mem[3]  = encode_st_global(5'd7, 5'd5);
+
+        instruction_mem[4]  = encode_mov_imm(5'd4, 16'd4);
+        instruction_mem[5]  = encode_ld_global(5'd5, 5'd4);
+        instruction_mem[6]  = encode_mov_imm(5'd7, 16'd20);
+        instruction_mem[7]  = encode_st_global(5'd7, 5'd5);
+
+        instruction_mem[8]  = encode_mov_imm(5'd4, 16'd8);
+        instruction_mem[9]  = encode_ld_global(5'd5, 5'd4);
+        instruction_mem[10] = encode_mov_imm(5'd7, 16'd24);
+        instruction_mem[11] = encode_st_global(5'd7, 5'd5);
+
+        instruction_mem[12] = encode_mov_imm(5'd4, 16'd12);
+        instruction_mem[13] = encode_ld_global(5'd5, 5'd4);
+        instruction_mem[14] = encode_mov_imm(5'd7, 16'd28);
+        instruction_mem[15] = encode_st_global(5'd7, 5'd5);
+
+        instruction_mem[16] = encode_exit();
 
         launch_kernel(0, 4, 1, 1, 32, 1, 1);
         wait_kernel_done(TIMEOUT_CYCLES, timeout);
         test_pass = !timeout && irq_kernel_done;
-        
+
         if (global_mem[4] !== global_mem[0]) test_pass = 0;
         if (global_mem[5] !== global_mem[1]) test_pass = 0;
         if (global_mem[6] !== global_mem[2]) test_pass = 0;
