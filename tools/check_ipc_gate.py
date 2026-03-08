@@ -17,6 +17,11 @@ def main():
         
     output = result.stdout + "\n" + result.stderr
     
+    if result.returncode != 0:
+        print(f"make test_sm_v2_perf failed with return code {result.returncode}.")
+        print("Output:\n" + output)
+        sys.exit(1)
+    
     match = re.search(r"IPC:\s*([\d.]+)", output)
     ipc = 0.0
     if not match:
@@ -42,5 +47,5 @@ def main():
         print(f"PASS: IPC regression gate passed. {ipc:.3f} >= 0.80")
         sys.exit(0)
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
