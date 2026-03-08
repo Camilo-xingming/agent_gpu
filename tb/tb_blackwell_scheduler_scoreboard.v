@@ -328,6 +328,25 @@ module tb_blackwell_scheduler_scoreboard;
         // The SET (new instruction) must win over the CLEAR (older instruction)
         check_expect(dut.scoreboard[0][10] == 1'b1, "scoreboard R10 must remain SET (1) when SET and CLEAR happen in the same cycle");
 
+        // Case D: Deferred tensor scoreboard SET must also track rd=R0
+        @(posedge clk);
+        wb_valid <= 1'b1;
+        wb_warp_id <= 0;
+        wb_rd <= 5'd0;
+        @(posedge clk);
+        wb_valid <= 1'b0;
+        #1;
+        check_expect(dut.scoreboard[0][0] == 1'b0, "scoreboard R0 should start clear before tensor deferred SET");
+
+        @(posedge clk);
+        tensor_sb_set_valid <= 1'b1;
+        tensor_sb_set_warp <= 0;
+        tensor_sb_set_rd <= 5'd0;
+        @(posedge clk);
+        tensor_sb_set_valid <= 1'b0;
+        #1;
+        check_expect(dut.scoreboard[0][0] == 1'b1, "tensor deferred SET must set scoreboard bit for R0");
+
         $display("============================================================");
         $display("Blackwell Scheduler RS3 Mask Test");
         $display("  Passed: %0d", pass_count);
