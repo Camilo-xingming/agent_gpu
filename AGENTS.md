@@ -116,3 +116,7 @@ Title: process: [Sprint N Retro] <action item short name>
 
 The system uses a background health monitor (`scripts/agent-health-monitor.sh`) to detect coder heartbeat anomalies, missing progress, and missed retro responses.
 For alert paths and resolution steps, refer to the [RUNBOOK](RUNBOOK.md).
+
+## Definition of Done (DoD)
+For any RTL changes, the following checks must be satisfied (in addition to PR DoD):
+- **IPC Regression Gate**: `make test_perf_gate` (or `make test`) must pass without IPC regressions. The required IPC is >= 0.80.
