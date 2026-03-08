@@ -31,4 +31,3 @@ Move detailed lessons to topic files under `memory/topics/`.
 - RTL lessons archive: `memory/topics/rtl-lessons.md`
 - Retro history: `docs/RETRO.md`
 - Velocity log: `docs/pm/velocity.md`
-- Context pointer: `.ctx/STATUS.md`
