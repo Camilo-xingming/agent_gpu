@@ -642,7 +642,7 @@ end
 
             // Deferred scoreboard SET for tensor ops
             // (tensor ops skip SET at issue; SET happens when SM tensor push succeeds)
-            if (tensor_sb_set_valid && tensor_sb_set_rd != 5'b0) begin
+            if (tensor_sb_set_valid) begin
                 scoreboard[tensor_sb_set_warp][tensor_sb_set_rd] <= 1'b1;
             end
             // ISN increment: fires when instruction is truly consumed
