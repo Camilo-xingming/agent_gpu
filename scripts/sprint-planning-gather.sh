@@ -58,6 +58,8 @@ RETRO_DATA_FILE="${RETRO_DATA_FILE:-$SHARED_DIR/retro-data.json}"
 RETRO_GATHER_SCRIPT="${RETRO_GATHER_SCRIPT:-$REPO_ROOT/scripts/retro-gather.sh}"
 RETRO_MD_PATH="${RETRO_MD_PATH:-$REPO_ROOT/docs/RETRO.md}"
 WIP_SLA_HOURS="${WIP_SLA_HOURS:-2}"
+RETRO_REPEAT_CONSECUTIVE_MIN="${RETRO_REPEAT_CONSECUTIVE_MIN:-2}"
+RETRO_ESCALATE_CONSECUTIVE_MIN="${RETRO_ESCALATE_CONSECUTIVE_MIN:-3}"
 
 DISCORD_ACCOUNT="${DISCORD_ACCOUNT:-lily}"
 DISCORD_MAIN_TARGET="${DISCORD_MAIN_TARGET:-channel:1468774996301316137}"
@@ -87,6 +89,7 @@ retro_data_json='{}'
 retro_auto_refresh='false'
 auto_closed_milestones_json='[]'
 wip_sla_json='{"threshold_hours":2,"active_milestone":null,"checked":[],"violations":[],"summary":{"eligible":0,"checked":0,"violations":0}}'
+retro_recurrence_json='{"checked":false,"threshold_consecutive":2,"escalate_after_consecutive":3,"matches":[],"escalations":[]}'
 
 if ! has_command jq; then
   echo "jq not found" >&2
@@ -96,6 +99,21 @@ fi
 if ! [[ "$WIP_SLA_HOURS" =~ ^[0-9]+$ ]]; then
   append_warning "Invalid WIP_SLA_HOURS=$WIP_SLA_HOURS; fallback to 2"
   WIP_SLA_HOURS=2
+fi
+
+if ! [[ "$RETRO_REPEAT_CONSECUTIVE_MIN" =~ ^[0-9]+$ ]]; then
+  append_warning "Invalid RETRO_REPEAT_CONSECUTIVE_MIN=$RETRO_REPEAT_CONSECUTIVE_MIN; fallback to 2"
+  RETRO_REPEAT_CONSECUTIVE_MIN=2
+fi
+
+if ! [[ "$RETRO_ESCALATE_CONSECUTIVE_MIN" =~ ^[0-9]+$ ]]; then
+  append_warning "Invalid RETRO_ESCALATE_CONSECUTIVE_MIN=$RETRO_ESCALATE_CONSECUTIVE_MIN; fallback to 3"
+  RETRO_ESCALATE_CONSECUTIVE_MIN=3
+fi
+
+if [[ "$RETRO_ESCALATE_CONSECUTIVE_MIN" -lt "$RETRO_REPEAT_CONSECUTIVE_MIN" ]]; then
+  append_warning "RETRO_ESCALATE_CONSECUTIVE_MIN < RETRO_REPEAT_CONSECUTIVE_MIN; aligned to repeat threshold"
+  RETRO_ESCALATE_CONSECUTIVE_MIN="$RETRO_REPEAT_CONSECUTIVE_MIN"
 fi
 
 add_health_check "jq_available" "pass" "jq command available" true
@@ -504,6 +522,104 @@ retro_action_items_json="$(jq -cn --argjson gh "$retro_github_items_json" --argj
   issue_states: $states
 }')"
 
+retro_refs_tsv=''
+retro_refs_json='[]'
+open_process_issues_json='[]'
+
+if [[ -n "$retro_content" ]]; then
+  retro_refs_tsv="$(printf '%s\n' "$retro_content" | awk '
+    BEGIN { sprint = "" }
+    /^#/ {
+      if ($0 ~ /Sprint[[:space:]]+[0-9]+/) {
+        sprint = $0
+        sub(/.*Sprint[[:space:]]+/, "", sprint)
+        sub(/[^0-9].*$/, "", sprint)
+      }
+    }
+    /^- \[[[:space:]]\]/ {
+      if (sprint == "") {
+        next
+      }
+      line = $0
+      sub(/^- \[[ xX]\][[:space:]]*/, "", line)
+      rest = line
+      while (match(rest, /#[0-9]+/)) {
+        issue = substr(rest, RSTART + 1, RLENGTH - 1)
+        printf "%s\t%s\t%s\n", sprint, issue, line
+        rest = substr(rest, RSTART + RLENGTH)
+      }
+    }
+  ' || true)"
+fi
+
+if [[ -n "$retro_refs_tsv" ]]; then
+  retro_refs_json="$(printf '%s\n' "$retro_refs_tsv" | jq -Rsc '
+    split("\n")
+    | map(select(length > 0))
+    | map(split("\t"))
+    | map(select(length >= 2))
+    | map({sprint: (.[0] | tonumber), issue: (.[1] | tonumber), text: (.[2] // "")})
+  ' 2>/dev/null || echo '[]')"
+fi
+
+if has_command "$GH_BIN"; then
+  if capture_with_retry open_process_issues_json 3 2 "$GH_BIN" issue list --repo "$GITHUB_REPO" --state open --label process --limit 200 --json number,title,url; then
+    retro_recurrence_json="$(jq -cn       --argjson refs "$retro_refs_json"       --argjson open "$open_process_issues_json"       --argjson repeat_min "$RETRO_REPEAT_CONSECUTIVE_MIN"       --argjson escalate_min "$RETRO_ESCALATE_CONSECUTIVE_MIN"       '
+      def max_consecutive($arr):
+        reduce $arr[] as $s ({prev: null, cur: 0, max: 0};
+          if .prev == null then
+            {prev: $s, cur: 1, max: 1}
+          elif $s == (.prev + 1) then
+            {prev: $s, cur: (.cur + 1), max: (if (.cur + 1) > .max then (.cur + 1) else .max end)}
+          else
+            {prev: $s, cur: 1, max: (if .max > 1 then .max else 1 end)}
+          end
+        ) | .max;
+      [ $open[] as $issue
+        | ($refs | map(select(.issue == $issue.number)) | map(.sprint) | unique | sort) as $sprints
+        | ($sprints | length) as $occ
+        | (if $occ == 0 then 0 else max_consecutive($sprints) end) as $max_run
+        | {
+            number: $issue.number,
+            title: ($issue.title // ""),
+            url: ($issue.url // ""),
+            sprints: $sprints,
+            occurrences: $occ,
+            max_consecutive: $max_run,
+            repeated: ($max_run >= $repeat_min),
+            escalate: ($max_run >= $escalate_min)
+          }
+      ] as $rows
+      | {
+          checked: true,
+          threshold_consecutive: $repeat_min,
+          escalate_after_consecutive: $escalate_min,
+          matches: ($rows | map(select(.repeated and .occurrences > 0))),
+          escalations: ($rows | map(select(.escalate and .occurrences > 0)))
+        }
+    ')"
+    add_health_check "retro_recurrence_detection" "pass" "open process issue recurrence evaluated" true
+
+    recurrence_count="$(printf '%s\n' "$retro_recurrence_json" | jq '.matches | length' 2>/dev/null || echo 0)"
+    escalation_count="$(printf '%s\n' "$retro_recurrence_json" | jq '.escalations | length' 2>/dev/null || echo 0)"
+
+    if [[ "$recurrence_count" -gt 0 ]]; then
+      append_warning "Repeated retro action items detected: ${recurrence_count} open process issue(s) in >=${RETRO_REPEAT_CONSECUTIVE_MIN} consecutive sprints"
+    fi
+
+    if [[ "$escalation_count" -gt 0 ]]; then
+      escalation_preview="$(printf '%s\n' "$retro_recurrence_json" | jq -r '.escalations | map("#" + (.number|tostring) + "(" + (.max_consecutive|tostring) + "x)") | join(", ")' 2>/dev/null || true)"
+      send_discord_message_best_effort "**[Ceremony]** ⚠️ Repeated retro process items >2 consecutive sprints: ${escalation_preview}. @ssql2014 请升级处理。"
+    fi
+  else
+    append_warning "Failed to query open process issues for retro recurrence detection"
+    add_health_check "retro_recurrence_detection" "fail" "open process issue query failed" true
+  fi
+else
+  append_warning "gh command unavailable for retro recurrence detection"
+  add_health_check "retro_recurrence_detection" "fail" "gh command missing" true
+fi
+
 combined_count="$(printf '%s\n' "$retro_combined_items_json" | jq 'length' 2>/dev/null || echo 0)"
 if [[ "$combined_count" -ge 0 ]]; then
   add_health_check "retro_action_items_collected" "pass" "retro action items merged" true
@@ -522,6 +638,7 @@ output_json="$(jq -cn \
   --argjson auto_closed_milestones "$auto_closed_milestones_json" \
   --arg retro_content "$retro_content" \
   --argjson retro_action_items "$retro_action_items_json" \
+  --argjson retro_recurrence "$retro_recurrence_json" \
   --argjson backlog "$backlog_json" \
   --argjson ci_runs "$ci_runs_json" \
   --argjson open_prs "$open_prs_json" \
@@ -539,6 +656,7 @@ output_json="$(jq -cn \
     auto_closed_milestones: $auto_closed_milestones,
     retro_content: $retro_content,
     retro_action_items: $retro_action_items,
+    retro_recurrence: $retro_recurrence,
     backlog: $backlog,
     ci_runs: $ci_runs,
     open_prs: $open_prs,
