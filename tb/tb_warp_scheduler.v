@@ -483,14 +483,15 @@ module tb_warp_scheduler;
         end
 
         //====================================================================
-        // 测试6: PC更新
+        // 测试6: 非分支PC更新（+4）
         //====================================================================
-        $display("\n--- PC Update Test ---");
+        $display("\n--- Sequential PC Update Test (+4) ---");
 
         @(posedge clk);
         ws_pc_update_en <= 1;
         ws_pc_update_warp <= 2'd0;
-        ws_pc_update_value <= 32'h1004;
+        ws_pc_update_value <= 32'hDEAD_BEEF;
+        ws_pc_is_branch <= 0;
         @(posedge clk);
         ws_pc_update_en <= 0;
 
@@ -501,6 +502,30 @@ module tb_warp_scheduler;
             passed = passed + 1;
         end else begin
             $display("[FAIL] PC update error: got 0x%08X", ws_warp_pc[0]);
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试6b: 分支PC更新（使用目标地址）
+        //====================================================================
+        $display("\n--- Branch PC Update Test (target redirect) ---");
+
+        @(posedge clk);
+        ws_pc_update_en <= 1;
+        ws_pc_update_warp <= 2'd0;
+        ws_pc_update_value <= 32'h1400;
+        ws_pc_is_branch <= 1;
+        @(posedge clk);
+        ws_pc_update_en <= 0;
+        ws_pc_is_branch <= 0;
+
+        @(posedge clk);
+
+        if (ws_warp_pc[0] === 32'h1400) begin
+            $display("[PASS] Branch update redirected PC to 0x1400");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Branch PC update error: got 0x%08X", ws_warp_pc[0]);
             failed = failed + 1;
         end
 
