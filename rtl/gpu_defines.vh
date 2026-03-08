@@ -7,6 +7,7 @@
 `define GPU_DEFINES_VH
 
 `include "gpu_config.vh"
+`include "memory_config.vh"
 
 //============================================================================
 // 可配置参数 - 修改这些参数来扩展算力
