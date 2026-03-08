@@ -17,7 +17,10 @@ REPO_ROOT="${REPO_ROOT:-$(CDPATH= cd -- "$SCRIPT_DIR/.." 2>/dev/null && pwd || p
 GITHUB_REPO="${GITHUB_REPO:-ssql2014/RalphGPU}"
 WIP_SLA_HOURS="${WIP_SLA_HOURS:-2}"
 REVIEW_SLA_MINUTES="${REVIEW_SLA_MINUTES:-30}"
+CEREMONY_COOLDOWN_HOURS="${CEREMONY_COOLDOWN_HOURS:-4}"
+CEREMONY_LABEL="${CEREMONY_LABEL:-ceremony}"
 MILESTONE_TITLE="${MILESTONE_TITLE:-}"
+CEREMONY_STATE_FILE="${CEREMONY_STATE_FILE:-$HOME/.openclaw/shared-memory/ralphgpu/status/sprint-watchdog-ceremony.state.json}"
 GH_BIN="${GH_BIN:-gh}"
 OPENCLAW_BIN="${OPENCLAW_BIN:-openclaw}"
 DISCORD_ACCOUNT="${DISCORD_ACCOUNT:-codex}"
@@ -36,6 +39,7 @@ Options:
   --milestone <title>       Sprint milestone title to inspect (default: latest open sprint)
   --threshold-hours <num>   Branch SLA threshold in hours (default: 2)
   --review-sla-minutes <n>  Cross-review SLA threshold in minutes (default: 30)
+  --ceremony-cooldown-hours Cooldown window for ceremony issue creation (default: 4)
   --no-discord-notify       Disable Discord escalation notification on SLA breach
   --json                    Output JSON only
   --help                    Show this help message
@@ -64,6 +68,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --review-sla-minutes)
       REVIEW_SLA_MINUTES="$2"
+      shift 2
+      ;;
+    --ceremony-cooldown-hours)
+      CEREMONY_COOLDOWN_HOURS="$2"
       shift 2
       ;;
     --no-discord-notify)
@@ -111,17 +119,28 @@ if ! [[ "$MEMORY_STALE_GAP" =~ ^[0-9]+$ ]]; then
   exit 3
 fi
 
-milestones_json='[]'
-if ! milestones_json="$("$GH_BIN" api "repos/$GITHUB_REPO/milestones?state=open&per_page=100" 2>/dev/null)"; then
+if ! [[ "$CEREMONY_COOLDOWN_HOURS" =~ ^[0-9]+$ ]]; then
+  echo "--ceremony-cooldown-hours must be a non-negative integer" >&2
+  exit 3
+fi
+
+open_milestones_json='[]'
+if ! open_milestones_json="$("$GH_BIN" api "repos/$GITHUB_REPO/milestones?state=open&per_page=100" 2>/dev/null)"; then
   echo "failed to query milestones for $GITHUB_REPO" >&2
+  exit 3
+fi
+
+all_milestones_json='[]'
+if ! all_milestones_json="$("$GH_BIN" api "repos/$GITHUB_REPO/milestones?state=all&per_page=100" 2>/dev/null)"; then
+  echo "failed to query all milestones for $GITHUB_REPO" >&2
   exit 3
 fi
 
 milestone_json='null'
 if [[ -n "$MILESTONE_TITLE" ]]; then
-  milestone_json="$(printf '%s\n' "$milestones_json" | jq -c --arg title "$MILESTONE_TITLE" '[.[] | select((.title // "") == $title)] | first // null' 2>/dev/null || echo 'null')"
+  milestone_json="$(printf '%s\n' "$open_milestones_json" | jq -c --arg title "$MILESTONE_TITLE" '[.[] | select((.title // "") == $title)] | first // null' 2>/dev/null || echo 'null')"
 else
-  milestone_json="$(printf '%s\n' "$milestones_json" | jq -c '
+  milestone_json="$(printf '%s\n' "$open_milestones_json" | jq -c '
     ([.[] | select((.title // "") | test("^Sprint[[:space:]]+[0-9]+"; "i"))] | sort_by(.number // 0) | last)
     // ([.[]] | sort_by(.number // 0) | last)
     // null
@@ -178,6 +197,157 @@ if [[ -n "$active_sprint_number" ]]; then
   fi
 fi
 
+now_epoch="$(date +%s)"
+threshold_seconds=$((WIP_SLA_HOURS * 3600))
+review_sla_seconds=$((REVIEW_SLA_MINUTES * 60))
+ceremony_cooldown_seconds=$((CEREMONY_COOLDOWN_HOURS * 3600))
+
+ceremony_issues_json='[]'
+if ! ceremony_issues_json="$("$GH_BIN" issue list --repo "$GITHUB_REPO" --state all --label "$CEREMONY_LABEL" --limit 200 --json number,title,state,createdAt,url 2>/dev/null)"; then
+  ceremony_issues_json='[]'
+fi
+
+last_ceremony_sprint=0
+if [[ -s "$CEREMONY_STATE_FILE" ]]; then
+  last_ceremony_sprint="$(jq -r '.last_ceremony_sprint // 0' "$CEREMONY_STATE_FILE" 2>/dev/null || echo 0)"
+fi
+if ! [[ "$last_ceremony_sprint" =~ ^[0-9]+$ ]]; then
+  last_ceremony_sprint=0
+fi
+
+closed_sprints_json="$(printf '%s\n' "$all_milestones_json" | jq -c '
+  [
+    .[] | select((.state // "") == "closed")
+    | select((.title // "") | test("^Sprint\\s+[0-9]+$"; "i"))
+    | . as $ms
+    | (($ms.title // "") | capture("^Sprint\\s+(?<n>[0-9]+)$"; "i").n | tonumber?) as $sprint_num
+    | select($sprint_num != null)
+    | {
+        sprint_num: $sprint_num,
+        title: ($ms.title // ""),
+        number: ($ms.number // null),
+        closed_at: ($ms.closed_at // null),
+        created_at: ($ms.created_at // null)
+      }
+  ] | sort_by(.sprint_num)
+' 2>/dev/null || echo '[]')"
+
+pending_closed_sprints_json="$(printf '%s\n' "$closed_sprints_json" | jq -c --argjson last "$last_ceremony_sprint" '[ .[] | select(.sprint_num > $last) ]' 2>/dev/null || echo '[]')"
+pending_closed_sprint_count="$(printf '%s\n' "$pending_closed_sprints_json" | jq 'length' 2>/dev/null || echo 0)"
+
+latest_ceremony_epoch="$(printf '%s\n' "$ceremony_issues_json" | jq '[ .[] | (.createdAt | fromdateiso8601? // 0) ] | max // 0' 2>/dev/null || echo 0)"
+cooldown_blocked='false'
+cooldown_remaining_seconds=0
+if [[ "$latest_ceremony_epoch" =~ ^[0-9]+$ ]] && [[ "$latest_ceremony_epoch" -gt 0 ]] && [[ "$ceremony_cooldown_seconds" -gt 0 ]]; then
+  elapsed_since_last_ceremony=$((now_epoch - latest_ceremony_epoch))
+  if [[ "$elapsed_since_last_ceremony" -lt "$ceremony_cooldown_seconds" ]]; then
+    cooldown_blocked='true'
+    cooldown_remaining_seconds=$((ceremony_cooldown_seconds - elapsed_since_last_ceremony))
+  fi
+fi
+
+created_ceremony_issue_number=''
+created_ceremony_issue_url=''
+if [[ "$pending_closed_sprint_count" -gt 0 ]] && [[ "$cooldown_blocked" != 'true' ]]; then
+  first_pending_sprint="$(printf '%s\n' "$pending_closed_sprints_json" | jq -r '.[0].sprint_num // empty' 2>/dev/null || true)"
+  last_pending_sprint="$(printf '%s\n' "$pending_closed_sprints_json" | jq -r '.[-1].sprint_num // empty' 2>/dev/null || true)"
+  if [[ -n "$first_pending_sprint" && -n "$last_pending_sprint" ]]; then
+    ceremony_title=''
+    if [[ "$first_pending_sprint" == "$last_pending_sprint" ]]; then
+      ceremony_title="Sprint ${last_pending_sprint} Ceremony — Review + Retro + Planning"
+    else
+      ceremony_title="Sprint ${first_pending_sprint}-${last_pending_sprint} Ceremony — Review + Retro + Planning"
+    fi
+
+    pending_sprint_lines="$(printf '%s\n' "$pending_closed_sprints_json" | jq -r 'map("- Sprint " + (.sprint_num|tostring) + ": " + .title) | join("\n")' 2>/dev/null || true)"
+    ceremony_body="Auto-created by sprint-watchdog after detecting completed sprint milestones.
+
+Covered sprints:
+${pending_sprint_lines}
+
+Checklist:
+- [ ] Sprint Review
+- [ ] Sprint Retro
+- [ ] Sprint Planning
+"
+    created_ceremony_issue_url="$("$GH_BIN" issue create --repo "$GITHUB_REPO" --title "$ceremony_title" --label "$CEREMONY_LABEL" --body "$ceremony_body" 2>/dev/null || true)"
+    if [[ -n "$created_ceremony_issue_url" ]]; then
+      created_ceremony_issue_number="$(printf '%s\n' "$created_ceremony_issue_url" | grep -Eo '[0-9]+$' || true)"
+      last_ceremony_sprint="$last_pending_sprint"
+      ceremony_state_json="$(jq -cn \
+        --argjson last "$last_ceremony_sprint" \
+        --arg created_at_epoch "$now_epoch" \
+        --arg created_issue_url "$created_ceremony_issue_url" \
+        --arg created_issue_number "$created_ceremony_issue_number" \
+        '{
+          last_ceremony_sprint: $last,
+          last_created_at_epoch: ($created_at_epoch | tonumber),
+          last_created_issue_number: (if ($created_issue_number | length) == 0 then null else ($created_issue_number | tonumber) end),
+          last_created_issue_url: (if ($created_issue_url | length) == 0 then null else $created_issue_url end)
+        }')"
+      mkdir -p "$(dirname -- "$CEREMONY_STATE_FILE")"
+      if declare -F atomic_write_file >/dev/null 2>&1; then
+        atomic_write_file "$CEREMONY_STATE_FILE" "$ceremony_state_json" || true
+      else
+        printf '%s\n' "$ceremony_state_json" > "$CEREMONY_STATE_FILE" || true
+      fi
+
+      if ! ceremony_issues_json="$("$GH_BIN" issue list --repo "$GITHUB_REPO" --state all --label "$CEREMONY_LABEL" --limit 200 --json number,title,state,createdAt,url 2>/dev/null)"; then
+        ceremony_issues_json='[]'
+      fi
+    fi
+  fi
+fi
+
+latest_ceremony_issue_number="$(printf '%s\n' "$ceremony_issues_json" | jq -r '
+  [ .[] | {number: (.number // 0), created_epoch: (.createdAt | fromdateiso8601? // 0)} ]
+  | sort_by(.created_epoch)
+  | (last // null)
+  | if . == null then "" else (.number | tostring) end
+' 2>/dev/null || true)"
+
+stale_ceremony_closed_json='[]'
+if [[ -n "$latest_ceremony_issue_number" ]]; then
+  stale_open_ceremony_json="$(printf '%s\n' "$ceremony_issues_json" | jq -c --arg latest "$latest_ceremony_issue_number" '
+    [
+      .[]
+      | select((.state // "") == "OPEN")
+      | select((.number | tostring) != $latest)
+      | {number, title, url}
+    ]
+  ' 2>/dev/null || echo '[]')"
+  while IFS= read -r stale_item; do
+    [[ -n "$stale_item" ]] || continue
+    stale_num="$(printf '%s\n' "$stale_item" | jq -r '.number // empty' 2>/dev/null || true)"
+    if [[ -n "$stale_num" ]] && "$GH_BIN" issue close "$stale_num" --repo "$GITHUB_REPO" --comment "Auto-closed stale ceremony issue; superseded by #${latest_ceremony_issue_number}." >/dev/null 2>&1; then
+      stale_ceremony_closed_json="$(jq -cn --argjson arr "$stale_ceremony_closed_json" --argjson item "$stale_item" '$arr + [$item]')"
+    fi
+  done < <(printf '%s\n' "$stale_open_ceremony_json" | jq -c '.[]' 2>/dev/null)
+fi
+
+ceremony_json="$(jq -cn \
+  --arg label "$CEREMONY_LABEL" \
+  --argjson cooldown_hours "$CEREMONY_COOLDOWN_HOURS" \
+  --argjson cooldown_blocked "$cooldown_blocked" \
+  --argjson cooldown_remaining_seconds "$cooldown_remaining_seconds" \
+  --argjson pending_count "$pending_closed_sprint_count" \
+  --argjson pending_sprints "$pending_closed_sprints_json" \
+  --arg created_issue_url "$created_ceremony_issue_url" \
+  --arg created_issue_number "$created_ceremony_issue_number" \
+  --argjson stale_closed "$stale_ceremony_closed_json" \
+  '{
+    label: $label,
+    cooldown_hours: $cooldown_hours,
+    cooldown_blocked: ($cooldown_blocked == "true"),
+    cooldown_remaining_seconds: $cooldown_remaining_seconds,
+    pending_closed_sprint_count: $pending_count,
+    pending_closed_sprints: $pending_sprints,
+    created_issue: {
+      number: (if ($created_issue_number | length) == 0 then null else ($created_issue_number | tonumber) end),
+      url: (if ($created_issue_url | length) == 0 then null else $created_issue_url end)
+    },
+    stale_closed: $stale_closed
+  }')"
 issues_json='[]'
 if ! issues_json="$("$GH_BIN" issue list --repo "$GITHUB_REPO" --state open --milestone "$milestone_title" --limit 200 --json number,title,assignees,createdAt,url 2>/dev/null)"; then
   echo "failed to query open issues for milestone: $milestone_title" >&2
@@ -189,10 +359,6 @@ if ! open_prs_json="$("$GH_BIN" pr list --repo "$GITHUB_REPO" --state open --lim
   echo "failed to query open PRs for $GITHUB_REPO" >&2
   exit 3
 fi
-
-now_epoch="$(date +%s)"
-threshold_seconds=$((WIP_SLA_HOURS * 3600))
-review_sla_seconds=$((REVIEW_SLA_MINUTES * 60))
 results_json='[]'
 review_sla_violations_json='[]'
 ok_count=0
@@ -489,6 +655,7 @@ output_json="$(jq -cn \
   --argjson review_sla_violations "$review_sla_violations_json" \
   --arg notify_result "$notify_result" \
   --arg memory_notify_result "$memory_notify_result" \
+  --argjson ceremony "$ceremony_json" \
   --argjson results "$results_json" \
   '{
     repo: $repo,
@@ -513,6 +680,7 @@ output_json="$(jq -cn \
       reason: $memory_reason,
       notify_result: $memory_notify_result
     },
+    ceremony: $ceremony,
     summary: {ok: $ok, warn: $warn, fail: $fail, total: $total},
     results: $results
   }')"
