@@ -138,6 +138,7 @@ module warp_state #(
     //------------------------------------------------------------------------
     reg [PC_WIDTH-1:0] pc_regs [0:NUM_WARPS-1];
     reg [NUM_WARPS-1:0] sync_pending;
+    localparam [PC_WIDTH-1:0] PC_STRIDE = {{(PC_WIDTH-3){1'b0}}, 3'b100};
 
     genvar w;
     generate
@@ -170,7 +171,13 @@ module warp_state #(
 
             // 更新PC
             if (pc_update_en) begin
-                pc_regs[pc_update_warp] <= pc_update_value;
+                if (pc_is_branch) begin
+                    // Branch redirect must consume branch target directly.
+                    pc_regs[pc_update_warp] <= pc_update_value;
+                end else begin
+                    // Non-branch retire advances PC by one instruction.
+                    pc_regs[pc_update_warp] <= pc_regs[pc_update_warp] + PC_STRIDE;
+                end
             end
 
             // 同步开始
