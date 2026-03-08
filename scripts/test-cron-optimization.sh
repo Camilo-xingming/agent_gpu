@@ -629,6 +629,8 @@ run_heartbeat_schedule_test() {
   grep -q "长任务心跳" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing heartbeat policy marker"
   grep -q "每 60 秒" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing heartbeat interval marker"
   grep -q "3 分钟" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing heartbeat threshold marker"
+  grep -q "不要自动认领无人认领 issue" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing no-auto-assign policy marker"
+  grep -q "默认输出 NO_REPLY 并保持 standby" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing standby policy marker"
 
   OPENCLAW_LOG_FILE="$hb_log" \
   OPENCLAW_STUB_DEV_TEXT="$FIXTURE_DIR/discord-dev.txt" \
