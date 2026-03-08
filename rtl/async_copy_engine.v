@@ -212,7 +212,7 @@ module async_copy_engine #(
                                         req_src_addr[req_head] <= {18'b0, dst_addr};  // SMEM addr
                                         req_gmem_addr[req_head] <= store_gmem_addr;   // Global memory address
                                         req_data[req_head] <= store_data;             // Data to store
-                                        req_size[req_head] <= size;
+                                        req_size[req_head] <= {1'b0, size};
                                         req_cache[req_head] <= cache_hint;
                                         req_group[req_head] <= current_group;
                                         req_valid[req_head] <= 1'b1;
@@ -273,7 +273,7 @@ module async_copy_engine #(
                                     if (req_count < QUEUE_DEPTH) begin
                                         req_src_addr[req_head] <= src_addr;
                                         req_dst_addr[req_head] <= dst_addr;
-                                        req_size[req_head] <= size;
+                                        req_size[req_head] <= {1'b0, size};
                                         req_cache[req_head] <= (func == `CPASYNC_CA) ? `CACHE_CA : `CACHE_CG;
                                         req_group[req_head] <= current_group;
                                         req_valid[req_head] <= 1'b1;
@@ -319,7 +319,7 @@ module async_copy_engine #(
                                 if (req_count < QUEUE_DEPTH) begin
                                     req_src_addr[req_head] <= src_addr;
                                     req_dst_addr[req_head] <= dst_addr;
-                                    req_size[req_head] <= size;
+                                    req_size[req_head] <= {1'b0, size};
                                     req_cache[req_head] <= cache_hint;
                                     req_group[req_head] <= current_group;
                                     req_valid[req_head] <= 1'b1;
