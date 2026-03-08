@@ -1590,3 +1590,14 @@ test_wgmma_multiprecision: $(BUILD_DIR)/tb_wgmma_multiprecision.vvp
 
 $(BUILD_DIR)/tb_wgmma_multiprecision.vvp: $(TB_DIR)/tb_wgmma_multiprecision.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
+#----------------------------------------------------------------------------
+# Project Management Automation
+#----------------------------------------------------------------------------
+.PHONY: create_next_sprint
+create_next_sprint:
+	@echo "========================================"
+	@echo "Creating Sprint N+1 Milestone"
+	@echo "========================================"
+	bash scripts/create_next_sprint.sh
+
