@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 //============================================================================
 // sm_special_reg.v — Special Register Execution Unit
 //

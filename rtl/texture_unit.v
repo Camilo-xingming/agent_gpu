@@ -200,7 +200,7 @@ module texture_unit #(
         input [4:0]  bpp;    // Bytes per pixel
         begin
             calc_2d_addr = base + ({16'b0, y} * {16'b0, pitch}) +
-                          ({16'b0, x} * {28'b0, bpp});
+                          ({16'b0, x} * {27'b0, bpp});
         end
     endfunction
 
