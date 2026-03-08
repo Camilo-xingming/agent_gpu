@@ -1,6 +1,6 @@
 # MEMORY (Active, Compact)
 
-Last Updated: 2026-03-06
+Last Updated: 2026-03-08
 
 ## Purpose
 This file is intentionally short (<60 lines). Keep only:
@@ -13,7 +13,7 @@ Move detailed lessons to topic files under `memory/topics/`.
 - GitHub Issue is the source of truth for task progress.
 - Every GitHub comment must start with `**[Codex]**`.
 - WIP limit: 1 issue per coder.
-- Run file/git/build work on `ist-mac-s` in `~/RalphGPU-codex`.
+- Run file/git/build work on `ist-mac-02` in `~/.openclaw/workspace-coder-codex/RalphGPU`.
 - Report blockers in issue comment first, then send one-line Discord status.
 
 ## IDs and Channels
@@ -22,12 +22,13 @@ Move detailed lessons to topic files under `memory/topics/`.
 - Dev channel: `#ralphgpu-dev` (`1475083010968649778`)
 - Alert channel: `1468774996301316137`
 
-## Current State (Sprint 49)
-- Open milestone issues: #490, #491
-- Recently closed: #489, #474, #473
+## Current State (Sprint 60)
+- Assigned coder issue: #457 (dev-system self-bootstrap process task)
+- Active sprint milestone issues: #581, #582, #583
 - Branch convention: `issue-<N>/codex`
 
 ## Knowledge Index
 - RTL lessons archive: `memory/topics/rtl-lessons.md`
 - Retro history: `docs/RETRO.md`
 - Velocity log: `docs/pm/velocity.md`
+- Deprecated local status snapshot: `.ctx/STATUS.md`
