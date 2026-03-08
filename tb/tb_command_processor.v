@@ -355,18 +355,12 @@ module tb_command_processor;
         check_val("T11 idle after drain", {31'b0, gpu_busy}, 32'd0);
 
         //====================================================================
-        // Test 12: Legacy launch mode dispatch
+        // Test 12: Queued dispatch replaces legacy launch path
         //====================================================================
-        $display("\n=== Test 12: Legacy launch dispatch ===");
-        write_csr(CSR_GPU_CONTROL, 32'h0); // cp_enable=0
-        write_csr(CSR_KERNEL_PC,   32'h0000_3000);
-        write_csr(CSR_GRID_DIM_X,  32'd1);
-        write_csr(CSR_GRID_DIM_Y,  32'd1);
-        write_csr(CSR_GRID_DIM_Z,  32'd1);
-        write_csr(CSR_BLOCK_DIM_X, 32'd32);
-        write_csr(CSR_BLOCK_DIM_Y, 32'd1);
-        write_csr(CSR_BLOCK_DIM_Z, 32'd1);
-        write_csr(CSR_GPU_CONTROL, 32'h1); // launch pulse
+        $display("\n=== Test 12: Queued dispatch (modern path) ===");
+        write_csr(CSR_GPU_CONTROL, 32'h2); // force queue mode enabled
+        write_csr(CSR_GPU_STATUS, 32'h1);  // clear irq
+        push_kernel_desc(32'h0000_3000, 32'd1, 32'd1, 32'd1, 32'd32, 32'd1, 32'd1, 32'd300);
         repeat (6) @(posedge clk);
         check_val("T12 gpu_busy", {31'b0, gpu_busy}, 32'd1);
         check_val("T12 kernel_pc", sm_kernel_pc, 32'h0000_3000);
@@ -377,16 +371,15 @@ module tb_command_processor;
         write_csr(CSR_GPU_STATUS, 32'h1);
 
         //====================================================================
-        // Test 13: Legacy invalid dimensions set invalid flag
+        // Test 13: Queued invalid dimensions set invalid flag
         //====================================================================
-        $display("\n=== Test 13: Legacy invalid dimensions ===");
+        $display("\n=== Test 13: Queued invalid dimensions ===");
         write_csr(CSR_CP_STATUS, 32'h0000_0200);
-        write_csr(CSR_GRID_DIM_X, 32'd0);
-        write_csr(CSR_GPU_CONTROL, 32'h1);
-        repeat (4) @(posedge clk);
+        push_kernel_desc(32'h0000_3010, 32'd0, 32'd1, 32'd1, 32'd32, 32'd1, 32'd1, 32'd301);
+        repeat (8) @(posedge clk);
         check_csr_mask("T13 invalid flag", CSR_CP_STATUS, 32'h0000_0200, 32'h0000_0200);
+        check_val("T13 still idle", {31'b0, gpu_busy}, 32'd0);
         write_csr(CSR_CP_STATUS, 32'h0000_0200);
-        write_csr(CSR_GRID_DIM_X, 32'd1);
 
         //====================================================================
         // Test 14: 1D dispatch metadata load
