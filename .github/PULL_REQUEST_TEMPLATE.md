@@ -1,17 +1,16 @@
 ## Summary
-<!-- What does this PR do? Link to the issue it addresses. -->
+<!-- What does this PR do? One sentence. -->
 
-Closes #
+Closes #<!-- issue number -->
 
-## Pre-merge Checklist
+## Changes
+- 
 
-- [ ] **Lint passes**: `make lint` runs clean (0 errors on both Verilator 4.x and 5.x)
-- [ ] **Tests pass**: `make test` runs clean
-- [ ] **FRM compare** (if RTL changed): `python3 tools/rtl_frm_compare.py --all` passes
+## Verification
+- [ ] All AC from issue satisfied
+- [ ] Tests pass (`make test` / `cargo test`)
+- [ ] No regressions
+- [ ] Self-reviewed diff
 
-## Post-merge Checklist (after merging to master)
-
-- [ ] Verify CI green on the merge commit: `gh run list --repo ssql2014/RalphGPU --branch master --limit 1`
-- [ ] Run local regression: `make regression` — post result in the issue comment
-- [ ] Run local lint: `make lint` — confirm no new warnings
-- [ ] If CI fails on master: **immediately** open a fix PR or revert
+## Review Notes
+<!-- Anything reviewers should focus on? -->
