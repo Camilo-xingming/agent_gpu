@@ -12,6 +12,8 @@ if [[ -f "$SCRIPT_DIR/cron-common.sh" ]]; then
   configure_gh_proxy_env || true
 fi
 
+REPO_ROOT="${REPO_ROOT:-$(CDPATH= cd -- "$SCRIPT_DIR/.." 2>/dev/null && pwd || pwd)}"
+
 GITHUB_REPO="${GITHUB_REPO:-ssql2014/RalphGPU}"
 WIP_SLA_HOURS="${WIP_SLA_HOURS:-2}"
 REVIEW_SLA_MINUTES="${REVIEW_SLA_MINUTES:-30}"
@@ -21,6 +23,8 @@ OPENCLAW_BIN="${OPENCLAW_BIN:-openclaw}"
 DISCORD_ACCOUNT="${DISCORD_ACCOUNT:-codex}"
 DISCORD_DEV_TARGET="${DISCORD_DEV_TARGET:-channel:1475083010968649778}"
 DISCORD_NOTIFY="${DISCORD_NOTIFY:-true}"
+MEMORY_FILE="${MEMORY_FILE:-$REPO_ROOT/MEMORY.md}"
+MEMORY_STALE_GAP="${MEMORY_STALE_GAP:-3}"
 OUTPUT_JSON='false'
 
 usage() {
@@ -102,6 +106,11 @@ if ! [[ "$REVIEW_SLA_MINUTES" =~ ^[0-9]+$ ]]; then
   exit 3
 fi
 
+if ! [[ "$MEMORY_STALE_GAP" =~ ^[0-9]+$ ]]; then
+  echo "MEMORY_STALE_GAP must be a non-negative integer" >&2
+  exit 3
+fi
+
 milestones_json='[]'
 if ! milestones_json="$("$GH_BIN" api "repos/$GITHUB_REPO/milestones?state=open&per_page=100" 2>/dev/null)"; then
   echo "failed to query milestones for $GITHUB_REPO" >&2
@@ -134,6 +143,39 @@ milestone_number="$(printf '%s\n' "$milestone_json" | jq -r '.number // empty' 2
 if [[ -z "$milestone_title" || -z "$milestone_number" ]]; then
   echo "failed to resolve sprint milestone" >&2
   exit 3
+fi
+
+active_sprint_number=''
+if [[ "$milestone_title" =~ [Ss]print[[:space:]]+([0-9]+) ]]; then
+  active_sprint_number="${BASH_REMATCH[1]}"
+fi
+
+memory_state_sprint=''
+memory_gap=''
+memory_reason='memory check skipped'
+memory_stale_flag='false'
+memory_notify_result='not_triggered'
+
+if [[ -n "$active_sprint_number" ]]; then
+  if [[ -f "$MEMORY_FILE" ]]; then
+    memory_state_sprint="$(grep -Eo 'Current State \(Sprint[[:space:]]+[0-9]+\)' "$MEMORY_FILE" | head -n 1 | grep -Eo '[0-9]+' || true)"
+    if [[ -n "$memory_state_sprint" ]]; then
+      memory_gap=$((active_sprint_number - memory_state_sprint))
+      if [[ "$memory_gap" -lt 0 ]]; then
+        memory_gap=0
+      fi
+      if [[ "$memory_gap" -gt "$MEMORY_STALE_GAP" ]]; then
+        memory_stale_flag='true'
+        memory_reason="MEMORY.md current state is ${memory_gap} sprint(s) behind"
+      else
+        memory_reason='memory sprint state is fresh'
+      fi
+    else
+      memory_reason='Current State (Sprint N) not found in MEMORY.md'
+    fi
+  else
+    memory_reason='MEMORY.md file not found'
+  fi
 fi
 
 issues_json='[]'
@@ -385,6 +427,11 @@ elif [[ "$warn_count" -gt 0 ]]; then
   exit_code=1
 fi
 
+if [[ "$memory_stale_flag" == "true" && "$overall_status" == "OK" ]]; then
+  overall_status='WARN'
+  exit_code=1
+fi
+
 review_sla_violation_total="$(printf '%s\n' "$review_sla_violations_json" | jq 'length' 2>/dev/null || echo 0)"
 notify_result='not_triggered'
 
@@ -407,6 +454,19 @@ if [[ "$review_sla_violation_total" -gt 0 && "$DISCORD_NOTIFY" == 'true' ]]; the
   fi
 fi
 
+if [[ "$memory_stale_flag" == 'true' && "$DISCORD_NOTIFY" == 'true' ]]; then
+  if command -v "$OPENCLAW_BIN" >/dev/null 2>&1; then
+    stale_msg="**[Watchdog]** ⚠️ MEMORY.md stale: active Sprint ${active_sprint_number}, MEMORY current Sprint ${memory_state_sprint:-unknown}, gap ${memory_gap:-unknown} (> ${MEMORY_STALE_GAP})."
+    if "$OPENCLAW_BIN" message send --channel discord --account "$DISCORD_ACCOUNT" --target "$DISCORD_DEV_TARGET" -m "$stale_msg" >/dev/null 2>&1; then
+      memory_notify_result='sent'
+    else
+      memory_notify_result='send_failed'
+    fi
+  else
+    memory_notify_result='openclaw_missing'
+  fi
+fi
+
 output_json="$(jq -cn \
   --arg repo "$GITHUB_REPO" \
   --arg milestone_title "$milestone_title" \
@@ -414,6 +474,13 @@ output_json="$(jq -cn \
   --arg status "$overall_status" \
   --argjson threshold_hours "$WIP_SLA_HOURS" \
   --argjson now "$now_epoch" \
+  --arg memory_file "$MEMORY_FILE" \
+  --arg active_sprint_number "$active_sprint_number" \
+  --arg memory_state_sprint "$memory_state_sprint" \
+  --arg memory_gap "$memory_gap" \
+  --arg memory_reason "$memory_reason" \
+  --arg memory_stale "$memory_stale_flag" \
+  --arg memory_stale_gap "$MEMORY_STALE_GAP" \
   --argjson ok "$ok_count" \
   --argjson warn "$warn_count" \
   --argjson fail "$fail_count" \
@@ -421,6 +488,7 @@ output_json="$(jq -cn \
   --argjson review_sla_threshold "$REVIEW_SLA_MINUTES" \
   --argjson review_sla_violations "$review_sla_violations_json" \
   --arg notify_result "$notify_result" \
+  --arg memory_notify_result "$memory_notify_result" \
   --argjson results "$results_json" \
   '{
     repo: $repo,
@@ -433,6 +501,17 @@ output_json="$(jq -cn \
       violation_count: ($review_sla_violations | length),
       notify_result: $notify_result,
       violations: $review_sla_violations
+    },
+    memory_staleness: {
+      checked: (($active_sprint_number | length) > 0),
+      memory_file: $memory_file,
+      active_sprint: (if ($active_sprint_number | length) == 0 then null else ($active_sprint_number | tonumber) end),
+      memory_sprint: (if ($memory_state_sprint | length) == 0 then null else ($memory_state_sprint | tonumber) end),
+      gap: (if ($memory_gap | length) == 0 then null else ($memory_gap | tonumber) end),
+      threshold: ($memory_stale_gap | tonumber),
+      stale: ($memory_stale == "true"),
+      reason: $memory_reason,
+      notify_result: $memory_notify_result
     },
     summary: {ok: $ok, warn: $warn, fail: $fail, total: $total},
     results: $results
