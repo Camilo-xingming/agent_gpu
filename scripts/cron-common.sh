@@ -82,6 +82,106 @@ resolve_command_path() {
   return 1
 }
 
+build_retro_refs_json_from_content() {
+  local retro_content="${1:-}"
+  local retro_refs_tsv=''
+
+  if [[ -n "$retro_content" ]]; then
+    retro_refs_tsv="$(printf '%s\n' "$retro_content" | awk '
+      BEGIN { sprint = "" }
+      /^#/ {
+        if ($0 ~ /Sprint[[:space:]]+[0-9]+/) {
+          sprint = $0
+          sub(/.*Sprint[[:space:]]+/, "", sprint)
+          sub(/[^0-9].*$/, "", sprint)
+        }
+      }
+      /^- \[[[:space:]]\]/ {
+        if (sprint == "") {
+          next
+        }
+        line = $0
+        sub(/^- \[[ xX]\][[:space:]]*/, "", line)
+        rest = line
+        while (match(rest, /#[0-9]+/)) {
+          issue = substr(rest, RSTART + 1, RLENGTH - 1)
+          printf "%s\t%s\t%s\n", sprint, issue, line
+          rest = substr(rest, RSTART + RLENGTH)
+        }
+      }
+    ' || true)"
+  fi
+
+  if [[ -z "$retro_refs_tsv" ]]; then
+    printf '[]\n'
+    return 0
+  fi
+
+  printf '%s\n' "$retro_refs_tsv" | jq -Rsc '
+    split("\n")
+    | map(select(length > 0))
+    | map(split("\t"))
+    | map(select(length >= 2))
+    | map({sprint: (.[0] | tonumber), issue: (.[1] | tonumber), text: (.[2] // "")})
+  ' 2>/dev/null || printf '[]\n'
+}
+
+build_retro_refs_json_from_file() {
+  local retro_file_path="${1:-}"
+  if [[ -z "$retro_file_path" || ! -f "$retro_file_path" ]]; then
+    printf '[]\n'
+    return 0
+  fi
+  build_retro_refs_json_from_content "$(cat "$retro_file_path")"
+}
+
+build_process_recurrence_json() {
+  local retro_refs_json="${1:-[]}"
+  local open_process_issues_json="${2:-[]}"
+  local repeat_min="${3:-2}"
+  local escalate_min="${4:-3}"
+
+  jq -cn \
+    --argjson refs "$retro_refs_json" \
+    --argjson open "$open_process_issues_json" \
+    --argjson repeat_min "$repeat_min" \
+    --argjson escalate_min "$escalate_min" \
+    '
+    def max_consecutive($arr):
+      reduce $arr[] as $s ({prev: null, cur: 0, max: 0};
+        if .prev == null then
+          {prev: $s, cur: 1, max: 1}
+        elif $s == (.prev + 1) then
+          {prev: $s, cur: (.cur + 1), max: (if (.cur + 1) > .max then (.cur + 1) else .max end)}
+        else
+          {prev: $s, cur: 1, max: (if .max > 1 then .max else 1 end)}
+        end
+      ) | .max;
+    [ $open[] as $issue
+      | ($refs | map(select(.issue == $issue.number)) | map(.sprint) | unique | sort) as $sprints
+      | ($sprints | length) as $occ
+      | (if $occ == 0 then 0 else max_consecutive($sprints) end) as $max_run
+      | {
+          number: $issue.number,
+          title: ($issue.title // ""),
+          url: ($issue.url // ""),
+          sprints: $sprints,
+          occurrences: $occ,
+          max_consecutive: $max_run,
+          repeated: ($max_run >= $repeat_min),
+          escalate: ($max_run >= $escalate_min)
+        }
+    ] as $rows
+    | {
+        checked: true,
+        threshold_consecutive: $repeat_min,
+        escalate_after_consecutive: $escalate_min,
+        matches: ($rows | map(select(.repeated and .occurrences > 0))),
+        escalations: ($rows | map(select(.escalate and .occurrences > 0)))
+      }
+  ' 2>/dev/null || printf '{"checked":false,"threshold_consecutive":%s,"escalate_after_consecutive":%s,"matches":[],"escalations":[]}\n' "$repeat_min" "$escalate_min"
+}
+
 append_json_message() {
   local var_name="$1"
   local message="$2"

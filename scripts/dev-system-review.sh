@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Periodic dev-system self-review: trigger every N sprints and escalate actionable findings.
 
-set -uo pipefail
+set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || pwd)"
 # shellcheck source=cron-common.sh
@@ -192,86 +192,13 @@ else
   append_warning "MEMORY.md missing or latest sprint unknown"
 fi
 
-retro_refs_tsv=''
 retro_refs_json='[]'
 open_process_issues_json='[]'
-if [[ -f "$RETRO_MD_PATH" ]]; then
-  retro_refs_tsv="$(awk '
-    BEGIN { sprint = "" }
-    /^#/ {
-      if ($0 ~ /Sprint[[:space:]]+[0-9]+/) {
-        sprint = $0
-        sub(/.*Sprint[[:space:]]+/, "", sprint)
-        sub(/[^0-9].*$/, "", sprint)
-      }
-    }
-    /^- \[[[:space:]]\]/ {
-      if (sprint == "") {
-        next
-      }
-      line = $0
-      sub(/^- \[[ xX]\][[:space:]]*/, "", line)
-      rest = line
-      while (match(rest, /#[0-9]+/)) {
-        issue = substr(rest, RSTART + 1, RLENGTH - 1)
-        printf "%s\t%s\t%s\n", sprint, issue, line
-        rest = substr(rest, RSTART + RLENGTH)
-      }
-    }
-  ' "$RETRO_MD_PATH" 2>/dev/null || true)"
-fi
-
-if [[ -n "$retro_refs_tsv" ]]; then
-  retro_refs_json="$(printf '%s\n' "$retro_refs_tsv" | jq -Rsc '
-    split("\n")
-    | map(select(length > 0))
-    | map(split("\t"))
-    | map(select(length >= 2))
-    | map({sprint: (.[0] | tonumber), issue: (.[1] | tonumber), text: (.[2] // "")})
-  ' 2>/dev/null || echo '[]')"
-fi
+retro_refs_json="$(build_retro_refs_json_from_file "$RETRO_MD_PATH")"
 
 if [[ "$status" == 'ok' ]]; then
   if capture_with_retry open_process_issues_json 3 2 "$GH_BIN" issue list --repo "$GITHUB_REPO" --state open --label process --limit 200 --json number,title,url; then
-    process_recurrence_json="$(jq -cn \
-      --argjson refs "$retro_refs_json" \
-      --argjson open "$open_process_issues_json" \
-      --argjson repeat_min "$RETRO_REPEAT_CONSECUTIVE_MIN" \
-      --argjson escalate_min "$RETRO_ESCALATE_CONSECUTIVE_MIN" \
-      '
-      def max_consecutive($arr):
-        reduce $arr[] as $s ({prev: null, cur: 0, max: 0};
-          if .prev == null then
-            {prev: $s, cur: 1, max: 1}
-          elif $s == (.prev + 1) then
-            {prev: $s, cur: (.cur + 1), max: (if (.cur + 1) > .max then (.cur + 1) else .max end)}
-          else
-            {prev: $s, cur: 1, max: (if .max > 1 then .max else 1 end)}
-          end
-        ) | .max;
-      [ $open[] as $issue
-        | ($refs | map(select(.issue == $issue.number)) | map(.sprint) | unique | sort) as $sprints
-        | ($sprints | length) as $occ
-        | (if $occ == 0 then 0 else max_consecutive($sprints) end) as $max_run
-        | {
-            number: $issue.number,
-            title: ($issue.title // ""),
-            url: ($issue.url // ""),
-            sprints: $sprints,
-            occurrences: $occ,
-            max_consecutive: $max_run,
-            repeated: ($max_run >= $repeat_min),
-            escalate: ($max_run >= $escalate_min)
-          }
-      ] as $rows
-      | {
-          checked: true,
-          threshold_consecutive: $repeat_min,
-          escalate_after_consecutive: $escalate_min,
-          matches: ($rows | map(select(.repeated and .occurrences > 0))),
-          escalations: ($rows | map(select(.escalate and .occurrences > 0)))
-        }
-    ')"
+    process_recurrence_json="$(build_process_recurrence_json "$retro_refs_json" "$open_process_issues_json" "$RETRO_REPEAT_CONSECUTIVE_MIN" "$RETRO_ESCALATE_CONSECUTIVE_MIN")"
 
     recurrence_count="$(printf '%s\n' "$process_recurrence_json" | jq '.matches | length' 2>/dev/null || echo 0)"
     escalation_count="$(printf '%s\n' "$process_recurrence_json" | jq '.escalations | length' 2>/dev/null || echo 0)"
