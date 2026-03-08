@@ -11,6 +11,8 @@ REQUIRED_SSH_IP="${REQUIRED_SSH_IP:-100.81.212.41}"
 REQUIRED_HEARTBEAT_KEYWORD="${REQUIRED_HEARTBEAT_KEYWORD:-长任务心跳}"
 REQUIRED_HEARTBEAT_INTERVAL_KEYWORD="${REQUIRED_HEARTBEAT_INTERVAL_KEYWORD:-每 60 秒}"
 REQUIRED_HEARTBEAT_THRESHOLD_KEYWORD="${REQUIRED_HEARTBEAT_THRESHOLD_KEYWORD:-3 分钟}"
+REQUIRED_NO_AUTO_ASSIGN_KEYWORD="${REQUIRED_NO_AUTO_ASSIGN_KEYWORD:-不要自动认领无人认领 issue}"
+REQUIRED_STANDBY_KEYWORD="${REQUIRED_STANDBY_KEYWORD:-默认输出 NO_REPLY 并保持 standby}"
 
 require_prompt_policies() {
   local source_name="$1"
@@ -38,6 +40,16 @@ require_prompt_policies() {
 
   if ! printf '%s\n' "$content" | grep -Fq "$REQUIRED_HEARTBEAT_THRESHOLD_KEYWORD"; then
     echo "$source_name missing required heartbeat threshold marker: $REQUIRED_HEARTBEAT_THRESHOLD_KEYWORD" >&2
+    exit 1
+  fi
+
+  if ! printf '%s\n' "$content" | grep -Fq "$REQUIRED_NO_AUTO_ASSIGN_KEYWORD"; then
+    echo "$source_name missing required no-auto-assign marker: $REQUIRED_NO_AUTO_ASSIGN_KEYWORD" >&2
+    exit 1
+  fi
+
+  if ! printf '%s\n' "$content" | grep -Fq "$REQUIRED_STANDBY_KEYWORD"; then
+    echo "$source_name missing required standby marker: $REQUIRED_STANDBY_KEYWORD" >&2
     exit 1
   fi
 }
