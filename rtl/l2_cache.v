@@ -39,6 +39,7 @@ module l2_cache #(
     output wire                         mem_req_write,
     output wire [ADDR_WIDTH-1:0]        mem_req_addr,
     output wire [LINE_SIZE*8-1:0]       mem_req_wdata,
+    output wire [LINE_SIZE-1:0]         mem_req_wmask,
     input  wire                         mem_req_ready,
     input  wire                         mem_resp_valid,
     input  wire [LINE_SIZE*8-1:0]       mem_resp_rdata,
@@ -116,8 +117,8 @@ module l2_cache #(
     endgenerate
 
     // Simple priority arbitration per bank (lowest port wins)
-    integer i, j;
     always @(*) begin
+        integer i, j;
         for (i = 0; i < NUM_BANKS; i = i + 1) begin
             bank_grant[i] = 0;
             for (j = 0; j < NUM_PORTS; j = j + 1) begin
@@ -151,6 +152,7 @@ module l2_cache #(
     wire [NUM_BANKS-1:0] bank_mem_req_write;
     wire [ADDR_WIDTH-1:0] bank_mem_req_addr [0:NUM_BANKS-1];
     wire [LINE_BITS-1:0] bank_mem_req_wdata [0:NUM_BANKS-1];
+    wire [LINE_SIZE-1:0] bank_mem_req_wmask [0:NUM_BANKS-1];
     reg  [NUM_BANKS-1:0] bank_mem_req_ready;
     reg  [NUM_BANKS-1:0] bank_mem_fill_valid;
 
@@ -160,9 +162,10 @@ module l2_cache #(
             // Select winning port for this bank
             reg [$clog2(NUM_PORTS)-1:0] winning_port;
             always @(*) begin
+                integer p_bank;
                 winning_port = 0;
-                for (i = 0; i < NUM_PORTS; i = i + 1) begin
-                    if (bank_grant[b][i]) winning_port = i;
+                for (p_bank = 0; p_bank < NUM_PORTS; p_bank = p_bank + 1) begin
+                    if (bank_grant[b][p_bank]) winning_port = p_bank[$clog2(NUM_PORTS)-1:0];
                 end
             end
 
@@ -201,6 +204,7 @@ module l2_cache #(
                 .mem_req_write  (bank_mem_req_write[b]),
                 .mem_req_addr   (bank_mem_req_addr[b]),
                 .mem_req_wdata  (bank_mem_req_wdata[b]),
+                .mem_req_wmask  (bank_mem_req_wmask[b]),
                 .mem_req_ready  (bank_mem_req_ready[b]),
                 .mem_fill_valid (bank_mem_fill_valid[b]),
                 .mem_fill_data  (mem_resp_rdata)
@@ -216,21 +220,22 @@ module l2_cache #(
     reg [NUM_PORTS-1:0] port_pending;
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, p_resp;
         if (!rst_n) begin
             port_pending <= 0;
-            for (i = 0; i < NUM_PORTS; i = i + 1) begin
-                port_pending_bank[i] <= 0;
+            for (p_resp = 0; p_resp < NUM_PORTS; p_resp = p_resp + 1) begin
+                port_pending_bank[p_resp] <= 0;
             end
         end else begin
-            for (i = 0; i < NUM_PORTS; i = i + 1) begin
+            for (p_resp = 0; p_resp < NUM_PORTS; p_resp = p_resp + 1) begin
                 // New request accepted
-                if (l1_req_valid[i] && l1_req_ready[i]) begin
-                    port_pending[i] <= 1'b1;
-                    port_pending_bank[i] <= port_bank[i];
+                if (l1_req_valid[p_resp] && l1_req_ready[p_resp]) begin
+                    port_pending[p_resp] <= 1'b1;
+                    port_pending_bank[p_resp] <= port_bank[p_resp];
                 end
                 // Response received
-                if (l1_resp_valid[i]) begin
-                    port_pending[i] <= 1'b0;
+                if (l1_resp_valid[p_resp]) begin
+                    port_pending[p_resp] <= 1'b0;
                 end
             end
         end
@@ -288,6 +293,7 @@ module l2_cache #(
     assign mem_req_write = bank_mem_req_write[mem_req_sel];
     assign mem_req_addr  = bank_mem_req_addr[mem_req_sel];
     assign mem_req_wdata = bank_mem_req_wdata[mem_req_sel];
+    assign mem_req_wmask = bank_mem_req_wmask[mem_req_sel];
 
     always @(*) begin
         bank_mem_req_ready = {NUM_BANKS{1'b0}};
@@ -304,6 +310,7 @@ module l2_cache #(
     end
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, p_resp;
         if (!rst_n) begin
             mem_req_pending <= 1'b0;
             mem_outstanding <= 1'b0;
@@ -337,6 +344,7 @@ module l2_cache #(
     reg [31:0] hit_count, miss_count, wb_count;
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, p_resp;
         if (!rst_n) begin
             hit_count <= 0;
             miss_count <= 0;
@@ -389,6 +397,7 @@ module l2_cache_bank #(
     output reg                          mem_req_write,
     output reg  [ADDR_WIDTH-1:0]        mem_req_addr,
     output reg  [LINE_SIZE*8-1:0]       mem_req_wdata,
+    output reg  [LINE_SIZE-1:0]         mem_req_wmask,
     input  wire                         mem_req_ready,
     input  wire                         mem_fill_valid,
     input  wire [LINE_SIZE*8-1:0]       mem_fill_data
@@ -504,8 +513,8 @@ module l2_cache_bank #(
         end
     end
 
-    integer i;
     always @(posedge clk or negedge rst_n) begin
+        integer i, p_resp;
         if (!rst_n) begin
             state <= S_IDLE;
             resp_valid <= 0;
@@ -517,6 +526,7 @@ module l2_cache_bank #(
             mem_req_write <= 0;
             mem_req_addr <= 0;
             mem_req_wdata <= 0;
+            mem_req_wmask <= 0;
             addr_reg <= 0;
             wdata_reg <= 0;
             wmask_reg <= 0;
@@ -541,6 +551,7 @@ module l2_cache_bank #(
             mem_req_write <= 0;
             mem_req_addr <= 0;
             mem_req_wdata <= 0;
+            mem_req_wmask <= 0;
 
             case (state)
                 S_IDLE: begin
@@ -594,6 +605,7 @@ module l2_cache_bank #(
                     mem_req_write <= 1'b1;
                     mem_req_addr  <= victim_addr;
                     mem_req_wdata <= data_array[req_index][way_reg];
+                    mem_req_wmask <= {LINE_SIZE{1'b1}};
                     if (mem_req_valid && mem_req_ready) begin
                         mem_req_valid <= 1'b0;
                         state <= S_FILL_REQ;

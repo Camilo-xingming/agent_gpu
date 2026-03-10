@@ -330,8 +330,14 @@ module ralph_gpu_top #(
     wire [31:0] l2_mem_req_addr;
     wire [128*8-1:0] l2_mem_req_wdata;
     wire        l2_mem_req_ready;
+    wire [127:0]             l2_mem_req_wmask;
+
+
     wire        l2_mem_resp_valid;
     wire [128*8-1:0] l2_mem_resp_rdata;
+
+    
+    // L2 integration aggregation defaults
 
     generate
         for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : sm_gen
@@ -452,6 +458,7 @@ module ralph_gpu_top #(
                     .policy_discard_valid (1'b0),
                     .policy_discard_addr  (32'b0)
                 );
+
 
                 // L1D refill/writeback bridge
                 // Refill: accumulate AXI burst beats into cache line
@@ -834,6 +841,21 @@ module ralph_gpu_top #(
     //------------------------------------------------------------------------
     generate
         if (L2_ENABLE) begin : l2_cache_gen
+            // Aggregate requests from SMs
+            wire [NUM_SM-1:0]        l2_req_valid_agg;
+            wire [NUM_SM-1:0]        l2_req_write_agg;
+            wire [NUM_SM*32-1:0]     l2_req_addr_agg;
+            wire [NUM_SM*1024-1:0]   l2_req_wdata_agg;
+            wire [NUM_SM*32-1:0]     l2_req_mask_agg;
+            
+            for (sm = 0; sm < NUM_SM; sm = sm + 1) begin : gen_agg
+                assign l2_req_valid_agg[sm] = sm_gen[sm].l1d_mem_req;
+                assign l2_req_write_agg[sm] = sm_gen[sm].l1d_mem_write;
+                assign l2_req_addr_agg[sm*32 +: 32] = sm_gen[sm].l1d_mem_addr;
+                assign l2_req_wdata_agg[sm*1024 +: 1024] = sm_gen[sm].l1d_mem_wdata;
+                assign l2_req_mask_agg[sm*32 +: 32] = sm_gen[sm].sm_l1d_req_mask;
+            end
+
             // L2 cache interface signals
             wire [NUM_SM-1:0]        l2_req_valid;
             wire [NUM_SM-1:0]        l2_req_write;
@@ -877,6 +899,7 @@ module ralph_gpu_top #(
                 .mem_req_write  (l2_mem_req_write),
                 .mem_req_addr   (l2_mem_req_addr),
                 .mem_req_wdata  (l2_mem_req_wdata),
+                .mem_req_wmask  (l2_mem_req_wmask),
                 .mem_req_ready  (l2_mem_req_ready),
                 .mem_resp_valid (l2_mem_resp_valid),
                 .mem_resp_rdata (l2_mem_resp_rdata),
@@ -888,11 +911,19 @@ module ralph_gpu_top #(
             // Connect L1D cache misses to L2 requests
             // Note: Full integration requires modifying the L1D bypass/full logic
             // to route through L2 instead of direct memory access
-            assign l2_req_valid = {NUM_SM{1'b0}};  // Placeholder - connect from L1D miss path
-            assign l2_req_write = {NUM_SM{1'b0}};
-            assign l2_req_addr = {(NUM_SM*32){1'b0}};
-            assign l2_req_wdata = {(NUM_SM*128*8){1'b0}};
-            assign l2_req_wmask = {(NUM_SM*128){1'b0}};
+            
+            assign l2_req_valid = l2_req_valid_agg;
+            assign l2_req_write = l2_req_write_agg;
+            assign l2_req_addr  = l2_req_addr_agg;
+            assign l2_req_wdata = l2_req_wdata_agg;
+            
+            genvar m_i, m_j;
+            for (m_i = 0; m_i < NUM_SM; m_i = m_i + 1) begin : gen_l2_mask_sm
+                for (m_j = 0; m_j < 32; m_j = m_j + 1) begin : gen_l2_mask_word
+                    assign l2_req_wmask[m_i*128 + m_j*4 +: 4] = {4{l2_req_mask_agg[m_i*32 + m_j]}};
+                end
+            end
+
         end else begin : l2_cache_bypass_gen
             assign l2_stat_hits_perf = 32'b0;
             assign l2_stat_misses_perf = 32'b0;
@@ -900,6 +931,7 @@ module ralph_gpu_top #(
             assign l2_mem_req_write = 1'b0;
             assign l2_mem_req_addr  = 32'b0;
             assign l2_mem_req_wdata = {(128*8){1'b0}};
+            assign l2_mem_req_wmask = 128'b0;
         end
     endgenerate
 
@@ -1476,11 +1508,13 @@ module ralph_gpu_top #(
     wire hbm_req_ready;
     wire hbm_resp_valid;
     wire [1023:0] hbm_resp_rdata;
+    wire [127:0] hbm_req_wmask;
 
     assign hbm_req_valid = L2_ENABLE ? l2_mem_req_valid : 1'b0;
     assign hbm_req_write = L2_ENABLE ? l2_mem_req_write : 1'b0;
     assign hbm_req_addr  = L2_ENABLE ? l2_mem_req_addr  : 32'b0;
     assign hbm_req_wdata = L2_ENABLE ? l2_mem_req_wdata : 1024'b0;
+    assign hbm_req_wmask = L2_ENABLE ? l2_mem_req_wmask : {128{1'b1}};
 
     assign l2_mem_req_ready  = L2_ENABLE ? hbm_req_ready : 1'b0;
     assign l2_mem_resp_valid = L2_ENABLE ? hbm_resp_valid : 1'b0;
@@ -1497,7 +1531,7 @@ module ralph_gpu_top #(
         .l2_req_write   (hbm_req_write),
         .l2_req_addr    (hbm_req_addr),
         .l2_req_wdata   (hbm_req_wdata),
-        .l2_req_wmask   ({128{1'b1}}),
+        .l2_req_wmask   (hbm_req_wmask),
         .l2_req_id      (8'b0),
         .l2_req_ready   (hbm_req_ready),
         .l2_resp_valid  (hbm_resp_valid),
