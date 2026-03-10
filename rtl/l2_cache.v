@@ -118,7 +118,7 @@ module l2_cache #(
 
     // Simple priority arbitration per bank (lowest port wins)
     always @(*) begin
-        integer i, j;
+        integer i, j, w, byte_i, mem_i, mem_idx;
         for (i = 0; i < NUM_BANKS; i = i + 1) begin
             bank_grant[i] = 0;
             for (j = 0; j < NUM_PORTS; j = j + 1) begin
@@ -162,6 +162,7 @@ module l2_cache #(
             // Select winning port for this bank
             reg [$clog2(NUM_PORTS)-1:0] winning_port;
             always @(*) begin
+        integer i, j, w, byte_i, mem_i, mem_idx;
                 integer p_bank;
                 winning_port = 0;
                 for (p_bank = 0; p_bank < NUM_PORTS; p_bank = p_bank + 1) begin
@@ -271,10 +272,9 @@ module l2_cache #(
     reg [BANK_SEL_W-1:0] mem_rr_ptr;
     reg mem_req_has;
     reg [BANK_SEL_W-1:0] mem_req_sel_next;
-    integer mem_i;
-    integer mem_idx;
 
     always @(*) begin
+        integer i, j, w, byte_i, mem_i, mem_idx;
         mem_req_has = 1'b0;
         mem_req_sel_next = mem_rr_ptr;
         for (mem_i = 0; mem_i < NUM_BANKS; mem_i = mem_i + 1) begin
@@ -296,6 +296,7 @@ module l2_cache #(
     assign mem_req_wmask = bank_mem_req_wmask[mem_req_sel];
 
     always @(*) begin
+        integer i, j, w, byte_i, mem_i, mem_idx;
         bank_mem_req_ready = {NUM_BANKS{1'b0}};
         if (mem_req_pending) begin
             bank_mem_req_ready[mem_req_sel] = mem_req_ready;
@@ -303,6 +304,7 @@ module l2_cache #(
     end
 
     always @(*) begin
+        integer i, j, w, byte_i, mem_i, mem_idx;
         bank_mem_fill_valid = {NUM_BANKS{1'b0}};
         if (mem_resp_valid) begin
             bank_mem_fill_valid[mem_out_bank] = 1'b1;
@@ -438,8 +440,8 @@ module l2_cache_bank #(
     reg [WAY_BITS-1:0] hit_way;
     reg any_hit;
 
-    integer w;
     always @(*) begin
+        integer i, j, w, byte_i, mem_i, mem_idx;
         way_hit = 0;
         hit_way = 0;
         any_hit = 0;
@@ -460,6 +462,7 @@ module l2_cache_bank #(
     reg [WAY_BITS-1:0] victim_way;
 
     always @(*) begin
+        integer i, j, w, byte_i, mem_i, mem_idx;
         // Simple pseudo-LRU: find first invalid, else use LRU tree
         victim_way = 0;
 
@@ -501,14 +504,14 @@ module l2_cache_bank #(
 
     reg [LINE_BITS-1:0] merged_hit_line;
     reg [LINE_BITS-1:0] merged_fill_line;
-    integer b;
     always @(*) begin
+        integer i, j, w, byte_i, mem_i, mem_idx;
         merged_hit_line = data_array[req_index][way_reg];
         merged_fill_line = mem_fill_data;
-        for (b = 0; b < LINE_SIZE; b = b + 1) begin
-            if (wmask_reg[b]) begin
-                merged_hit_line[b*8 +: 8] = wdata_reg[b*8 +: 8];
-                merged_fill_line[b*8 +: 8] = wdata_reg[b*8 +: 8];
+        for (byte_i = 0; byte_i < LINE_SIZE; byte_i = byte_i + 1) begin
+            if (wmask_reg[byte_i]) begin
+                merged_hit_line[byte_i*8 +: 8] = wdata_reg[byte_i*8 +: 8];
+                merged_fill_line[byte_i*8 +: 8] = wdata_reg[byte_i*8 +: 8];
             end
         end
     end

@@ -350,11 +350,20 @@ module ralph_gpu_top #(
             reg         sm_l1d_resp_valid;
             reg         sm_l1d_resp_hit;
 
+              wire        l1d_mem_req;
+              wire        l1d_mem_write;
+              wire [31:0] l1d_mem_addr;
+              wire [1023:0] l1d_mem_wdata;
+
             assign sm_perf_l1_hit[sm] = sm_l1d_resp_valid & sm_l1d_resp_hit;
             assign sm_perf_l1_miss[sm] = sm_l1d_resp_valid & ~sm_l1d_resp_hit;
 
             // L1D Bypass Mode: Direct memory access with 1-cycle latency
             if (L1D_BYPASS) begin : l1d_bypass
+                  assign l1d_mem_req = 1'b0;
+                  assign l1d_mem_write = 1'b0;
+                  assign l1d_mem_addr = 32'b0;
+                  assign l1d_mem_wdata = 1024'b0;
                 // Pipeline registers for bypass mode
                 reg         req_valid_d;
                 reg         req_write_d;
@@ -363,13 +372,14 @@ module ralph_gpu_top #(
                 reg [NUM_LANES-1:0] req_mask_d;
 
                 always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
                     if (!rst_n) begin
                         req_valid_d <= 1'b0;
                         req_write_d <= 1'b0;
                         req_mask_d <= {NUM_LANES{1'b0}};
                         sm_l1d_resp_valid <= 1'b0;
                         sm_l1d_resp_hit <= 1'b0;
-                        for (integer k = 0; k < NUM_LANES; k = k + 1) begin
+                        for (k = 0; k < NUM_LANES; k = k + 1) begin
                             req_addr_d[k*32 +: 32] <= 32'b0;
                             req_wdata_d[k*32 +: 32] <= 32'b0;
                             sm_l1d_resp_rdata[k*32 +: 32] <= 32'b0;
@@ -379,7 +389,7 @@ module ralph_gpu_top #(
                         req_valid_d <= sm_l1d_req_valid;
                         req_write_d <= sm_l1d_req_write;
                         req_mask_d <= sm_l1d_req_mask;
-                        for (integer k = 0; k < NUM_LANES; k = k + 1) begin
+                        for (k = 0; k < NUM_LANES; k = k + 1) begin
                             req_addr_d[k*32 +: 32] <= sm_l1d_req_addr[k*32 +: 32];
                             req_wdata_d[k*32 +: 32] <= sm_l1d_req_wdata[k*32 +: 32];
                         end
@@ -389,7 +399,7 @@ module ralph_gpu_top #(
                         sm_l1d_resp_hit <= req_valid_d;  // Always hit in bypass mode
 
                         if (req_valid_d) begin
-                            for (integer k = 0; k < NUM_LANES; k = k + 1) begin
+                            for (k = 0; k < NUM_LANES; k = k + 1) begin
                                 if (req_mask_d[k]) begin
                                     if (req_write_d) begin
                                         // Write operation
@@ -408,10 +418,6 @@ module ralph_gpu_top #(
 
             end else begin : l1d_full
                 // Full L1D cache instantiation
-                wire        l1d_mem_req;
-                wire        l1d_mem_write;
-                wire [31:0] l1d_mem_addr;
-                wire [1023:0] l1d_mem_wdata;
                 reg  [1023:0] l1d_mem_rdata;
                 reg         l1d_mem_valid;
                 wire        l1d_mem_ready;
@@ -470,6 +476,7 @@ module ralph_gpu_top #(
                 assign l1d_mem_ready = !refill_pending && !writeback_pending;
 
                 always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
                     if (!rst_n) begin
                         l1d_mem_valid    <= 1'b0;
                         l1d_mem_rdata    <= 1024'b0;
@@ -649,8 +656,8 @@ module ralph_gpu_top #(
         end
     endfunction
 
-    integer tlb_sm_i;
     always @(*) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         aw_tlb_req_valid_r = {NUM_SM{1'b0}};
         ar_tlb_req_valid_r = {NUM_SM{1'b0}};
         aw_tlb_req_vaddr_r = {(NUM_SM*TLB_VADDR_WIDTH){1'b0}};
@@ -675,6 +682,7 @@ module ralph_gpu_top #(
     assign ar_ptw_req_ready = 1'b1;
 
     always @(*) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         reg [TLB_PADDR_WIDTH-1:0] aw_ptw_leaf_base;
         reg [8:0] aw_ptw_l3_idx;
         aw_ptw_leaf_base = {TLB_PADDR_WIDTH{1'b0}};
@@ -693,6 +701,7 @@ module ralph_gpu_top #(
     end
 
     always @(*) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         reg [TLB_PADDR_WIDTH-1:0] ar_ptw_leaf_base;
         reg [8:0] ar_ptw_l3_idx;
         ar_ptw_leaf_base = {TLB_PADDR_WIDTH{1'b0}};
@@ -711,6 +720,7 @@ module ralph_gpu_top #(
     end
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         if (!rst_n) begin
             sm_aw_tlb_pending <= {NUM_SM{1'b0}};
             sm_aw_tlb_addr_valid <= {NUM_SM{1'b0}};
@@ -954,10 +964,9 @@ module ralph_gpu_top #(
     reg [SM_ID_W-1:0] imem_rr_ptr;
     reg [SM_ID_W-1:0] imem_arb_sel;
     reg imem_arb_valid;
-    integer imem_i;
-    integer imem_idx;
 
     always @(*) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         imem_arb_sel = imem_rr_ptr;
         imem_arb_valid = 1'b0;
         for (imem_i = 0; imem_i < NUM_SM; imem_i = imem_i + 1) begin
@@ -992,8 +1001,8 @@ module ralph_gpu_top #(
     end
 `endif
 
-    integer sm_i;
     always @(*) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         sm_imem_ready = {NUM_SM{1'b0}};
         for (sm_i = 0; sm_i < NUM_SM; sm_i = sm_i + 1) begin
             sm_imem_valids[sm_i] = 1'b0;
@@ -1009,6 +1018,7 @@ module ralph_gpu_top #(
     end
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         if (!rst_n) begin
             imem_q_head <= {IMEM_Q_PTR_W{1'b0}};
             imem_q_tail <= {IMEM_Q_PTR_W{1'b0}};
@@ -1041,12 +1051,12 @@ module ralph_gpu_top #(
     //------------------------------------------------------------------------
     localparam AXI_ARB_W = (NUM_SM > 1) ? $clog2(NUM_SM) : 1;
     reg [AXI_ARB_W-1:0] axi_rr_ptr;
-    integer i;
 
     // Write address channel round-robin
     reg [AXI_ARB_W-1:0] axi_aw_sel;
     reg axi_aw_valid;
     always @(*) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         axi_aw_sel = axi_rr_ptr;
         axi_aw_valid = 1'b0;
         for (i = 0; i < NUM_SM; i = i + 1) begin : aw_arb_loop
@@ -1064,6 +1074,7 @@ module ralph_gpu_top #(
     reg [AXI_ARB_W-1:0] axi_ar_sel;
     reg axi_ar_valid;
     always @(*) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         axi_ar_sel = axi_rr_ptr;
         axi_ar_valid = 1'b0;
         for (i = 0; i < NUM_SM; i = i + 1) begin : ar_arb_loop
@@ -1079,6 +1090,7 @@ module ralph_gpu_top #(
 
     // Update round-robin pointer
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         if (!rst_n) begin
             axi_rr_ptr <= {AXI_ARB_W{1'b0}};
         end else begin
@@ -1094,6 +1106,7 @@ module ralph_gpu_top #(
     reg axi_w_active;
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         if (!rst_n) begin
             axi_w_owner  <= {AXI_ARB_W{1'b0}};
             axi_w_active <= 1'b0;
@@ -1147,7 +1160,6 @@ module ralph_gpu_top #(
     localparam AXI_OUTSTANDING_W = 4;
     reg [AXI_OUTSTANDING_W-1:0] rd_outstanding [0:NUM_SM-1];
     reg [AXI_OUTSTANDING_W-1:0] wr_outstanding [0:NUM_SM-1];
-    integer sm_outstanding_i;
 
     wire aw_hs = axi_aw_valid && m_axi_awready;
     wire ar_hs = axi_ar_valid && m_axi_arready;
@@ -1155,6 +1167,7 @@ module ralph_gpu_top #(
     wire r_last_hs = m_axi_rvalid && m_axi_rready && m_axi_rlast;
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         if (!rst_n) begin
             for (sm_outstanding_i = 0; sm_outstanding_i < NUM_SM; sm_outstanding_i = sm_outstanding_i + 1) begin
                 rd_outstanding[sm_outstanding_i] <= {AXI_OUTSTANDING_W{1'b0}};
@@ -1248,6 +1261,7 @@ module ralph_gpu_top #(
     );
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         if (!rst_n) begin
             l2_stat_hits_prev <= 32'b0;
             l2_stat_misses_prev <= 32'b0;
@@ -1258,8 +1272,8 @@ module ralph_gpu_top #(
     end
 
     // Latch first exception from SMs into host-readable error CSRs
-    integer exc_sm_i;
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         if (!rst_n) begin
             error_pending <= 1'b0;
             error_code <= 4'b0;
@@ -1295,6 +1309,7 @@ module ralph_gpu_top #(
 
     // CSR读取
     always @(*) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         case (csr_addr)
             CSR_GPU_STATUS:  csr_rd_data = {29'b0, error_pending, gpu_busy, 1'b1};  // bit2=error, bit1=busy, bit0=ready
             CSR_ERROR_STATUS: csr_rd_data = {11'b0, error_warp_id, error_sm_id, error_code, error_pending};
@@ -1626,6 +1641,7 @@ module ralph_gpu_top #(
 
     // Simple MMA accumulator (placeholder for tensor core connection)
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
         if (!rst_n) begin
             wgmma_mma_accum_out <= 1024'b0;
             wgmma_mma_done <= 1'b0;
