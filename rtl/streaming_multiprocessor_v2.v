@@ -138,6 +138,8 @@ module streaming_multiprocessor_v2 #(
     output reg  [31:0]              exception_info,
     output reg  [NUM_WARPS-1:0]     warp_error_mask
 );
+    integer idx_si, idx_lane, idx_bit, idx_init, idx_ns;
+
 
     //========================================================================
     // Constants and Derived Parameters
@@ -1306,18 +1308,14 @@ module streaming_multiprocessor_v2 #(
     // First active lane's store address for cache invalidation
     reg [31:0] l1d_store_inv_addr;
     always @(*) begin
-        integer si;
-
         l1d_store_inv_addr = 32'b0;
-        begin : find_store_lane
-            for (si = 0; si < NUM_LANES; si = si + 1) begin
-                if (issue_mask[si]) begin
-                    l1d_store_inv_addr = rf_rd_data_a[si*32 +: 32];
-                    disable find_store_lane;
-                end
+        for (idx_si = NUM_LANES-1; idx_si >= 0; idx_si = idx_si - 1) begin
+            if (issue_mask[idx_si]) begin
+                l1d_store_inv_addr = rf_rd_data_a[idx_si*32 +: 32];
             end
         end
     end
+
 
     // Cache policy requests routed directly to L1D policy interface.
     wire issue_cache_policy_l1 = issue_valid && issue_cache_policy_op;
@@ -5159,7 +5157,6 @@ module streaming_multiprocessor_v2 #(
     reg [7:0] latch_dbg_cnt;
     `endif
     always @(posedge clk or negedge rst_n) begin : latch_block
-        integer init_idx;
         if (!rst_n) begin
             gmem_resp_latched <= 1'b0;
             smem_resp_latched <= 1'b0;
@@ -5182,12 +5179,12 @@ module streaming_multiprocessor_v2 #(
             debug_pmevent_id <= 32'b0;
             debug_pmevent_valid <= 1'b0;
             // Initialize per-warp state
-            for (init_idx = 0; init_idx < NUM_WARPS; init_idx = init_idx + 1) begin
-                warp_stack_ptr[init_idx] <= 32'h80000000;  // Default stack base in local memory
-                warp_nanosleep_counter[init_idx] <= 32'b0;
-                warp_maxnreg[init_idx] <= 16'd32;  // Default max 32 registers
-                warp_st_async_pending[init_idx] <= 8'b0;
-                warp_st_async_groups[init_idx] <= 4'b0;
+            for (idx_init = 0; idx_init < NUM_WARPS; idx_init = idx_init + 1) begin
+                warp_stack_ptr[idx_init] <= 32'h80000000;  // Default stack base in local memory
+                warp_nanosleep_counter[idx_init] <= 32'b0;
+                warp_maxnreg[idx_init] <= 16'd32;  // Default max 32 registers
+                warp_st_async_pending[idx_init] <= 8'b0;
+                warp_st_async_groups[idx_init] <= 4'b0;
             end
             // Multimem state initialization
             multimem_result_valid_r <= 1'b0;
@@ -5301,10 +5298,9 @@ module streaming_multiprocessor_v2 #(
 
             // Decrement nanosleep counters for all sleeping warps
             begin : nanosleep_decrement
-                integer ns_idx;
-                for (ns_idx = 0; ns_idx < NUM_WARPS; ns_idx = ns_idx + 1) begin
-                    if (warp_nanosleep_counter[ns_idx] > 0) begin
-                        warp_nanosleep_counter[ns_idx] <= warp_nanosleep_counter[ns_idx] - 1;
+                for (idx_ns = 0; idx_ns < NUM_WARPS; idx_ns = idx_ns + 1) begin
+                    if (warp_nanosleep_counter[idx_ns] > 0) begin
+                        warp_nanosleep_counter[idx_ns] <= warp_nanosleep_counter[idx_ns] - 1;
                     end
                 end
             end
