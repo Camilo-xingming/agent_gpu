@@ -356,19 +356,20 @@ module ralph_gpu_top #(
 
               wire        l1d_mem_req;
               wire        l1d_mem_write;
-            assign l1d_mem_req   = L1D_BYPASS ? 1'b0 : 1'bz;
-            assign l1d_mem_write = L1D_BYPASS ? 1'b0 : 1'bz;
-            assign l1d_mem_addr  = L1D_BYPASS ? 32'b0 : 32'bz;
-            assign l1d_mem_wdata = L1D_BYPASS ? 1024'b0 : 1024'bz;
-
               wire [31:0] l1d_mem_addr;
               wire [1023:0] l1d_mem_wdata;
+
 
             assign sm_perf_l1_hit[sm] = sm_l1d_resp_valid & sm_l1d_resp_hit;
             assign sm_perf_l1_miss[sm] = sm_l1d_resp_valid & ~sm_l1d_resp_hit;
 
             // L1D Bypass Mode: Direct memory access with 1-cycle latency
             if (L1D_BYPASS) begin : l1d_bypass
+                  assign l1d_mem_req   = 1'b0;
+                  assign l1d_mem_write = 1'b0;
+                  assign l1d_mem_addr  = 32'b0;
+                  assign l1d_mem_wdata = 1024'b0;
+
                 // Pipeline registers for bypass mode
                 reg         req_valid_d;
                 reg         req_write_d;

@@ -176,7 +176,7 @@ module l2_cache #(
             assign bank_req_addr[b]  = l1_req_addr[winning_port*ADDR_WIDTH +: ADDR_WIDTH];
             assign bank_req_wdata[b] = l1_req_wdata[winning_port*LINE_BITS +: LINE_BITS];
             assign bank_req_wmask[b] = l1_req_wmask[winning_port*LINE_SIZE +: LINE_SIZE];
-            assign bank_req_port_id[b] = winning_port[3:0];
+            assign bank_req_port_id[b] = winning_port;
 
             // Cache bank instance
             l2_cache_bank #(
