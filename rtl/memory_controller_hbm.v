@@ -224,16 +224,19 @@ module memory_controller_hbm #(
             oldest_idx = 0;
             count = ch_req_count[ch];
 
-            for (i = 0; i < REQ_QUEUE_DEPTH && i < count; i = i + 1) begin
-                idx = ch_req_head[ch] + i[PTR_W-1:0];
-                entry = ch_req_queue[ch][idx];
+            for (i = 0; i < REQ_QUEUE_DEPTH; i = i + 1) begin
+                if (i < count) begin
+                    idx = ch_req_head[ch] + i[PTR_W-1:0];
+                    entry = ch_req_queue[ch][idx];
 
-                // Track oldest for FCFS fallback
-                if (entry[31:0] < oldest_ts) begin
-                    oldest_ts = entry[31:0];
-                    oldest_idx = idx;
+                    // Track oldest for FCFS fallback
+                    if (entry[31:0] < oldest_ts) begin
+                        oldest_ts = entry[31:0];
+                        oldest_idx = idx;
+                    end
                 end
             end
+
 
             find_oldest_request = oldest_idx;
         end
