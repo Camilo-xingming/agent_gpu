@@ -1306,9 +1306,10 @@ module streaming_multiprocessor_v2 #(
     // First active lane's store address for cache invalidation
     reg [31:0] l1d_store_inv_addr;
     always @(*) begin
+        integer si;
+
         l1d_store_inv_addr = 32'b0;
         begin : find_store_lane
-            integer si;
             for (si = 0; si < NUM_LANES; si = si + 1) begin
                 if (issue_mask[si]) begin
                     l1d_store_inv_addr = rf_rd_data_a[si*32 +: 32];
