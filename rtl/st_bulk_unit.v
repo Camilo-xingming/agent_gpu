@@ -161,7 +161,7 @@ module st_bulk_unit #(
                                     result_valid <= 1'b1;
                                     done <= 1'b1;
                                     `ifdef SIMULATION
-                                    $display("[ST_BULK] GLOBAL: smem=0x%04x gmem=0x%08x bytes=%0d",
+                                    $display("[ST_BULK] GLOBAL: smem=0x%04x gmem=0x%08x bytes=%0d", // keep
                                              smem_addr, gmem_addr, byte_count);
                                     `endif
                                 end else begin
@@ -188,7 +188,7 @@ module st_bulk_unit #(
                                     result_valid <= 1'b1;
                                     done <= 1'b1;
                                     `ifdef SIMULATION
-                                    $display("[ST_BULK] SHARED: smem_src=0x%04x smem_dst=0x%04x bytes=%0d",
+                                    $display("[ST_BULK] SHARED: smem_src=0x%04x smem_dst=0x%04x bytes=%0d", // keep
                                              smem_addr, gmem_addr[SMEM_ADDR_W-1:0], byte_count);
                                     `endif
                                 end else begin
@@ -211,7 +211,7 @@ module st_bulk_unit #(
                                     cur_remaining <= op_byte_count[op_tail];
                                     state <= ST_READ_SMEM;
                                     `ifdef SIMULATION
-                                    $display("[ST_BULK] COMMIT: %0d operations pending", pending_count);
+                                    $display("[ST_BULK] COMMIT: %0d operations pending", pending_count); // keep
                                     `endif
                                 end else begin
                                     done <= 1'b1;
@@ -227,7 +227,7 @@ module st_bulk_unit #(
                                     state <= ST_WAIT_ALL;
                                 end
                                 `ifdef SIMULATION
-                                $display("[ST_BULK] WAIT: waiting for %0d operations", pending_count);
+                                $display("[ST_BULK] WAIT: waiting for %0d operations", pending_count); // keep
                                 `endif
                             end
 

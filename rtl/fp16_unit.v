@@ -297,7 +297,7 @@ module fp16_unit (
             `ifdef SIMULATION
             if (valid_r1)
                 `ifdef SIMULATION
-                $display("[%0t FP16_STAGE1] func_r=%0d op_a_r=0x%08x op_b_r=0x%08x",
+                $display("[%0t FP16_STAGE1] func_r=%0d op_a_r=0x%08x op_b_r=0x%08x", // keep
                          $time, func_r, op_a_r, op_b_r);
                 `endif
             `endif
@@ -312,7 +312,7 @@ module fp16_unit (
             `ifdef SIMULATION
             if (valid_r2)
                 `ifdef SIMULATION
-                $display("[%0t FP16_STAGE2] func_r2=%0d op_a_r2=0x%08x op_b_r2=0x%08x",
+                $display("[%0t FP16_STAGE2] func_r2=%0d op_a_r2=0x%08x op_b_r2=0x%08x", // keep
                          $time, func_r2, op_a_r2, op_b_r2);
                 `endif
             `endif
@@ -360,7 +360,7 @@ module fp16_unit (
 
                     `FP16_MUL: begin
                         `ifdef SIMULATION
-                        $display("[%0t FP16_MUL] op_a_r2=0x%08x op_b_r2=0x%08x fp32_a=0x%08x fp32_b=0x%08x",
+                        $display("[%0t FP16_MUL] op_a_r2=0x%08x op_b_r2=0x%08x fp32_a=0x%08x fp32_b=0x%08x", // keep
                                  $time, op_a_r2, op_b_r2, fp32_a, fp32_b);
                         `endif
                         if (fp16_a_is_nan || fp16_b_is_nan) begin
@@ -377,7 +377,7 @@ module fp16_unit (
                         end else begin
                             fp16_result_lo = fp32_to_fp16(fp32_mul_ab);
                             `ifdef SIMULATION
-                            $display("[%0t FP16_MUL] fp32_product=0x%08x fp16_result=0x%04x",
+                            $display("[%0t FP16_MUL] fp32_product=0x%08x fp16_result=0x%04x", // keep
                                      $time, fp32_mul_ab, fp16_result_lo);
                             `endif
                         end

@@ -400,7 +400,7 @@ module decoder (
                 `OP_ST_GLOBAL: begin
                     mem_write <= 1'b1;
                     `ifdef SIMULATION
-                    $display("[DECODER] ST_GLOBAL: inst=0x%08h ra=R%0d rb=R%0d", instruction, inst_ra, inst_rb);
+                    $display("[DECODER] ST_GLOBAL: inst=0x%08h ra=R%0d rb=R%0d", instruction, inst_ra, inst_rb); // keep
                     `endif
                 end
 
@@ -409,7 +409,7 @@ module decoder (
                     mem_shared <= 1'b1;
                     reg_write  <= 1'b1;
                     `ifdef SIMULATION
-                    $display("[DECODER] OP_LD_SHARED: inst=0x%08h rd=R%0d ra=R%0d", instruction, rd, ra);
+                    $display("[DECODER] OP_LD_SHARED: inst=0x%08h rd=R%0d ra=R%0d", instruction, rd, ra); // keep
                     `endif
                 end
 
@@ -417,7 +417,7 @@ module decoder (
                     mem_write  <= 1'b1;
                     mem_shared <= 1'b1;
                     `ifdef SIMULATION
-                    $display("[DECODER] OP_ST_SHARED: inst=0x%08h ra=R%0d rb=R%0d", instruction, ra, rb);
+                    $display("[DECODER] OP_ST_SHARED: inst=0x%08h ra=R%0d rb=R%0d", instruction, ra, rb); // keep
                     `endif
                 end
 
@@ -425,7 +425,7 @@ module decoder (
                     special_reg <= 1'b1;
                     reg_write   <= 1'b1;
                     `ifdef SIMULATION
-                    $display("[DECODER] MOV_SPECIAL detected: inst=0x%08h rd=R%0d sreg=%0d", instruction, rd, ra);
+                    $display("[DECODER] MOV_SPECIAL detected: inst=0x%08h rd=R%0d sreg=%0d", instruction, rd, ra); // keep
                     `endif
                 end
 
@@ -592,7 +592,7 @@ module decoder (
                         sparse_mma_op <= 1'b1;
                         reg_write <= 1'b1;
                         `ifdef SIMULATION
-                        $display("[DECODER] SPARSE_MMA: func=%0d", inst_func);
+                        $display("[DECODER] SPARSE_MMA: func=%0d", inst_func); // keep
                         `endif
                     end else if (inst_func[4]) begin
                         // Blackwell tcgen05 operations (func[4]=1)
@@ -602,60 +602,60 @@ module decoder (
                                 tcgen05_mma <= 1'b1;
                                 mem_shared <= 1'b1;  // Operands from SMEM
                                 `ifdef SIMULATION
-                                $display("[DECODER] TCGEN05_MMA: dtype=%0d", inst_rc[3:0]);
+                                $display("[DECODER] TCGEN05_MMA: dtype=%0d", inst_rc[3:0]); // keep
                                 `endif
                             end
                             4'b0001: begin  // TCGEN05_LD
                                 tcgen05_ld <= 1'b1;
                                 reg_write <= 1'b1;
                                 `ifdef SIMULATION
-                                $display("[DECODER] TCGEN05_LD: rd=R%0d", inst_rd);
+                                $display("[DECODER] TCGEN05_LD: rd=R%0d", inst_rd); // keep
                                 `endif
                             end
                             4'b0010: begin  // TCGEN05_ST
                                 tcgen05_st <= 1'b1;
                                 `ifdef SIMULATION
-                                $display("[DECODER] TCGEN05_ST: ra=R%0d", inst_ra);
+                                $display("[DECODER] TCGEN05_ST: ra=R%0d", inst_ra); // keep
                                 `endif
                             end
                             4'b0011: begin  // TCGEN05_CP
                                 tcgen05_cp <= 1'b1;
                                 mem_shared <= 1'b1;
                                 `ifdef SIMULATION
-                                $display("[DECODER] TCGEN05_CP");
+                                $display("[DECODER] TCGEN05_CP"); // keep
                                 `endif
                             end
                             4'b0100: begin  // TCGEN05_ALLOC
                                 tcgen05_alloc <= 1'b1;
                                 reg_write <= 1'b1;
                                 `ifdef SIMULATION
-                                $display("[DECODER] TCGEN05_ALLOC: rd=R%0d", inst_rd);
+                                $display("[DECODER] TCGEN05_ALLOC: rd=R%0d", inst_rd); // keep
                                 `endif
                             end
                             4'b0101: begin  // TCGEN05_DEALLOC
                                 tcgen05_dealloc <= 1'b1;
                                 `ifdef SIMULATION
-                                $display("[DECODER] TCGEN05_DEALLOC");
+                                $display("[DECODER] TCGEN05_DEALLOC"); // keep
                                 `endif
                             end
                             4'b0110: begin  // TCGEN05_COMMIT
                                 tcgen05_commit <= 1'b1;
                                 mbarrier_op <= 1'b1;
                                 `ifdef SIMULATION
-                                $display("[DECODER] TCGEN05_COMMIT");
+                                $display("[DECODER] TCGEN05_COMMIT"); // keep
                                 `endif
                             end
                             4'b0111: begin  // TCGEN05_WAIT
                                 tcgen05_wait <= 1'b1;
                                 sync_op <= 1'b1;
                                 `ifdef SIMULATION
-                                $display("[DECODER] TCGEN05_WAIT");
+                                $display("[DECODER] TCGEN05_WAIT"); // keep
                                 `endif
                             end
                             default: begin
                                 `ifdef SIMULATION
                                 illegal_inst <= 1'b1;
-                                $display("[DECODER] TCGEN05_UNKNOWN: func=%0d", inst_func);
+                                $display("[DECODER] TCGEN05_UNKNOWN: func=%0d", inst_func); // keep
                                 `endif
                             end
 endcase
@@ -963,7 +963,7 @@ endcase
                     dpx_op <= 1'b1;
                     reg_write <= 1'b1;  // All DPX ops write result to Rd
                     `ifdef SIMULATION
-                    $display("[DECODER] DPX: func=%0d rd=R%0d ra=R%0d rb=R%0d rc=R%0d",
+                    $display("[DECODER] DPX: func=%0d rd=R%0d ra=R%0d rb=R%0d rc=R%0d", // keep
                              inst_func, inst_rd, inst_ra, inst_rb, inst_rc);
                     `endif
                 end

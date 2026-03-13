@@ -165,7 +165,7 @@ module fpu (
             case (func)
                 `FP_ADD, `FP_SUB: begin
                     `ifdef SIMULATION
-                    $display("[%0t FP32_ADD] op_a=0x%08x op_b=0x%08x result=0x%08x",
+                    $display("[%0t FP32_ADD] op_a=0x%08x op_b=0x%08x result=0x%08x", // keep
                              $time, operand_a, operand_b, add_result);
                     `endif
                     result  <= add_result;

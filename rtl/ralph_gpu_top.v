@@ -998,11 +998,11 @@ module ralph_gpu_top #(
     reg imem_debug_done;
     initial begin
         imem_debug_done = 0;
-        $display("[GPU_TOP] Module initialized - NUM_SM=%0d", NUM_SM); // keep // keep
+        $display("[GPU_TOP] Module initialized - NUM_SM=%0d", NUM_SM); // keep // keep // keep
     end
     always @(posedge clk) begin
         if (!imem_debug_done) begin
-            $display("[GPU_TOP-CLK] First clock edge! sm_req[0]=%b", sm_imem_req[0]); // keep // keep
+            $display("[GPU_TOP-CLK] First clock edge! sm_req[0]=%b", sm_imem_req[0]); // keep // keep // keep
             imem_debug_done <= 1;
         end
     end

@@ -213,7 +213,7 @@ module warp_collective_unit #(
                                 state <= ST_MATCH;
                                 stall_warp <= 1'b1;
                                 `ifdef SIMULATION
-                                $display("[WARP_COLL] match.sync: membermask=0x%08x src=0x%08x",
+                                $display("[WARP_COLL] match.sync: membermask=0x%08x src=0x%08x", // keep
                                          membermask & thread_mask, src_data);
                                 `endif
                             end
@@ -222,7 +222,7 @@ module warp_collective_unit #(
                                 state <= ST_ELECT;
                                 stall_warp <= 1'b1;
                                 `ifdef SIMULATION
-                                $display("[WARP_COLL] elect.sync: membermask=0x%08x",
+                                $display("[WARP_COLL] elect.sync: membermask=0x%08x", // keep
                                          membermask & thread_mask);
                                 `endif
                             end
@@ -242,7 +242,7 @@ module warp_collective_unit #(
                                     default:        reduction_acc <= 32'b0;
                                 endcase
                                 `ifdef SIMULATION
-                                $display("[WARP_COLL] red.async: func=%0d membermask=0x%08x dst=0x%04x",
+                                $display("[WARP_COLL] red.async: func=%0d membermask=0x%08x dst=0x%04x", // keep
                                          func, membermask & thread_mask, dst_addr);
                                 `endif
                             end
@@ -275,7 +275,7 @@ module warp_collective_unit #(
                     endcase
 
                     `ifdef SIMULATION
-                    $display("[WARP_COLL] match.sync done: result_mask=0x%08x pred=%b",
+                    $display("[WARP_COLL] match.sync done: result_mask=0x%08x pred=%b", // keep
                              match_result, |match_result);
                     `endif
 
@@ -298,7 +298,7 @@ module warp_collective_unit #(
                     end
 
                     `ifdef SIMULATION
-                    $display("[WARP_COLL] elect.sync done: elected_lane=%0d mask=0x%08x",
+                    $display("[WARP_COLL] elect.sync done: elected_lane=%0d mask=0x%08x", // keep
                              elected_lane, (1'b1 << elected_lane));
                     `endif
 
@@ -333,7 +333,7 @@ module warp_collective_unit #(
                         smem_red_op <= saved_func[2:0];
 
                         `ifdef SIMULATION
-                        $display("[WARP_COLL] red.async computed: result=0x%08x -> smem[0x%04x]",
+                        $display("[WARP_COLL] red.async computed: result=0x%08x -> smem[0x%04x]", // keep
                                  reduction_acc, saved_dst_addr);
                         `endif
                     end
@@ -352,7 +352,7 @@ module warp_collective_unit #(
                         state <= ST_IDLE;
 
                         `ifdef SIMULATION
-                        $display("[WARP_COLL] red.async done: wrote 0x%08x to smem[0x%04x]",
+                        $display("[WARP_COLL] red.async done: wrote 0x%08x to smem[0x%04x]", // keep
                                  reduction_acc, saved_dst_addr);
                         `endif
                     end

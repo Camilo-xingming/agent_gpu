@@ -153,7 +153,7 @@ module cache_policy_unit #(
                             done <= 1'b1;
                             state <= ST_IDLE;
                             `ifdef SIMULATION
-                            $display("[CACHE_POLICY] CREATEPOLICY: token=%0d", policy_counter);
+                            $display("[CACHE_POLICY] CREATEPOLICY: token=%0d", policy_counter); // keep
                             `endif
                         end
 
@@ -165,7 +165,7 @@ module cache_policy_unit #(
                             cache_ctrl_level <= cache_level;
                             state <= ST_WAIT_CACHE;
                             `ifdef SIMULATION
-                            $display("[CACHE_POLICY] APPLYPRIORITY: addr=0x%08x policy=%0d", saved_addr, saved_src_b[7:0]);
+                            $display("[CACHE_POLICY] APPLYPRIORITY: addr=0x%08x policy=%0d", saved_addr, saved_src_b[7:0]); // keep
                             `endif
                         end
 
@@ -176,7 +176,7 @@ module cache_policy_unit #(
                             cache_ctrl_level <= cache_level;
                             state <= ST_WAIT_CACHE;
                             `ifdef SIMULATION
-                            $display("[CACHE_POLICY] DISCARD: addr=0x%08x", saved_addr);
+                            $display("[CACHE_POLICY] DISCARD: addr=0x%08x", saved_addr); // keep
                             `endif
                         end
 
@@ -194,7 +194,7 @@ module cache_policy_unit #(
                             done <= 1'b1;
                             state <= ST_IDLE;
                             `ifdef SIMULATION
-                            $display("[ISSPACEP] addr=0x%08x space=%0d result=%0d", saved_addr, saved_src_b[2:0], pred_result);
+                            $display("[ISSPACEP] addr=0x%08x space=%0d result=%0d", saved_addr, saved_src_b[2:0], pred_result); // keep
                             `endif
                         end
 
@@ -204,7 +204,7 @@ module cache_policy_unit #(
                             done <= 1'b1;
                             state <= ST_IDLE;
                             `ifdef SIMULATION
-                            $display("[MAPA] src=0x%08x map_type=%0d result=0x%08x", saved_addr, saved_src_b[2:0], mapped_addr);
+                            $display("[MAPA] src=0x%08x map_type=%0d result=0x%08x", saved_addr, saved_src_b[2:0], mapped_addr); // keep
                             `endif
                         end
 
@@ -214,7 +214,7 @@ module cache_policy_unit #(
                             done <= 1'b1;
                             state <= ST_IDLE;
                             `ifdef SIMULATION
-                            $display("[GETCTARANK] cta_id=%0d", cta_id);
+                            $display("[GETCTARANK] cta_id=%0d", cta_id); // keep
                             `endif
                         end
 

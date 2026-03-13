@@ -119,7 +119,7 @@ module tma_unit #(
                         row_base_addr <= desc_base_addr + (coord_y * {16'b0, desc_stride}) + coord_x;
 
                         `ifdef SIMULATION
-                        $display("[TMA] Start: base=0x%08x stride=%0d width=%0d height=%0d coord=(%0d,%0d) dst=0x%04x",
+                        $display("[TMA] Start: base=0x%08x stride=%0d width=%0d height=%0d coord=(%0d,%0d) dst=0x%04x", // keep
                                  desc_base_addr, desc_stride, desc_box_width, desc_box_height,
                                  coord_x, coord_y, dst_base);
                         `endif
@@ -140,7 +140,7 @@ module tma_unit #(
                     state <= ST_WAIT_ACK;
 
                     `ifdef SIMULATION
-                    $display("[TMA] Req: row=%0d col=%0d src=0x%08x dst=0x%04x size=%0d",
+                    $display("[TMA] Req: row=%0d col=%0d src=0x%08x dst=0x%04x size=%0d", // keep
                              curr_row, curr_col, computed_src_addr, computed_dst_addr, transfer_size_sel);
                     `endif
                 end
@@ -185,7 +185,7 @@ module tma_unit #(
                     state <= ST_IDLE;
 
                     `ifdef SIMULATION
-                    $display("[TMA] Done: total_bytes=%0d", bytes_copied);
+                    $display("[TMA] Done: total_bytes=%0d", bytes_copied); // keep
                     `endif
                 end
 

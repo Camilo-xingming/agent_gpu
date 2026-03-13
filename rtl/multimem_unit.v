@@ -213,7 +213,7 @@ module multimem_unit #(
                                     local_smem_rd_addr <= smem_addr;
                                     state <= ST_LOCAL_READ;
                                     `ifdef SIMULATION
-                                    $display("[MULTIMEM%0d] LD local: addr=0x%04x", SM_ID, smem_addr);
+                                    $display("[MULTIMEM%0d] LD local: addr=0x%04x", SM_ID, smem_addr); // keep
                                     `endif
                                 end else begin
                                     // Load from remote SM
@@ -224,7 +224,7 @@ module multimem_unit #(
                                     pending_targets <= target_mask[NUM_SMs-1:0];
                                     state <= ST_CLUSTER_REQ;
                                     `ifdef SIMULATION
-                                    $display("[MULTIMEM%0d] LD remote: targets=0x%02x addr=0x%04x",
+                                    $display("[MULTIMEM%0d] LD remote: targets=0x%02x addr=0x%04x", // keep
                                              SM_ID, target_mask, smem_addr);
                                     `endif
                                 end
@@ -238,7 +238,7 @@ module multimem_unit #(
                                     local_smem_wr_data <= wdata;
                                     state <= ST_LOCAL_WRITE;
                                     `ifdef SIMULATION
-                                    $display("[MULTIMEM%0d] ST local: addr=0x%04x data=0x%08x",
+                                    $display("[MULTIMEM%0d] ST local: addr=0x%04x data=0x%08x", // keep
                                              SM_ID, smem_addr, wdata);
                                     `endif
                                 end else begin
@@ -261,7 +261,7 @@ module multimem_unit #(
                                         state <= ST_LOCAL_WRITE;
                                     end
                                     `ifdef SIMULATION
-                                    $display("[MULTIMEM%0d] ST multicast: targets=0x%02x addr=0x%04x data=0x%08x",
+                                    $display("[MULTIMEM%0d] ST multicast: targets=0x%02x addr=0x%04x data=0x%08x", // keep
                                              SM_ID, target_mask, smem_addr, wdata);
                                     `endif
                                 end
@@ -274,7 +274,7 @@ module multimem_unit #(
                                     local_smem_rd_addr <= smem_addr;
                                     state <= ST_REDUCE_READ;
                                     `ifdef SIMULATION
-                                    $display("[MULTIMEM%0d] RED: addr=0x%04x data=0x%08x op=%0d",
+                                    $display("[MULTIMEM%0d] RED: addr=0x%04x data=0x%08x op=%0d", // keep
                                              SM_ID, smem_addr, wdata, red_op);
                                     `endif
                                 end else begin
@@ -305,7 +305,7 @@ module multimem_unit #(
                         remote_resp_data <= local_smem_rd_data;
                         state <= ST_IDLE;
                         `ifdef SIMULATION
-                        $display("[MULTIMEM%0d] LD done: data=0x%08x", SM_ID, local_smem_rd_data);
+                        $display("[MULTIMEM%0d] LD done: data=0x%08x", SM_ID, local_smem_rd_data); // keep
                         `endif
                     end
                 end
@@ -316,7 +316,7 @@ module multimem_unit #(
                         remote_req_done <= is_remote_op;
                         state <= ST_IDLE;
                         `ifdef SIMULATION
-                        $display("[MULTIMEM%0d] ST done", SM_ID);
+                        $display("[MULTIMEM%0d] ST done", SM_ID); // keep
                         `endif
                     end
                 end
@@ -362,7 +362,7 @@ module multimem_unit #(
                         remote_req_done <= is_remote_op;
                         state <= ST_IDLE;
                         `ifdef SIMULATION
-                        $display("[MULTIMEM%0d] RED done: result=0x%08x", SM_ID, reduce_acc);
+                        $display("[MULTIMEM%0d] RED done: result=0x%08x", SM_ID, reduce_acc); // keep
                         `endif
                     end
                 end
