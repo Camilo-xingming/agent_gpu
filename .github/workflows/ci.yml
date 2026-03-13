@@ -11,6 +11,8 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Verilator Lint
         run: make lint VERILATOR=verilator
 
@@ -18,6 +20,8 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: "DoD #4: Yosys Synthesis Check"
         run: make synth
       - name: Post synth failure to PR
@@ -36,6 +40,8 @@ jobs:
     needs: lint
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Run Unit Test Suite
         run: make test IVERILOG=iverilog VVP=vvp
 
@@ -44,6 +50,8 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Fetch base branch
         run: git fetch origin master
 
@@ -110,5 +118,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Run make test
         run: make -j8 test VERILATOR=verilator

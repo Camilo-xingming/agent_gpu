@@ -279,7 +279,9 @@ module ralph_gpu_top #(
     // L1D Cache/Bypass Memory Interface
     //------------------------------------------------------------------------
     // Shared memory model for L1D bypass mode (simple direct memory access)
+`ifndef SYNTHESIS
     reg [31:0] l1d_bypass_mem [0:16383];  // 64KB shared for bypass mode
+`endif
 
     genvar sm;
     localparam PERF_WARP_COUNT_W = $clog2(4 + 1);
@@ -408,10 +410,16 @@ module ralph_gpu_top #(
                                 if (req_mask_d[k]) begin
                                     if (req_write_d) begin
                                         // Write operation
+`ifndef SYNTHESIS
                                         l1d_bypass_mem[req_addr_d[k*32+2 +: 14]] <= req_wdata_d[k*32 +: 32];
+`endif
                                     end else begin
                                         // Read operation
+`ifndef SYNTHESIS
                                         sm_l1d_resp_rdata[k*32 +: 32] <= l1d_bypass_mem[req_addr_d[k*32+2 +: 14]];
+`else
+                                        sm_l1d_resp_rdata[k*32 +: 32] <= 32'b0;
+`endif
                                     end
                                 end else begin
                                     sm_l1d_resp_rdata[k*32 +: 32] <= 32'b0;

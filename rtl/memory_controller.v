@@ -195,7 +195,9 @@ module memory_controller #(
     //------------------------------------------------------------------------
     // Memory model and request handling (mem_clk domain)
     //------------------------------------------------------------------------
+    `ifndef SYNTHESIS
     reg [BURST_BITS-1:0] mem_array [0:MEM_DEPTH-1];
+`endif
 
     wire [REQ_FIFO_W-1:0] req_fifo_rdata = req_fifo_mem[req_rd_ptr_bin[PTR_W-1:0]];
     wire req_fifo_write = req_fifo_rdata[REQ_FIFO_W-1];
@@ -217,20 +219,28 @@ module memory_controller #(
             req_rd_ptr_gray <= {PTR_W+1{1'b0}};
             resp_wr_ptr_bin <= {PTR_W+1{1'b0}};
             resp_wr_ptr_gray <= {PTR_W+1{1'b0}};
+`ifndef SYNTHESIS
             for (mem_i = 0; mem_i < MEM_DEPTH; mem_i = mem_i + 1) begin
                 mem_array[mem_i] <= {BURST_BITS{1'b0}};
             end
+`endif
         end else begin
             if (req_pop) begin
                 if (req_fifo_write) begin
                     for (mem_b = 0; mem_b < BURST_BYTES; mem_b = mem_b + 1) begin
                         if (req_fifo_wmask[mem_b]) begin
+`ifndef SYNTHESIS
                             mem_array[mem_index][mem_b*8 +: 8] <=
+`endif
                                 req_fifo_wdata[mem_b*8 +: 8];
                         end
                     end
                 end else begin
+`ifndef SYNTHESIS
                     resp_fifo_mem[resp_wr_ptr_bin[PTR_W-1:0]] <= mem_array[mem_index];
+`else
+                    resp_fifo_mem[resp_wr_ptr_bin[PTR_W-1:0]] <= {BURST_BITS{1'b0}};
+`endif
                     resp_wr_ptr_bin <= resp_wr_ptr_bin + 1'b1;
                     resp_wr_ptr_gray <= bin2gray(resp_wr_ptr_bin + 1'b1);
                 end
