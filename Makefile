@@ -1180,7 +1180,7 @@ lint:
 # 综合检查 (Yosys)
 #----------------------------------------------------------------------------
 synth: $(BUILD_DIR)
-	$(YOSYS) -q -p "read_verilog -sv $(filter %.v,$(RTL_SRCS)); hierarchy -check -top ralph_gpu_top; proc; opt; check -assert" > $(BUILD_DIR)/yosys_synth.log 2>&1
+	$(YOSYS) -q -p "read_verilog -sv -DSYNTHESIS -DSYNTHESIS $(filter %.v,$(RTL_SRCS)); hierarchy -check -top ralph_gpu_top; proc; opt; check -assert" > $(BUILD_DIR)/yosys_synth.log 2>&1
 
 #----------------------------------------------------------------------------
 # 清理

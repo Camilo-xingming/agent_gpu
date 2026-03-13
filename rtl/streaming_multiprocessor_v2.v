@@ -1196,7 +1196,7 @@ module streaming_multiprocessor_v2 #(
     `ifdef SIMULATION
     always @(posedge clk) begin
         if (rst_n && issue_fu_conflict)
-            $display("[SM%0d] FU CONFLICT at %0t: slot0_warp=%0d slot1_warp=%0d slot1_rd=R%0d — slot1 dropped, scoreboard rolled back", // keep // keep // keep
+            $display("[SM%0d] FU CONFLICT at %0t: slot0_warp=%0d slot1_warp=%0d slot1_rd=R%0d — slot1 dropped, scoreboard rolled back", // keep
                      SM_ID, $time, issue_warp_id, issue1_warp_id, issue1_rd);
     end
     `endif
@@ -2612,7 +2612,7 @@ module streaming_multiprocessor_v2 #(
             issue_valid <= dec_valid && !decode_stalled && !branch_flush_dec0;
             // DEBUG: periodic warp scheduling state
             if ($time < 10000000 && $time % 100000 == 0) begin
-                if(0) $display("[%0t SM%0d DEBUG] warp_valid=%04b warp_ready=%04b inst_buf_valid=%04b inst_valid_d1=%04b decode_stalled=%b", // keep // keep // keep
+                if(0) $display("[%0t SM%0d DEBUG] warp_valid=%04b warp_ready=%04b inst_buf_valid=%04b inst_valid_d1=%04b decode_stalled=%b", // keep
                          $time, SM_ID, warp_valid, warp_ready, warp_inst_buf_valid, warp_inst_valid_d1, decode_stalled);
             end
 
@@ -3342,7 +3342,7 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     always @(posedge clk) begin
         if (issue_valid) begin
-            if(0) $display("[SM%0d] ISSUE: pc=%h warp=%d func=%d opcode=%d rd=%d ra=%d rb=%d mask=%x",  // keep // keep // keep
+            if(0) $display("[SM%0d] ISSUE: pc=%h warp=%d func=%d opcode=%d rd=%d ra=%d rb=%d mask=%x",  // keep
                      SM_ID, issue_pc, issue_warp_id, issue_func, issue_opcode, issue_rd, issue_ra, issue_rb, issue_mask);
         end
     end
@@ -3672,18 +3672,18 @@ module streaming_multiprocessor_v2 #(
             `ifdef SIMULATION
             if (issue_valid && issue_mem_read && !issue_mem_shared && !issue_atomic_op &&
                 !issue_addr_oob_exc && !issue_illegal_exc && mem_pend_dbg_cnt < 8'd64) begin
-                $display("[%0t SM%0d DBG_LD_ISSUE0] warp=%0d pc=%h rd=%0d mem_pending=%b replay_pend=%b", // keep // keep // keep
+                $display("[%0t SM%0d DBG_LD_ISSUE0] warp=%0d pc=%h rd=%0d mem_pending=%b replay_pend=%b", // keep
                          $time, SM_ID, issue_warp_id, issue_pc, issue_rd, mem_pending_valid,
                          replay_pending[issue_warp_id]);
                 mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
             end
             if (l1_cache_req_valid && mem_pend_dbg_cnt < 8'd64) begin
-                $display("[%0t SM%0d DBG_L1_REQ] warp=%0d pc=%h rd=%0d mem_pending=%b", // keep // keep // keep
+                $display("[%0t SM%0d DBG_L1_REQ] warp=%0d pc=%h rd=%0d mem_pending=%b", // keep
                          $time, SM_ID, issue_warp_id, issue_pc, issue_rd, mem_pending_valid);
                 mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
             end
             if (gmem_load_resp_valid && mem_pending_valid && mem_pend_dbg_cnt < 8'd64) begin
-                $display("[%0t SM%0d DBG_L1_RESP] warp=%0d rd=%0d replay=%b hit=%b", // keep // keep // keep
+                $display("[%0t SM%0d DBG_L1_RESP] warp=%0d rd=%0d replay=%b hit=%b", // keep
                          $time, SM_ID, mem_warp_pending, mem_rd_pending, l1_cache_resp_replay, l1_cache_resp_hit);
                 mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
             end
@@ -3697,7 +3697,7 @@ module streaming_multiprocessor_v2 #(
                 mem_pc_pending <= issue_pc;    // Save load PC for replay rollback (#5)
                 `ifdef SIMULATION
                 if (mem_pend_dbg_cnt < 8'd64) begin
-                    $display("[%0t SM%0d DBG_MEM_PEND_SET] warp=%0d pc=%h rd=%0d", // keep // keep // keep
+                    $display("[%0t SM%0d DBG_MEM_PEND_SET] warp=%0d pc=%h rd=%0d", // keep
                              $time, SM_ID, issue_warp_id, issue_pc, issue_rd);
                     mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
                 end
@@ -3706,7 +3706,7 @@ module streaming_multiprocessor_v2 #(
                 mem_pending_valid <= 1'b0;
                 `ifdef SIMULATION
                 if (mem_pend_dbg_cnt < 8'd64) begin
-                    $display("[%0t SM%0d DBG_MEM_PEND_CLR] warp=%0d rd=%0d", // keep // keep // keep
+                    $display("[%0t SM%0d DBG_MEM_PEND_CLR] warp=%0d rd=%0d", // keep
                              $time, SM_ID, mem_warp_pending, mem_rd_pending);
                     mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
                 end
@@ -3895,16 +3895,16 @@ module streaming_multiprocessor_v2 #(
     `ifdef SIMULATION
     always @(posedge clk) begin
         if (rst_n) begin
-            if (alu_wbq_dropped)     $display("[SM%0d] FATAL: ALU WBQ dropped data at %0t!", SM_ID, $time); // keep // keep // keep
-            if (mul_wbq_dropped)     $display("[SM%0d] FATAL: MUL WBQ dropped data at %0t!", SM_ID, $time); // keep // keep // keep
-            if (fpu32_wbq_dropped)   $display("[SM%0d] FATAL: FPU32 WBQ dropped data at %0t!", SM_ID, $time); // keep // keep // keep
-            if (fpu64_wbq_dropped)   $display("[SM%0d] FATAL: FPU64 WBQ dropped data at %0t!", SM_ID, $time); // keep // keep // keep
-            if (fp16_wbq_dropped)    $display("[SM%0d] FATAL: FP16 WBQ dropped data at %0t!", SM_ID, $time); // keep // keep // keep
-            if (sfu_wbq_dropped)     $display("[SM%0d] FATAL: SFU WBQ dropped data at %0t!", SM_ID, $time); // keep // keep // keep
-            if (shfl_wbq_dropped)    $display("[SM%0d] FATAL: SHFL WBQ dropped data at %0t!", SM_ID, $time); // keep // keep // keep
-            if (video_wbq_dropped)   $display("[SM%0d] FATAL: VIDEO WBQ dropped data at %0t!", SM_ID, $time); // keep // keep // keep
-            if (special_wbq_dropped) $display("[SM%0d] FATAL: SPECIAL WBQ dropped data at %0t!", SM_ID, $time); // keep // keep // keep
-            if (tensor_wbq_dropped)  $display("[SM%0d] FATAL: TENSOR WBQ dropped data at %0t!", SM_ID, $time); // keep // keep // keep
+            if (alu_wbq_dropped)     $display("[SM%0d] FATAL: ALU WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (mul_wbq_dropped)     $display("[SM%0d] FATAL: MUL WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (fpu32_wbq_dropped)   $display("[SM%0d] FATAL: FPU32 WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (fpu64_wbq_dropped)   $display("[SM%0d] FATAL: FPU64 WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (fp16_wbq_dropped)    $display("[SM%0d] FATAL: FP16 WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (sfu_wbq_dropped)     $display("[SM%0d] FATAL: SFU WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (shfl_wbq_dropped)    $display("[SM%0d] FATAL: SHFL WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (video_wbq_dropped)   $display("[SM%0d] FATAL: VIDEO WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (special_wbq_dropped) $display("[SM%0d] FATAL: SPECIAL WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (tensor_wbq_dropped)  $display("[SM%0d] FATAL: TENSOR WBQ dropped data at %0t!", SM_ID, $time); // keep
         end
     end
     `endif
@@ -5483,63 +5483,63 @@ module streaming_multiprocessor_v2 #(
 `ifdef SIMULATION
     always @(posedge clk) begin
         if (dec_valid && !branch_flush_dec0 && dec_reg_write && dec_rd == 5'd6) begin
-            $display("[%0t SM%0d DBG_DEC_R6] warp=%0d pc=%h mask=%h reconv=%b", // keep // keep // keep
+            $display("[%0t SM%0d DBG_DEC_R6] warp=%0d pc=%h mask=%h reconv=%b", // keep
                      $time, SM_ID, dec0_warp_id_d, dec0_pc_d,
                      (dec0_at_reconverge ? dec0_merged_mask : warp_mask[dec0_warp_id_d]),
                      dec0_at_reconverge);
         end
         if (issue_valid && issue_reg_write && issue_rd == 5'd6) begin
-            $display("[%0t SM%0d DBG_ISSUE_R6] warp=%0d pc=%h mask=%h", // keep // keep // keep
+            $display("[%0t SM%0d DBG_ISSUE_R6] warp=%0d pc=%h mask=%h", // keep
                      $time, SM_ID, issue_warp_id, issue_pc, issue_mask);
         end
         if (wb_valid && wb_warp_id == {WARP_ID_W{1'b0}} && wb_rd == 5'd6) begin
-            $display("[%0t SM%0d DBG_WB_R6] mask=%h data_lane0=%h", // keep // keep // keep
+            $display("[%0t SM%0d DBG_WB_R6] mask=%h data_lane0=%h", // keep
                      $time, SM_ID, wb_mask, wb_data[31:0]);
         end
         if (dec1_valid && branch_flush_dec1 && dec1_reg_write) begin
-            $display("[%0t SM%0d DBG_FLUSH_CLR1] warp=%0d rd=%0d pc=%h", // keep // keep // keep
+            $display("[%0t SM%0d DBG_FLUSH_CLR1] warp=%0d rd=%0d pc=%h", // keep
                      $time, SM_ID, dec1_warp_id_d, dec1_rd, dec1_pc_d);
         end
         if (issue1_valid && issue1_reg_write && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd2) begin
-            $display("[%0t SM%0d DBG_ISSUE1_R2] pc=%h mask=%h opcode=%02h memR=%b memW=%b alu=%b", // keep // keep // keep
+            $display("[%0t SM%0d DBG_ISSUE1_R2] pc=%h mask=%h opcode=%02h memR=%b memW=%b alu=%b", // keep
                      $time, SM_ID, issue1_pc, issue1_mask, issue1_opcode,
                      issue1_mem_read, issue1_mem_write, issue1_alu_op);
         end
         if (wb_valid && wb_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && wb_rd == 5'd2) begin
-            $display("[%0t SM%0d DBG_WB1_R2] mask=%h data_lane0=%h", // keep // keep // keep
+            $display("[%0t SM%0d DBG_WB1_R2] mask=%h data_lane0=%h", // keep
                      $time, SM_ID, wb_mask, wb_data[31:0]);
         end
         if (dec1_dec_valid && dec1_warp_id_d == {{(WARP_ID_W-1){1'b0}},1'b1}) begin
-            $display("[%0t SM%0d DBG_DEC1_W1] pc=%h inst=%h rd=%0d opcode=%02h regW=%b", // keep // keep // keep
+            $display("[%0t SM%0d DBG_DEC1_W1] pc=%h inst=%h rd=%0d opcode=%02h regW=%b", // keep
                      $time, SM_ID, dec1_pc_d, dec1_instruction, dec1_rd, dec1_opcode, dec1_reg_write);
         end
         if (issue1_valid && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1}) begin
-            $display("[%0t SM%0d DBG_ISSUE1_W1] pc=%h opcode=%02h rd=%0d regW=%b", // keep // keep // keep
+            $display("[%0t SM%0d DBG_ISSUE1_W1] pc=%h opcode=%02h rd=%0d regW=%b", // keep
                      $time, SM_ID, issue1_pc, issue1_opcode, issue1_rd, issue1_reg_write);
         end
         if (dec1_dec_valid && dec1_warp_id_d == {{(WARP_ID_W-1){1'b0}},1'b1} && dec1_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_DEC1_R4] pc=%h opcode=%02h regW=%b memR=%b memW=%b alu=%b", // keep // keep // keep
+            $display("[%0t SM%0d DBG_DEC1_R4] pc=%h opcode=%02h regW=%b memR=%b memW=%b alu=%b", // keep
                      $time, SM_ID, dec1_pc_d, dec1_opcode, dec1_reg_write, dec1_mem_read, dec1_mem_write, dec1_alu_op);
         end
         if (issue1_valid && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_ISSUE1_RAW_R4] pc=%h opcode=%02h regW=%b memR=%b memW=%b alu=%b", // keep // keep // keep
+            $display("[%0t SM%0d DBG_ISSUE1_RAW_R4] pc=%h opcode=%02h regW=%b memR=%b memW=%b alu=%b", // keep
                      $time, SM_ID, issue1_pc, issue1_opcode, issue1_reg_write, issue1_mem_read, issue1_mem_write, issue1_alu_op);
         end
         if (issue1_valid && issue1_reg_write && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_ISSUE1_R4] pc=%h mask=%h opcode=%02h memR=%b memW=%b alu=%b fu_conflict=%b", // keep // keep // keep
+            $display("[%0t SM%0d DBG_ISSUE1_R4] pc=%h mask=%h opcode=%02h memR=%b memW=%b alu=%b fu_conflict=%b", // keep
                      $time, SM_ID, issue1_pc, issue1_mask, issue1_opcode,
                      issue1_mem_read, issue1_mem_write, issue1_alu_op, issue_fu_conflict);
         end
         if (wb_valid && wb_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && wb_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_WB1_R4] mask=%h data_lane0=%h", // keep // keep // keep
+            $display("[%0t SM%0d DBG_WB1_R4] mask=%h data_lane0=%h", // keep
                      $time, SM_ID, wb_mask, wb_data[31:0]);
         end
         if (fu_conflict_sb_clr_valid && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_CLR_FU_R4] warp=%0d rd=%0d", // keep // keep // keep
+            $display("[%0t SM%0d DBG_CLR_FU_R4] warp=%0d rd=%0d", // keep
                      $time, SM_ID, issue1_warp_id, issue1_rd);
         end
         if (dec1_valid && branch_flush_dec1 && dec1_warp_id_d == {{(WARP_ID_W-1){1'b0}},1'b1} && dec1_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_CLR_FLUSH_R4] warp=%0d rd=%0d pc=%h", // keep // keep // keep
+            $display("[%0t SM%0d DBG_CLR_FLUSH_R4] warp=%0d rd=%0d pc=%h", // keep
                      $time, SM_ID, dec1_warp_id_d, dec1_rd, dec1_pc_d);
         end
     end

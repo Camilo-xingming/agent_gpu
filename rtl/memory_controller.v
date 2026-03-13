@@ -195,7 +195,7 @@ module memory_controller #(
     //------------------------------------------------------------------------
     // Memory model and request handling (mem_clk domain)
     //------------------------------------------------------------------------
-    `ifndef YOSYS
+    `ifndef SYNTHESIS
     reg [BURST_BITS-1:0] mem_array [0:MEM_DEPTH-1];
 `endif
 
@@ -219,7 +219,7 @@ module memory_controller #(
             req_rd_ptr_gray <= {PTR_W+1{1'b0}};
             resp_wr_ptr_bin <= {PTR_W+1{1'b0}};
             resp_wr_ptr_gray <= {PTR_W+1{1'b0}};
-`ifndef YOSYS
+`ifndef SYNTHESIS
             for (mem_i = 0; mem_i < MEM_DEPTH; mem_i = mem_i + 1) begin
                 mem_array[mem_i] <= {BURST_BITS{1'b0}};
             end
@@ -229,13 +229,13 @@ module memory_controller #(
                 if (req_fifo_write) begin
                     for (mem_b = 0; mem_b < BURST_BYTES; mem_b = mem_b + 1) begin
                         if (req_fifo_wmask[mem_b]) begin
-`ifndef YOSYS
+`ifndef SYNTHESIS
                             mem_array[mem_index][mem_b*8 +: 8] <= req_fifo_wdata[mem_b*8 +: 8];
 `endif
                         end
                     end
                 end else begin
-`ifndef YOSYS
+`ifndef SYNTHESIS
                     resp_fifo_mem[resp_wr_ptr_bin[PTR_W-1:0]] <= mem_array[mem_index];
 `else
                     resp_fifo_mem[resp_wr_ptr_bin[PTR_W-1:0]] <= {BURST_BITS{1'b0}};

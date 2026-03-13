@@ -125,7 +125,7 @@ module memory_controller_hbm #(
     //------------------------------------------------------------------------
     localparam MEM_DEPTH = 65536;  // 64K lines
     localparam MEM_INDEX_W = $clog2(MEM_DEPTH);
-    `ifndef YOSYS
+    `ifndef SYNTHESIS
     reg [BURST_BITS-1:0] mem_array [0:MEM_DEPTH-1];
 `endif
 
@@ -391,7 +391,7 @@ module memory_controller_hbm #(
                             req_id = sch_current_req[sch_ch][39:32];
 
                             // Read from memory model
-                            `ifndef YOSYS
+                            `ifndef SYNTHESIS
                             rdata = mem_array[mem_idx];
 `else
                             rdata = {BURST_BITS{1'b0}};
@@ -431,7 +431,7 @@ module memory_controller_hbm #(
                             wmask = sch_current_req[sch_ch][BURST_BYTES+39:40];
 
                             // Write to memory model with byte mask
-`ifndef YOSYS
+`ifndef SYNTHESIS
                             for (wb = 0; wb < BURST_BYTES; wb = wb + 1) begin
                                 if (wmask[wb])
                                     mem_array[mem_idx][wb*8 +: 8] <= wdata[wb*8 +: 8];
@@ -518,7 +518,7 @@ module memory_controller_hbm #(
     // Memory Initialization
     //------------------------------------------------------------------------
     integer init_i;
-`ifndef YOSYS
+`ifndef SYNTHESIS
     initial begin
         for (init_i = 0; init_i < MEM_DEPTH; init_i = init_i + 1) begin
             mem_array[init_i] = {BURST_BITS{1'b0}};

@@ -90,7 +90,7 @@ jobs:
         run: |
           if git diff --name-only origin/master...HEAD -- 'rtl/*.v' 'rtl/*.sv' | \
              xargs -r grep -n '\$display\|\$monitor\|\$dumpvars' 2>/dev/null | \
-             grep -v '// keep' | head -20; then
+             grep -v '// keep'; then
             echo "::error::Found debug statements in RTL files. Remove before merge."
             exit 1
           fi
