@@ -279,7 +279,7 @@ module ralph_gpu_top #(
     // L1D Cache/Bypass Memory Interface
     //------------------------------------------------------------------------
     // Shared memory model for L1D bypass mode (simple direct memory access)
-`ifndef SYNTHESIS
+`ifndef YOSYS
     reg [31:0] l1d_bypass_mem [0:16383];  // 64KB shared for bypass mode
 `endif
 
@@ -410,12 +410,12 @@ module ralph_gpu_top #(
                                 if (req_mask_d[k]) begin
                                     if (req_write_d) begin
                                         // Write operation
-`ifndef SYNTHESIS
+`ifndef YOSYS
                                         l1d_bypass_mem[req_addr_d[k*32+2 +: 14]] <= req_wdata_d[k*32 +: 32];
 `endif
                                     end else begin
                                         // Read operation
-`ifndef SYNTHESIS
+`ifndef YOSYS
                                         sm_l1d_resp_rdata[k*32 +: 32] <= l1d_bypass_mem[req_addr_d[k*32+2 +: 14]];
 `else
                                         sm_l1d_resp_rdata[k*32 +: 32] <= 32'b0;
@@ -998,11 +998,11 @@ module ralph_gpu_top #(
     reg imem_debug_done;
     initial begin
         imem_debug_done = 0;
-        $display("[GPU_TOP] Module initialized - NUM_SM=%0d", NUM_SM);
+        $display("[GPU_TOP] Module initialized - NUM_SM=%0d", NUM_SM); // keep // keep
     end
     always @(posedge clk) begin
         if (!imem_debug_done) begin
-            $display("[GPU_TOP-CLK] First clock edge! sm_req[0]=%b", sm_imem_req[0]);
+            $display("[GPU_TOP-CLK] First clock edge! sm_req[0]=%b", sm_imem_req[0]); // keep // keep
             imem_debug_done <= 1;
         end
     end
