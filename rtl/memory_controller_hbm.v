@@ -226,7 +226,7 @@ module memory_controller_hbm #(
             oldest_idx = 0;
             count = ch_req_count[ch];
 
-            for (i = 0; i < REQ_QUEUE_DEPTH; i = i + 1) begin
+            for (i = 0; i < 32; i = i + 1) begin
                 if (i < count) begin
                     idx = ch_req_head[ch] + i[PTR_W-1:0];
                     entry = ch_req_queue[ch][idx];
@@ -431,12 +431,12 @@ module memory_controller_hbm #(
                             wmask = sch_current_req[sch_ch][BURST_BYTES+39:40];
 
                             // Write to memory model with byte mask
+`ifndef SYNTHESIS
                             for (wb = 0; wb < BURST_BYTES; wb = wb + 1) begin
                                 if (wmask[wb])
-                                    `ifndef SYNTHESIS
                                     mem_array[mem_idx][wb*8 +: 8] <= wdata[wb*8 +: 8];
-`endif
                             end
+`endif
 
                             bank_wr_counter[sch_ch][bank] <= 0;
                             bank_busy_counter[sch_ch][bank] <= tCL + BURST_LENGTH + tWR;
