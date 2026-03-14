@@ -165,7 +165,7 @@ module stack_debug_unit #(
                                         stack_ptr[saved_warp] <= stack_ptr[saved_warp] + ((saved_src_a + 15) & ~32'hF);
                                         result_valid <= 1'b1;
                                         `ifdef SIMULATION
-                                        $display("[STACK] Warp %0d ALLOCA: size=%0d ptr=0x%08x new_sp=0x%08x", // keep
+                                        $display("[STACK] Warp %0d ALLOCA: size=%0d ptr=0x%08x new_sp=0x%08x",
                                                  saved_warp, saved_src_a, stack_ptr[saved_warp],
                                                  stack_ptr[saved_warp] + ((saved_src_a + 15) & ~32'hF));
                                         `endif
@@ -174,7 +174,7 @@ module stack_debug_unit #(
                                         result <= 32'b0;
                                         result_valid <= 1'b1;
                                         `ifdef SIMULATION
-                                        $display("[STACK] Warp %0d ALLOCA: OVERFLOW! size=%0d", saved_warp, saved_src_a); // keep
+                                        $display("[STACK] Warp %0d ALLOCA: OVERFLOW! size=%0d", saved_warp, saved_src_a);
                                         `endif
                                     end
                                     done <= 1'b1;
@@ -188,7 +188,7 @@ module stack_debug_unit #(
                                     done <= 1'b1;
                                     state <= ST_IDLE;
                                     `ifdef SIMULATION
-                                    $display("[STACK] Warp %0d SAVE: sp=0x%08x", saved_warp, stack_ptr[saved_warp]); // keep
+                                    $display("[STACK] Warp %0d SAVE: sp=0x%08x", saved_warp, stack_ptr[saved_warp]);
                                     `endif
                                 end
 
@@ -199,11 +199,11 @@ module stack_debug_unit #(
                                         saved_src_a <= stack_limit[saved_warp]) begin
                                         stack_ptr[saved_warp] <= saved_src_a;
                                         `ifdef SIMULATION
-                                        $display("[STACK] Warp %0d RESTORE: sp=0x%08x", saved_warp, saved_src_a); // keep
+                                        $display("[STACK] Warp %0d RESTORE: sp=0x%08x", saved_warp, saved_src_a);
                                         `endif
                                     end else begin
                                         `ifdef SIMULATION
-                                        $display("[STACK] Warp %0d RESTORE: INVALID sp=0x%08x", saved_warp, saved_src_a); // keep
+                                        $display("[STACK] Warp %0d RESTORE: INVALID sp=0x%08x", saved_warp, saved_src_a);
                                         `endif
                                     end
                                     done <= 1'b1;
@@ -228,7 +228,7 @@ module stack_debug_unit #(
                                     done <= 1'b1;
                                     state <= ST_IDLE;
                                     `ifdef SIMULATION
-                                    $display("[DEBUG] Warp %0d BRKPT hit", saved_warp); // keep
+                                    $display("[DEBUG] Warp %0d BRKPT hit", saved_warp);
                                     `endif
                                 end
 
@@ -239,7 +239,7 @@ module stack_debug_unit #(
                                     done <= 1'b1;
                                     state <= ST_IDLE;
                                     `ifdef SIMULATION
-                                    $display("[DEBUG] Warp %0d TRAP code=%0d", saved_warp, saved_src_a[15:0]); // keep
+                                    $display("[DEBUG] Warp %0d TRAP code=%0d", saved_warp, saved_src_a[15:0]);
                                     `endif
                                 end
 
@@ -250,7 +250,7 @@ module stack_debug_unit #(
                                     done <= 1'b1;
                                     state <= ST_IDLE;
                                     `ifdef SIMULATION
-                                    $display("[DEBUG] Warp %0d PMEVENT id=%0d", saved_warp, saved_src_a[7:0]); // keep
+                                    $display("[DEBUG] Warp %0d PMEVENT id=%0d", saved_warp, saved_src_a[7:0]);
                                     `endif
                                 end
 
@@ -275,7 +275,7 @@ module stack_debug_unit #(
                                     done <= 1'b1;
                                     state <= ST_IDLE;
                                     `ifdef SIMULATION
-                                    $display("[MISC] Warp %0d NANOSLEEP cycles=%0d", saved_warp, saved_src_a); // keep
+                                    $display("[MISC] Warp %0d NANOSLEEP cycles=%0d", saved_warp, saved_src_a);
                                     `endif
                                 end
 
@@ -290,7 +290,7 @@ module stack_debug_unit #(
                                     done <= 1'b1;
                                     state <= ST_IDLE;
                                     `ifdef SIMULATION
-                                    $display("[MISC] Warp %0d SETMAXNREG regs=%0d", saved_warp, saved_src_a[7:0]); // keep
+                                    $display("[MISC] Warp %0d SETMAXNREG regs=%0d", saved_warp, saved_src_a[7:0]);
                                     `endif
                                 end
 

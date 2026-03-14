@@ -83,7 +83,7 @@ module dpx_unit #(
                         // Used in Viterbi algorithm for path metrics
                         result <= min_result;
                         `ifdef SIMULATION
-                        $display("[DPX] VIADDMIN: min(%0d + %0d, %0d) = %0d", // keep
+                        $display("[DPX] VIADDMIN: min(%0d + %0d, %0d) = %0d",
                                  signed_a, signed_b, signed_c, $signed(min_result));
                         `endif
                     end
@@ -93,7 +93,7 @@ module dpx_unit #(
                         // Used in sequence alignment for scoring
                         result <= max_result;
                         `ifdef SIMULATION
-                        $display("[DPX] VIADDMAX: max(%0d + %0d, %0d) = %0d", // keep
+                        $display("[DPX] VIADDMAX: max(%0d + %0d, %0d) = %0d",
                                  signed_a, signed_b, signed_c, $signed(max_result));
                         `endif
                     end
@@ -102,7 +102,7 @@ module dpx_unit #(
                         // viminabs: result = min(|a|, |b|)
                         result <= (abs_a < abs_b) ? abs_a : abs_b;
                         `ifdef SIMULATION
-                        $display("[DPX] VIMINABS: min(|%0d|, |%0d|) = %0d", // keep
+                        $display("[DPX] VIMINABS: min(|%0d|, |%0d|) = %0d",
                                  signed_a, signed_b, (abs_a < abs_b) ? abs_a : abs_b);
                         `endif
                     end
@@ -111,7 +111,7 @@ module dpx_unit #(
                         // vimaxabs: result = max(|a|, |b|)
                         result <= (abs_a > abs_b) ? abs_a : abs_b;
                         `ifdef SIMULATION
-                        $display("[DPX] VIMAXABS: max(|%0d|, |%0d|) = %0d", // keep
+                        $display("[DPX] VIMAXABS: max(|%0d|, |%0d|) = %0d",
                                  signed_a, signed_b, (abs_a > abs_b) ? abs_a : abs_b);
                         `endif
                     end
@@ -122,7 +122,7 @@ module dpx_unit #(
                         result <= min_result;
                         result2 <= max_result;
                         `ifdef SIMULATION
-                        $display("[DPX] VIADDMINMAX: min=%0d, max=%0d", // keep
+                        $display("[DPX] VIADDMINMAX: min=%0d, max=%0d",
                                  $signed(min_result), $signed(max_result));
                         `endif
                     end
@@ -132,7 +132,7 @@ module dpx_unit #(
                         // Returns mask of matching bits
                         result <= ~(src_a ^ src_b);  // XNOR for matching bits
                         `ifdef SIMULATION
-                        $display("[DPX] VIBMATCH: 0x%08x XNOR 0x%08x = 0x%08x", // keep
+                        $display("[DPX] VIBMATCH: 0x%08x XNOR 0x%08x = 0x%08x",
                                  src_a, src_b, ~(src_a ^ src_b));
                         `endif
                     end
@@ -142,7 +142,7 @@ module dpx_unit #(
                         // result = (a & ~c) | (b & c)  -- select bits from a or b based on c
                         result <= (src_a & ~src_c) | (src_b & src_c);
                         `ifdef SIMULATION
-                        $display("[DPX] VIBSET: select from 0x%08x/0x%08x by 0x%08x = 0x%08x", // keep
+                        $display("[DPX] VIBSET: select from 0x%08x/0x%08x by 0x%08x = 0x%08x",
                                  src_a, src_b, src_c, (src_a & ~src_c) | (src_b & src_c));
                         `endif
                     end
@@ -151,7 +151,7 @@ module dpx_unit #(
                         // ReLU: max(0, x)
                         result <= (signed_a < 0) ? 32'b0 : src_a;
                         `ifdef SIMULATION
-                        $display("[DPX] RELU: max(0, %0d) = %0d", // keep
+                        $display("[DPX] RELU: max(0, %0d) = %0d",
                                  signed_a, (signed_a < 0) ? 0 : signed_a);
                         `endif
                     end
@@ -172,7 +172,7 @@ module dpx_unit #(
                                       (32'hFFFFFFFF + ((signed_a + 32'sd1) >>> 1));
                         end
                         `ifdef SIMULATION
-                        $display("[DPX] TANH: tanh(%0d) approximation", signed_a); // keep
+                        $display("[DPX] TANH: tanh(%0d) approximation", signed_a);
                         `endif
                     end
 
@@ -187,7 +187,7 @@ module dpx_unit #(
                             result <= (32'd1 << src_a[4:0]);
                         end
                         `ifdef SIMULATION
-                        $display("[DPX] EXP2: 2^%0d = %0d", signed_a, (32'd1 << src_a[4:0])); // keep
+                        $display("[DPX] EXP2: 2^%0d = %0d", signed_a, (32'd1 << src_a[4:0]));
                         `endif
                     end
 
@@ -371,14 +371,14 @@ module sparse_mma_unit #(
 
                                 done <= 1'b1;
                                 `ifdef SIMULATION
-                                $display("[SPARSE] Compress operation complete"); // keep
+                                $display("[SPARSE] Compress operation complete");
                                 `endif
                             end
 
                             `SPARSE_DECOMPRESS: begin
                                 state <= ST_DECOMP;
                                 `ifdef SIMULATION
-                                $display("[SPARSE] Decompress operation"); // keep
+                                $display("[SPARSE] Decompress operation");
                                 `endif
                             end
 
@@ -386,7 +386,7 @@ module sparse_mma_unit #(
                                 // Sparse MMA operations (FP16/BF16/TF32/INT8/FP8)
                                 state <= ST_DECOMP;
                                 `ifdef SIMULATION
-                                $display("[SPARSE] MMA operation func=%0d", func); // keep
+                                $display("[SPARSE] MMA operation func=%0d", func);
                                 `endif
                             end
                         endcase
@@ -442,7 +442,7 @@ module sparse_mma_unit #(
                     accum_out <= mma_result_next;
                     state <= ST_DONE;
                     `ifdef SIMULATION
-                    $display("[SPARSE] MMA compute complete"); // keep
+                    $display("[SPARSE] MMA compute complete");
                     `endif
                 end
 

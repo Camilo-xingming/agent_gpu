@@ -10,11 +10,19 @@
 
 module l2_interconnect #(
     parameter NUM_SM            = `NUM_SM,
+`ifdef SYNTHESIS
+    parameter NUM_L2_SLICES     = 2,
+    parameter ADDR_WIDTH        = 32,
+    parameter DATA_WIDTH        = 512,
+    parameter ID_WIDTH          = 4,
+    parameter MAX_OUTSTANDING   = 2
+`else
     parameter NUM_L2_SLICES     = 4,            // L2 cache slices
     parameter ADDR_WIDTH        = 32,
     parameter DATA_WIDTH        = 512,          // Cache line width
     parameter ID_WIDTH          = 4,
     parameter MAX_OUTSTANDING   = 16            // Per-SM outstanding requests
+`endif
 )(
     input  wire                     clk,
     input  wire                     rst_n,

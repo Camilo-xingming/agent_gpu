@@ -344,7 +344,7 @@ module memory_interface #(
         else if (mem_if_debug_cnt < 30) begin
             if (state == READ_ADDR || state == READ_DATA) begin
                 `ifdef SIMULATION
-                $display("[%0t MEM_IF_RD] state=%0d arvalid=%b arready=%b rvalid=%b rready=%b burst=%b addr=0x%08x rdata=0x%08x lane=%0d processed=%0d/%0d resp_valid=%b", // keep
+                $display("[%0t MEM_IF_RD] state=%0d arvalid=%b arready=%b rvalid=%b rready=%b burst=%b addr=0x%08x rdata=0x%08x lane=%0d processed=%0d/%0d resp_valid=%b",
                          $time, state, m_axi_arvalid, m_axi_arready, m_axi_rvalid, m_axi_rready,
                          burst_read_mode,
                          burst_read_mode ? lane0_addr : addr_buf[current_lane*ADDR_WIDTH +: ADDR_WIDTH],

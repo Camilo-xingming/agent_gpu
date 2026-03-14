@@ -64,6 +64,7 @@ module register_file #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             // 复位时清零所有寄存器
+`ifndef SYNTHESIS
             for (w = 0; w < NUM_WARPS; w = w + 1) begin
                 for (i = 0; i < NUM_LANES; i = i + 1) begin
                     for (j = 0; j < NUM_REGS; j = j + 1) begin
@@ -71,6 +72,7 @@ module register_file #(
                     end
                 end
             end
+`endif
         end else if (wr_en) begin
             // 只写被掩码选中的线程
             for (i = 0; i < NUM_LANES; i = i + 1) begin

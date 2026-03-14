@@ -88,7 +88,7 @@ module wb_fifo #(
     `ifdef SIMULATION
     always @(posedge clk) begin
         if (rst_n && dropped) begin
-            $display("[WBQ] FATAL: push while full without pop at time %0t", $time); // keep
+            $display("[WBQ] FATAL: push while full without pop at time %0t", $time);
             $error("[WBQ] Data silently dropped!");
             $finish;
         end

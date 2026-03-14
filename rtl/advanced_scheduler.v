@@ -189,18 +189,18 @@ module advanced_warp_scheduler #(
             stall_cycle_cnt <= stall_cycle_cnt + 1;
             if (stall_cycle_cnt < 20 || stall_cycle_cnt[7:0] == 8'hFF) begin
                 `ifdef SIMULATION
-                $display("[%0t SCHED_HAZARD] warp0: schedulable=%b hasHazard=%b eligible=%b", // keep
+                $display("[%0t SCHED_HAZARD] warp0: schedulable=%b hasHazard=%b eligible=%b",
                          $time, warp_schedulable[0], warp_has_hazard[0], warp_eligible[0]);
                 `endif
                 `ifdef SIMULATION
-                $display("  rs1=R%0d rs2=R%0d rs3=R%0d rd=R%0d writes_reg=%b", // keep
+                $display("  rs1=R%0d rs2=R%0d rs3=R%0d rd=R%0d writes_reg=%b",
                          warp_rs1[4:0], warp_rs2[4:0], warp_rs3[4:0], warp_rd[4:0], warp_writes_reg[0]);
                 `endif
                 `ifdef SIMULATION
-                $display("  scoreboard[0]=%032b", scoreboard[0]); // keep
+                $display("  scoreboard[0]=%032b", scoreboard[0]);
                 `endif
                 `ifdef SIMULATION
-                $display("  RAW: sb[rs1]=%b sb[rs2]=%b sb[rs3]=%b  WAW: sb[rd]=%b", // keep
+                $display("  RAW: sb[rs1]=%b sb[rs2]=%b sb[rs3]=%b  WAW: sb[rd]=%b",
                          scoreboard[0][warp_rs1[4:0]], scoreboard[0][warp_rs2[4:0]],
                          scoreboard[0][warp_rs3[4:0]], scoreboard[0][warp_rd[4:0]]);
                 `endif
@@ -330,12 +330,12 @@ module advanced_warp_scheduler #(
             issue_pipe_r[0] = PIPE_MEMORY;
             issue_writes_reg_r[0] = warp_writes_reg[selected_memory];
             // DEBUG: trace memory issue
-            // $display("[SCHED] Issuing memory op warp=%0d inst=%08x", selected_memory, warp_inst[selected_memory*INST_WIDTH +: INST_WIDTH]); // keep
+            // $display("[SCHED] Issuing memory op warp=%0d inst=%08x", selected_memory, warp_inst[selected_memory*INST_WIDTH +: INST_WIDTH]);
         end else if (found_tensor && tensor_pipe_ready) begin
             issue_valid_r[0] = 1'b1;
             issue_warp_r[0] = selected_tensor;
             `ifdef SIMULATION
-            $display("[%0t SCHED] tensor select: warp=%0d ptr=%0d eligible=%04b", // keep
+            $display("[%0t SCHED] tensor select: warp=%0d ptr=%0d eligible=%04b",
                      $time, selected_tensor, tensor_rr_ptr, tensor_eligible);
             `endif
             issue_inst_r[0] = warp_inst[selected_tensor*INST_WIDTH +: INST_WIDTH];
@@ -475,7 +475,7 @@ module advanced_warp_scheduler #(
                 dual_count <= dual_count + 1;
                 `ifdef SIMULATION
                 if (dual_count < 10 || dual_count[7:0] == 8'hFF)
-                    $display("[%0t DUAL_ISSUE] cycle=%0d warp0=%0d pipe0=%0d warp1=%0d pipe1=%0d", // keep
+                    $display("[%0t DUAL_ISSUE] cycle=%0d warp0=%0d pipe0=%0d warp1=%0d pipe1=%0d",
                              $time, cycle_count, issue_warp_r[0], issue_pipe_r[0],
                              issue_warp_r[1], issue_pipe_r[1]);
                 `endif
@@ -483,7 +483,7 @@ module advanced_warp_scheduler #(
                 // Debug: why no dual-issue?
                 `ifdef SIMULATION
                 if (single_count < 5)
-                    $display("[%0t SINGLE] cycle=%0d pipe0=%0d c_elig=%04b warp_elig=%04b warp_sched=%04b", // keep
+                    $display("[%0t SINGLE] cycle=%0d pipe0=%0d c_elig=%04b warp_elig=%04b warp_sched=%04b",
                              $time, cycle_count, issue_pipe_r[0], compute_eligible, warp_eligible, warp_schedulable);
                 `endif
                 single_count <= single_count + 1;

@@ -115,7 +115,7 @@ module cluster_barrier_unit #(
                 barrier_valid[init_bid] <= 1'b1;
                 barrier_done[init_bid] <= 1'b0;
                 `ifdef SIMULATION
-                $display("[CLUSTER_BARRIER] INIT: barrier=%0d expected=%0d", init_bid, init_cnt); // keep
+                $display("[CLUSTER_BARRIER] INIT: barrier=%0d expected=%0d", init_bid, init_cnt);
                 `endif
             end
 
@@ -132,7 +132,7 @@ module cluster_barrier_unit #(
                 if (total_arrive > 0 && barrier_valid[i]) begin
                     barrier_arrived[i] <= barrier_arrived[i] + total_arrive;
                     `ifdef SIMULATION
-                    $display("[CLUSTER_BARRIER] ARRIVE: barrier=%0d +%0d (now %0d/%0d)", // keep
+                    $display("[CLUSTER_BARRIER] ARRIVE: barrier=%0d +%0d (now %0d/%0d)",
                              i, total_arrive, barrier_arrived[i] + total_arrive, barrier_expected[i]);
                     `endif
 
@@ -140,7 +140,7 @@ module cluster_barrier_unit #(
                     if ((barrier_arrived[i] + total_arrive) >= barrier_expected[i]) begin
                         barrier_done[i] <= 1'b1;
                         `ifdef SIMULATION
-                        $display("[CLUSTER_BARRIER] COMPLETE: barrier=%0d", i); // keep
+                        $display("[CLUSTER_BARRIER] COMPLETE: barrier=%0d", i);
                         `endif
                     end
                 end

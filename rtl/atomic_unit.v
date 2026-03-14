@@ -181,7 +181,7 @@ module atomic_unit #(
             // DEBUG TRACE: log transitions + wait handshakes to pinpoint stalls.
             `ifdef SIMULATION
             if (state != dbg_prev_state) begin
-                $display("[%0t ATOMIC_FSM] %0d -> %0d lane=%0d pending=0x%08x req_valid=%b busy=%b rvalid=%b wvalid=%b", // keep
+                $display("[%0t ATOMIC_FSM] %0d -> %0d lane=%0d pending=0x%08x req_valid=%b busy=%b rvalid=%b wvalid=%b",
                          $time, dbg_prev_state, state, current_lane, pending_mask,
                          req_valid, busy, resp_read_valid, resp_write_valid);
                 dbg_prev_state  <= state;
@@ -191,18 +191,18 @@ module atomic_unit #(
 
                 if (state == READ_WAIT) begin
                     if (resp_read_valid) begin
-                        $display("[%0t ATOMIC_READ] lane=%0d addr=0x%08x data=0x%08x wait=%0d", // keep
+                        $display("[%0t ATOMIC_READ] lane=%0d addr=0x%08x data=0x%08x wait=%0d",
                                  $time, current_lane, addr_lane, mem_rdata_lane, dbg_wait_cycles);
                     end else if ((dbg_wait_cycles & 16'h003f) == 16'h003f) begin
-                        $display("[%0t ATOMIC_READ_WAIT] lane=%0d addr=0x%08x mem_req=%b mem_write=%b wait=%0d rvalid=%b", // keep
+                        $display("[%0t ATOMIC_READ_WAIT] lane=%0d addr=0x%08x mem_req=%b mem_write=%b wait=%0d rvalid=%b",
                                  $time, current_lane, addr_lane, mem_req, mem_write, dbg_wait_cycles, resp_read_valid);
                     end
                 end else begin
                     if (resp_write_valid) begin
-                        $display("[%0t ATOMIC_WRITE_ACK] lane=%0d addr=0x%08x old=0x%08x new=0x%08x wait=%0d", // keep
+                        $display("[%0t ATOMIC_WRITE_ACK] lane=%0d addr=0x%08x old=0x%08x new=0x%08x wait=%0d",
                                  $time, current_lane, addr_lane, old_value, new_value, dbg_wait_cycles);
                     end else if ((dbg_wait_cycles & 16'h003f) == 16'h003f) begin
-                        $display("[%0t ATOMIC_WRITE_WAIT] lane=%0d addr=0x%08x mem_req=%b mem_write=%b wait=%0d wvalid=%b", // keep
+                        $display("[%0t ATOMIC_WRITE_WAIT] lane=%0d addr=0x%08x mem_req=%b mem_write=%b wait=%0d wvalid=%b",
                                  $time, current_lane, addr_lane, mem_req, mem_write, dbg_wait_cycles, resp_write_valid);
                     end
                 end
@@ -214,7 +214,7 @@ module atomic_unit #(
                     result_valid <= 1'b0;
                     if (req_valid) begin
                         `ifdef SIMULATION
-                        $display("[%0t ATOMIC_REQ] func=%0d lane_mask=0x%08x mem_shared=%b", $time, func, lane_mask, mem_shared); // keep
+                        $display("[%0t ATOMIC_REQ] func=%0d lane_mask=0x%08x mem_shared=%b", $time, func, lane_mask, mem_shared);
                         `endif
                         // 保存操作参数
                         func_reg      <= func;
@@ -291,7 +291,7 @@ module atomic_unit #(
                 WRITE_WAIT: begin
                     if (resp_write_valid) begin
                         `ifdef SIMULATION
-                        $display("[%0t ATOMIC] Lane %0d WRITE done: addr=0x%08x old=0x%08x new=0x%08x", // keep
+                        $display("[%0t ATOMIC] Lane %0d WRITE done: addr=0x%08x old=0x%08x new=0x%08x",
                                  $time, current_lane, addr_lane, old_value, new_value);
                         `endif
                         mem_req <= 1'b0;

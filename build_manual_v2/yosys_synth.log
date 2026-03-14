@@ -1,4 +1,0 @@
-Warning: Replacing memory \regs with list of registers. See rtl/register_file.v:70
-Warning: Replacing memory \preds with list of registers. See rtl/register_file.v:122
-Warning: Replacing memory \pc_regs with list of registers. See rtl/warp_scheduler.v:157
-rtl/shared_memory.v:148: ERROR: syntax error, unexpected '['

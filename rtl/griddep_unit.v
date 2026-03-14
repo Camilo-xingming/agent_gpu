@@ -170,14 +170,14 @@ module griddep_unit #(
                                 done <= 1'b1;
                                 state <= ST_IDLE;
                                 `ifdef SIMULATION
-                                $display("[GRIDDEP] WAIT: token=%0d - already satisfied", saved_src_a[TOKEN_WIDTH-1:0]); // keep
+                                $display("[GRIDDEP] WAIT: token=%0d - already satisfied", saved_src_a[TOKEN_WIDTH-1:0]);
                                 `endif
                             end else begin
                                 // Need to wait
                                 waiting <= 1'b1;
                                 state <= ST_WAIT_DEP;
                                 `ifdef SIMULATION
-                                $display("[GRIDDEP] WAIT: token=%0d - waiting", saved_src_a[TOKEN_WIDTH-1:0]); // keep
+                                $display("[GRIDDEP] WAIT: token=%0d - waiting", saved_src_a[TOKEN_WIDTH-1:0]);
                                 `endif
                             end
                         end
@@ -191,7 +191,7 @@ module griddep_unit #(
                             done <= 1'b1;
                             state <= ST_IDLE;
                             `ifdef SIMULATION
-                            $display("[GRIDDEP] LAUNCH_DEP: token=%0d", saved_src_a[TOKEN_WIDTH-1:0]); // keep
+                            $display("[GRIDDEP] LAUNCH_DEP: token=%0d", saved_src_a[TOKEN_WIDTH-1:0]);
                             `endif
                         end
 
@@ -206,7 +206,7 @@ module griddep_unit #(
                             done <= 1'b1;
                             state <= ST_IDLE;
                             `ifdef SIMULATION
-                            $display("[GRIDDEP] SIGNAL: grid_id=%0d token=%0d", grid_id, grid_token); // keep
+                            $display("[GRIDDEP] SIGNAL: grid_id=%0d token=%0d", grid_id, grid_token);
                             `endif
                         end
 
@@ -218,7 +218,7 @@ module griddep_unit #(
                             done <= 1'b1;
                             state <= ST_IDLE;
                             `ifdef SIMULATION
-                            $display("[GRIDDEP] GET_TOKEN: allocated token=%0d", next_token); // keep
+                            $display("[GRIDDEP] GET_TOKEN: allocated token=%0d", next_token);
                             `endif
                         end
 
@@ -239,7 +239,7 @@ module griddep_unit #(
                         done <= 1'b1;
                         state <= ST_IDLE;
                         `ifdef SIMULATION
-                        $display("[GRIDDEP] WAIT: token=%0d - satisfied", wait_token); // keep
+                        $display("[GRIDDEP] WAIT: token=%0d - satisfied", wait_token);
                         `endif
                     end
                     // Otherwise keep waiting

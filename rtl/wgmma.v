@@ -745,7 +745,7 @@ module fp8_mma_unit #(
             end
             valid_out <= 1'b1;
 `else
-            matrix_d <= 0; valid_out <= 1x27b1;
+            matrix_d <= 0; valid_out <= 1'b1;
 `endif
 
         end else begin
@@ -849,7 +849,7 @@ module fp6_mma_unit #(
             end
             valid_out <= 1'b1;
 `else
-            matrix_d <= 0; valid_out <= 1x27b1;
+            matrix_d <= 0; valid_out <= 1'b1;
 `endif
 
         end else begin

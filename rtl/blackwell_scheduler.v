@@ -545,7 +545,7 @@ end
                 scoreboard[wb_warp_id][wb_rd] <= 1'b0;
 `ifdef SIMULATION
                 if (wb_warp_id == {{(WARP_W-1){1'b0}},1'b1} && wb_rd == 5'd4) begin
-                    $display("[%0t SCHED DBG_CLR_WB_W1_R4]", $time); // keep
+                    $display("[%0t SCHED DBG_CLR_WB_W1_R4]", $time);
                 end
 `endif
             end
@@ -555,7 +555,7 @@ end
                 scoreboard[fu_conflict_sb_clr_warp][fu_conflict_sb_clr_rd] <= 1'b0;
 `ifdef SIMULATION
                 if (fu_conflict_sb_clr_warp == {{(WARP_W-1){1'b0}},1'b1} && fu_conflict_sb_clr_rd == 5'd4) begin
-                    $display("[%0t SCHED DBG_CLR_FU_W1_R4]", $time); // keep
+                    $display("[%0t SCHED DBG_CLR_FU_W1_R4]", $time);
                 end
 `endif
             end
@@ -568,7 +568,7 @@ end
                 scoreboard[branch_flush_sb_clr1_warp][branch_flush_sb_clr1_rd] <= 1'b0;
 `ifdef SIMULATION
                 if (branch_flush_sb_clr1_warp == {{(WARP_W-1){1'b0}},1'b1} && branch_flush_sb_clr1_rd == 5'd4) begin
-                    $display("[%0t SCHED DBG_CLR_FLUSH1_W1_R4]", $time); // keep
+                    $display("[%0t SCHED DBG_CLR_FLUSH1_W1_R4]", $time);
                 end
 `endif
             end
@@ -600,7 +600,7 @@ end
 `ifdef SIMULATION
                         if (issue_warp_r[sb_s] == {{(WARP_W-1){1'b0}},1'b1} &&
                             warp_rd[issue_warp_r[sb_s]*5 +: 5] == 5'd4) begin
-                            $display("[%0t SCHED DBG_SET_W1_R4] slot=%0d stall0=%b stall1=%b consume=%b", // keep
+                            $display("[%0t SCHED DBG_SET_W1_R4] slot=%0d stall0=%b stall1=%b consume=%b",
                                      $time, sb_s, pipeline_stall, pipeline_stall_slot1, warp_inst_consume[issue_warp_r[sb_s]]);
                         end
 `endif
@@ -725,17 +725,17 @@ end
             // Debug output
             `ifdef SIMULATION
             if (cycle_count < 200) begin
-                if(0) $display("[%0t BLACKWELL_SCHED] cycle=%0d issue_valid=%b consume=%b num_issued=%0d async_mma=%0d", // keep
+                if(0) $display("[%0t BLACKWELL_SCHED] cycle=%0d issue_valid=%b consume=%b num_issued=%0d async_mma=%0d",
                          $time, cycle_count, issue_valid_r, issue_consume_r, num_issued, num_async_mma_issued);
-                if(0) $display("  eligible=%b inst_valid=%b hazard=%b async_hazard=%b tmem_hazard=%b", // keep
+                if(0) $display("  eligible=%b inst_valid=%b hazard=%b async_hazard=%b tmem_hazard=%b",
                          warp_eligible, warp_inst_valid, warp_has_hazard, warp_has_async_hazard, warp_has_tmem_hazard);
-                if(0) $display("  valid=%b ready=%b diverged=%b barrier=%b tcgen05=%b", // keep
+                if(0) $display("  valid=%b ready=%b diverged=%b barrier=%b tcgen05=%b",
                          warp_valid, warp_ready, warp_diverged, warp_at_barrier, warp_is_tcgen05);
                 if (issue_valid_r[0])
-                    if(0) $display("  sched0: warp=%0d pipe=%0d inst=0x%08x async_mma=%b", // keep
+                    if(0) $display("  sched0: warp=%0d pipe=%0d inst=0x%08x async_mma=%b",
                              issue_warp_r[0], issue_pipe_r[0], issue_inst_r[0], issue_is_async_mma_r[0]);
                 if (NUM_SCHEDULERS > 1 && issue_valid_r[1])
-                    if(0) $display("  sched1: warp=%0d pipe=%0d inst=0x%08x async_mma=%b", // keep
+                    if(0) $display("  sched1: warp=%0d pipe=%0d inst=0x%08x async_mma=%b",
                              issue_warp_r[1], issue_pipe_r[1], issue_inst_r[1], issue_is_async_mma_r[1]);
             end
             `endif
@@ -766,13 +766,13 @@ end
 
     always @(posedge clk) begin 
         if (warp_valid[0]) 
-            $display("[%0t SM0-SB] scoreboard[0]=%h fu_clr_v=%b fu_clr_rd=%d", $time, scoreboard[0], fu_conflict_sb_clr_valid, fu_conflict_sb_clr_rd);  // keep
+            $display("[%0t SM0-SB] scoreboard[0]=%h fu_clr_v=%b fu_clr_rd=%d", $time, scoreboard[0], fu_conflict_sb_clr_valid, fu_conflict_sb_clr_rd); 
     end 
 
     always @(posedge clk) begin 
         for (integer ds_s = 0; ds_s < NUM_SCHEDULERS; ds_s = ds_s + 1) begin 
             if (issue_valid_r[ds_s] && warp_writes_reg[issue_warp_r[ds_s]]) 
-                $display("[%0t SM0-SCHED] Issue warp=%d pc=%h rd=%d pipe=%d", $time, issue_warp_r[ds_s], warp_inst[issue_warp_r[ds_s]*INST_WIDTH +: INST_WIDTH], warp_rd[issue_warp_r[ds_s]*5 +: 5], issue_pipe_r[ds_s]);  // keep
+                $display("[%0t SM0-SCHED] Issue warp=%d pc=%h rd=%d pipe=%d", $time, issue_warp_r[ds_s], warp_inst[issue_warp_r[ds_s]*INST_WIDTH +: INST_WIDTH], warp_rd[issue_warp_r[ds_s]*5 +: 5], issue_pipe_r[ds_s]); 
         end 
     end 
 
