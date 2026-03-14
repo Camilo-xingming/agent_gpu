@@ -150,7 +150,7 @@ module memory_controller_hbm #(
     function [ROW_WIDTH-1:0] get_row;
         input [ADDR_WIDTH-1:0] addr;
         begin
-            get_row = addr[ROW_LSB +: ROW_WIDTH];
+            get_row = {{(ROW_WIDTH-(ADDR_WIDTH-ROW_LSB)){1'b0}}, addr[ADDR_WIDTH-1 : ROW_LSB]};
         end
     endfunction
     /* verilator lint_on SELRANGE */

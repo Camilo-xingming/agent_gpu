@@ -103,7 +103,7 @@ module ralph_gpu_top #(
 
     localparam NUM_LANES = `THREADS_PER_WARP;
     integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
-
+    
     localparam SM_ID_W = (NUM_SM > 1) ? $clog2(NUM_SM) : 1;
     localparam TLB_VADDR_WIDTH = 48;
     localparam TLB_PADDR_WIDTH = 40;
@@ -918,6 +918,7 @@ module ralph_gpu_top #(
                 .mem_req_addr   (l2_mem_req_addr),
                 .mem_req_wdata  (l2_mem_req_wdata),
                 .mem_req_wmask  (l2_mem_req_wmask),
+                .mem_req_wmask  (l2_mem_req_wmask),
                 .mem_req_ready  (l2_mem_req_ready),
                 .mem_resp_valid (l2_mem_resp_valid),
                 .mem_resp_rdata (l2_mem_resp_rdata),
@@ -935,12 +936,7 @@ module ralph_gpu_top #(
             assign l2_req_addr  = l2_req_addr_agg;
             assign l2_req_wdata = l2_req_wdata_agg;
             
-            genvar m_i, m_j;
-            for (m_i = 0; m_i < NUM_SM; m_i = m_i + 1) begin : gen_l2_mask_sm
-                for (m_j = 0; m_j < 32; m_j = m_j + 1) begin : gen_l2_mask_word
-                    assign l2_req_wmask[m_i*128 + m_j*4 +: 4] = {4{l2_req_mask_agg[m_i*32 + m_j]}};
-                end
-            end
+            assign l2_req_wmask = {(NUM_SM*128){1'b1}};
 
         end else begin : l2_cache_bypass_gen
             assign l2_stat_hits_perf = 32'b0;
@@ -1064,8 +1060,7 @@ module ralph_gpu_top #(
         axi_aw_sel = axi_rr_ptr;
         axi_aw_valid = 1'b0;
         for (i = 0; i < NUM_SM; i = i + 1) begin : aw_arb_loop
-            integer idx_aw;
-            idx_aw = ({{(32-AXI_ARB_W){1'b0}}, axi_rr_ptr} + i + 1);
+                        idx_aw = ({{(32-AXI_ARB_W){1'b0}}, axi_rr_ptr} + i + 1);
             if (idx_aw >= NUM_SM) idx_aw = idx_aw - NUM_SM;
             if (!axi_aw_valid && sm_axi_awvalid[idx_aw]) begin
                 axi_aw_sel = idx_aw[AXI_ARB_W-1:0];
@@ -1081,8 +1076,7 @@ module ralph_gpu_top #(
         axi_ar_sel = axi_rr_ptr;
         axi_ar_valid = 1'b0;
         for (i = 0; i < NUM_SM; i = i + 1) begin : ar_arb_loop
-            integer idx_ar;
-            idx_ar = ({{(32-AXI_ARB_W){1'b0}}, axi_rr_ptr} + i + 1);
+                        idx_ar = ({{(32-AXI_ARB_W){1'b0}}, axi_rr_ptr} + i + 1);
             if (idx_ar >= NUM_SM) idx_ar = idx_ar - NUM_SM;
             if (!axi_ar_valid && sm_axi_arvalid[idx_ar]) begin
                 axi_ar_sel = idx_ar[AXI_ARB_W-1:0];
@@ -1521,11 +1515,13 @@ module ralph_gpu_top #(
     wire hbm_resp_valid;
     wire [1023:0] hbm_resp_rdata;
     wire [127:0] hbm_req_wmask;
+    wire [127:0] hbm_req_wmask;
 
     assign hbm_req_valid = L2_ENABLE ? l2_mem_req_valid : 1'b0;
     assign hbm_req_write = L2_ENABLE ? l2_mem_req_write : 1'b0;
     assign hbm_req_addr  = L2_ENABLE ? l2_mem_req_addr  : 32'b0;
     assign hbm_req_wdata = L2_ENABLE ? l2_mem_req_wdata : 1024'b0;
+    assign hbm_req_wmask = L2_ENABLE ? l2_mem_req_wmask : {128{1'b1}};
     assign hbm_req_wmask = L2_ENABLE ? l2_mem_req_wmask : {128{1'b1}};
 
     assign l2_mem_req_ready  = L2_ENABLE ? hbm_req_ready : 1'b0;
