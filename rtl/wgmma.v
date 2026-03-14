@@ -589,25 +589,33 @@ module wgmma_accumulator #(
     input  wire [$clog2(NUM_ACCUMULATORS)-1:0] clear_idx
 );
 
+`ifndef SYNTHESIS
     reg [ACCUM_WIDTH-1:0] accumulators [0:NUM_ACCUMULATORS-1];
+`endif
 
     integer i;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
+`ifndef SYNTHESIS
             for (i = 0; i < NUM_ACCUMULATORS; i = i + 1) begin
                 accumulators[i] <= {ACCUM_WIDTH{1'b0}};
             end
+`endif
         end else begin
+`ifndef SYNTHESIS
             if (clear_en) begin
                 accumulators[clear_idx] <= {ACCUM_WIDTH{1'b0}};
             end else if (write_en) begin
                 accumulators[write_idx] <= write_data;
             end
+`endif
         end
     end
 
+`ifndef SYNTHESIS
     assign read_data = accumulators[read_idx];
+`else assign read_data = {ACCUM_WIDTH{1'b0}}; `endif
 
 endmodule
 
