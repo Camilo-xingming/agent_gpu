@@ -19,8 +19,13 @@
 `include "gpu_defines.vh"
 
 module tensor_memory #(
+`ifdef SYNTHESIS
+    parameter NUM_ROWS    = 4, 
+    parameter NUM_COLS    = 16, 
+`else
     parameter NUM_ROWS    = 128,          // 128 rows (lanes)
     parameter NUM_COLS    = 512,          // 512 columns
+`endif
     parameter DATA_WIDTH  = 32,           // 32-bit cells
     parameter ADDR_WIDTH  = 16            // Address width (9-bit col + 7-bit row)
 )(
@@ -111,7 +116,9 @@ module tensor_memory #(
     // Tensor Memory Storage
     // Organized as 128 rows x 512 columns of 32-bit cells
     //------------------------------------------------------------------------
+    `ifndef SYNTHESIS
     reg [DATA_WIDTH-1:0] tmem [0:NUM_ROWS-1][0:NUM_COLS-1];
+`endif
 
     //------------------------------------------------------------------------
     // Column Allocation Tracking
