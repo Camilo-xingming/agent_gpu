@@ -35,12 +35,15 @@ module wmma_fragment #(
 );
 
     // 矩阵存储
+    `ifndef SYNTHESIS
     reg [ELEM_WIDTH-1:0] matrix [0:ROWS*COLS-1];
+`endif
 
     integer i;
 
     // 加载
     always @(posedge clk or negedge rst_n) begin
+`ifndef SYNTHESIS
         if (!rst_n) begin
             for (i = 0; i < ROWS*COLS; i = i + 1) begin
                 matrix[i] <= {ELEM_WIDTH{1'b0}};
@@ -48,18 +51,27 @@ module wmma_fragment #(
         end else if (load_en) begin
             matrix[load_idx] <= load_data;
         end
+`endif
     end
 
     // 存储输出
+    `ifndef SYNTHESIS
     assign store_data = matrix[store_idx];
+`else
+    assign store_data = {ELEM_WIDTH{1'b0}};
+`endif
 
     // 整体输出
+`ifndef SYNTHESIS
     genvar j;
     generate
         for (j = 0; j < ROWS*COLS; j = j + 1) begin : frag_out
             assign fragment_data[j*ELEM_WIDTH +: ELEM_WIDTH] = matrix[j];
         end
     endgenerate
+`else
+    assign fragment_data = 0;
+`endif
 
 endmodule
 

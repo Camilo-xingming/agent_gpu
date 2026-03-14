@@ -43,6 +43,26 @@
     `define TEX_CACHE_WAYS      1
     `define TEX_LINE_SIZE       128
 `else
+`ifdef SYNTHESIS
+    `define L1D_SIZE_KB         1
+    `define L1D_WAYS            1
+    `define L1D_LINE_SIZE       128
+    `define L1I_SIZE_KB         1
+    `define L1I_WAYS            1
+    `define L1I_LINE_SIZE       64
+    `define L2_SIZE_KB          32
+    `define L2_NUM_BANKS        2
+    `define L2_WAYS             1
+    `define L2_LINE_SIZE        128
+    `define SMEM_SIZE_KB        1
+    `define SMEM_NUM_BANKS      16
+    `define RF_SIZE_KB          16
+    `define RF_NUM_BANKS        4
+    `define TEX_CACHE_SIZE_KB   1
+    `define TEX_CACHE_WAYS      1
+    `define TEX_LINE_SIZE       128
+    `define SYNTH_REDUCED
+`else
 // L1 Data Cache Configuration (Per SM)
 //============================================================================
 // Best Practice: 32-128KB per SM, 4-8 way set associative
@@ -269,6 +289,8 @@
 // RF Timing
 `define RF_READ_LATENCY     1       // 1 cycle read
 `define RF_WRITE_LATENCY    1       // 1 cycle write
+
+`endif
 
 `endif
 

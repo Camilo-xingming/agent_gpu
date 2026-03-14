@@ -8,6 +8,12 @@
 
 `include "gpu_config.vh"
 `include "memory_config.vh"
+`ifdef SYNTH_REDUCED
+    `define THREADS_PER_WARP    4
+    `define WARPS_PER_SM       2
+    `define NUM_REGS           16
+`endif
+
 
 //============================================================================
 // 可配置参数 - 修改这些参数来扩展算力
