@@ -413,25 +413,15 @@ module l2_cache_bank #(
     // Cache Storage
     //------------------------------------------------------------------------
     // Tag array: [valid][dirty][tag]
-    `ifndef SYNTHESIS
-
-`endif
-    `ifndef SYNTHESIS
-
-`endif
-    `ifndef SYNTHESIS
-
-`endif
+    reg [TAG_BITS-1:0]      tag_array   [0:NUM_SETS-1][0:NUM_WAYS-1];
+    reg [NUM_WAYS-1:0]      valid_array [0:NUM_SETS-1];
+    reg [NUM_WAYS-1:0]      dirty_array [0:NUM_SETS-1];
 
     // Data array (in real implementation, this would be SRAM)
-    `ifndef SYNTHESIS
-
-`endif
+    reg [LINE_BITS-1:0]     data_array  [0:NUM_SETS-1][0:NUM_WAYS-1];
 
     // LRU state (pseudo-LRU tree)
-    `ifndef SYNTHESIS
-
-`endif
+    reg [NUM_WAYS-2:0]      lru_state   [0:NUM_SETS-1];
 
     //------------------------------------------------------------------------
     // Address Parsing (latched)
@@ -452,9 +442,14 @@ module l2_cache_bank #(
         hit_way = 0;
         any_hit = 0;
 
-        `ifndef SYNTHESIS
-
-`else any_hit = 0; `endif
+        for (w = 0; w < NUM_WAYS; w = w + 1) begin
+            if (valid_array[req_index][w] &&
+                tag_array[req_index][w] == req_tag) begin
+                way_hit[w] = 1'b1;
+                hit_way = w[WAY_BITS-1:0];
+                any_hit = 1'b1;
+            end
+        end
     end
 
     //------------------------------------------------------------------------
@@ -467,14 +462,16 @@ module l2_cache_bank #(
         victim_way = 0;
 
         // First check for invalid way
-        `ifndef SYNTHESIS
-
-`endif
+        for (w = 0; w < NUM_WAYS; w = w + 1) begin
+            if (!valid_array[req_index][w]) begin
+                victim_way = w[WAY_BITS-1:0];
+            end
+        end
 
         // If all valid, use LRU tree (simplified: just pick based on state)
-        `ifndef SYNTHESIS
-
-`endif
+        if (valid_array[req_index] == {NUM_WAYS{1'b1}}) begin
+            victim_way = lru_state[req_index][WAY_BITS-1:0];
+        end
     end
 
     //------------------------------------------------------------------------
@@ -503,9 +500,7 @@ module l2_cache_bank #(
     reg [LINE_BITS-1:0] merged_hit_line;
     reg [LINE_BITS-1:0] merged_fill_line;
     always @(*) begin
-        `ifndef SYNTHESIS
-
-`else merged_hit_line = 0; `endif
+        merged_hit_line = data_array[req_index][way_reg];
         merged_fill_line = mem_fill_data;
         for (byte_i = 0; byte_i < LINE_SIZE; byte_i = byte_i + 1) begin
             if (wmask_reg[byte_i]) begin
@@ -537,9 +532,11 @@ module l2_cache_bank #(
             resp_port_id <= 0;
 
             // Initialize arrays
-            `ifndef SYNTHESIS
-
-`endif
+            for (i = 0; i < NUM_SETS; i = i + 1) begin
+                valid_array[i] <= 0;
+                dirty_array[i] <= 0;
+                lru_state[i] <= 0;
+            end
         end else begin
             // Default outputs
             resp_valid <= 0;
@@ -586,22 +583,14 @@ module l2_cache_bank #(
                 S_HIT: begin
                     // Read or write hit
                     if (write_reg) begin
-                        `ifndef SYNTHESIS
-
-`endif
-                        `ifndef SYNTHESIS
-
-`endif
+                        data_array[req_index][way_reg] <= merged_hit_line;
+                        dirty_array[req_index][way_reg] <= 1'b1;
                         resp_rdata <= merged_hit_line;
                     end else begin
-                        `ifndef SYNTHESIS
-
-`else resp_rdata <= 0; `endif
+                        resp_rdata <= data_array[req_index][way_reg];
                     end
                     // Update LRU
-                    `ifndef SYNTHESIS
-
-`endif
+                    lru_state[req_index] <= lru_state[req_index] ^ (1 << way_reg);
                     resp_valid <= 1'b1;
                     resp_port_id <= port_id_reg;
                     state <= S_IDLE;
@@ -611,9 +600,7 @@ module l2_cache_bank #(
                     mem_req_valid <= 1'b1;
                     mem_req_write <= 1'b1;
                     mem_req_addr  <= victim_addr;
-                    `ifndef SYNTHESIS
-
-`else mem_req_wdata <= 0; `endif
+                    mem_req_wdata <= data_array[req_index][way_reg];
                     mem_req_wmask <= {LINE_SIZE{1'b1}};
                     if (mem_req_valid && mem_req_ready) begin
                         mem_req_valid <= 1'b0;
@@ -634,31 +621,17 @@ module l2_cache_bank #(
                 S_WAIT_FILL: begin
                     if (mem_fill_valid) begin
                         if (write_reg) begin
-                            `ifndef SYNTHESIS
-
-`endif
-                            `ifndef SYNTHESIS
-
-`endif
+                            data_array[req_index][way_reg] <= merged_fill_line;
+                            dirty_array[req_index][way_reg] <= 1'b1;
                             resp_rdata <= merged_fill_line;
                         end else begin
-`ifndef SYNTHESIS
                             data_array[req_index][way_reg] <= mem_fill_data;
-`endif
-`ifndef SYNTHESIS
                             dirty_array[req_index][way_reg] <= 1'b0;
-`endif
                             resp_rdata <= mem_fill_data;
                         end
-                        `ifndef SYNTHESIS
-
-`endif
-                        `ifndef SYNTHESIS
-
-`endif
-                        `ifndef SYNTHESIS
-
-`endif
+                        tag_array[req_index][way_reg] <= req_tag;
+                        valid_array[req_index][way_reg] <= 1'b1;
+                        lru_state[req_index] <= lru_state[req_index] ^ (1 << way_reg);
                         resp_valid <= 1'b1;
                         resp_port_id <= port_id_reg;
                         state <= S_IDLE;

@@ -81,25 +81,15 @@ module l1_data_cache #(
     // Cache存储结构
     //------------------------------------------------------------------------
     // Tag数组: [way][set]
-    `ifndef SYNTHESIS
-
-`endif
-    `ifndef SYNTHESIS
-
-`endif
-    `ifndef SYNTHESIS
-
-`endif
+    reg [TAG_BITS-1:0]   tag_array   [0:NUM_WAYS-1][0:NUM_SETS-1];
+    reg                  valid_array [0:NUM_WAYS-1][0:NUM_SETS-1];
+    reg                  dirty_array [0:NUM_WAYS-1][0:NUM_SETS-1];
 
     // 数据数组: [way][set][word]
-    `ifndef SYNTHESIS
-
-`endif
+    reg [31:0]           data_array  [0:NUM_WAYS-1][0:NUM_SETS-1][0:WORDS_PER_LINE-1];
 
     // LRU状态 (简化: 2-bit per set for 4-way)
-    `ifndef SYNTHESIS
-
-`endif
+    reg [1:0]            lru_array   [0:NUM_SETS-1];
 
     //------------------------------------------------------------------------
     // Cache Policy Registers (8 policy slots)
@@ -291,22 +281,14 @@ module l1_data_cache #(
             // 初始化cache
             for (w = 0; w < NUM_WAYS; w = w + 1) begin
                 for (i = 0; i < NUM_SETS; i = i + 1) begin
-`ifndef SYNTHESIS
                     valid_array[w][i] <= 0;
-`endif
-`ifndef SYNTHESIS
                     dirty_array[w][i] <= 0;
-`endif
-`ifndef SYNTHESIS
                     tag_array[w][i]   <= 0;
-`endif
                 end
             end
 
             for (i = 0; i < NUM_SETS; i = i + 1) begin
-`ifndef SYNTHESIS
                 lru_array[i] <= 0;
-`endif
             end
 
             for (i = 0; i < THREADS; i = i + 1) begin
@@ -373,29 +355,21 @@ module l1_data_cache #(
                             // 写操作
                             for (i = 0; i < THREADS; i = i + 1) begin
                                 if (saved_mask[i]) begin
-                                    `ifndef SYNTHESIS
-
-`endif
+                                    data_array[saved_hit_way][saved_index][saved_addr[i][OFFSET_BITS-1:2]] <= saved_wdata[i];
                                 end
                             end
-`ifndef SYNTHESIS
                             dirty_array[saved_hit_way][saved_index] <= 1;
-`endif
                         end else begin
                             // 读操作
                             for (i = 0; i < THREADS; i = i + 1) begin
                                 if (saved_mask[i]) begin
-                                    `ifndef SYNTHESIS
-
-`else resp_rdata[i*32 +: 32] <= 32'b0; `endif
+                                    resp_rdata[i*32 +: 32] <= data_array[saved_hit_way][saved_index][saved_addr[i][OFFSET_BITS-1:2]];
                                 end
                             end
                         end
 
                         // 更新LRU
-`ifndef SYNTHESIS
                         lru_array[saved_index] <= (saved_hit_way == 0) ? 2'd1 :
-`endif
                                                     (saved_hit_way == 1) ? 2'd2 :
                                                     (saved_hit_way == 2) ? 2'd3 : 2'd0;
                     end
@@ -405,15 +379,11 @@ module l1_data_cache #(
                     // 写回脏行
                     mem_req   <= 1;
                     mem_write <= 1;
-`ifndef SYNTHESIS
                     mem_addr  <= {tag_array[replace_way][saved_index], primary_index, {OFFSET_BITS{1'b0}}};
-`endif
 
                     // 打包整行数据
                     for (i = 0; i < WORDS_PER_LINE; i = i + 1) begin
-                        `ifndef SYNTHESIS
-
-`else mem_wdata[i*32 +: 32] <= 32'b0; `endif
+                        mem_wdata[i*32 +: 32] <= data_array[replace_way][saved_index][i];
                     end
                 end
 
@@ -431,20 +401,12 @@ module l1_data_cache #(
                         resp_valid  <= 1;
 
                         // 填充cache行
-`ifndef SYNTHESIS
                         tag_array[replace_way][saved_index]   <= primary_tag;
-`endif
-`ifndef SYNTHESIS
                         valid_array[replace_way][saved_index] <= 1;
-`endif
-`ifndef SYNTHESIS
                         dirty_array[replace_way][saved_index] <= saved_write;
-`endif
 
                         for (i = 0; i < WORDS_PER_LINE; i = i + 1) begin
-                            `ifndef SYNTHESIS
-
-`endif
+                            data_array[replace_way][saved_index][i] <= mem_rdata[i*32 +: 32];
                         end
 
                         // 处理原始请求
@@ -452,9 +414,7 @@ module l1_data_cache #(
                             // 写入新数据
                             for (i = 0; i < THREADS; i = i + 1) begin
                                 if (saved_mask[i]) begin
-                                    `ifndef SYNTHESIS
-
-`endif
+                                    data_array[replace_way][saved_index][saved_addr[i][OFFSET_BITS-1:2]] <= saved_wdata[i];
                                 end
                             end
                         end else begin
@@ -467,9 +427,7 @@ module l1_data_cache #(
                         end
 
                         // 更新LRU
-`ifndef SYNTHESIS
                         lru_array[saved_index] <= (replace_way == 0) ? 2'd1 :
-`endif
                                                     (replace_way == 1) ? 2'd2 :
                                                     (replace_way == 2) ? 2'd3 : 2'd0;
                     end
@@ -521,12 +479,8 @@ module l1_data_cache #(
                         tag_array[w][policy_discard_addr[OFFSET_BITS +: INDEX_BITS]] ==
                         policy_discard_addr[31:32-TAG_BITS]) begin
                         // Invalidate without writeback (discard dirty data)
-`ifndef SYNTHESIS
                         valid_array[w][policy_discard_addr[OFFSET_BITS +: INDEX_BITS]] <= 1'b0;
-`endif
-`ifndef SYNTHESIS
                         dirty_array[w][policy_discard_addr[OFFSET_BITS +: INDEX_BITS]] <= 1'b0;
-`endif
                         line_policy_id[w][policy_discard_addr[OFFSET_BITS +: INDEX_BITS]] <= 3'b0;
                     end
                 end

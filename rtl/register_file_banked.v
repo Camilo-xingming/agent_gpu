@@ -188,9 +188,7 @@ module register_file_banked #(
     //------------------------------------------------------------------------
     // Storage is modeled as [warp][lane][reg] for simulator compatibility.
     // Banking behavior is reflected in conflict detection/arbitration paths.
-`ifndef SYNTHESIS
     reg [PROTECTED_WIDTH-1:0] sim_regs [0:NUM_WARPS-1][0:NUM_LANES-1][0:NUM_REGS-1];
-`endif
 
     //------------------------------------------------------------------------
     // Bank Access Arbitration
@@ -238,15 +236,9 @@ module register_file_banked #(
     generate
         for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : gen_rd_logic
             // Raw data from sim_regs (3D: warp, lane, reg)
-`ifndef SYNTHESIS
             wire [PROTECTED_WIDTH-1:0] raw_a = sim_regs[rd_warp_id][lane][rd_addr_a];
-`else wire [PROTECTED_WIDTH-1:0] raw_a = 0; `endif
-`ifndef SYNTHESIS
             wire [PROTECTED_WIDTH-1:0] raw_b = sim_regs[rd_warp_id][lane][rd_addr_b];
-`else wire [PROTECTED_WIDTH-1:0] raw_b = 0; `endif
-`ifndef SYNTHESIS
             wire [PROTECTED_WIDTH-1:0] raw_c = sim_regs[rd_warp_id][lane][rd_addr_c];
-`else wire [PROTECTED_WIDTH-1:0] raw_c = 0; `endif
 
             // ECC decode
             wire [DATA_WIDTH+1:0] dec_a = decode_ecc(raw_a[DATA_WIDTH-1:0], raw_a[PROTECTED_WIDTH-1:DATA_WIDTH]);
@@ -277,21 +269,15 @@ module register_file_banked #(
     //------------------------------------------------------------------------
     generate
         for (lane = 0; lane < NUM_LANES; lane = lane + 1) begin : gen_oc_logic
-`ifndef SYNTHESIS
             wire [PROTECTED_WIDTH-1:0] oc_raw_0 = sim_regs[oc_warp_id][lane][oc_addr[4:0]];
-`else wire [PROTECTED_WIDTH-1:0] oc_raw_0 = 0; `endif
             wire [DATA_WIDTH+1:0] oc_dec_0 = decode_ecc(oc_raw_0[DATA_WIDTH-1:0], oc_raw_0[PROTECTED_WIDTH-1:DATA_WIDTH]);
             assign oc_data[0*(NUM_LANES*DATA_WIDTH) + lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_0[DATA_WIDTH-1:0] : oc_raw_0[DATA_WIDTH-1:0];
 
-`ifndef SYNTHESIS
             wire [PROTECTED_WIDTH-1:0] oc_raw_1 = sim_regs[oc_warp_id][lane][oc_addr[9:5]];
-`else wire [PROTECTED_WIDTH-1:0] oc_raw_1 = 0; `endif
             wire [DATA_WIDTH+1:0] oc_dec_1 = decode_ecc(oc_raw_1[DATA_WIDTH-1:0], oc_raw_1[PROTECTED_WIDTH-1:DATA_WIDTH]);
             assign oc_data[1*(NUM_LANES*DATA_WIDTH) + lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_1[DATA_WIDTH-1:0] : oc_raw_1[DATA_WIDTH-1:0];
 
-`ifndef SYNTHESIS
             wire [PROTECTED_WIDTH-1:0] oc_raw_2 = sim_regs[oc_warp_id][lane][oc_addr[14:10]];
-`else wire [PROTECTED_WIDTH-1:0] oc_raw_2 = 0; `endif
             wire [DATA_WIDTH+1:0] oc_dec_2 = decode_ecc(oc_raw_2[DATA_WIDTH-1:0], oc_raw_2[PROTECTED_WIDTH-1:DATA_WIDTH]);
             assign oc_data[2*(NUM_LANES*DATA_WIDTH) + lane*DATA_WIDTH +: DATA_WIDTH] = ECC_ENABLE ? oc_dec_2[DATA_WIDTH-1:0] : oc_raw_2[DATA_WIDTH-1:0];
         end
@@ -316,13 +302,11 @@ module register_file_banked #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             // Reset all registers (including ECC bits)
-`ifndef SYNTHESIS
             for (wr_w = 0; wr_w < NUM_WARPS; wr_w = wr_w + 1) begin
                 for (wr_l = 0; wr_l < NUM_LANES; wr_l = wr_l + 1) begin
                     for (wr_r = 0; wr_r < NUM_REGS; wr_r = wr_r + 1) begin
                         sim_regs[wr_w][wr_l][wr_r] <= {PROTECTED_WIDTH{1'b0}};
                     end
-`endif
                 end
             end
         end else if (wr_en) begin
@@ -333,14 +317,10 @@ module register_file_banked #(
                     if (ECC_ENABLE) begin
                         // Compute and store data with ECC
                         wr_ecc = calc_ecc(wr_data_lane);
-`ifndef SYNTHESIS
                         sim_regs[wr_warp_id][wr_l][wr_addr] <=
-`endif
                             {wr_ecc, wr_data_lane};
                     end else begin
-`ifndef SYNTHESIS
                         sim_regs[wr_warp_id][wr_l][wr_addr] <=
-`endif
                             {{(PROTECTED_WIDTH-DATA_WIDTH){1'b0}}, wr_data_lane};
                     end
                 end
