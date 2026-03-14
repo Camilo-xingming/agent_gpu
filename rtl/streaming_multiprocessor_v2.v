@@ -37,7 +37,8 @@ module streaming_multiprocessor_v2 #(
     parameter [1:0] TC_FP6_FORMAT = `TC_FP6_E3M2,     // 5th-gen Tensor Core FP6
     parameter [1:0] TC_FP8_FORMAT = `TC_FP8_E4M3,
     parameter INIT_WARPS = 1,
-    parameter ICACHE_BYPASS = 0  // Bypass icache for ideal fetch latency testing
+    parameter ICACHE_BYPASS = 0,  // Bypass icache for ideal fetch latency testing
+    parameter USE_EXTERNAL_L2 = 0
 )(
     input  wire                     clk,
     input  wire                     rst_n,
@@ -74,6 +75,16 @@ module streaming_multiprocessor_v2 #(
     input wire [NUM_LANES*32-1:0] l1d_resp_rdata,
     input  wire                     l1d_resp_valid,
     input  wire                     l1d_resp_hit,
+
+    // Optional shared top-level L2 backend for the internal L1D miss path.
+    output wire                     l2_req_valid,
+    output wire                     l2_req_write,
+    output wire [31:0]              l2_req_addr,
+    output wire [NUM_LANES*DATA_WIDTH-1:0] l2_req_wdata,
+    output wire [NUM_LANES*(DATA_WIDTH/8)-1:0] l2_req_wmask,
+    input  wire                     l2_req_ready,
+    input  wire [NUM_LANES*DATA_WIDTH-1:0] l2_resp_rdata,
+    input  wire                     l2_resp_valid,
 
     // Global Memory Interface (AXI4)
     output wire [3:0]               m_axi_awid,
@@ -823,6 +834,9 @@ module streaming_multiprocessor_v2 #(
     wire                  gmem_normal_req_ready;
     wire                  gmem_normal_resp_valid;
     wire [SIMD_WIDTH-1:0] gmem_normal_resp_rdata;
+    wire                  normal_mem_req_ready;
+    wire                  normal_mem_resp_valid;
+    wire [SIMD_WIDTH-1:0] normal_mem_resp_rdata;
 
     wire                  mcu_mem_req_valid;
     wire                  mcu_mem_req_write;
@@ -1271,6 +1285,15 @@ module streaming_multiprocessor_v2 #(
         end
     endgenerate
 
+    assign l2_req_valid = USE_EXTERNAL_L2 ? mcu_mem_req_valid : 1'b0;
+    assign l2_req_write = USE_EXTERNAL_L2 ? mcu_mem_req_write : 1'b0;
+    assign l2_req_addr  = USE_EXTERNAL_L2 ? mcu_mem_req_addr : 32'b0;
+    assign l2_req_wdata = USE_EXTERNAL_L2 ? mcu_mem_req_wdata : {SIMD_WIDTH{1'b0}};
+    assign l2_req_wmask = USE_EXTERNAL_L2 ? mcu_mem_req_wmask : {(NUM_LANES*(DATA_WIDTH/8)){1'b0}};
+    assign normal_mem_req_ready  = USE_EXTERNAL_L2 ? l2_req_ready : gmem_req_ready;
+    assign normal_mem_resp_valid = USE_EXTERNAL_L2 ? l2_resp_valid : gmem_normal_resp_valid;
+    assign normal_mem_resp_rdata = USE_EXTERNAL_L2 ? l2_resp_rdata : gmem_normal_resp_rdata;
+
     assign l1_cache_req_valid = issue_valid && !issue_mem_shared && !issue_atomic_op && issue_mem_read && !issue_addr_oob_exc && !issue_illegal_exc;
     assign l1_miss_req_valid = l1_mem_req && !l1_mem_write;
     assign l1_mem_ready = l1_miss_req_valid && gmem_normal_req_ready;
@@ -1364,9 +1387,9 @@ module streaming_multiprocessor_v2 #(
         .mem_req_addr    (mcu_mem_req_addr),
         .mem_req_wdata   (mcu_mem_req_wdata),
         .mem_req_wmask   (mcu_mem_req_wmask),
-        .mem_req_ready   (gmem_req_ready),
-        .mem_resp_rdata  (gmem_normal_resp_rdata),
-        .mem_resp_valid  (gmem_normal_resp_valid),
+        .mem_req_ready   (normal_mem_req_ready),
+        .mem_resp_rdata  (normal_mem_resp_rdata),
+        .mem_resp_valid  (normal_mem_resp_valid),
         .resp_rdata      (mcu_resp_rdata),
         .resp_valid      (mcu_resp_valid),
         .stat_requests   (),
@@ -1383,11 +1406,12 @@ module streaming_multiprocessor_v2 #(
         end
     endgenerate
 
-    assign gmem_normal_req_valid = mcu_mem_req_valid;
-    assign gmem_normal_req_write = mcu_mem_req_write;
-    assign gmem_normal_req_addr  = gmem_mcu_req_addr;
-    assign gmem_normal_req_wdata = mcu_mem_req_wdata;
-    assign gmem_normal_req_mask  = mcu_mem_req_write ? gmem_mcu_word_mask_from_wmask : {NUM_LANES{1'b1}};
+    assign gmem_normal_req_valid = USE_EXTERNAL_L2 ? 1'b0 : mcu_mem_req_valid;
+    assign gmem_normal_req_write = USE_EXTERNAL_L2 ? 1'b0 : mcu_mem_req_write;
+    assign gmem_normal_req_addr  = USE_EXTERNAL_L2 ? {(NUM_LANES*32){1'b0}} : gmem_mcu_req_addr;
+    assign gmem_normal_req_wdata = USE_EXTERNAL_L2 ? {SIMD_WIDTH{1'b0}} : mcu_mem_req_wdata;
+    assign gmem_normal_req_mask  = USE_EXTERNAL_L2 ? {NUM_LANES{1'b0}}
+                                                  : (mcu_mem_req_write ? gmem_mcu_word_mask_from_wmask : {NUM_LANES{1'b1}});
 
     l1_data_cache #(
         .CACHE_SIZE_KB   (16),
