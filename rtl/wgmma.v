@@ -94,7 +94,9 @@ module wgmma #(
     // Supports: FP16, BF16, TF32, FP8 (E4M3/E5M2), FP6 (E3M2), FP4 (E2M1)
     //------------------------------------------------------------------------
 
-    reg [31:0] partial_sum [0:31];  // 32个部分和 (FP32 accumulator)
+    `ifndef SYNTHESIS
+    reg [31:0] partial_sum [0:31];
+`endif  // 32个部分和 (FP32 accumulator)
     reg [1023:0] mma_result;
 
     //------------------------------------------------------------------------
@@ -307,9 +309,11 @@ module wgmma #(
             compute_cycle <= 0;
             mma_result <= 1024'b0;
 
+`ifndef SYNTHESIS
             for (i = 0; i < 32; i = i + 1) begin
                 partial_sum[i] <= 32'b0;
             end
+`endif
         end else begin
             done <= 1'b0;
 
@@ -335,9 +339,11 @@ module wgmma #(
                                     compute_cycle <= 0;
                                     mma_result <= accum_in;
 
+`ifndef SYNTHESIS
                                     for (i = 0; i < 32; i = i + 1) begin
                                         partial_sum[i] <= accum_in[i*32 +: 32];
                                     end
+`endif
                                 end
                             end
 
@@ -488,11 +494,15 @@ case (dtype_a)
                 end
 
                 ST_ACCUMULATE: begin
+`ifndef SYNTHESIS
                     for (i = 0; i < 32; i = i + 1) begin
                         mma_result[i*32 +: 32] <= partial_sum[i];
                         accum_out[i*32 +: 32] <= partial_sum[i];
                         partial_sum[i] <= 32'b0;
                     end
+`else
+                    mma_result <= 1024'b0; accum_out <= 1024'b0;
+`endif
 
                     op_pending[op_tail] <= 1'b0;
                     op_tail <= op_tail + 1;
