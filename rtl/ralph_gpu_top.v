@@ -102,7 +102,7 @@ module ralph_gpu_top #(
 );
 
     localparam NUM_LANES = `THREADS_PER_WARP;
-    integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i;
+    integer i, j, k, sm_i, tlb_sm_i, imem_i, imem_idx, sm_outstanding_i, exc_sm_i, idx_aw, idx_ar;
     
     localparam SM_ID_W = (NUM_SM > 1) ? $clog2(NUM_SM) : 1;
     localparam TLB_VADDR_WIDTH = 48;
@@ -918,7 +918,6 @@ module ralph_gpu_top #(
                 .mem_req_addr   (l2_mem_req_addr),
                 .mem_req_wdata  (l2_mem_req_wdata),
                 .mem_req_wmask  (l2_mem_req_wmask),
-                .mem_req_wmask  (l2_mem_req_wmask),
                 .mem_req_ready  (l2_mem_req_ready),
                 .mem_resp_valid (l2_mem_resp_valid),
                 .mem_resp_rdata (l2_mem_resp_rdata),
@@ -1515,13 +1514,11 @@ module ralph_gpu_top #(
     wire hbm_resp_valid;
     wire [1023:0] hbm_resp_rdata;
     wire [127:0] hbm_req_wmask;
-    wire [127:0] hbm_req_wmask;
 
     assign hbm_req_valid = L2_ENABLE ? l2_mem_req_valid : 1'b0;
     assign hbm_req_write = L2_ENABLE ? l2_mem_req_write : 1'b0;
     assign hbm_req_addr  = L2_ENABLE ? l2_mem_req_addr  : 32'b0;
     assign hbm_req_wdata = L2_ENABLE ? l2_mem_req_wdata : 1024'b0;
-    assign hbm_req_wmask = L2_ENABLE ? l2_mem_req_wmask : {128{1'b1}};
     assign hbm_req_wmask = L2_ENABLE ? l2_mem_req_wmask : {128{1'b1}};
 
     assign l2_mem_req_ready  = L2_ENABLE ? hbm_req_ready : 1'b0;

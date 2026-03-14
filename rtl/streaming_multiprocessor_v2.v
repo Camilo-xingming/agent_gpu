@@ -2611,10 +2611,14 @@ module streaming_multiprocessor_v2 #(
             // Suppress issue if branch flush is active for this warp
             issue_valid <= dec_valid && !decode_stalled && !branch_flush_dec0;
             // DEBUG: periodic warp scheduling state
+`ifdef SIMULATION
+
             if ($time < 10000000 && $time % 100000 == 0) begin
                 if(0) $display("[%0t SM%0d DEBUG] warp_valid=%04b warp_ready=%04b inst_buf_valid=%04b inst_valid_d1=%04b decode_stalled=%b", // keep
                          $time, SM_ID, warp_valid, warp_ready, warp_inst_buf_valid, warp_inst_valid_d1, decode_stalled);
             end
+`endif
+
 
             issue1_valid <= dec1_dec_valid && !branch_flush_dec1;  // Set from decoder output
             if (dec_valid && !branch_flush_dec0) begin
