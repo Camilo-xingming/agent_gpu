@@ -225,7 +225,7 @@ module async_copy_engine #(
                                         pending_count <= pending_count + 1;
 
                                         `ifdef SIMULATION
-                                        $display("[ACE] st.async.global: gmem=0x%08x data=0x%08x size=%0d", // keep
+                                        $display("[ACE] st.async.global: gmem=0x%08x data=0x%08x size=%0d",
                                                  store_gmem_addr, store_data[31:0], size);
                                         `endif
 
@@ -243,7 +243,7 @@ module async_copy_engine #(
                                     done <= 1'b1;
 
                                     `ifdef SIMULATION
-                                    $display("[ACE] st.async.shared: addr=0x%04x data=0x%08x size=%0d", // keep
+                                    $display("[ACE] st.async.shared: addr=0x%04x data=0x%08x size=%0d",
                                              dst_addr, store_data[31:0], size);
                                     `endif
                                 end
@@ -342,7 +342,7 @@ module async_copy_engine #(
                                     tma_active <= 1'b1;
                                     ready <= 1'b0;
                                     `ifdef SIMULATION
-                                    $display("[ACE] TMA start: desc=0x%016x coord=(%0d,%0d) dst=0x%04x", // keep
+                                    $display("[ACE] TMA start: desc=0x%016x coord=(%0d,%0d) dst=0x%04x",
                                              tensor_desc, tensor_coord_x, tensor_coord_y, dst_addr);
                                     `endif
                                 end
@@ -380,7 +380,7 @@ module async_copy_engine #(
                     if (tma_active && tma_done) begin
                         tma_active <= 1'b0;
                         `ifdef SIMULATION
-                        $display("[ACE] TMA done: bytes_copied=%0d", tma_bytes_copied); // keep
+                        $display("[ACE] TMA done: bytes_copied=%0d", tma_bytes_copied);
                         `endif
                     end
 
@@ -405,7 +405,7 @@ module async_copy_engine #(
                             state <= ST_WAIT_WR;
 
                             `ifdef SIMULATION
-                            $display("[ACE] Store issue: gmem=0x%08x size=%0d", // keep
+                            $display("[ACE] Store issue: gmem=0x%08x size=%0d",
                                      req_gmem_addr[req_tail], req_size[req_tail]);
                             `endif
                         end else begin
@@ -488,7 +488,7 @@ module async_copy_engine #(
                         req_tail <= req_tail + 1;
 
                         `ifdef SIMULATION
-                        $display("[ACE] Store complete: gmem=0x%08x", req_gmem_addr[current_req]); // keep
+                        $display("[ACE] Store complete: gmem=0x%08x", req_gmem_addr[current_req]);
                         `endif
 
                         // 继续处理或返回空闲

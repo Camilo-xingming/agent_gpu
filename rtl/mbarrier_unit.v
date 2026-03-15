@@ -219,7 +219,7 @@ module mbarrier_unit #(
             if (async_arrive_valid) begin
                 `ifdef MBARRIER_DEBUG
                 `ifdef SIMULATION
-                $display("[MBARRIER ASYNC] addr=0x%h idx=%0d tx_bytes=%0d pending_before=%0d arrival=%0d expected=%0d valid=%b", // keep
+                $display("[MBARRIER ASYNC] addr=0x%h idx=%0d tx_bytes=%0d pending_before=%0d arrival=%0d expected=%0d valid=%b",
                          async_barrier_addr, async_barrier_idx, async_tx_bytes,
                          pending_tx[async_barrier_idx], arrival_count[async_barrier_idx],
                          expected_count[async_barrier_idx], barrier_valid[async_barrier_idx]);
@@ -236,7 +236,7 @@ module mbarrier_unit #(
                         // Barrier just completed! Flip phase
                         `ifdef MBARRIER_DEBUG
                         `ifdef SIMULATION
-                        $display("[MBARRIER ASYNC] Phase flip for barrier %0d!", async_barrier_idx); // keep
+                        $display("[MBARRIER ASYNC] Phase flip for barrier %0d!", async_barrier_idx);
                         `endif
                         `endif
                         phase[async_barrier_idx] <= ~phase[async_barrier_idx];
@@ -249,7 +249,7 @@ module mbarrier_unit #(
                         (arrival_count[async_barrier_idx] >= expected_count[async_barrier_idx])) begin
                         `ifdef MBARRIER_DEBUG
                         `ifdef SIMULATION
-                        $display("[MBARRIER ASYNC] Phase flip for barrier %0d (pending underflow)!", async_barrier_idx); // keep
+                        $display("[MBARRIER ASYNC] Phase flip for barrier %0d (pending underflow)!", async_barrier_idx);
                         `endif
                         `endif
                         phase[async_barrier_idx] <= ~phase[async_barrier_idx];
@@ -475,7 +475,7 @@ module mbarrier_unit #(
     always @(posedge clk) begin
         if (done) begin
             `ifdef SIMULATION
-            $display("[MBARRIER] func=%0d barrier=%0d arrival=%0d expected=%0d pending_tx=%0d phase=%b", // keep
+            $display("[MBARRIER] func=%0d barrier=%0d arrival=%0d expected=%0d pending_tx=%0d phase=%b",
                      saved_func, current_barrier,
                      arrival_count[current_barrier],
                      expected_count[current_barrier],

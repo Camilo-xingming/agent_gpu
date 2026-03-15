@@ -7,28 +7,6 @@
 `define MEMORY_CONFIG_VH
 
 `include "gpu_config.vh"
-`ifdef SYNTHESIS
-    `define L1D_SIZE_KB         1
-    `define L1D_WAYS            1
-    `define L1D_LINE_SIZE       128
-    `define L1I_SIZE_KB         1
-    `define L1I_WAYS            1
-    `define L1I_LINE_SIZE       64
-    `define L2_SIZE_KB          32
-    `define L2_NUM_BANKS        2
-    `define L2_WAYS             1
-    `define L2_LINE_SIZE        128
-    `define SMEM_SIZE_KB        1
-    `define SMEM_NUM_BANKS      16
-    `define RF_SIZE_KB          16
-    `define RF_NUM_BANKS        4
-    `define TEX_CACHE_SIZE_KB   1
-    `define TEX_CACHE_WAYS      1
-    `define TEX_LINE_SIZE       128
-    `define L2_MSHR_ENTRIES     4
-    `define MEM_REQ_QUEUE_DEPTH 4
-    `define SYNTH_REDUCED
-`endif
 
 //============================================================================
 // GPU Configuration Profiles
@@ -51,7 +29,6 @@
 // Best Practice: 32-128KB per SM, 4-8 way set associative
 // NVIDIA: 128KB L1 (configurable with shared memory)
 
-`ifndef SYNTHESIS
 `ifdef GPU_PROFILE_LITE
     `define L1D_SIZE_KB         16      // 16KB L1 Data Cache
     `define L1D_WAYS            4       // 4-way set associative
@@ -77,7 +54,6 @@
     `define L1D_WAYS            8       // 8-way set associative
     `define L1D_LINE_SIZE       128     // 128 bytes per cache line
 `endif
-`endif // !SYNTHESIS
 
 // Derived L1D parameters
 `define L1D_SIZE_BYTES      (`L1D_SIZE_KB * 1024)
@@ -107,7 +83,6 @@
 //============================================================================
 // Best Practice: 32-64KB per SM, high hit rate for loops
 
-`ifndef SYNTHESIS
 `ifdef GPU_PROFILE_LITE
     `define L1I_SIZE_KB         8       // 8KB Instruction Cache
     `define L1I_WAYS            2       // 2-way set associative
@@ -125,7 +100,6 @@
     `define L1I_WAYS            4       // 4-way set associative
     `define L1I_LINE_SIZE       64      // 64 bytes
 `endif
-`endif // !SYNTHESIS
 
 // Derived L1I parameters
 `define L1I_SIZE_BYTES      (`L1I_SIZE_KB * 1024)
@@ -140,7 +114,6 @@
 // Best Practice: 256KB - 8MB total, 8-16 way, banked
 // NVIDIA H100: 50MB L2
 
-`ifndef SYNTHESIS
 `ifdef GPU_PROFILE_LITE
     `define L2_SIZE_KB          256     // 256KB total L2
     `define L2_NUM_BANKS        2       // 2 banks
@@ -172,7 +145,6 @@
     `define L2_WAYS             16      // 16-way set associative
     `define L2_LINE_SIZE        128     // 128 bytes per line
 `endif
-`endif // !SYNTHESIS
 
 // Derived L2 parameters
 `define L2_SIZE_BYTES       (`L2_SIZE_KB * 1024)
@@ -201,7 +173,6 @@
 // Best Practice: 16-96KB configurable, 32 banks, conflict detection
 // NVIDIA: 0-164KB configurable (combined with L1)
 
-`ifndef SYNTHESIS
 `ifdef GPU_PROFILE_LITE
     `define SMEM_SIZE_KB        16      // 16KB Shared Memory
     `define SMEM_NUM_BANKS      16      // 16 banks
@@ -227,7 +198,6 @@
     `define SMEM_NUM_BANKS      32      // 32 banks
     `define SMEM_BANK_WIDTH     32      // 32 bits per bank
 `endif
-`endif // !SYNTHESIS
 
 // Derived Shared Memory parameters
 `define SMEM_SIZE_BYTES     (`SMEM_SIZE_KB * 1024)
@@ -245,7 +215,6 @@
 // Best Practice: 64KB-256KB per SM, multi-banked for parallel access
 // NVIDIA: 256KB per SM
 
-`ifndef SYNTHESIS
 `ifdef GPU_PROFILE_LITE
     `define RF_SIZE_KB          32      // 32KB Register File per SM
     `define RF_NUM_BANKS        4       // 4 banks
@@ -267,7 +236,6 @@
     `define RF_PORTS_READ       6       // 6 read ports (for dual-issue)
     `define RF_PORTS_WRITE      4       // 4 write ports (for dual-issue)
 `endif
-`endif // !SYNTHESIS
 
 // Register File structure
 `define RF_REGS_PER_THREAD  32      // 32 architectural registers
@@ -343,7 +311,6 @@
 //============================================================================
 // Best Practice: Wide interface, multiple channels
 
-`ifndef SYNTHESIS
 `ifdef GPU_PROFILE_LITE
     `define MEM_DATA_WIDTH      128     // 128-bit memory interface
     `define MEM_NUM_CHANNELS    1       // 1 memory channel
@@ -369,7 +336,6 @@
     `define MEM_NUM_CHANNELS    8       // 8 memory channels (HBM)
     `define MEM_BURST_LENGTH    4       // 4-beat burst (HBM style)
 `endif
-`endif // !SYNTHESIS
 
 // Memory Interface Type
 `define MEM_TYPE_DDR4       0

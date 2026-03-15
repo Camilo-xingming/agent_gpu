@@ -174,8 +174,6 @@ module warp_reduction #(
 
     output reg  [31:0]          result         // 归约结果 (所有lane相同)
 );
-    `ifndef SYNTHESIS
-
 
     // 提取有效数据
     wire [31:0] data [0:LANES-1];
@@ -259,9 +257,6 @@ module warp_reduction #(
         result = l4;
     end
 
-`else
-    always @(*) result = 32'b0;
-`endif
 endmodule
 
 

@@ -94,9 +94,7 @@ module wgmma #(
     // Supports: FP16, BF16, TF32, FP8 (E4M3/E5M2), FP6 (E3M2), FP4 (E2M1)
     //------------------------------------------------------------------------
 
-    `ifndef SYNTHESIS
-    reg [31:0] partial_sum [0:31];
-`endif  // 32个部分和 (FP32 accumulator)
+    reg [31:0] partial_sum [0:31];  // 32个部分和 (FP32 accumulator)
     reg [1023:0] mma_result;
 
     //------------------------------------------------------------------------
@@ -309,11 +307,9 @@ module wgmma #(
             compute_cycle <= 0;
             mma_result <= 1024'b0;
 
-`ifndef SYNTHESIS
             for (i = 0; i < 32; i = i + 1) begin
                 partial_sum[i] <= 32'b0;
             end
-`endif
         end else begin
             done <= 1'b0;
 
@@ -339,11 +335,9 @@ module wgmma #(
                                     compute_cycle <= 0;
                                     mma_result <= accum_in;
 
-`ifndef SYNTHESIS
                                     for (i = 0; i < 32; i = i + 1) begin
                                         partial_sum[i] <= accum_in[i*32 +: 32];
                                     end
-`endif
                                 end
                             end
 
@@ -376,8 +370,7 @@ module wgmma #(
                 ST_COMPUTE: begin
                     compute_cycle <= compute_cycle + 1;
 
-                    `ifndef SYNTHESIS
-case (dtype_a)
+                    case (dtype_a)
                         DTYPE_FP16: begin
                             for (i = 0; i < 32; i = i + 1) begin
                                 partial_sum[i] <= fp32_mac(
@@ -486,7 +479,6 @@ case (dtype_a)
                             end
                         end
                     endcase
-`endif
 
                     if (compute_cycle >= 4'd3) begin
                         state <= ST_ACCUMULATE;
@@ -494,15 +486,11 @@ case (dtype_a)
                 end
 
                 ST_ACCUMULATE: begin
-`ifndef SYNTHESIS
                     for (i = 0; i < 32; i = i + 1) begin
                         mma_result[i*32 +: 32] <= partial_sum[i];
                         accum_out[i*32 +: 32] <= partial_sum[i];
                         partial_sum[i] <= 32'b0;
                     end
-`else
-                    mma_result <= 1024'b0; accum_out <= 1024'b0;
-`endif
 
                     op_pending[op_tail] <= 1'b0;
                     op_tail <= op_tail + 1;
@@ -601,35 +589,25 @@ module wgmma_accumulator #(
     input  wire [$clog2(NUM_ACCUMULATORS)-1:0] clear_idx
 );
 
-    `ifndef SYNTHESIS
     reg [ACCUM_WIDTH-1:0] accumulators [0:NUM_ACCUMULATORS-1];
-`endif
 
     integer i;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-`ifndef SYNTHESIS
             for (i = 0; i < NUM_ACCUMULATORS; i = i + 1) begin
                 accumulators[i] <= {ACCUM_WIDTH{1'b0}};
             end
-`endif
         end else begin
-`ifndef SYNTHESIS
             if (clear_en) begin
                 accumulators[clear_idx] <= {ACCUM_WIDTH{1'b0}};
             end else if (write_en) begin
                 accumulators[write_idx] <= write_data;
             end
-`endif
         end
     end
 
-    `ifndef SYNTHESIS
     assign read_data = accumulators[read_idx];
-`else
-    assign read_data = {ACCUM_WIDTH{1'b0}};
-`endif
 
 endmodule
 
@@ -724,8 +702,6 @@ module fp8_mma_unit #(
             valid_out <= 1'b0;
         end else if (valid_in) begin
             // 简化: 实际需要多周期流水线计算
-`ifndef SYNTHESIS
-
             for (m = 0; m < M; m = m + 1) begin
                 for (n = 0; n < N; n = n + 1) begin
                     temp_sum = matrix_c[(m*N + n)*32 +: 32];
@@ -744,10 +720,6 @@ module fp8_mma_unit #(
                 end
             end
             valid_out <= 1'b1;
-`else
-            matrix_d <= 0; valid_out <= 1'b1;
-`endif
-
         end else begin
             valid_out <= 1'b0;
         end
@@ -833,8 +805,6 @@ module fp6_mma_unit #(
             valid_out <= 1'b0;
         end else if (valid_in) begin
             // 简化: 实际需要多周期流水线计算
-`ifndef SYNTHESIS
-
             for (m = 0; m < M; m = m + 1) begin
                 for (n = 0; n < N; n = n + 1) begin
                     temp_sum = matrix_c[(m*N + n)*32 +: 32];
@@ -848,10 +818,6 @@ module fp6_mma_unit #(
                 end
             end
             valid_out <= 1'b1;
-`else
-            matrix_d <= 0; valid_out <= 1'b1;
-`endif
-
         end else begin
             valid_out <= 1'b0;
         end

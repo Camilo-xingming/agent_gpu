@@ -19,13 +19,8 @@
 `include "gpu_defines.vh"
 
 module tensor_memory #(
-`ifdef SYNTHESIS
-    parameter NUM_ROWS    = 4, 
-    parameter NUM_COLS    = 16, 
-`else
     parameter NUM_ROWS    = 128,          // 128 rows (lanes)
     parameter NUM_COLS    = 512,          // 512 columns
-`endif
     parameter DATA_WIDTH  = 32,           // 32-bit cells
     parameter ADDR_WIDTH  = 16            // Address width (9-bit col + 7-bit row)
 )(
@@ -116,9 +111,7 @@ module tensor_memory #(
     // Tensor Memory Storage
     // Organized as 128 rows x 512 columns of 32-bit cells
     //------------------------------------------------------------------------
-    `ifndef SYNTHESIS
     reg [DATA_WIDTH-1:0] tmem [0:NUM_ROWS-1][0:NUM_COLS-1];
-`endif
 
     //------------------------------------------------------------------------
     // Column Allocation Tracking
@@ -330,18 +323,18 @@ module tensor_memory #(
     always @(posedge clk) begin
         // Check for access to unallocated columns
         if (st_valid && !col_alloc_bitmap[st_col_base]) begin
-            $display("WARNING: [%0t] TMEM write to unallocated column %0d", $time, st_col_base); // keep
+            $display("WARNING: [%0t] TMEM write to unallocated column %0d", $time, st_col_base);
         end
         if (ld_valid && !col_alloc_bitmap[ld_col_base]) begin
-            $display("WARNING: [%0t] TMEM read from unallocated column %0d", $time, ld_col_base); // keep
+            $display("WARNING: [%0t] TMEM read from unallocated column %0d", $time, ld_col_base);
         end
 
         // Check row bounds
         if (ld_valid && ld_row >= NUM_ROWS) begin
-            $display("ERROR: [%0t] TMEM load row %0d out of bounds", $time, ld_row); // keep
+            $display("ERROR: [%0t] TMEM load row %0d out of bounds", $time, ld_row);
         end
         if (st_valid && st_row >= NUM_ROWS) begin
-            $display("ERROR: [%0t] TMEM store row %0d out of bounds", $time, st_row); // keep
+            $display("ERROR: [%0t] TMEM store row %0d out of bounds", $time, st_row);
         end
     end
 `endif

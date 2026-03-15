@@ -16,19 +16,11 @@
 `timescale 1ns / 1ps
 
 module l1_data_cache_optimized #(
-`ifdef SYNTHESIS
-    parameter CACHE_SIZE_KB     = 1,
-    parameter LINE_SIZE_BYTES   = 128,
-    parameter NUM_WAYS          = 1,
-    parameter HIT_LATENCY       = 2,
-    parameter THREADS           = 4,
-`else
     parameter CACHE_SIZE_KB     = 32,         // 32KB cache (increased)
     parameter LINE_SIZE_BYTES   = 128,        // 128 bytes per line
     parameter NUM_WAYS          = 4,          // 4-way set associative
     parameter HIT_LATENCY       = 2,          // 2 cycles hit (optimized from 4)
     parameter THREADS           = 32,         // SIMT threads per warp
-`endif
     parameter DATA_WIDTH        = 32,         // 32-bit data
     parameter MAX_OUTSTANDING   = 4,          // Max outstanding misses
     parameter PREFETCH_DEPTH    = 2,          // Prefetch queue depth
