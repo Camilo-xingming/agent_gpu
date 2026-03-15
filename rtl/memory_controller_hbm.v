@@ -148,7 +148,7 @@ module memory_controller_hbm #(
     function [ROW_WIDTH-1:0] get_row;
         input [ADDR_WIDTH-1:0] addr;
         begin
-            get_row = {{(ROW_WIDTH-(ADDR_WIDTH-ROW_LSB)){1'b0}}, addr[ADDR_WIDTH-1 : ROW_LSB]};
+            get_row = addr[ROW_LSB +: ROW_WIDTH];
         end
     endfunction
     /* verilator lint_on SELRANGE */
@@ -224,16 +224,14 @@ module memory_controller_hbm #(
             oldest_idx = 0;
             count = ch_req_count[ch];
 
-            for (i = 0; i < 32; i = i + 1) begin
-                if (i < count) begin
-                    idx = ch_req_head[ch] + i[PTR_W-1:0];
-                    entry = ch_req_queue[ch][idx];
+            for (i = 0; i < REQ_QUEUE_DEPTH && i < count; i = i + 1) begin
+                idx = ch_req_head[ch] + i[PTR_W-1:0];
+                entry = ch_req_queue[ch][idx];
 
-                    // Track oldest for FCFS fallback
-                    if (entry[31:0] < oldest_ts) begin
-                        oldest_ts = entry[31:0];
-                        oldest_idx = idx;
-                    end
+                // Track oldest for FCFS fallback
+                if (entry[31:0] < oldest_ts) begin
+                    oldest_ts = entry[31:0];
+                    oldest_idx = idx;
                 end
             end
 
