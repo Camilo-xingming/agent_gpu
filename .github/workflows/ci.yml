@@ -14,7 +14,7 @@ jobs:
   lint:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n        with:\n          fetch-depth: 0
         with:
           fetch-depth: 0
       - name: Verilator Lint
@@ -23,7 +23,7 @@ jobs:
   synth:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n        with:\n          fetch-depth: 0
         with:
           fetch-depth: 0
       - name: "DoD #4: Yosys Synthesis Check"
@@ -43,7 +43,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     needs: lint
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n        with:\n          fetch-depth: 0
         with:
           fetch-depth: 0
       - name: Run Unit Test Suite
@@ -53,7 +53,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n        with:\n          fetch-depth: 0
         with:
           fetch-depth: 0
       - name: Fetch base branch
@@ -121,7 +121,7 @@ jobs:
   regression:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n        with:\n          fetch-depth: 0
         with:
           fetch-depth: 0
       - name: Run make test

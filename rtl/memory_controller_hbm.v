@@ -125,9 +125,7 @@ module memory_controller_hbm #(
     //------------------------------------------------------------------------
     localparam MEM_DEPTH = 65536;  // 64K lines
     localparam MEM_INDEX_W = $clog2(MEM_DEPTH);
-    `ifndef SYNTHESIS
     reg [BURST_BITS-1:0] mem_array [0:MEM_DEPTH-1];
-`endif
 
     //------------------------------------------------------------------------
     // Address Decomposition
@@ -238,7 +236,6 @@ module memory_controller_hbm #(
                     end
                 end
             end
-
 
             find_oldest_request = oldest_idx;
         end
@@ -391,11 +388,7 @@ module memory_controller_hbm #(
                             req_id = sch_current_req[sch_ch][39:32];
 
                             // Read from memory model
-                            `ifndef SYNTHESIS
                             rdata = mem_array[mem_idx];
-`else
-                            rdata = {BURST_BITS{1'b0}};
-`endif
 
                             // Queue response with latency (tCL)
                             if (resp_count < REQ_QUEUE_DEPTH) begin
@@ -431,12 +424,10 @@ module memory_controller_hbm #(
                             wmask = sch_current_req[sch_ch][BURST_BYTES+39:40];
 
                             // Write to memory model with byte mask
-`ifndef SYNTHESIS
                             for (wb = 0; wb < BURST_BYTES; wb = wb + 1) begin
                                 if (wmask[wb])
                                     mem_array[mem_idx][wb*8 +: 8] <= wdata[wb*8 +: 8];
                             end
-`endif
 
                             bank_wr_counter[sch_ch][bank] <= 0;
                             bank_busy_counter[sch_ch][bank] <= tCL + BURST_LENGTH + tWR;
@@ -518,12 +509,10 @@ module memory_controller_hbm #(
     // Memory Initialization
     //------------------------------------------------------------------------
     integer init_i;
-`ifndef SYNTHESIS
     initial begin
         for (init_i = 0; init_i < MEM_DEPTH; init_i = init_i + 1) begin
             mem_array[init_i] = {BURST_BITS{1'b0}};
         end
     end
-`endif
 
 endmodule
