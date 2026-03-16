@@ -1,33 +1,3 @@
-title:	fix(rtl): wire SM L1 misses into shared L2
-state:	OPEN
-author:	ssql2014
-labels:	stage/review
-assignees:	
-reviewers:	
-projects:	
-milestone:	
-number:	615
-url:	https://github.com/ssql2014/RalphGPU/pull/615
-additions:	236
-deletions:	411
-auto-merge:	disabled
---
-Closes #588
-
-## Summary
-- route SM L1 miss traffic through the shared top-level L2 path
-- connect top-level L2 aggregation to the SM external-L2 interface
-- keep the recovery surface limited to `rtl/ralph_gpu_top.v` and `rtl/streaming_multiprocessor_v2.v`
-
-## Validation
-- `make lint VERILATOR=verilator`
-- `make test_l2_cache`
-- `make test_ralph_gpu_top_smoke`
-- `make test_gpu_top_integration`
-
-## Notes
-- supersedes stale PR #613, whose live head `e429e65` is `ci.yml`-only
-
 //============================================================================
 // RalphGPU - WGMMA (Warpgroup Matrix Multiply-Accumulate)
 // HopperTensor Core
