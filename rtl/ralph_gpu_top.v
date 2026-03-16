@@ -326,6 +326,7 @@ module ralph_gpu_top #(
 
     // L2 <-> HBM bridge (128-byte cache-line transactions)
     wire        l2_mem_req_valid;
+    wire [127:0] l2_mem_req_wmask;
     wire        l2_mem_req_write;
     wire [31:0] l2_mem_req_addr;
     wire [128*8-1:0] l2_mem_req_wdata;
@@ -750,6 +751,7 @@ module ralph_gpu_top #(
                 .mem_req_write  (l2_mem_req_write),
                 .mem_req_addr   (l2_mem_req_addr),
                 .mem_req_wdata  (l2_mem_req_wdata),
+                .mem_req_wmask  (l2_mem_req_wmask),
                 .mem_req_ready  (l2_mem_req_ready),
                 .mem_resp_valid (l2_mem_resp_valid),
                 .mem_resp_rdata (l2_mem_resp_rdata),
@@ -768,6 +770,7 @@ module ralph_gpu_top #(
             assign l2_mem_req_write = 1'b0;
             assign l2_mem_req_addr  = 32'b0;
             assign l2_mem_req_wdata = {(128*8){1'b0}};
+            assign l2_mem_req_wmask = {128{1'b1}};
         end
     endgenerate
 
@@ -1346,6 +1349,8 @@ module ralph_gpu_top #(
     wire [1023:0] hbm_resp_rdata;
 
     assign hbm_req_valid = L2_ENABLE ? l2_mem_req_valid : 1'b0;
+    wire [127:0] hbm_req_wmask;
+    assign hbm_req_wmask = L2_ENABLE ? l2_mem_req_wmask : {128{1'b1}};
     assign hbm_req_write = L2_ENABLE ? l2_mem_req_write : 1'b0;
     assign hbm_req_addr  = L2_ENABLE ? l2_mem_req_addr  : 32'b0;
     assign hbm_req_wdata = L2_ENABLE ? l2_mem_req_wdata : 1024'b0;
@@ -1365,7 +1370,7 @@ module ralph_gpu_top #(
         .l2_req_write   (hbm_req_write),
         .l2_req_addr    (hbm_req_addr),
         .l2_req_wdata   (hbm_req_wdata),
-        .l2_req_wmask   ({128{1'b1}}),
+        .l2_req_wmask   (hbm_req_wmask),
         .l2_req_id      (8'b0),
         .l2_req_ready   (hbm_req_ready),
         .l2_resp_valid  (hbm_resp_valid),
