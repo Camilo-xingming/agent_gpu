@@ -1,10 +1,10 @@
 //============================================================================
 // RalphGPU - WGMMA (Warpgroup Matrix Multiply-Accumulate)
-// Hopper架构Tensor Core扩展
-// 支持: wgmma.mma_async, wgmma.fence, wgmma.commit_group, wgmma.wait_group
+// HopperTensor Core
+// : wgmma.mma_async, wgmma.fence, wgmma.commit_group, wgmma.wait_group
 //
-// WGMMA在Warpgroup (4 warps = 128 threads)级别操作
-// 支持更大的矩阵尺寸和异步执行
+// WGMMAWarpgroup (4 warps = 128 threads)
+// 
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -13,38 +13,38 @@
 module wgmma #(
     parameter WARPGROUP_SIZE = 4,       // 4 warps per warpgroup
     parameter THREADS_PER_WARP = 32,
-    parameter MAX_PENDING_OPS = 8       // 最大挂起操作数
+    parameter MAX_PENDING_OPS = 8       // 
 )(
     input  wire                 clk,
     input  wire                 rst_n,
 
-    // 控制接口
-    input  wire [5:0]           func,           // 功能码
+    // 
+    input  wire [5:0]           func,           // 
     input  wire                 valid_in,
     input  wire [2:0]           warpgroup_id,   // Warpgroup ID
-    input  wire [3:0]           wait_count,     // wait_group等待计数
+    input  wire [3:0]           wait_count,     // wait_group
 
-    // 矩阵描述符
-    input  wire [63:0]          desc_a,         // 矩阵A描述符
-    input  wire [63:0]          desc_b,         // 矩阵B描述符
-    input  wire [31:0]          scale_d,        // 输出缩放因子
+    // 
+    input  wire [63:0]          desc_a,         // A
+    input  wire [63:0]          desc_b,         // B
+    input  wire [31:0]          scale_d,        // 
 
-    // 数据接口 (共享内存/寄存器)
-    input  wire [511:0]         data_a,         // 矩阵A数据 (来自共享内存)
-    input  wire [511:0]         data_b,         // 矩阵B数据 (来自共享内存)
-    input  wire [1023:0]        accum_in,       // 累加器输入
-    output reg  [1023:0]        accum_out,      // 累加器输出
+    //  (/)
+    input  wire [511:0]         data_a,         // A ()
+    input  wire [511:0]         data_b,         // B ()
+    input  wire [1023:0]        accum_in,       // 
+    output reg  [1023:0]        accum_out,      // 
 
-    // 状态输出
+    // 
     output reg                  ready,
     output reg                  done,
     output reg  [3:0]           pending_ops
 );
 
     //------------------------------------------------------------------------
-    // 描述符解析 (简化版)
-    // 实际WGMMA描述符包含更多信息:
-    // - 基地址, stride, swizzle模式, 数据类型等
+    //  ()
+    // WGMMA:
+    // - , stride, swizzle, 
     //------------------------------------------------------------------------
     wire [31:0] base_addr_a = desc_a[31:0];
     wire [15:0] stride_a = desc_a[47:32];
@@ -57,7 +57,7 @@ module wgmma #(
     wire [3:0]  layout_b = desc_b[55:52];
 
     //------------------------------------------------------------------------
-    // 数据类型定义
+    // 
     //------------------------------------------------------------------------
     localparam DTYPE_FP16   = 4'b0000;
     localparam DTYPE_BF16   = 4'b0001;
@@ -69,7 +69,7 @@ module wgmma #(
     localparam DTYPE_FP6_E3M2 = 4'b1000;  // 5th-gen Tensor Core (Blackwell)
 
     //------------------------------------------------------------------------
-    // 状态机
+    // 
     //------------------------------------------------------------------------
     localparam ST_IDLE          = 3'd0;
     localparam ST_LOAD_A        = 3'd1;
@@ -83,18 +83,18 @@ module wgmma #(
     reg [3:0] compute_cycle;
 
     //------------------------------------------------------------------------
-    // 挂起操作跟踪
+    // 
     //------------------------------------------------------------------------
     reg [MAX_PENDING_OPS-1:0] op_pending;
     reg [MAX_PENDING_OPS-1:0] op_committed;
     reg [$clog2(MAX_PENDING_OPS)-1:0] op_head, op_tail;
 
     //------------------------------------------------------------------------
-    // 矩阵乘法核心 - Multi-precision support
+    //  - Multi-precision support
     // Supports: FP16, BF16, TF32, FP8 (E4M3/E5M2), FP6 (E3M2), FP4 (E2M1)
     //------------------------------------------------------------------------
 
-    reg [31:0] partial_sum [0:31];  // 32个部分和 (FP32 accumulator)
+    reg [31:0] partial_sum [0:31];  // 32 (FP32 accumulator)
     reg [1023:0] mma_result;
 
     //------------------------------------------------------------------------
@@ -289,9 +289,9 @@ module wgmma #(
     endfunction
 
     //------------------------------------------------------------------------
-    // 主状态机
+    // 
     //------------------------------------------------------------------------
-    integer i;
+    integer i, idx;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -370,111 +370,114 @@ module wgmma #(
                 ST_COMPUTE: begin
                     compute_cycle <= compute_cycle + 1;
 
-                    case (dtype_a)
+                                        case (dtype_a)
                         DTYPE_FP16: begin
-                            for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= fp32_mac(
-                                    fp16_to_fp32(data_a[i*16 +: 16]),
-                                    fp16_to_fp32(data_b[i*16 +: 16]),
-                                    partial_sum[i]
+                            for (i = 0; i < 8; i = i + 1) begin
+                                idx = {compute_cycle[1:0], 3'b0} + i;
+                                partial_sum[idx] <= fp32_mac(
+                                    fp16_to_fp32(data_a[idx*16 +: 16]),
+                                    fp16_to_fp32(data_b[idx*16 +: 16]),
+                                    partial_sum[idx]
                                 );
                             end
                         end
-
                         DTYPE_BF16: begin
-                            for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= fp32_mac(
-                                    bf16_to_fp32(data_a[i*16 +: 16]),
-                                    bf16_to_fp32(data_b[i*16 +: 16]),
-                                    partial_sum[i]
+                            for (i = 0; i < 8; i = i + 1) begin
+                                idx = {compute_cycle[1:0], 3'b0} + i;
+                                partial_sum[idx] <= fp32_mac(
+                                    bf16_to_fp32(data_a[idx*16 +: 16]),
+                                    bf16_to_fp32(data_b[idx*16 +: 16]),
+                                    partial_sum[idx]
                                 );
                             end
                         end
-
                         DTYPE_TF32: begin
-                            for (i = 0; i < 16; i = i + 1) begin
-                                partial_sum[i] <= fp32_mac(
-                                    tf32_to_fp32(data_a[i*32 +: 19]),
-                                    tf32_to_fp32(data_b[i*32 +: 19]),
-                                    partial_sum[i]
-                                );
+                            for (i = 0; i < 4; i = i + 1) begin
+                                idx = {compute_cycle[1:0], 2'b0} + i;
+                                if (idx < 16) begin
+                                    partial_sum[idx] <= fp32_mac(
+                                        tf32_to_fp32(data_a[idx*32 +: 19]),
+                                        tf32_to_fp32(data_b[idx*32 +: 19]),
+                                        partial_sum[idx]
+                                    );
+                                end
                             end
                         end
-
                         DTYPE_FP8_E4: begin
-                            for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= fp32_mac(
-                                    fp8_e4m3_to_fp32(data_a[(i+32)*8 +: 8]),
-                                    fp8_e4m3_to_fp32(data_b[(i+32)*8 +: 8]),
+                            for (i = 0; i < 8; i = i + 1) begin
+                                idx = {compute_cycle[1:0], 3'b0} + i;
+                                partial_sum[idx] <= fp32_mac(
+                                    fp8_e4m3_to_fp32(data_a[(idx+32)*8 +: 8]),
+                                    fp8_e4m3_to_fp32(data_b[(idx+32)*8 +: 8]),
                                     fp32_mac(
-                                        fp8_e4m3_to_fp32(data_a[i*8 +: 8]),
-                                        fp8_e4m3_to_fp32(data_b[i*8 +: 8]),
-                                        partial_sum[i]
+                                        fp8_e4m3_to_fp32(data_a[idx*8 +: 8]),
+                                        fp8_e4m3_to_fp32(data_b[idx*8 +: 8]),
+                                        partial_sum[idx]
                                     )
                                 );
                             end
                         end
-
                         DTYPE_FP8_E5: begin
-                            for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= fp32_mac(
-                                    fp8_e5m2_to_fp32(data_a[(i+32)*8 +: 8]),
-                                    fp8_e5m2_to_fp32(data_b[(i+32)*8 +: 8]),
+                            for (i = 0; i < 8; i = i + 1) begin
+                                idx = {compute_cycle[1:0], 3'b0} + i;
+                                partial_sum[idx] <= fp32_mac(
+                                    fp8_e5m2_to_fp32(data_a[(idx+32)*8 +: 8]),
+                                    fp8_e5m2_to_fp32(data_b[(idx+32)*8 +: 8]),
                                     fp32_mac(
-                                        fp8_e5m2_to_fp32(data_a[i*8 +: 8]),
-                                        fp8_e5m2_to_fp32(data_b[i*8 +: 8]),
-                                        partial_sum[i]
+                                        fp8_e5m2_to_fp32(data_a[idx*8 +: 8]),
+                                        fp8_e5m2_to_fp32(data_b[idx*8 +: 8]),
+                                        partial_sum[idx]
                                     )
                                 );
                             end
                         end
-
                         DTYPE_FP6_E3M2: begin
-                            for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= fp32_mac(
-                                    fp6_e3m2_to_fp32(data_a[i*6 +: 6]),
-                                    fp6_e3m2_to_fp32(data_b[i*6 +: 6]),
-                                    partial_sum[i]
+                            for (i = 0; i < 8; i = i + 1) begin
+                                idx = {compute_cycle[1:0], 3'b0} + i;
+                                partial_sum[idx] <= fp32_mac(
+                                    fp6_e3m2_to_fp32(data_a[idx*6 +: 6]),
+                                    fp6_e3m2_to_fp32(data_b[idx*6 +: 6]),
+                                    partial_sum[idx]
                                 );
                             end
                         end
-
                         DTYPE_FP4: begin
-                            for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= fp32_mac(
-                                    fp4_e2m1_to_fp32(data_a[(i+96)*4 +: 4]),
-                                    fp4_e2m1_to_fp32(data_b[(i+96)*4 +: 4]),
+                            for (i = 0; i < 8; i = i + 1) begin
+                                idx = {compute_cycle[1:0], 3'b0} + i;
+                                partial_sum[idx] <= fp32_mac(
+                                    fp4_e2m1_to_fp32(data_a[(idx+96)*4 +: 4]),
+                                    fp4_e2m1_to_fp32(data_b[(idx+96)*4 +: 4]),
                                     fp32_mac(
-                                        fp4_e2m1_to_fp32(data_a[(i+64)*4 +: 4]),
-                                        fp4_e2m1_to_fp32(data_b[(i+64)*4 +: 4]),
+                                        fp4_e2m1_to_fp32(data_a[(idx+64)*4 +: 4]),
+                                        fp4_e2m1_to_fp32(data_b[(idx+64)*4 +: 4]),
                                         fp32_mac(
-                                            fp4_e2m1_to_fp32(data_a[(i+32)*4 +: 4]),
-                                            fp4_e2m1_to_fp32(data_b[(i+32)*4 +: 4]),
+                                            fp4_e2m1_to_fp32(data_a[(idx+32)*4 +: 4]),
+                                            fp4_e2m1_to_fp32(data_b[(idx+32)*4 +: 4]),
                                             fp32_mac(
-                                                fp4_e2m1_to_fp32(data_a[i*4 +: 4]),
-                                                fp4_e2m1_to_fp32(data_b[i*4 +: 4]),
-                                                partial_sum[i]
+                                                fp4_e2m1_to_fp32(data_a[idx*4 +: 4]),
+                                                fp4_e2m1_to_fp32(data_b[idx*4 +: 4]),
+                                                partial_sum[idx]
                                             )
                                         )
                                     )
                                 );
                             end
                         end
-
                         DTYPE_INT8: begin
-                            for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= partial_sum[i] +
-                                    ($signed({{24{data_a[i*8+7]}}, data_a[i*8 +: 8]}) *
-                                     $signed({{24{data_b[i*8+7]}}, data_b[i*8 +: 8]}));
+                            for (i = 0; i < 8; i = i + 1) begin
+                                idx = {compute_cycle[1:0], 3'b0} + i;
+                                partial_sum[idx] <= partial_sum[idx] +
+                                    (({{24{data_a[idx*8+7]}}, data_a[idx*8 +: 8]}) *
+                                     ({{24{data_b[idx*8+7]}}, data_b[idx*8 +: 8]}));
                             end
                         end
-
                         default: begin
-                            for (i = 0; i < 32; i = i + 1) begin
-                                partial_sum[i] <= fp32_mac(
-                                    fp16_to_fp32(data_a[i*16 +: 16]),
-                                    fp16_to_fp32(data_b[i*16 +: 16]),
-                                    partial_sum[i]
+                            for (i = 0; i < 8; i = i + 1) begin
+                                idx = {compute_cycle[1:0], 3'b0} + i;
+                                partial_sum[idx] <= fp32_mac(
+                                    fp16_to_fp32(data_a[idx*16 +: 16]),
+                                    fp16_to_fp32(data_b[idx*16 +: 16]),
+                                    partial_sum[idx]
                                 );
                             end
                         end
@@ -533,20 +536,20 @@ endmodule
 
 
 //============================================================================
-// WGMMA描述符构建器
-// 用于创建WGMMA操作的矩阵描述符
+// WGMMA
+// WGMMA
 //============================================================================
 module wgmma_descriptor_builder (
-    input  wire [31:0]  base_addr,      // 基地址 (共享内存)
+    input  wire [31:0]  base_addr,      //  ()
     input  wire [15:0]  leading_dim,    // Leading dimension (stride)
-    input  wire [3:0]   data_type,      // 数据类型
-    input  wire [3:0]   layout,         // 布局 (row/col major, swizzle)
-    input  wire [7:0]   start_offset,   // 起始偏移
+    input  wire [3:0]   data_type,      // 
+    input  wire [3:0]   layout,         //  (row/col major, swizzle)
+    input  wire [7:0]   start_offset,   // 
 
-    output wire [63:0]  descriptor      // 64位描述符
+    output wire [63:0]  descriptor      // 64
 );
 
-    // 描述符格式:
+    // :
     // [31:0]   = base_addr
     // [47:32]  = leading_dim
     // [51:48]  = data_type
@@ -565,33 +568,33 @@ endmodule
 
 
 //============================================================================
-// WGMMA累加器管理器
-// 管理warpgroup级别的累加器寄存器
+// WGMMA
+// warpgroup
 //============================================================================
 module wgmma_accumulator #(
-    parameter NUM_ACCUMULATORS = 8,     // 累加器数量
-    parameter ACCUM_WIDTH = 1024        // 每个累加器宽度 (bits)
+    parameter NUM_ACCUMULATORS = 8,     // 
+    parameter ACCUM_WIDTH = 1024        //  (bits)
 )(
     input  wire                         clk,
     input  wire                         rst_n,
 
-    // 读接口
+    // 
     input  wire [$clog2(NUM_ACCUMULATORS)-1:0] read_idx,
     output wire [ACCUM_WIDTH-1:0]       read_data,
 
-    // 写接口
+    // 
     input  wire                         write_en,
     input  wire [$clog2(NUM_ACCUMULATORS)-1:0] write_idx,
     input  wire [ACCUM_WIDTH-1:0]       write_data,
 
-    // 清零接口
+    // 
     input  wire                         clear_en,
     input  wire [$clog2(NUM_ACCUMULATORS)-1:0] clear_idx
 );
 
     reg [ACCUM_WIDTH-1:0] accumulators [0:NUM_ACCUMULATORS-1];
 
-    integer i;
+    integer i, idx;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -613,8 +616,8 @@ endmodule
 
 
 //============================================================================
-// FP8矩阵乘法单元 (用于WGMMA)
-// 支持E4M3和E5M2格式
+// FP8 (WGMMA)
+// E4M3E5M2
 //============================================================================
 module fp8_mma_unit #(
     parameter M = 16,
@@ -625,22 +628,22 @@ module fp8_mma_unit #(
     input  wire                 rst_n,
 
     input  wire                 valid_in,
-    input  wire [M*K*8-1:0]     matrix_a,       // FP8 矩阵A [M][K]
-    input  wire [K*N*8-1:0]     matrix_b,       // FP8 矩阵B [K][N]
-    input  wire [M*N*32-1:0]    matrix_c,       // FP32 累加器 [M][N]
+    input  wire [M*K*8-1:0]     matrix_a,       // FP8 A [M][K]
+    input  wire [K*N*8-1:0]     matrix_b,       // FP8 B [K][N]
+    input  wire [M*N*32-1:0]    matrix_c,       // FP32  [M][N]
     input  wire                 is_e4m3,        // 1=E4M3, 0=E5M2
 
-    output reg  [M*N*32-1:0]    matrix_d,       // FP32 输出 [M][N]
+    output reg  [M*N*32-1:0]    matrix_d,       // FP32  [M][N]
     output reg                  valid_out
 );
 
-    // FP8 E4M3: 1位符号, 4位指数, 3位尾数
-    // FP8 E5M2: 1位符号, 5位指数, 2位尾数
+    // FP8 E4M3: 1, 4, 3
+    // FP8 E5M2: 1, 5, 2
 
-    // 简化实现: 转换为FP32后计算
+    // : FP32
     integer m, n, k;
 
-    // FP8 -> FP32 转换函数
+    // FP8 -> FP32 
     function [31:0] fp8_e4m3_to_fp32;
         input [7:0] fp8;
         reg sign;
@@ -658,7 +661,7 @@ module fp8_mma_unit #(
             end else if (exp8 == 4'hF) begin
                 fp8_e4m3_to_fp32 = {sign, 8'hFF, 23'h0};  // Inf/NaN
             end else begin
-                // bias调整: E4M3 bias=7, FP32 bias=127
+                // bias: E4M3 bias=7, FP32 bias=127
                 exp32 = {4'b0, exp8} + 8'd120;  // 127 - 7
                 man32 = {man8, 20'b0};
                 fp8_e4m3_to_fp32 = {sign, exp32, man32};
@@ -683,7 +686,7 @@ module fp8_mma_unit #(
             end else if (exp8 == 5'h1F) begin
                 fp8_e5m2_to_fp32 = {sign, 8'hFF, 23'h0};
             end else begin
-                // bias调整: E5M2 bias=15, FP32 bias=127
+                // bias: E5M2 bias=15, FP32 bias=127
                 exp32 = {3'b0, exp8} + 8'd112;  // 127 - 15
                 man32 = {man8, 21'b0};
                 fp8_e5m2_to_fp32 = {sign, exp32, man32};
@@ -691,7 +694,7 @@ module fp8_mma_unit #(
         end
     endfunction
 
-    // 计算矩阵乘法 (组合逻辑 - 实际需要流水线)
+    //  ( - )
     reg [31:0] temp_sum;
     reg [31:0] a_fp32, b_fp32;
 
@@ -701,7 +704,7 @@ module fp8_mma_unit #(
             matrix_d <= 0;
             valid_out <= 1'b0;
         end else if (valid_in) begin
-            // 简化: 实际需要多周期流水线计算
+            // : 
             for (m = 0; m < M; m = m + 1) begin
                 for (n = 0; n < N; n = n + 1) begin
                     temp_sum = matrix_c[(m*N + n)*32 +: 32];
@@ -713,7 +716,7 @@ module fp8_mma_unit #(
                             a_fp32 = fp8_e5m2_to_fp32(matrix_a[(m*K + k)*8 +: 8]);
                             b_fp32 = fp8_e5m2_to_fp32(matrix_b[(k*N + n)*8 +: 8]);
                         end
-                        // 简化乘累加 (实际需要FP32 MAC单元)
+                        //  (FP32 MAC)
                         temp_sum = temp_sum + (a_fp32[22:0] * b_fp32[22:0]);
                     end
                     matrix_d[(m*N + n)*32 +: 32] <= temp_sum;
@@ -730,8 +733,8 @@ endmodule
 
 
 //============================================================================
-// FP6 E3M2 矩阵乘法单元 (用于WGMMA - 5th-gen Tensor Core)
-// 支持E3M2格式: 1-bit sign, 3-bit exponent (bias=3), 2-bit mantissa
+// FP6 E3M2  (WGMMA - 5th-gen Tensor Core)
+// E3M2: 1-bit sign, 3-bit exponent (bias=3), 2-bit mantissa
 // Range: ~0.0625 to 7.5 - suitable for LLM weight quantization
 //============================================================================
 module fp6_mma_unit #(
@@ -743,20 +746,20 @@ module fp6_mma_unit #(
     input  wire                 rst_n,
 
     input  wire                 valid_in,
-    input  wire [M*K*6-1:0]     matrix_a,       // FP6 矩阵A [M][K] (packed 6-bit)
-    input  wire [K*N*6-1:0]     matrix_b,       // FP6 矩阵B [K][N] (packed 6-bit)
-    input  wire [M*N*32-1:0]    matrix_c,       // FP32 累加器 [M][N]
+    input  wire [M*K*6-1:0]     matrix_a,       // FP6 A [M][K] (packed 6-bit)
+    input  wire [K*N*6-1:0]     matrix_b,       // FP6 B [K][N] (packed 6-bit)
+    input  wire [M*N*32-1:0]    matrix_c,       // FP32  [M][N]
 
-    output reg  [M*N*32-1:0]    matrix_d,       // FP32 输出 [M][N]
+    output reg  [M*N*32-1:0]    matrix_d,       // FP32  [M][N]
     output reg                  valid_out
 );
 
-    // FP6 E3M2: 1位符号, 3位指数 (bias=3), 2位尾数
+    // FP6 E3M2: 1, 3 (bias=3), 2
     // Range: 2^(-2) * 1.00 to 2^3 * 1.75 = 0.25 to 7.5
 
     integer m, n, k;
 
-    // FP6 E3M2 -> FP32 转换函数
+    // FP6 E3M2 -> FP32 
     function [31:0] fp6_e3m2_to_fp32;
         input [5:0] fp6;
         reg sign;
@@ -794,7 +797,7 @@ module fp6_mma_unit #(
         end
     endfunction
 
-    // 计算矩阵乘法 (组合逻辑 - 实际需要流水线)
+    //  ( - )
     reg [31:0] temp_sum;
     reg [31:0] a_fp32, b_fp32;
 
@@ -804,14 +807,14 @@ module fp6_mma_unit #(
             matrix_d <= 0;
             valid_out <= 1'b0;
         end else if (valid_in) begin
-            // 简化: 实际需要多周期流水线计算
+            // : 
             for (m = 0; m < M; m = m + 1) begin
                 for (n = 0; n < N; n = n + 1) begin
                     temp_sum = matrix_c[(m*N + n)*32 +: 32];
                     for (k = 0; k < K; k = k + 1) begin
                         a_fp32 = fp6_e3m2_to_fp32(matrix_a[(m*K + k)*6 +: 6]);
                         b_fp32 = fp6_e3m2_to_fp32(matrix_b[(k*N + n)*6 +: 6]);
-                        // 简化乘累加 (实际需要FP32 MAC单元)
+                        //  (FP32 MAC)
                         temp_sum = temp_sum + (a_fp32[22:0] * b_fp32[22:0]);
                     end
                     matrix_d[(m*N + n)*32 +: 32] <= temp_sum;
