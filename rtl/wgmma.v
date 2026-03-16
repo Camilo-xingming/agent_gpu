@@ -1,3 +1,33 @@
+title:	fix(rtl): wire SM L1 misses into shared L2
+state:	OPEN
+author:	ssql2014
+labels:	stage/review
+assignees:	
+reviewers:	
+projects:	
+milestone:	
+number:	615
+url:	https://github.com/ssql2014/RalphGPU/pull/615
+additions:	236
+deletions:	411
+auto-merge:	disabled
+--
+Closes #588
+
+## Summary
+- route SM L1 miss traffic through the shared top-level L2 path
+- connect top-level L2 aggregation to the SM external-L2 interface
+- keep the recovery surface limited to `rtl/ralph_gpu_top.v` and `rtl/streaming_multiprocessor_v2.v`
+
+## Validation
+- `make lint VERILATOR=verilator`
+- `make test_l2_cache`
+- `make test_ralph_gpu_top_smoke`
+- `make test_gpu_top_integration`
+
+## Notes
+- supersedes stale PR #613, whose live head `e429e65` is `ci.yml`-only
+
 //============================================================================
 // RalphGPU - WGMMA (Warpgroup Matrix Multiply-Accumulate)
 // HopperTensor Core
@@ -603,22 +633,22 @@ module fp8_mma_unit #(
     input  wire                 rst_n,
 
     input  wire                 valid_in,
-    input  wire [M*K*8-1:0]     matrix_a,       // FP8 A [M][K]
-    input  wire [K*N*8-1:0]     matrix_b,       // FP8 B [K][N]
-    input  wire [M*N*32-1:0]    matrix_c,       // FP32  [M][N]
+    input  wire [M*K*8-1:0]     matrix_a,       // FP8 矩阵A [M][K]
+    input  wire [K*N*8-1:0]     matrix_b,       // FP8 矩阵B [K][N]
+    input  wire [M*N*32-1:0]    matrix_c,       // FP32 累加器 [M][N]
     input  wire                 is_e4m3,        // 1=E4M3, 0=E5M2
 
-    output reg  [M*N*32-1:0]    matrix_d,       // FP32  [M][N]
+    output reg  [M*N*32-1:0]    matrix_d,       // FP32 输出 [M][N]
     output reg                  valid_out
 );
 
-    // FP8 E4M3: 1, 4, 3
-    // FP8 E5M2: 1, 5, 2
+    // FP8 E4M3: 1位符号, 4位指数, 3位尾数
+    // FP8 E5M2: 1位符号, 5位指数, 2位尾数
 
-    // : FP32
+    // 简化实现: 转换为FP32后计算
     integer m, n, k;
 
-    // FP8 -> FP32 
+    // FP8 -> FP32 转换函数
     function [31:0] fp8_e4m3_to_fp32;
         input [7:0] fp8;
         reg sign;
@@ -636,7 +666,7 @@ module fp8_mma_unit #(
             end else if (exp8 == 4'hF) begin
                 fp8_e4m3_to_fp32 = {sign, 8'hFF, 23'h0};  // Inf/NaN
             end else begin
-                // bias: E4M3 bias=7, FP32 bias=127
+                // bias调整: E4M3 bias=7, FP32 bias=127
                 exp32 = {4'b0, exp8} + 8'd120;  // 127 - 7
                 man32 = {man8, 20'b0};
                 fp8_e4m3_to_fp32 = {sign, exp32, man32};
@@ -661,7 +691,7 @@ module fp8_mma_unit #(
             end else if (exp8 == 5'h1F) begin
                 fp8_e5m2_to_fp32 = {sign, 8'hFF, 23'h0};
             end else begin
-                // bias: E5M2 bias=15, FP32 bias=127
+                // bias调整: E5M2 bias=15, FP32 bias=127
                 exp32 = {3'b0, exp8} + 8'd112;  // 127 - 15
                 man32 = {man8, 21'b0};
                 fp8_e5m2_to_fp32 = {sign, exp32, man32};
@@ -669,11 +699,40 @@ module fp8_mma_unit #(
         end
     endfunction
 
-    //  ( - )
+    // 计算矩阵乘法 (组合逻辑 - 实际需要流水线)
     reg [31:0] temp_sum;
     reg [31:0] a_fp32, b_fp32;
 
-    /* small body */
+    /* verilator lint_off BLKSEQ */
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            matrix_d <= 0;
+            valid_out <= 1'b0;
+        end else if (valid_in) begin
+            // 简化: 实际需要多周期流水线计算
+            for (m = 0; m < M; m = m + 1) begin
+                for (n = 0; n < N; n = n + 1) begin
+                    temp_sum = matrix_c[(m*N + n)*32 +: 32];
+                    for (k = 0; k < K; k = k + 1) begin
+                        if (is_e4m3) begin
+                            a_fp32 = fp8_e4m3_to_fp32(matrix_a[(m*K + k)*8 +: 8]);
+                            b_fp32 = fp8_e4m3_to_fp32(matrix_b[(k*N + n)*8 +: 8]);
+                        end else begin
+                            a_fp32 = fp8_e5m2_to_fp32(matrix_a[(m*K + k)*8 +: 8]);
+                            b_fp32 = fp8_e5m2_to_fp32(matrix_b[(k*N + n)*8 +: 8]);
+                        end
+                        // 简化乘累加 (实际需要FP32 MAC单元)
+                        temp_sum = temp_sum + (a_fp32[22:0] * b_fp32[22:0]);
+                    end
+                    matrix_d[(m*N + n)*32 +: 32] <= temp_sum;
+                end
+            end
+            valid_out <= 1'b1;
+        end else begin
+            valid_out <= 1'b0;
+        end
+    end
+    /* verilator lint_on BLKSEQ */
 
 endmodule
 
@@ -692,20 +751,20 @@ module fp6_mma_unit #(
     input  wire                 rst_n,
 
     input  wire                 valid_in,
-    input  wire [M*K*6-1:0]     matrix_a,       // FP6 A [M][K] (packed 6-bit)
-    input  wire [K*N*6-1:0]     matrix_b,       // FP6 B [K][N] (packed 6-bit)
-    input  wire [M*N*32-1:0]    matrix_c,       // FP32  [M][N]
+    input  wire [M*K*6-1:0]     matrix_a,       // FP6 矩阵A [M][K] (packed 6-bit)
+    input  wire [K*N*6-1:0]     matrix_b,       // FP6 矩阵B [K][N] (packed 6-bit)
+    input  wire [M*N*32-1:0]    matrix_c,       // FP32 累加器 [M][N]
 
-    output reg  [M*N*32-1:0]    matrix_d,       // FP32  [M][N]
+    output reg  [M*N*32-1:0]    matrix_d,       // FP32 输出 [M][N]
     output reg                  valid_out
 );
 
-    // FP6 E3M2: 1, 3 (bias=3), 2
+    // FP6 E3M2: 1位符号, 3位指数 (bias=3), 2位尾数
     // Range: 2^(-2) * 1.00 to 2^3 * 1.75 = 0.25 to 7.5
 
     integer m, n, k;
 
-    // FP6 E3M2 -> FP32 
+    // FP6 E3M2 -> FP32 转换函数
     function [31:0] fp6_e3m2_to_fp32;
         input [5:0] fp6;
         reg sign;
@@ -743,10 +802,34 @@ module fp6_mma_unit #(
         end
     endfunction
 
-    //  ( - )
+    // 计算矩阵乘法 (组合逻辑 - 实际需要流水线)
     reg [31:0] temp_sum;
     reg [31:0] a_fp32, b_fp32;
 
-    /* small body */
+    /* verilator lint_off BLKSEQ */
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            matrix_d <= 0;
+            valid_out <= 1'b0;
+        end else if (valid_in) begin
+            // 简化: 实际需要多周期流水线计算
+            for (m = 0; m < M; m = m + 1) begin
+                for (n = 0; n < N; n = n + 1) begin
+                    temp_sum = matrix_c[(m*N + n)*32 +: 32];
+                    for (k = 0; k < K; k = k + 1) begin
+                        a_fp32 = fp6_e3m2_to_fp32(matrix_a[(m*K + k)*6 +: 6]);
+                        b_fp32 = fp6_e3m2_to_fp32(matrix_b[(k*N + n)*6 +: 6]);
+                        // 简化乘累加 (实际需要FP32 MAC单元)
+                        temp_sum = temp_sum + (a_fp32[22:0] * b_fp32[22:0]);
+                    end
+                    matrix_d[(m*N + n)*32 +: 32] <= temp_sum;
+                end
+            end
+            valid_out <= 1'b1;
+        end else begin
+            valid_out <= 1'b0;
+        end
+    end
+    /* verilator lint_on BLKSEQ */
 
 endmodule
