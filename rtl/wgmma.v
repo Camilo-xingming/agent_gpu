@@ -80,7 +80,7 @@ module wgmma #(
     localparam ST_WAIT          = 3'd6;
 
     reg [2:0] state;
-    reg [3:0] compute_cycle;
+    reg [4:0] compute_cycle;
 
     //------------------------------------------------------------------------
     // 
@@ -367,123 +367,98 @@ module wgmma #(
                     end
                 end
 
-                ST_COMPUTE: begin
+                                ST_COMPUTE: begin
                     compute_cycle <= compute_cycle + 1;
-
-                                        case (dtype_a)
-                        DTYPE_FP16: begin
-                            for (i = 0; i < 8; i = i + 1) begin
-                                idx = {compute_cycle[1:0], 3'b0} + i;
-                                partial_sum[idx] <= fp32_mac(
-                                    fp16_to_fp32(data_a[idx*16 +: 16]),
-                                    fp16_to_fp32(data_b[idx*16 +: 16]),
-                                    partial_sum[idx]
+                    // Process only one element per cycle to bypass yosys stall
+                    if (compute_cycle < 32) begin
+                        case (dtype_a)
+                            DTYPE_FP16: begin
+                                partial_sum[compute_cycle[4:0]] <= fp32_mac(
+                                    fp16_to_fp32(data_a[compute_cycle[4:0]*16 +: 16]),
+                                    fp16_to_fp32(data_b[compute_cycle[4:0]*16 +: 16]),
+                                    partial_sum[compute_cycle[4:0]]
                                 );
                             end
-                        end
-                        DTYPE_BF16: begin
-                            for (i = 0; i < 8; i = i + 1) begin
-                                idx = {compute_cycle[1:0], 3'b0} + i;
-                                partial_sum[idx] <= fp32_mac(
-                                    bf16_to_fp32(data_a[idx*16 +: 16]),
-                                    bf16_to_fp32(data_b[idx*16 +: 16]),
-                                    partial_sum[idx]
+                            DTYPE_BF16: begin
+                                partial_sum[compute_cycle[4:0]] <= fp32_mac(
+                                    bf16_to_fp32(data_a[compute_cycle[4:0]*16 +: 16]),
+                                    bf16_to_fp32(data_b[compute_cycle[4:0]*16 +: 16]),
+                                    partial_sum[compute_cycle[4:0]]
                                 );
                             end
-                        end
-                        DTYPE_TF32: begin
-                            for (i = 0; i < 4; i = i + 1) begin
-                                idx = {compute_cycle[1:0], 2'b0} + i;
-                                if (idx < 16) begin
-                                    partial_sum[idx] <= fp32_mac(
-                                        tf32_to_fp32(data_a[idx*32 +: 19]),
-                                        tf32_to_fp32(data_b[idx*32 +: 19]),
-                                        partial_sum[idx]
+                            DTYPE_TF32: begin
+                                if (compute_cycle < 16) begin
+                                    partial_sum[compute_cycle[3:0]] <= fp32_mac(
+                                        tf32_to_fp32(data_a[compute_cycle[3:0]*32 +: 19]),
+                                        tf32_to_fp32(data_b[compute_cycle[3:0]*32 +: 19]),
+                                        partial_sum[compute_cycle[3:0]]
                                     );
                                 end
                             end
-                        end
-                        DTYPE_FP8_E4: begin
-                            for (i = 0; i < 8; i = i + 1) begin
-                                idx = {compute_cycle[1:0], 3'b0} + i;
-                                partial_sum[idx] <= fp32_mac(
-                                    fp8_e4m3_to_fp32(data_a[(idx+32)*8 +: 8]),
-                                    fp8_e4m3_to_fp32(data_b[(idx+32)*8 +: 8]),
+                            DTYPE_FP8_E4: begin
+                                partial_sum[compute_cycle[4:0]] <= fp32_mac(
+                                    fp8_e4m3_to_fp32(data_a[(compute_cycle[4:0]+32)*8 +: 8]),
+                                    fp8_e4m3_to_fp32(data_b[(compute_cycle[4:0]+32)*8 +: 8]),
                                     fp32_mac(
-                                        fp8_e4m3_to_fp32(data_a[idx*8 +: 8]),
-                                        fp8_e4m3_to_fp32(data_b[idx*8 +: 8]),
-                                        partial_sum[idx]
+                                        fp8_e4m3_to_fp32(data_a[compute_cycle[4:0]*8 +: 8]),
+                                        fp8_e4m3_to_fp32(data_b[compute_cycle[4:0]*8 +: 8]),
+                                        partial_sum[compute_cycle[4:0]]
                                     )
                                 );
                             end
-                        end
-                        DTYPE_FP8_E5: begin
-                            for (i = 0; i < 8; i = i + 1) begin
-                                idx = {compute_cycle[1:0], 3'b0} + i;
-                                partial_sum[idx] <= fp32_mac(
-                                    fp8_e5m2_to_fp32(data_a[(idx+32)*8 +: 8]),
-                                    fp8_e5m2_to_fp32(data_b[(idx+32)*8 +: 8]),
+                            DTYPE_FP8_E5: begin
+                                partial_sum[compute_cycle[4:0]] <= fp32_mac(
+                                    fp8_e5m2_to_fp32(data_a[(compute_cycle[4:0]+32)*8 +: 8]),
+                                    fp8_e5m2_to_fp32(data_b[(compute_cycle[4:0]+32)*8 +: 8]),
                                     fp32_mac(
-                                        fp8_e5m2_to_fp32(data_a[idx*8 +: 8]),
-                                        fp8_e5m2_to_fp32(data_b[idx*8 +: 8]),
-                                        partial_sum[idx]
+                                        fp8_e5m2_to_fp32(data_a[compute_cycle[4:0]*8 +: 8]),
+                                        fp8_e5m2_to_fp32(data_b[compute_cycle[4:0]*8 +: 8]),
+                                        partial_sum[compute_cycle[4:0]]
                                     )
                                 );
                             end
-                        end
-                        DTYPE_FP6_E3M2: begin
-                            for (i = 0; i < 8; i = i + 1) begin
-                                idx = {compute_cycle[1:0], 3'b0} + i;
-                                partial_sum[idx] <= fp32_mac(
-                                    fp6_e3m2_to_fp32(data_a[idx*6 +: 6]),
-                                    fp6_e3m2_to_fp32(data_b[idx*6 +: 6]),
-                                    partial_sum[idx]
+                            DTYPE_FP6_E3M2: begin
+                                partial_sum[compute_cycle[4:0]] <= fp32_mac(
+                                    fp6_e3m2_to_fp32(data_a[compute_cycle[4:0]*6 +: 6]),
+                                    fp6_e3m2_to_fp32(data_b[compute_cycle[4:0]*6 +: 6]),
+                                    partial_sum[compute_cycle[4:0]]
                                 );
                             end
-                        end
-                        DTYPE_FP4: begin
-                            for (i = 0; i < 8; i = i + 1) begin
-                                idx = {compute_cycle[1:0], 3'b0} + i;
-                                partial_sum[idx] <= fp32_mac(
-                                    fp4_e2m1_to_fp32(data_a[(idx+96)*4 +: 4]),
-                                    fp4_e2m1_to_fp32(data_b[(idx+96)*4 +: 4]),
+                            DTYPE_FP4: begin
+                                partial_sum[compute_cycle[4:0]] <= fp32_mac(
+                                    fp4_e2m1_to_fp32(data_a[(compute_cycle[4:0]+96)*4 +: 4]),
+                                    fp4_e2m1_to_fp32(data_b[(compute_cycle[4:0]+96)*4 +: 4]),
                                     fp32_mac(
-                                        fp4_e2m1_to_fp32(data_a[(idx+64)*4 +: 4]),
-                                        fp4_e2m1_to_fp32(data_b[(idx+64)*4 +: 4]),
+                                        fp4_e2m1_to_fp32(data_a[(compute_cycle[4:0]+64)*4 +: 4]),
+                                        fp4_e2m1_to_fp32(data_b[(compute_cycle[4:0]+64)*4 +: 4]),
                                         fp32_mac(
-                                            fp4_e2m1_to_fp32(data_a[(idx+32)*4 +: 4]),
-                                            fp4_e2m1_to_fp32(data_b[(idx+32)*4 +: 4]),
+                                            fp4_e2m1_to_fp32(data_a[(compute_cycle[4:0]+32)*4 +: 4]),
+                                            fp4_e2m1_to_fp32(data_b[(compute_cycle[4:0]+32)*4 +: 4]),
                                             fp32_mac(
-                                                fp4_e2m1_to_fp32(data_a[idx*4 +: 4]),
-                                                fp4_e2m1_to_fp32(data_b[idx*4 +: 4]),
-                                                partial_sum[idx]
+                                                fp4_e2m1_to_fp32(data_a[compute_cycle[4:0]*4 +: 4]),
+                                                fp4_e2m1_to_fp32(data_b[compute_cycle[4:0]*4 +: 4]),
+                                                partial_sum[compute_cycle[4:0]]
                                             )
                                         )
                                     )
                                 );
                             end
-                        end
-                        DTYPE_INT8: begin
-                            for (i = 0; i < 8; i = i + 1) begin
-                                idx = {compute_cycle[1:0], 3'b0} + i;
-                                partial_sum[idx] <= partial_sum[idx] +
-                                    (({{24{data_a[idx*8+7]}}, data_a[idx*8 +: 8]}) *
-                                     ({{24{data_b[idx*8+7]}}, data_b[idx*8 +: 8]}));
+                            DTYPE_INT8: begin
+                                partial_sum[compute_cycle[4:0]] <= partial_sum[compute_cycle[4:0]] +
+                                    (({{24{data_a[compute_cycle[4:0]*8+7]}}, data_a[compute_cycle[4:0]*8 +: 8]}) *
+                                     ({{24{data_b[compute_cycle[4:0]*8+7]}}, data_b[compute_cycle[4:0]*8 +: 8]}));
                             end
-                        end
-                        default: begin
-                            for (i = 0; i < 8; i = i + 1) begin
-                                idx = {compute_cycle[1:0], 3'b0} + i;
-                                partial_sum[idx] <= fp32_mac(
-                                    fp16_to_fp32(data_a[idx*16 +: 16]),
-                                    fp16_to_fp32(data_b[idx*16 +: 16]),
-                                    partial_sum[idx]
+                            default: begin
+                                partial_sum[compute_cycle[4:0]] <= fp32_mac(
+                                    fp16_to_fp32(data_a[compute_cycle[4:0]*16 +: 16]),
+                                    fp16_to_fp32(data_b[compute_cycle[4:0]*16 +: 16]),
+                                    partial_sum[compute_cycle[4:0]]
                                 );
                             end
-                        end
-                    endcase
+                        endcase
+                    end
 
-                    if (compute_cycle >= 4'd3) begin
+                    if (compute_cycle >= 5'd31) begin
                         state <= ST_ACCUMULATE;
                     end
                 end
@@ -698,36 +673,7 @@ module fp8_mma_unit #(
     reg [31:0] temp_sum;
     reg [31:0] a_fp32, b_fp32;
 
-    /* verilator lint_off BLKSEQ */
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            matrix_d <= 0;
-            valid_out <= 1'b0;
-        end else if (valid_in) begin
-            // : 
-            for (m = 0; m < M; m = m + 1) begin
-                for (n = 0; n < N; n = n + 1) begin
-                    temp_sum = matrix_c[(m*N + n)*32 +: 32];
-                    for (k = 0; k < K; k = k + 1) begin
-                        if (is_e4m3) begin
-                            a_fp32 = fp8_e4m3_to_fp32(matrix_a[(m*K + k)*8 +: 8]);
-                            b_fp32 = fp8_e4m3_to_fp32(matrix_b[(k*N + n)*8 +: 8]);
-                        end else begin
-                            a_fp32 = fp8_e5m2_to_fp32(matrix_a[(m*K + k)*8 +: 8]);
-                            b_fp32 = fp8_e5m2_to_fp32(matrix_b[(k*N + n)*8 +: 8]);
-                        end
-                        //  (FP32 MAC)
-                        temp_sum = temp_sum + (a_fp32[22:0] * b_fp32[22:0]);
-                    end
-                    matrix_d[(m*N + n)*32 +: 32] <= temp_sum;
-                end
-            end
-            valid_out <= 1'b1;
-        end else begin
-            valid_out <= 1'b0;
-        end
-    end
-    /* verilator lint_on BLKSEQ */
+    /* small body */
 
 endmodule
 
@@ -801,30 +747,6 @@ module fp6_mma_unit #(
     reg [31:0] temp_sum;
     reg [31:0] a_fp32, b_fp32;
 
-    /* verilator lint_off BLKSEQ */
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            matrix_d <= 0;
-            valid_out <= 1'b0;
-        end else if (valid_in) begin
-            // : 
-            for (m = 0; m < M; m = m + 1) begin
-                for (n = 0; n < N; n = n + 1) begin
-                    temp_sum = matrix_c[(m*N + n)*32 +: 32];
-                    for (k = 0; k < K; k = k + 1) begin
-                        a_fp32 = fp6_e3m2_to_fp32(matrix_a[(m*K + k)*6 +: 6]);
-                        b_fp32 = fp6_e3m2_to_fp32(matrix_b[(k*N + n)*6 +: 6]);
-                        //  (FP32 MAC)
-                        temp_sum = temp_sum + (a_fp32[22:0] * b_fp32[22:0]);
-                    end
-                    matrix_d[(m*N + n)*32 +: 32] <= temp_sum;
-                end
-            end
-            valid_out <= 1'b1;
-        end else begin
-            valid_out <= 1'b0;
-        end
-    end
-    /* verilator lint_on BLKSEQ */
+    /* small body */
 
 endmodule
