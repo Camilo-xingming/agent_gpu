@@ -199,7 +199,7 @@ module streaming_multiprocessor_v2 #(
         input [SIMD_WIDTH-1:0] addr_vec;
         input [NUM_LANES-1:0] lane_mask;
         input is_shared;
-        integer lane_idx;
+
         reg [31:0] lane_addr;
         begin
             has_addr_oob = 1'b0;
@@ -219,7 +219,7 @@ module streaming_multiprocessor_v2 #(
     function has_div_zero;
         input [SIMD_WIDTH-1:0] divisor_vec;
         input [NUM_LANES-1:0] lane_mask;
-        integer lane_idx;
+
         begin
             has_div_zero = 1'b0;
             for (lane_idx = 0; lane_idx < NUM_LANES; lane_idx = lane_idx + 1) begin
@@ -1207,8 +1207,11 @@ module streaming_multiprocessor_v2 #(
 
     `ifdef SIMULATION
     always @(posedge clk) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (rst_n && issue_fu_conflict)
-            $display("[SM%0d] FU CONFLICT at %0t: slot0_warp=%0d slot1_warp=%0d slot1_rd=R%0d — slot1 dropped, scoreboard rolled back",
+            $display("[SM%0d] FU CONFLICT at %0t: slot0_warp=%0d slot1_warp=%0d slot1_rd=R%0d — slot1 dropped, scoreboard rolled back", // keep
                      SM_ID, $time, issue_warp_id, issue1_warp_id, issue1_rd);
     end
     `endif
@@ -1249,7 +1252,7 @@ module streaming_multiprocessor_v2 #(
     // Per-warp tracking: which warps issued / are stalled / diverged this cycle
     function [$clog2(NUM_WARPS+1)-1:0] count_warp_bits;
         input [NUM_WARPS-1:0] warp_bits;
-        integer bit_i;
+
         begin
             count_warp_bits = {($clog2(NUM_WARPS+1)){1'b0}};
             for (bit_i = 0; bit_i < NUM_WARPS; bit_i = bit_i + 1) begin
@@ -1329,14 +1332,13 @@ module streaming_multiprocessor_v2 #(
     // First active lane's store address for cache invalidation
     reg [31:0] l1d_store_inv_addr;
     always @(*) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         l1d_store_inv_addr = 32'b0;
-        begin : find_store_lane
-            integer si;
-            for (si = 0; si < NUM_LANES; si = si + 1) begin
-                if (issue_mask[si]) begin
-                    l1d_store_inv_addr = rf_rd_data_a[si*32 +: 32];
-                    disable find_store_lane;
-                end
+        for (idx_si = NUM_LANES-1; idx_si >= 0; idx_si = idx_si - 1) begin
+            if (issue_mask[idx_si]) begin
+                l1d_store_inv_addr = rf_rd_data_a[idx_si*32 +: 32];
             end
         end
     end
@@ -1633,10 +1635,12 @@ module streaming_multiprocessor_v2 #(
     reg [WARP_ID_W-1:0] greedy_warp;
     reg oldest_found, greedy_found;
 
-    integer wi, age_i;
 
     // Age tracking for GTO policy
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             warp_recently_issued <= 0;
             for (age_i = 0; age_i < NUM_WARPS; age_i = age_i + 1) begin
@@ -1680,6 +1684,9 @@ module streaming_multiprocessor_v2 #(
 
     // GTO warp selection
     always @(*) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         warp_selected = 1'b0;
         selected_warp = 0;
         oldest_ready_warp = 0;
@@ -1822,9 +1829,12 @@ module streaming_multiprocessor_v2 #(
 
     // Apply fetch pipeline PC advance requests
     // warp_fetch_pc is also written by branch/kernel_start logic in execute stage
-    integer fetch_pc_i;
+
     /* verilator lint_off MULTIDRIVEN */
     always @(posedge clk) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (rst_n && !kernel_start) begin
             for (fetch_pc_i = 0; fetch_pc_i < NUM_WARPS; fetch_pc_i = fetch_pc_i + 1) begin
                 if (fetch_pc_advance[fetch_pc_i] || nib_pc_advance[fetch_pc_i])
@@ -1958,10 +1968,13 @@ module streaming_multiprocessor_v2 #(
     reg [2:0] mem_pipe_inflight;  // Count of memory ops in scheduler->mem pipeline
     reg [3:0] mem_pipe_idle_cycles;  // Idle cycles while inflight remains non-zero
     reg sched_issues_memory;
-    integer mem_issue_i;
+
     wire mem_response_complete = gmem_load_resp_valid || gmem_resp_valid || smem_resp_valid;
 
     always @(*) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         sched_issues_memory = 1'b0;
         for (mem_issue_i = 0; mem_issue_i < SCHED_LANES; mem_issue_i = mem_issue_i + 1) begin
             if (sched_issue_valid_mask[mem_issue_i] && (sched_issue_pipe[mem_issue_i] == 3'd3)) begin
@@ -1971,6 +1984,9 @@ module streaming_multiprocessor_v2 #(
     end
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             mem_pipe_inflight <= 3'd0;
             mem_pipe_idle_cycles <= 4'd0;
@@ -2267,6 +2283,9 @@ module streaming_multiprocessor_v2 #(
     // effectively merging Decode/Issue stages into one logical flow handled by scheduler+decoder
     // Note: This overrides the previous 'dec0_warp_id <= ifq_warp_head' logic
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             dec0_valid <= 0;
             dec1_valid <= 0;
@@ -2543,8 +2562,11 @@ module streaming_multiprocessor_v2 #(
     //========================================================================
     // STAGE 3: ISSUE (Scoreboard Check + Register Read)
     //========================================================================
-    integer sb_init;
+
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             issue_valid <= 1'b0;
             issue1_valid <= 1'b0;
@@ -2637,7 +2659,7 @@ module streaming_multiprocessor_v2 #(
             issue_valid <= dec_valid && !decode_stalled && !branch_flush_dec0;
             // DEBUG: periodic warp scheduling state
             if ($time < 10000000 && $time % 100000 == 0) begin
-                if(0) $display("[%0t SM%0d DEBUG] warp_valid=%04b warp_ready=%04b inst_buf_valid=%04b inst_valid_d1=%04b decode_stalled=%b",
+                if(0) $display("[%0t SM%0d DEBUG] warp_valid=%04b warp_ready=%04b inst_buf_valid=%04b inst_valid_d1=%04b decode_stalled=%b", // keep
                          $time, SM_ID, warp_valid, warp_ready, warp_inst_buf_valid, warp_inst_valid_d1, decode_stalled);
             end
 
@@ -2755,6 +2777,9 @@ module streaming_multiprocessor_v2 #(
     wire all_at_barrier = (&(warp_stalled_sync | ~warp_valid)) && barrier_pending;
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             // Initialize scoreboards
             for (sb_init = 0; sb_init < NUM_WARPS; sb_init = sb_init + 1) begin
@@ -2843,6 +2868,9 @@ module streaming_multiprocessor_v2 #(
 
     // Track per-FU outstanding operations to size writeback queues.
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             alu_inflight <= {ALU_WBQ_COUNT_W{1'b0}};
             mul_inflight <= {MUL_WBQ_COUNT_W{1'b0}};
@@ -2901,9 +2929,12 @@ module streaming_multiprocessor_v2 #(
     // The async_copy_engine handles actual memory transactions.
     // This tracking manages per-warp pending counts and wait stalls.
     //------------------------------------------------------------------------
-    integer cp_w;
+
     reg [3:0] pending_val;
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             warp_stalled_async <= {NUM_WARPS{1'b0}};
             cp_async_wait_all <= {NUM_WARPS{1'b0}};
@@ -2998,8 +3029,11 @@ module streaming_multiprocessor_v2 #(
     //------------------------------------------------------------------------
     wire [31:0] issue_warpgroup_id_ext = {{(32-WARP_ID_W){1'b0}}, issue_warp_id} >> 2;
     wire [31:0] issue1_warpgroup_id_ext = {{(32-WARP_ID_W){1'b0}}, issue1_warp_id} >> 2;
-    integer wgmma_w;
+
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             warp_stalled_wgmma <= {NUM_WARPS{1'b0}};
             for (wgmma_w = 0; wgmma_w < NUM_WARPS; wgmma_w = wgmma_w + 1) begin
@@ -3200,6 +3234,9 @@ module streaming_multiprocessor_v2 #(
     reg [NUM_LANES-1:0] alu_ovf_pipe;
     reg [5:0] alu_debug_cnt;
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             alu_valid_pipe <= 1'b0;
             alu_warp_pipe <= 0;
@@ -3233,8 +3270,11 @@ module streaming_multiprocessor_v2 #(
 
 
     // Predicate register + carry flag writeback from ALU pipeline
-    integer pw, pi;
+
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             for (pw = 0; pw < NUM_WARPS; pw = pw + 1) begin
                 for (pi = 0; pi < 7; pi = pi + 1)
@@ -3344,6 +3384,9 @@ module streaming_multiprocessor_v2 #(
     );
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             mul_warp_pipe[0] <= 0; mul_warp_pipe[1] <= 0;
             mul_rd_pipe[0] <= 0;   mul_rd_pipe[1] <= 0;
@@ -3366,8 +3409,11 @@ module streaming_multiprocessor_v2 #(
     // SIMD FPU (FP32) - 4-cycle pipeline
     //------------------------------------------------------------------------
     always @(posedge clk) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (issue_valid) begin
-            if(0) $display("[SM%0d] ISSUE: pc=%h warp=%d func=%d opcode=%d rd=%d ra=%d rb=%d mask=%x", 
+            if(0) $display("[SM%0d] ISSUE: pc=%h warp=%d func=%d opcode=%d rd=%d ra=%d rb=%d mask=%x", // keep
                      SM_ID, issue_pc, issue_warp_id, issue_func, issue_opcode, issue_rd, issue_ra, issue_rb, issue_mask);
         end
     end
@@ -3404,6 +3450,9 @@ module streaming_multiprocessor_v2 #(
 
     // FPU32 pipeline tracking (1 stage for 1-cycle simd_fpu latency)
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             fpu32_warp_pipe[0] <= 0;
             fpu32_rd_pipe[0] <= 0;
@@ -3461,8 +3510,10 @@ module streaming_multiprocessor_v2 #(
     );
     assign fpu64_ready = 1'b1;  // Always ready (pipelined)
 
-    integer fpu64_i;
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             for (fpu64_i = 0; fpu64_i < 5; fpu64_i = fpu64_i + 1) begin
                 fpu64_warp_pipe[fpu64_i] <= 0;
@@ -3519,8 +3570,10 @@ module streaming_multiprocessor_v2 #(
         .result    (fp16_result)
     );
 
-    integer fp16_i;
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             for (fp16_i = 0; fp16_i < 3; fp16_i = fp16_i + 1) begin
                 fp16_warp_pipe[fp16_i] <= 0;
@@ -3567,8 +3620,11 @@ module streaming_multiprocessor_v2 #(
     );
 
     // SFU pipeline tracking (8-cycle latency)
-    integer sfu_i;
+
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             for (sfu_i = 0; sfu_i < 8; sfu_i = sfu_i + 1) begin
                 sfu_warp_pipe[sfu_i] <= 0;
@@ -3599,8 +3655,11 @@ module streaming_multiprocessor_v2 #(
     reg [NUM_WARPS-1:0] tensor_push_lockout_1;  // lockout cycle 2
     reg [3:0] tensor_last_pushed_isn [0:NUM_WARPS-1];
     // Update tensor_last_pushed_isn on successful tensor push
-    integer isn_w;
+
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             for (isn_w = 0; isn_w < NUM_WARPS; isn_w = isn_w + 1)
                 tensor_last_pushed_isn[isn_w] <= 4'hF;
@@ -3616,6 +3675,9 @@ module streaming_multiprocessor_v2 #(
     end
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             tensor_push_lockout_0 <= {NUM_WARPS{1'b0}};
             tensor_push_lockout_1 <= {NUM_WARPS{1'b0}};
@@ -3672,6 +3734,9 @@ module streaming_multiprocessor_v2 #(
     assign tensor_issue_full_next = (tensor_issue_count_next >= TENSOR_ISSUE_DEPTH);
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             tensor_issue_count <= {TENSOR_ISSUE_COUNT_W{1'b0}};
         end else begin
@@ -3687,6 +3752,9 @@ module streaming_multiprocessor_v2 #(
     reg [7:0] mem_pend_dbg_cnt;
     `endif
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             mem_pending_valid <= 1'b0;
             mem_pc_pending <= 32'b0;
@@ -3697,18 +3765,18 @@ module streaming_multiprocessor_v2 #(
             `ifdef SIMULATION
             if (issue_valid && issue_mem_read && !issue_mem_shared && !issue_atomic_op &&
                 !issue_addr_oob_exc && !issue_illegal_exc && mem_pend_dbg_cnt < 8'd64) begin
-                $display("[%0t SM%0d DBG_LD_ISSUE0] warp=%0d pc=%h rd=%0d mem_pending=%b replay_pend=%b",
+                $display("[%0t SM%0d DBG_LD_ISSUE0] warp=%0d pc=%h rd=%0d mem_pending=%b replay_pend=%b", // keep
                          $time, SM_ID, issue_warp_id, issue_pc, issue_rd, mem_pending_valid,
                          replay_pending[issue_warp_id]);
                 mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
             end
             if (l1_cache_req_valid && mem_pend_dbg_cnt < 8'd64) begin
-                $display("[%0t SM%0d DBG_L1_REQ] warp=%0d pc=%h rd=%0d mem_pending=%b",
+                $display("[%0t SM%0d DBG_L1_REQ] warp=%0d pc=%h rd=%0d mem_pending=%b", // keep
                          $time, SM_ID, issue_warp_id, issue_pc, issue_rd, mem_pending_valid);
                 mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
             end
             if (gmem_load_resp_valid && mem_pending_valid && mem_pend_dbg_cnt < 8'd64) begin
-                $display("[%0t SM%0d DBG_L1_RESP] warp=%0d rd=%0d replay=%b hit=%b",
+                $display("[%0t SM%0d DBG_L1_RESP] warp=%0d rd=%0d replay=%b hit=%b", // keep
                          $time, SM_ID, mem_warp_pending, mem_rd_pending, l1_cache_resp_replay, l1_cache_resp_hit);
                 mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
             end
@@ -3722,7 +3790,7 @@ module streaming_multiprocessor_v2 #(
                 mem_pc_pending <= issue_pc;    // Save load PC for replay rollback (#5)
                 `ifdef SIMULATION
                 if (mem_pend_dbg_cnt < 8'd64) begin
-                    $display("[%0t SM%0d DBG_MEM_PEND_SET] warp=%0d pc=%h rd=%0d",
+                    $display("[%0t SM%0d DBG_MEM_PEND_SET] warp=%0d pc=%h rd=%0d", // keep
                              $time, SM_ID, issue_warp_id, issue_pc, issue_rd);
                     mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
                 end
@@ -3731,7 +3799,7 @@ module streaming_multiprocessor_v2 #(
                 mem_pending_valid <= 1'b0;
                 `ifdef SIMULATION
                 if (mem_pend_dbg_cnt < 8'd64) begin
-                    $display("[%0t SM%0d DBG_MEM_PEND_CLR] warp=%0d rd=%0d",
+                    $display("[%0t SM%0d DBG_MEM_PEND_CLR] warp=%0d rd=%0d", // keep
                              $time, SM_ID, mem_warp_pending, mem_rd_pending);
                     mem_pend_dbg_cnt <= mem_pend_dbg_cnt + 8'd1;
                 end
@@ -3741,6 +3809,9 @@ module streaming_multiprocessor_v2 #(
     end
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             l1_miss_pending <= 1'b0;
         end else if (l1_miss_req_valid && gmem_normal_req_ready) begin
@@ -3751,8 +3822,11 @@ module streaming_multiprocessor_v2 #(
     end
 
     // Pipeline Replay: pending state tracking (#5)
-    integer replay_init_i;
+
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             replay_pending <= {NUM_WARPS{1'b0}};
             for (replay_init_i = 0; replay_init_i < NUM_WARPS; replay_init_i = replay_init_i + 1)
@@ -3773,6 +3847,9 @@ module streaming_multiprocessor_v2 #(
     end
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             l1_cycle_counter <= 32'b0;
             l1_req_issue_cycle <= 32'b0;
@@ -3797,6 +3874,9 @@ module streaming_multiprocessor_v2 #(
     end
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             smem_pending_valid <= 1'b0;
         end else if (smem_req_valid && issue_mem_read) begin
@@ -3812,6 +3892,9 @@ module streaming_multiprocessor_v2 #(
     // DEBUG: track store issuance
     reg [3:0] store_issue_debug_cnt;
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             store_pending_valid <= 1'b0;
             store_warp_pending <= 0;
@@ -3919,17 +4002,20 @@ module streaming_multiprocessor_v2 #(
     // ---- WBQ Drop Detection (all FUs) ----
     `ifdef SIMULATION
     always @(posedge clk) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (rst_n) begin
-            if (alu_wbq_dropped)     $display("[SM%0d] FATAL: ALU WBQ dropped data at %0t!", SM_ID, $time);
-            if (mul_wbq_dropped)     $display("[SM%0d] FATAL: MUL WBQ dropped data at %0t!", SM_ID, $time);
-            if (fpu32_wbq_dropped)   $display("[SM%0d] FATAL: FPU32 WBQ dropped data at %0t!", SM_ID, $time);
-            if (fpu64_wbq_dropped)   $display("[SM%0d] FATAL: FPU64 WBQ dropped data at %0t!", SM_ID, $time);
-            if (fp16_wbq_dropped)    $display("[SM%0d] FATAL: FP16 WBQ dropped data at %0t!", SM_ID, $time);
-            if (sfu_wbq_dropped)     $display("[SM%0d] FATAL: SFU WBQ dropped data at %0t!", SM_ID, $time);
-            if (shfl_wbq_dropped)    $display("[SM%0d] FATAL: SHFL WBQ dropped data at %0t!", SM_ID, $time);
-            if (video_wbq_dropped)   $display("[SM%0d] FATAL: VIDEO WBQ dropped data at %0t!", SM_ID, $time);
-            if (special_wbq_dropped) $display("[SM%0d] FATAL: SPECIAL WBQ dropped data at %0t!", SM_ID, $time);
-            if (tensor_wbq_dropped)  $display("[SM%0d] FATAL: TENSOR WBQ dropped data at %0t!", SM_ID, $time);
+            if (alu_wbq_dropped)     $display("[SM%0d] FATAL: ALU WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (mul_wbq_dropped)     $display("[SM%0d] FATAL: MUL WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (fpu32_wbq_dropped)   $display("[SM%0d] FATAL: FPU32 WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (fpu64_wbq_dropped)   $display("[SM%0d] FATAL: FPU64 WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (fp16_wbq_dropped)    $display("[SM%0d] FATAL: FP16 WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (sfu_wbq_dropped)     $display("[SM%0d] FATAL: SFU WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (shfl_wbq_dropped)    $display("[SM%0d] FATAL: SHFL WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (video_wbq_dropped)   $display("[SM%0d] FATAL: VIDEO WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (special_wbq_dropped) $display("[SM%0d] FATAL: SPECIAL WBQ dropped data at %0t!", SM_ID, $time); // keep
+            if (tensor_wbq_dropped)  $display("[SM%0d] FATAL: TENSOR WBQ dropped data at %0t!", SM_ID, $time); // keep
         end
     end
     `endif
@@ -4025,6 +4111,9 @@ module streaming_multiprocessor_v2 #(
 
     // Shuffle pipeline tracking (1 stage delay for proper writeback timing)
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             shuffle_valid_pipe <= 1'b0;
             shuffle_warp_pipe <= 0;
@@ -4079,6 +4168,9 @@ module streaming_multiprocessor_v2 #(
 
     // Video pipeline tracking (2 stages for video_unit latency)
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             video_warp_pipe[0] <= 0;
             video_rd_pipe[0] <= 0;
@@ -4169,6 +4261,9 @@ module streaming_multiprocessor_v2 #(
 
     // Texture pipeline tracking (variable latency)
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             tex_pending_valid <= 1'b0;
             tex_warp_pending <= 0;
@@ -4356,6 +4451,9 @@ module streaming_multiprocessor_v2 #(
     );
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             atomic_pending_valid <= 1'b0;
         end else if (atomic_valid_in) begin
@@ -4369,6 +4467,9 @@ module streaming_multiprocessor_v2 #(
     end
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             atomic_mem_shared_pending <= 1'b0;
         end else if (atomic_valid_in) begin
@@ -4768,8 +4869,11 @@ module streaming_multiprocessor_v2 #(
     assign wgmma_smem_addr_b = wgmma_smem_addr_b_r;
 
     // WGMMA command staging: latch issue metadata, then launch when SMEM data is ready.
-    integer wgmma_acc_i;
+
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             for (wgmma_acc_i = 0; wgmma_acc_i < 8; wgmma_acc_i = wgmma_acc_i + 1) begin
                 wgmma_accum_reg[wgmma_acc_i] <= 1024'b0;
@@ -4862,6 +4966,9 @@ module streaming_multiprocessor_v2 #(
     assign smem_atomic_req_write = atomic_mem_write;
 
     always @(*) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         smem_atomic_req_mask = 1'b0;
         smem_atomic_req_addr = 14'b0;
         smem_atomic_req_wdata = 32'b0;
@@ -5182,7 +5289,10 @@ module streaming_multiprocessor_v2 #(
     reg [7:0] latch_dbg_cnt;
     `endif
     always @(posedge clk or negedge rst_n) begin : latch_block
-        integer init_idx;
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
+
         if (!rst_n) begin
             gmem_resp_latched <= 1'b0;
             smem_resp_latched <= 1'b0;
@@ -5324,7 +5434,7 @@ module streaming_multiprocessor_v2 #(
 
             // Decrement nanosleep counters for all sleeping warps
             begin : nanosleep_decrement
-                integer ns_idx;
+
                 for (ns_idx = 0; ns_idx < NUM_WARPS; ns_idx = ns_idx + 1) begin
                     if (warp_nanosleep_counter[ns_idx] > 0) begin
                         warp_nanosleep_counter[ns_idx] <= warp_nanosleep_counter[ns_idx] - 1;
@@ -5509,64 +5619,67 @@ module streaming_multiprocessor_v2 #(
 
 `ifdef SIMULATION
     always @(posedge clk) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (dec_valid && !branch_flush_dec0 && dec_reg_write && dec_rd == 5'd6) begin
-            $display("[%0t SM%0d DBG_DEC_R6] warp=%0d pc=%h mask=%h reconv=%b",
+            $display("[%0t SM%0d DBG_DEC_R6] warp=%0d pc=%h mask=%h reconv=%b", // keep
                      $time, SM_ID, dec0_warp_id_d, dec0_pc_d,
                      (dec0_at_reconverge ? dec0_merged_mask : warp_mask[dec0_warp_id_d]),
                      dec0_at_reconverge);
         end
         if (issue_valid && issue_reg_write && issue_rd == 5'd6) begin
-            $display("[%0t SM%0d DBG_ISSUE_R6] warp=%0d pc=%h mask=%h",
+            $display("[%0t SM%0d DBG_ISSUE_R6] warp=%0d pc=%h mask=%h", // keep
                      $time, SM_ID, issue_warp_id, issue_pc, issue_mask);
         end
         if (wb_valid && wb_warp_id == {WARP_ID_W{1'b0}} && wb_rd == 5'd6) begin
-            $display("[%0t SM%0d DBG_WB_R6] mask=%h data_lane0=%h",
+            $display("[%0t SM%0d DBG_WB_R6] mask=%h data_lane0=%h", // keep
                      $time, SM_ID, wb_mask, wb_data[31:0]);
         end
         if (dec1_valid && branch_flush_dec1 && dec1_reg_write) begin
-            $display("[%0t SM%0d DBG_FLUSH_CLR1] warp=%0d rd=%0d pc=%h",
+            $display("[%0t SM%0d DBG_FLUSH_CLR1] warp=%0d rd=%0d pc=%h", // keep
                      $time, SM_ID, dec1_warp_id_d, dec1_rd, dec1_pc_d);
         end
         if (issue1_valid && issue1_reg_write && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd2) begin
-            $display("[%0t SM%0d DBG_ISSUE1_R2] pc=%h mask=%h opcode=%02h memR=%b memW=%b alu=%b",
+            $display("[%0t SM%0d DBG_ISSUE1_R2] pc=%h mask=%h opcode=%02h memR=%b memW=%b alu=%b", // keep
                      $time, SM_ID, issue1_pc, issue1_mask, issue1_opcode,
                      issue1_mem_read, issue1_mem_write, issue1_alu_op);
         end
         if (wb_valid && wb_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && wb_rd == 5'd2) begin
-            $display("[%0t SM%0d DBG_WB1_R2] mask=%h data_lane0=%h",
+            $display("[%0t SM%0d DBG_WB1_R2] mask=%h data_lane0=%h", // keep
                      $time, SM_ID, wb_mask, wb_data[31:0]);
         end
         if (dec1_dec_valid && dec1_warp_id_d == {{(WARP_ID_W-1){1'b0}},1'b1}) begin
-            $display("[%0t SM%0d DBG_DEC1_W1] pc=%h inst=%h rd=%0d opcode=%02h regW=%b",
+            $display("[%0t SM%0d DBG_DEC1_W1] pc=%h inst=%h rd=%0d opcode=%02h regW=%b", // keep
                      $time, SM_ID, dec1_pc_d, dec1_instruction, dec1_rd, dec1_opcode, dec1_reg_write);
         end
         if (issue1_valid && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1}) begin
-            $display("[%0t SM%0d DBG_ISSUE1_W1] pc=%h opcode=%02h rd=%0d regW=%b",
+            $display("[%0t SM%0d DBG_ISSUE1_W1] pc=%h opcode=%02h rd=%0d regW=%b", // keep
                      $time, SM_ID, issue1_pc, issue1_opcode, issue1_rd, issue1_reg_write);
         end
         if (dec1_dec_valid && dec1_warp_id_d == {{(WARP_ID_W-1){1'b0}},1'b1} && dec1_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_DEC1_R4] pc=%h opcode=%02h regW=%b memR=%b memW=%b alu=%b",
+            $display("[%0t SM%0d DBG_DEC1_R4] pc=%h opcode=%02h regW=%b memR=%b memW=%b alu=%b", // keep
                      $time, SM_ID, dec1_pc_d, dec1_opcode, dec1_reg_write, dec1_mem_read, dec1_mem_write, dec1_alu_op);
         end
         if (issue1_valid && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_ISSUE1_RAW_R4] pc=%h opcode=%02h regW=%b memR=%b memW=%b alu=%b",
+            $display("[%0t SM%0d DBG_ISSUE1_RAW_R4] pc=%h opcode=%02h regW=%b memR=%b memW=%b alu=%b", // keep
                      $time, SM_ID, issue1_pc, issue1_opcode, issue1_reg_write, issue1_mem_read, issue1_mem_write, issue1_alu_op);
         end
         if (issue1_valid && issue1_reg_write && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_ISSUE1_R4] pc=%h mask=%h opcode=%02h memR=%b memW=%b alu=%b fu_conflict=%b",
+            $display("[%0t SM%0d DBG_ISSUE1_R4] pc=%h mask=%h opcode=%02h memR=%b memW=%b alu=%b fu_conflict=%b", // keep
                      $time, SM_ID, issue1_pc, issue1_mask, issue1_opcode,
                      issue1_mem_read, issue1_mem_write, issue1_alu_op, issue_fu_conflict);
         end
         if (wb_valid && wb_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && wb_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_WB1_R4] mask=%h data_lane0=%h",
+            $display("[%0t SM%0d DBG_WB1_R4] mask=%h data_lane0=%h", // keep
                      $time, SM_ID, wb_mask, wb_data[31:0]);
         end
         if (fu_conflict_sb_clr_valid && issue1_warp_id == {{(WARP_ID_W-1){1'b0}},1'b1} && issue1_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_CLR_FU_R4] warp=%0d rd=%0d",
+            $display("[%0t SM%0d DBG_CLR_FU_R4] warp=%0d rd=%0d", // keep
                      $time, SM_ID, issue1_warp_id, issue1_rd);
         end
         if (dec1_valid && branch_flush_dec1 && dec1_warp_id_d == {{(WARP_ID_W-1){1'b0}},1'b1} && dec1_rd == 5'd4) begin
-            $display("[%0t SM%0d DBG_CLR_FLUSH_R4] warp=%0d rd=%0d pc=%h",
+            $display("[%0t SM%0d DBG_CLR_FLUSH_R4] warp=%0d rd=%0d pc=%h", // keep
                      $time, SM_ID, dec1_warp_id_d, dec1_rd, dec1_pc_d);
         end
     end
@@ -5577,12 +5690,15 @@ module streaming_multiprocessor_v2 #(
     //========================================================================
     // Warp State Management
     //========================================================================
-    integer w, rst_j;
+
     reg [31:0] init_total_threads;
     reg [31:0] init_threads_in_warp;
     reg [NUM_LANES-1:0] init_computed_mask;
 
     always @(posedge clk or negedge rst_n) begin
+        integer i, j, k, idx_si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j, lane_idx, bit_i, w;
+        integer i, j, k, si, wi, age_i, fetch_pc_i, mem_issue_i, sb_init, cp_w, wgmma_w, pw, pi, fpu64_i, fp16_i, sfu_i, isn_w, replay_init_i, wgmma_acc_i, init_idx, ns_idx, rst_j;
+
         if (!rst_n) begin
             for (w = 0; w < NUM_WARPS; w = w + 1) begin
                 warp_valid[w] <= 1'b0;
