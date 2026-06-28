@@ -9,6 +9,7 @@
 ```bash
 make lint          # Verilator lint，0 error
 make test          # 全部 testbench pass
+> **注**: GitHub Actions CI 现已配置 `regression` 门禁，`make test` 失败将阻塞 PR 合并。
 ```
 
 如果修改了 RTL 文件，还需运行：

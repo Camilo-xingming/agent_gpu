@@ -312,12 +312,14 @@ module tb_wgmma_system;
         $display("============================================================");
 
         #100;
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
     initial begin
         #500000;
         $display("ERROR: Global Timeout!");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

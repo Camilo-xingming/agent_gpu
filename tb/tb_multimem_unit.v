@@ -404,6 +404,7 @@ module tb_multimem_unit;
         end
         $display("============================================================");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -411,6 +412,7 @@ module tb_multimem_unit;
     initial begin
         #100000;
         $display("ERROR: Test timeout!");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

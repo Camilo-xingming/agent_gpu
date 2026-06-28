@@ -424,12 +424,14 @@ module tb_l1_data_cache_active;
         else
             $display("SOME TESTS FAILED");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
     initial begin
         #700000;
         $display("TIMEOUT");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

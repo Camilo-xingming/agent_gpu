@@ -291,6 +291,7 @@ module tb_bar_warp_sync_unit;
         $display("============================================================");
 
         #100;
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -298,6 +299,7 @@ module tb_bar_warp_sync_unit;
     initial begin
         #50000;
         $display("ERROR: Test timeout!");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

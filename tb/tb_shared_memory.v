@@ -1,6 +1,6 @@
 //============================================================================
 // RalphGPU - Shared Memory Test
-// 验证32-bank共享内存的读写和冲突检测
+// 验证32-bank共享内存的读写、冲突统计和warp级原子操作
 //============================================================================
 
 `timescale 1ns / 1ps
@@ -41,12 +41,31 @@ module tb_shared_memory;
     wire                             bank_conflict;
 
     //------------------------------------------------------------------------
+    // Atomic port signals
+    //------------------------------------------------------------------------
+    reg                    atomic_req_valid;
+    reg                    atomic_req_write;
+    reg  [ADDR_WIDTH-1:0]  atomic_req_addr;
+    reg  [DATA_WIDTH-1:0]  atomic_req_wdata;
+    reg                    atomic_req_mask;
+    wire                   atomic_resp_valid;
+    wire [DATA_WIDTH-1:0]  atomic_resp_rdata;
+
+    //------------------------------------------------------------------------
     // Async write port signals (for cp.async)
     //------------------------------------------------------------------------
     reg                     async_wr_en;
     reg  [ADDR_WIDTH-1:0]   async_wr_addr;
     reg  [127:0]            async_wr_data;
     reg  [4:0]              async_wr_size;  // 5 bits to hold values up to 16
+
+    //------------------------------------------------------------------------
+    // Warp-atomic emulation vectors (testbench side)
+    //------------------------------------------------------------------------
+    reg [NUM_BANKS*32-1:0] atomic_addr_vec;
+    reg [NUM_BANKS*32-1:0] atomic_operand_a_vec;
+    reg [NUM_BANKS*32-1:0] atomic_operand_b_vec;
+    reg [NUM_BANKS*32-1:0] atomic_old_values;
 
     //------------------------------------------------------------------------
     // DUT 实例化
@@ -67,6 +86,14 @@ module tb_shared_memory;
         .resp_valid   (resp_valid),
         .resp_rdata   (resp_rdata),
         .bank_conflict(bank_conflict),
+        // Atomic port
+        .atomic_req_valid(atomic_req_valid),
+        .atomic_req_write(atomic_req_write),
+        .atomic_req_addr (atomic_req_addr),
+        .atomic_req_wdata(atomic_req_wdata),
+        .atomic_req_mask (atomic_req_mask),
+        .atomic_resp_valid(atomic_resp_valid),
+        .atomic_resp_rdata(atomic_resp_rdata),
         // Async copy write port
         .async_wr_en  (async_wr_en),
         .async_wr_addr(async_wr_addr),
@@ -80,9 +107,24 @@ module tb_shared_memory;
     integer passed = 0;
     integer failed = 0;
     integer i;
+    integer resp_valid_count;
+    integer resp_before;
+    integer resp_after;
+    integer issued_reqs;
+    integer conflict_cycles;
+    integer clean_cycles;
     reg read_ok;
     reg consistent;
     reg selective_ok;
+    reg [31:0] lane0_value;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            resp_valid_count <= 0;
+        end else if (resp_valid) begin
+            resp_valid_count <= resp_valid_count + 1;
+        end
+    end
 
     //------------------------------------------------------------------------
     // 辅助函数 - 设置地址
@@ -105,6 +147,141 @@ module tb_shared_memory;
             for (j = 0; j < NUM_BANKS; j = j + 1) begin
                 req_wdata[j*DATA_WIDTH +: DATA_WIDTH] = base + j;
             end
+        end
+    endtask
+
+    task atomic_clear_vectors;
+        begin
+            atomic_addr_vec      = {NUM_BANKS*32{1'b0}};
+            atomic_operand_a_vec = {NUM_BANKS*32{1'b0}};
+            atomic_operand_b_vec = {NUM_BANKS*32{1'b0}};
+            atomic_old_values    = {NUM_BANKS*32{1'b0}};
+        end
+    endtask
+
+    task atomic_set_lane;
+        input integer lane_idx;
+        input [31:0] lane_addr;
+        input [31:0] lane_op_a;
+        input [31:0] lane_op_b;
+        begin
+            atomic_addr_vec[lane_idx*32 +: 32]      = lane_addr;
+            atomic_operand_a_vec[lane_idx*32 +: 32] = lane_op_a;
+            atomic_operand_b_vec[lane_idx*32 +: 32] = lane_op_b;
+        end
+    endtask
+
+    task atomic_port_read;
+        input [ADDR_WIDTH-1:0] addr_i;
+        output [31:0] data_o;
+        begin
+            @(posedge clk);
+            atomic_req_valid <= 1'b1;
+            atomic_req_write <= 1'b0;
+            atomic_req_addr  <= addr_i;
+            atomic_req_wdata <= 32'b0;
+            atomic_req_mask  <= 1'b1;
+
+            @(posedge clk);
+            atomic_req_valid <= 1'b0;
+            atomic_req_mask  <= 1'b0;
+
+            wait (atomic_resp_valid == 1'b1);
+            data_o = atomic_resp_rdata;
+            @(posedge clk);
+        end
+    endtask
+
+    task atomic_port_write;
+        input [ADDR_WIDTH-1:0] addr_i;
+        input [31:0] data_i;
+        begin
+            @(posedge clk);
+            atomic_req_valid <= 1'b1;
+            atomic_req_write <= 1'b1;
+            atomic_req_addr  <= addr_i;
+            atomic_req_wdata <= data_i;
+            atomic_req_mask  <= 1'b1;
+
+            @(posedge clk);
+            atomic_req_valid <= 1'b0;
+            atomic_req_mask  <= 1'b0;
+
+            wait (atomic_resp_valid == 1'b1);
+            @(posedge clk);
+        end
+    endtask
+
+    task run_warp_atomic_add;
+        input [NUM_BANKS-1:0] mask_i;
+        integer lane;
+        reg [31:0] addr_lane;
+        reg [31:0] old_value;
+        reg [31:0] new_value;
+        begin
+            for (lane = 0; lane < NUM_BANKS; lane = lane + 1) begin
+                if (mask_i[lane]) begin
+                    addr_lane = atomic_addr_vec[lane*32 +: 32];
+                    atomic_port_read(addr_lane[ADDR_WIDTH-1:0], old_value);
+                    atomic_old_values[lane*32 +: 32] = old_value;
+                    new_value = old_value + atomic_operand_a_vec[lane*32 +: 32];
+                    atomic_port_write(addr_lane[ADDR_WIDTH-1:0], new_value);
+                end
+            end
+        end
+    endtask
+
+    task run_warp_atomic_max_u;
+        input [NUM_BANKS-1:0] mask_i;
+        integer lane;
+        reg [31:0] addr_lane;
+        reg [31:0] old_value;
+        reg [31:0] op_value;
+        reg [31:0] new_value;
+        begin
+            for (lane = 0; lane < NUM_BANKS; lane = lane + 1) begin
+                if (mask_i[lane]) begin
+                    addr_lane = atomic_addr_vec[lane*32 +: 32];
+                    op_value  = atomic_operand_a_vec[lane*32 +: 32];
+                    atomic_port_read(addr_lane[ADDR_WIDTH-1:0], old_value);
+                    atomic_old_values[lane*32 +: 32] = old_value;
+                    new_value = (old_value > op_value) ? old_value : op_value;
+                    atomic_port_write(addr_lane[ADDR_WIDTH-1:0], new_value);
+                end
+            end
+        end
+    endtask
+
+    task run_warp_atomic_cas;
+        input [NUM_BANKS-1:0] mask_i;
+        integer lane;
+        reg [31:0] addr_lane;
+        reg [31:0] old_value;
+        reg [31:0] cmp_value;
+        reg [31:0] swap_value;
+        begin
+            for (lane = 0; lane < NUM_BANKS; lane = lane + 1) begin
+                if (mask_i[lane]) begin
+                    addr_lane  = atomic_addr_vec[lane*32 +: 32];
+                    cmp_value  = atomic_operand_a_vec[lane*32 +: 32];
+                    swap_value = atomic_operand_b_vec[lane*32 +: 32];
+                    atomic_port_read(addr_lane[ADDR_WIDTH-1:0], old_value);
+                    atomic_old_values[lane*32 +: 32] = old_value;
+                    if (old_value == cmp_value) begin
+                        atomic_port_write(addr_lane[ADDR_WIDTH-1:0], swap_value);
+                    end
+                end
+            end
+        end
+    endtask
+
+    task read_lane0_word;
+        input [ADDR_WIDTH-1:0] addr_i;
+        output [31:0] data_o;
+        begin
+            smem_read(addr_i, 32'd1, 32'h00000001);
+            @(posedge clk);
+            data_o = resp_rdata[0*DATA_WIDTH +: DATA_WIDTH];
         end
     endtask
 
@@ -162,10 +339,19 @@ module tb_shared_memory;
         req_addr  = 0;
         req_wdata = 0;
         req_mask  = 0;
+
+        atomic_req_valid = 0;
+        atomic_req_write = 0;
+        atomic_req_addr  = 0;
+        atomic_req_wdata = 0;
+        atomic_req_mask  = 0;
+
         async_wr_en   = 0;
         async_wr_addr = 0;
         async_wr_data = 0;
         async_wr_size = 0;
+
+        atomic_clear_vectors();
 
         #100;
         rst_n = 1;
@@ -454,6 +640,213 @@ module tb_shared_memory;
         end
 
         //====================================================================
+        // 测试12: 同bank访问冲突周期计数 + 响应完整性
+        //====================================================================
+        $display("\n--- Bank Conflict Stall Accounting Test ---");
+
+        conflict_cycles = 0;
+        issued_reqs = 8;
+        req_valid <= 0;
+        req_mask  <= 0;
+        repeat (2) @(posedge clk);
+        resp_before = resp_valid_count;
+
+        for (i = 0; i < issued_reqs; i = i + 1) begin
+            @(posedge clk);
+            req_valid <= 1;
+            req_write <= 0;
+            set_addresses(14'd1024 + i*14'd64, 32'd32);  // 全lane落在同bank，冲突
+            req_mask <= {NUM_BANKS{1'b1}};
+            #1;
+            if (bank_conflict) conflict_cycles = conflict_cycles + 1;
+        end
+
+        @(posedge clk);
+        req_valid <= 0;
+        req_mask  <= 0;
+        repeat (2) @(posedge clk);
+        resp_after = resp_valid_count;
+
+        if (conflict_cycles == issued_reqs) begin
+            $display("[PASS] Conflict stall cycles counted correctly (%0d)", conflict_cycles);
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Conflict cycle count mismatch: got %0d exp %0d", conflict_cycles, issued_reqs);
+            failed = failed + 1;
+        end
+
+        if ((resp_after - resp_before) == issued_reqs) begin
+            $display("[PASS] Conflict traffic keeps response accounting (%0d/%0d)", resp_after-resp_before, issued_reqs);
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Conflict traffic response count mismatch: got %0d exp %0d", resp_after-resp_before, issued_reqs);
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试13: 无冲突访问满带宽（无冲突周期 + 响应数）
+        //====================================================================
+        $display("\n--- Conflict-Free Full Bandwidth Test ---");
+
+        clean_cycles = 0;
+        issued_reqs = 8;
+        req_valid <= 0;
+        req_mask  <= 0;
+        repeat (2) @(posedge clk);
+        resp_before = resp_valid_count;
+
+        for (i = 0; i < issued_reqs; i = i + 1) begin
+            @(posedge clk);
+            req_valid <= 1;
+            req_write <= 0;
+            set_addresses(14'd2048 + i*NUM_BANKS, 32'd1); // 连续地址 -> 32 bank并行
+            req_mask <= {NUM_BANKS{1'b1}};
+            #1;
+            if (!bank_conflict) clean_cycles = clean_cycles + 1;
+        end
+
+        @(posedge clk);
+        req_valid <= 0;
+        req_mask  <= 0;
+        repeat (2) @(posedge clk);
+        resp_after = resp_valid_count;
+
+        if (clean_cycles == issued_reqs) begin
+            $display("[PASS] Conflict-free cycles counted correctly (%0d)", clean_cycles);
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Conflict-free cycle count mismatch: got %0d exp %0d", clean_cycles, issued_reqs);
+            failed = failed + 1;
+        end
+
+        if ((resp_after - resp_before) == issued_reqs) begin
+            $display("[PASS] Conflict-free request bandwidth maintained (%0d/%0d)", resp_after-resp_before, issued_reqs);
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Conflict-free response count mismatch: got %0d exp %0d", resp_after-resp_before, issued_reqs);
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试14: Warp-level atomic add 顺序正确
+        //====================================================================
+        $display("\n--- Warp-level Atomic ADD Ordering Test ---");
+
+        smem_write(14'd3000, 32'd1, 32'd10, 32'h00000001); // lane0 seed=10
+        #10;
+
+        atomic_clear_vectors();
+        atomic_set_lane(0, 32'd3000, 32'd1, 32'd0);
+        atomic_set_lane(1, 32'd3000, 32'd2, 32'd0);
+        atomic_set_lane(2, 32'd3000, 32'd3, 32'd0);
+        atomic_set_lane(3, 32'd3000, 32'd4, 32'd0);
+        run_warp_atomic_add(32'h0000000F);
+
+        read_lane0_word(14'd3000, lane0_value);
+        if (lane0_value == 32'd20 &&
+            atomic_old_values[31:0]   == 32'd10 &&
+            atomic_old_values[63:32]  == 32'd11 &&
+            atomic_old_values[95:64]  == 32'd13 &&
+            atomic_old_values[127:96] == 32'd16) begin
+            $display("[PASS] Atomic ADD ordering/result correct");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Atomic ADD ordering/result mismatch");
+            $display("       Final: %0d (exp 20)", lane0_value);
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试15: Warp-level atomic max
+        //====================================================================
+        $display("\n--- Warp-level Atomic MAX Test ---");
+
+        smem_write(14'd3010, 32'd1, 32'd7, 32'h00000001); // lane0 seed=7
+        #10;
+
+        atomic_clear_vectors();
+        atomic_set_lane(0, 32'd3010, 32'd5, 32'd0);
+        atomic_set_lane(1, 32'd3010, 32'd12, 32'd0);
+        atomic_set_lane(2, 32'd3010, 32'd9, 32'd0);
+        atomic_set_lane(3, 32'd3010, 32'd20, 32'd0);
+        run_warp_atomic_max_u(32'h0000000F);
+
+        read_lane0_word(14'd3010, lane0_value);
+        if (lane0_value == 32'd20 &&
+            atomic_old_values[31:0]   == 32'd7 &&
+            atomic_old_values[63:32]  == 32'd7 &&
+            atomic_old_values[95:64]  == 32'd12 &&
+            atomic_old_values[127:96] == 32'd12) begin
+            $display("[PASS] Atomic MAX ordering/result correct");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Atomic MAX ordering/result mismatch");
+            $display("       Final: %0d (exp 20)", lane0_value);
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试16: Warp-level atomic CAS
+        //====================================================================
+        $display("\n--- Warp-level Atomic CAS Test ---");
+
+        smem_write(14'd3020, 32'd1, 32'd100, 32'h00000001); // lane0 seed=100
+        #10;
+
+        atomic_clear_vectors();
+        atomic_set_lane(0, 32'd3020, 32'd100, 32'd200); // success
+        atomic_set_lane(1, 32'd3020, 32'd100, 32'd300); // fail after lane0 write
+        atomic_set_lane(2, 32'd3020, 32'd200, 32'd400); // success
+        run_warp_atomic_cas(32'h00000007);
+
+        read_lane0_word(14'd3020, lane0_value);
+        if (lane0_value == 32'd400 &&
+            atomic_old_values[31:0]  == 32'd100 &&
+            atomic_old_values[63:32] == 32'd200 &&
+            atomic_old_values[95:64] == 32'd200) begin
+            $display("[PASS] Atomic CAS sequencing/result correct");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Atomic CAS sequencing/result mismatch");
+            $display("       Final: %0d (exp 400)", lane0_value);
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试17: 并发lane原子加法无数据破坏（不同地址）
+        //====================================================================
+        $display("\n--- Concurrent Warp Atomic No-Corruption Test ---");
+
+        smem_write(14'd3200, 32'd1, 32'd1000, 32'h000000FF); // lane0..7 seed
+        #10;
+
+        atomic_clear_vectors();
+        for (i = 0; i < 8; i = i + 1) begin
+            atomic_set_lane(i, 32'd3200 + i, i + 1, 32'd0);
+        end
+        run_warp_atomic_add(32'h000000FF);
+
+        smem_read(14'd3200, 32'd1, 32'h000000FF);
+        @(posedge clk);
+
+        read_ok = 1;
+        for (i = 0; i < 8; i = i + 1) begin
+            if (resp_rdata[i*32 +: 32] !== (32'd1000 + i + (i + 1))) begin
+                read_ok = 0;
+                $display("       Lane %0d: got %0d exp %0d",
+                         i, resp_rdata[i*32 +: 32], 32'd1000 + i + (i + 1));
+            end
+        end
+
+        if (read_ok) begin
+            $display("[PASS] Concurrent warp atomics keep data integrity");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Concurrent warp atomics data corruption detected");
+            failed = failed + 1;
+        end
+
+        //====================================================================
         // 测试总结
         //====================================================================
         #100;
@@ -467,6 +860,7 @@ module tb_shared_memory;
             $display("*** SOME TESTS FAILED ***");
         end
 
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -481,7 +875,7 @@ module tb_shared_memory;
     initial begin
         #50000;
         $display("ERROR: Timeout!");
-        $finish;
+        $fatal(1, "Timeout");
     end
 
 endmodule

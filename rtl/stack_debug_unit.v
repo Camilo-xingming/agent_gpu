@@ -282,7 +282,7 @@ module stack_debug_unit #(
                                 `MISC_SETMAXNREG: begin
                                     // setmaxnreg: set maximum register count for warp
                                     // Clamp to system limit
-                                    if (saved_src_a[7:0] <= max_reg_limit) begin
+                                    if (saved_src_a <= {24'd0, max_reg_limit}) begin
                                         warp_max_regs[saved_warp*8 +: 8] <= saved_src_a[7:0];
                                     end else begin
                                         warp_max_regs[saved_warp*8 +: 8] <= max_reg_limit;

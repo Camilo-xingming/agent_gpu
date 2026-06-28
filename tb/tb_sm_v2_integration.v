@@ -83,6 +83,13 @@ module tb_sm_v2_integration;
     //------------------------------------------------------------------------
     integer cycle_count;
     integer instruction_count;
+    integer fetch_req_count;
+    integer issue_count;
+    integer mem_req_count;
+    integer branch_flush_count;
+    integer branch_skip_wb_count;
+    integer tensor_issue_count;
+    integer tensor_wb_count;
     integer stall_cycles_raw;
     integer stall_cycles_fu;
     integer stall_cycles_mem;
@@ -258,6 +265,21 @@ module tb_sm_v2_integration;
         end
     endfunction
 
+    function [31:0] encode_branch_uncond;
+        input [15:0] offset;
+        begin
+            // branch_type is encoded in rd[4:2], 3'b000 => unconditional
+            encode_branch_uncond = {`OP_BRANCH, 5'b00000, 5'd0, offset};
+        end
+    endfunction
+
+    function [31:0] encode_wmma_mma;
+        input [4:0] rd, ra, rb, rc;
+        input [5:0] func;
+        begin
+            encode_wmma_mma = {`OP_WMMA_MMA, rd, ra, rb, rc, func};
+        end
+    endfunction
 
     function [31:0] encode_video;
         input [4:0] rd, ra, rb, rc;
@@ -304,16 +326,37 @@ module tb_sm_v2_integration;
         end
     endtask
 
-    // Scenario 3: Memory-coalescing style stream (multiple global loads)
-    task load_scenario_memory_stream;
+    // Scenario 3: Load-use hazard (LD followed by immediate dependent ALU)
+    task load_scenario_load_use_hazard;
         begin
             clear_program();
             imem[0] = encode_load(5'd10, 5'd0, 16'h0000);
-            imem[1] = encode_load(5'd11, 5'd0, 16'h0004);
-            imem[2] = encode_load(5'd12, 5'd0, 16'h0008);
-            imem[3] = encode_alu(5'd13, 5'd10, 5'd11, `FUNC_ADD);
-            imem[4] = encode_alu(5'd14, 5'd13, 5'd12, `FUNC_ADD);
-            imem[5] = encode_exit();
+            imem[1] = encode_alu(5'd11, 5'd10, 5'd0, `FUNC_ADD);
+            imem[2] = encode_alu(5'd12, 5'd11, 5'd0, `FUNC_ADD);
+            imem[3] = encode_exit();
+        end
+    endtask
+
+    // Scenario 4: Taken branch with pipeline flush (skip imem[2])
+    task load_scenario_branch_flush;
+        begin
+            clear_program();
+            imem[0] = encode_alu(5'd1, 5'd0, 5'd0, `FUNC_ADD);
+            imem[1] = encode_branch_uncond(16'd2);  // target: PC + 8 => imem[3]
+            imem[2] = encode_alu(5'd2, 5'd1, 5'd1, `FUNC_ADD);  // should be flushed/skipped
+            imem[3] = encode_alu(5'd3, 5'd1, 5'd0, `FUNC_ADD);
+            imem[4] = encode_exit();
+        end
+    endtask
+
+    // Scenario 5: Tensor pipeline (WMMA issue + tensor writeback)
+    task load_scenario_tensor_pipeline;
+        begin
+            clear_program();
+            imem[0] = encode_wmma_mma(5'd20, 5'd0, 5'd0, 5'd0, `WMMA_M16N16K16);
+            imem[1] = encode_wmma_mma(5'd21, 5'd0, 5'd0, 5'd0, `WMMA_M16N16K16);
+            imem[2] = encode_alu(5'd22, 5'd20, 5'd21, `FUNC_ADD);
+            imem[3] = encode_exit();
         end
     endtask
 
@@ -324,8 +367,30 @@ module tb_sm_v2_integration;
     integer x_warning_count;
 
     always @(posedge clk) begin
-        if (monitor_active && (dut.wb_valid === 1'b1)) begin
-            instruction_count <= instruction_count + 1;
+        if (monitor_active) begin
+            if (dut.wb_valid === 1'b1) begin
+                instruction_count <= instruction_count + 1;
+                if (dut.wb_rd == 5'd2)
+                    branch_skip_wb_count <= branch_skip_wb_count + 1;
+            end
+            if (imem_req === 1'b1)
+                fetch_req_count <= fetch_req_count + 1;
+            if (dut.issue_valid === 1'b1)
+                issue_count <= issue_count + 1;
+            if ((m_axi_arvalid === 1'b1) && (m_axi_arready === 1'b1))
+                mem_req_count <= mem_req_count + 1;
+            if (dut.branch_flush_mask != {NUM_WARPS{1'b0}})
+                branch_flush_count <= branch_flush_count + 1;
+            if (dut.tensor_issue_push_fire === 1'b1)
+                tensor_issue_count <= tensor_issue_count + 1;
+            if (dut.tensor_wbq_push_fire === 1'b1)
+                tensor_wb_count <= tensor_wb_count + 1;
+            if (dut.lane0_stall_raw === 1'b1)
+                stall_cycles_raw <= stall_cycles_raw + 1;
+            if (dut.lane0_stall_fu === 1'b1)
+                stall_cycles_fu <= stall_cycles_fu + 1;
+            if (dut.lane0_stall_mem === 1'b1)
+                stall_cycles_mem <= stall_cycles_mem + 1;
         end
     end
 
@@ -360,9 +425,9 @@ module tb_sm_v2_integration;
 
     initial begin
         $display("============================================================");
-        $display("RalphGPU SM V2 Top-level Integration (Issue #451)");
-        $display("Scenarios: GEMM-like, reduction-like, memory-coalescing");
-        $display("Checks: WB reference count + X propagation");
+        $display("RalphGPU SM V2 Top-level Integration (Issue #550)");
+        $display("Scenarios: back-to-back ALU, load-use hazard, branch flush, tensor pipeline");
+        $display("Checks: pipeline activity + branch/tensor events + X propagation");
         $display("============================================================");
 
         // Initialize testbench-side signals
@@ -388,6 +453,13 @@ module tb_sm_v2_integration;
 
         cycle_count = 0;
         instruction_count = 0;
+        fetch_req_count = 0;
+        issue_count = 0;
+        mem_req_count = 0;
+        branch_flush_count = 0;
+        branch_skip_wb_count = 0;
+        tensor_issue_count = 0;
+        tensor_wb_count = 0;
         stall_cycles_raw = 0;
         stall_cycles_fu = 0;
         stall_cycles_mem = 0;
@@ -420,17 +492,56 @@ module tb_sm_v2_integration;
                          "Reduction-like video SIMD",
                          5,
                          x_before);
-
         //------------------------------------------------------------------------
         // Scenario 3
         //------------------------------------------------------------------------
-        load_scenario_memory_stream();
+        load_scenario_load_use_hazard();
         x_before = x_warning_count;
         run_kernel(700);
-        report_and_check(3,
-                         "Memory-coalescing style stream",
-                         6,
-                         x_before);
+        report_and_check_extended(3,
+                                  "Load-use hazard path",
+                                  3,
+                                  6,
+                                  x_before,
+                                  1'b1,
+                                  1'b0,
+                                  1'b0,
+                                  1'b0,
+                                  1'b0);
+
+        //------------------------------------------------------------------------
+        // Scenario 4
+        //------------------------------------------------------------------------
+        load_scenario_branch_flush();
+        x_before = x_warning_count;
+        run_kernel(700);
+        report_and_check_extended(4,
+                                  "Branch-taken flush",
+                                  2,
+                                  5,
+                                  x_before,
+                                  1'b0,
+                                  1'b0,
+                                  1'b1,
+                                  1'b1,
+                                  1'b0);
+
+        //------------------------------------------------------------------------
+        // Scenario 5
+        //------------------------------------------------------------------------
+        load_scenario_tensor_pipeline();
+        x_before = x_warning_count;
+        run_kernel(900);
+        report_and_check_extended(5,
+                                  "Tensor MMA pipeline",
+                                  2,
+                                  6,
+                                  x_before,
+                                  1'b0,
+                                  1'b0,
+                                  1'b0,
+                                  1'b0,
+                                  1'b1);
 
         $display("\n============================================================");
         $display("SM V2 Integration Summary: PASS=%0d FAIL=%0d X_WARN_TOTAL=%0d", pass_count, fail_count, x_warning_count);
@@ -457,6 +568,16 @@ module tb_sm_v2_integration;
 
             cycle_count = 0;
             instruction_count = 0;
+            fetch_req_count = 0;
+            issue_count = 0;
+            mem_req_count = 0;
+            branch_flush_count = 0;
+            branch_skip_wb_count = 0;
+            tensor_issue_count = 0;
+            tensor_wb_count = 0;
+            stall_cycles_raw = 0;
+            stall_cycles_fu = 0;
+            stall_cycles_mem = 0;
             monitor_active = 1'b1;
 
             kernel_start = 1'b1;
@@ -492,6 +613,60 @@ module tb_sm_v2_integration;
             end else if (x_warning_count != x_before_local) begin
                 fail_count = fail_count + 1;
                 $display("    Status: FAIL (X-propagation warning detected)");
+            end else begin
+                pass_count = pass_count + 1;
+                $display("    Status: PASS");
+            end
+        end
+    endtask
+
+    task report_and_check_extended;
+        input integer num;
+        input [255:0] name;
+        input integer min_wb_count;
+        input integer max_wb_count;
+        input integer x_before_local;
+        input require_mem_req;
+        input require_hazard_stall;
+        input require_branch_flush;
+        input require_branch_skip_absent;
+        input require_tensor_flow;
+        begin
+            ipc = (cycle_count > 0) ? (1.0 * instruction_count / cycle_count) : 0.0;
+            $display("  Scenario %0d: %s", num, name);
+            $display("    Cycles=%0d WB=%0d IPC=%0.3f fetch=%0d issue=%0d mem_req=%0d",
+                     cycle_count, instruction_count, ipc, fetch_req_count, issue_count, mem_req_count);
+            $display("    Stalls(raw/fu/mem)=%0d/%0d/%0d branch_flush=%0d tensor(issue/wb)=%0d/%0d",
+                     stall_cycles_raw, stall_cycles_fu, stall_cycles_mem,
+                     branch_flush_count, tensor_issue_count, tensor_wb_count);
+
+            if (!kernel_done) begin
+                fail_count = fail_count + 1;
+                $display("    Status: FAIL (kernel timeout)");
+            end else if ((instruction_count < min_wb_count) || (instruction_count > max_wb_count)) begin
+                fail_count = fail_count + 1;
+                $display("    Status: FAIL (WB count out of range)");
+            end else if (fetch_req_count == 0 || issue_count == 0) begin
+                fail_count = fail_count + 1;
+                $display("    Status: FAIL (fetch/issue activity missing)");
+            end else if (x_warning_count != x_before_local) begin
+                fail_count = fail_count + 1;
+                $display("    Status: FAIL (X-propagation warning detected)");
+            end else if (require_mem_req && (mem_req_count == 0)) begin
+                fail_count = fail_count + 1;
+                $display("    Status: FAIL (expected memory request not observed)");
+            end else if (require_hazard_stall && ((stall_cycles_raw + stall_cycles_mem) == 0)) begin
+                fail_count = fail_count + 1;
+                $display("    Status: FAIL (expected load-use hazard stall not observed)");
+            end else if (require_branch_flush && (branch_flush_count == 0)) begin
+                fail_count = fail_count + 1;
+                $display("    Status: FAIL (expected branch flush not observed)");
+            end else if (require_branch_skip_absent && (branch_skip_wb_count != 0)) begin
+                fail_count = fail_count + 1;
+                $display("    Status: FAIL (flushed instruction wrote back unexpectedly)");
+            end else if (require_tensor_flow && ((tensor_issue_count < 1) || (tensor_wb_count < 1))) begin
+                fail_count = fail_count + 1;
+                $display("    Status: FAIL (tensor issue/writeback flow not observed)");
             end else begin
                 pass_count = pass_count + 1;
                 $display("    Status: PASS");

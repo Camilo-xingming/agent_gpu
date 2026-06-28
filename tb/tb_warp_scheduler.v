@@ -118,6 +118,11 @@ module tb_warp_scheduler;
     // 使用独立计数器代替位向量，避免索引问题
     reg [3:0] sel_cnt_0, sel_cnt_1, sel_cnt_2, sel_cnt_3;
     reg rr_ok;
+    integer starve_last_0, starve_last_1, starve_last_2, starve_last_3;
+    integer starve_max_gap_0, starve_max_gap_1, starve_max_gap_2, starve_max_gap_3;
+    integer starve_seen_0, starve_seen_1, starve_seen_2, starve_seen_3;
+    integer bounded_cycles;
+    reg starvation_ok;
 
     //------------------------------------------------------------------------
     // 测试用例
@@ -270,6 +275,183 @@ module tb_warp_scheduler;
             failed = failed + 1;
         end
 
+
+        //====================================================================
+        // 测试5: 长窗口公平性 + 饥饿防护
+        //====================================================================
+        $display("\n--- Fairness + Starvation Bound Test ---");
+
+        warp_valid = 4'b1111;
+        warp_ready = 4'b1111;
+        warp_waiting = 4'b0000;
+
+        starve_last_0 = -NUM_WARPS;
+        starve_last_1 = -NUM_WARPS;
+        starve_last_2 = -NUM_WARPS;
+        starve_last_3 = -NUM_WARPS;
+        starve_max_gap_0 = 0;
+        starve_max_gap_1 = 0;
+        starve_max_gap_2 = 0;
+        starve_max_gap_3 = 0;
+        starve_seen_0 = 0;
+        starve_seen_1 = 0;
+        starve_seen_2 = 0;
+        starve_seen_3 = 0;
+
+        for (i = 0; i < 64; i = i + 1) begin
+            @(posedge clk);
+            if (warp_selected) begin
+                case (active_warp_id)
+                    2'd0: begin
+                        if ((i - starve_last_0) > starve_max_gap_0) starve_max_gap_0 = i - starve_last_0;
+                        starve_last_0 = i;
+                        starve_seen_0 = starve_seen_0 + 1;
+                    end
+                    2'd1: begin
+                        if ((i - starve_last_1) > starve_max_gap_1) starve_max_gap_1 = i - starve_last_1;
+                        starve_last_1 = i;
+                        starve_seen_1 = starve_seen_1 + 1;
+                    end
+                    2'd2: begin
+                        if ((i - starve_last_2) > starve_max_gap_2) starve_max_gap_2 = i - starve_last_2;
+                        starve_last_2 = i;
+                        starve_seen_2 = starve_seen_2 + 1;
+                    end
+                    2'd3: begin
+                        if ((i - starve_last_3) > starve_max_gap_3) starve_max_gap_3 = i - starve_last_3;
+                        starve_last_3 = i;
+                        starve_seen_3 = starve_seen_3 + 1;
+                    end
+                endcase
+            end
+        end
+
+        starvation_ok = (starve_seen_0 > 0) && (starve_seen_1 > 0) && (starve_seen_2 > 0) && (starve_seen_3 > 0) &&
+                        (starve_max_gap_0 <= (NUM_WARPS * 2)) && (starve_max_gap_1 <= (NUM_WARPS * 2)) &&
+                        (starve_max_gap_2 <= (NUM_WARPS * 2)) && (starve_max_gap_3 <= (NUM_WARPS * 2));
+
+        if (starvation_ok) begin
+            $display("[PASS] Fairness/starvation bound respected under sustained contention");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Fairness/starvation bound violation");
+            $display("       seen: W0=%0d W1=%0d W2=%0d W3=%0d",
+                     starve_seen_0, starve_seen_1, starve_seen_2, starve_seen_3);
+            $display("       max_gap: W0=%0d W1=%0d W2=%0d W3=%0d",
+                     starve_max_gap_0, starve_max_gap_1, starve_max_gap_2, starve_max_gap_3);
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试6: 解阻塞后应在有界周期内被调度（防饥饿）
+        //====================================================================
+        $display("\n--- Unblock Scheduling Latency Test ---");
+
+        warp_valid = 4'b1111;
+        warp_ready = 4'b0111;     // Warp3先不可发射
+        warp_waiting = 4'b0000;
+
+        // 先让低编号warp形成连续流
+        for (i = 0; i < 4; i = i + 1) begin
+            @(posedge clk);
+        end
+
+        // Warp3解阻塞，必须在有界周期内得到调度
+        warp_ready[3] = 1'b1;
+        bounded_cycles = 0;
+        while (bounded_cycles < (NUM_WARPS + 2) && !(warp_selected && active_warp_id == 2'd3)) begin
+            @(posedge clk);
+            bounded_cycles = bounded_cycles + 1;
+        end
+
+        if (warp_selected && active_warp_id == 2'd3) begin
+            $display("[PASS] Unblocked warp scheduled within bounded cycles");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Unblocked warp starved too long");
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试7: stalled warp 跳过 + 恢复后可调度
+        //====================================================================
+        $display("\n--- Stall Skip And Recovery Test ---");
+
+        warp_valid = 4'b1111;
+        warp_ready = 4'b1111;
+        warp_waiting = 4'b1010;   // Warp1/Warp3 stalled
+        sel_cnt_0 = 0; sel_cnt_1 = 0; sel_cnt_2 = 0; sel_cnt_3 = 0;
+
+        for (i = 0; i < 8; i = i + 1) begin
+            @(posedge clk);
+            if (warp_selected) begin
+                case (active_warp_id)
+                    2'd0: sel_cnt_0 = sel_cnt_0 + 1;
+                    2'd1: sel_cnt_1 = sel_cnt_1 + 1;
+                    2'd2: sel_cnt_2 = sel_cnt_2 + 1;
+                    2'd3: sel_cnt_3 = sel_cnt_3 + 1;
+                endcase
+            end
+        end
+
+        if (sel_cnt_1 == 0 && sel_cnt_3 == 0 && sel_cnt_0 > 0 && sel_cnt_2 > 0) begin
+            $display("[PASS] Scheduler skips stalled warps");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Stalled warp was incorrectly scheduled");
+            failed = failed + 1;
+        end
+
+        // 释放Warp1，验证可在有界周期内恢复调度
+        warp_waiting[1] = 1'b0;
+        bounded_cycles = 0;
+        while (bounded_cycles < (NUM_WARPS + 2) && !(warp_selected && active_warp_id == 2'd1)) begin
+            @(posedge clk);
+            bounded_cycles = bounded_cycles + 1;
+        end
+
+        if (warp_selected && active_warp_id == 2'd1) begin
+            $display("[PASS] Recovered warp scheduled after stall release");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Recovered warp not scheduled in time");
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试8: 全部stalled，再单warp解除stalled
+        //====================================================================
+        $display("\n--- All Stalled Then One Unblocks Test ---");
+
+        warp_valid = 4'b1111;
+        warp_ready = 4'b1111;
+        warp_waiting = 4'b1111;
+
+        @(posedge clk);
+        @(posedge clk);
+
+        if (!warp_selected) begin
+            $display("[PASS] No warp selected when all stalled");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Warp selected while all are stalled");
+            failed = failed + 1;
+        end
+
+        warp_waiting = 4'b1011;   // only warp2 unblocked
+        bounded_cycles = 0;
+        while (bounded_cycles < 3 && !(warp_selected && active_warp_id == 2'd2)) begin
+            @(posedge clk);
+            bounded_cycles = bounded_cycles + 1;
+        end
+
+        if (warp_selected && active_warp_id == 2'd2) begin
+            $display("[PASS] Single unblocked warp selected promptly");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Single unblocked warp not selected");
+            failed = failed + 1;
+        end
         //====================================================================
         // Warp状态管理测试
         //====================================================================
@@ -301,14 +483,15 @@ module tb_warp_scheduler;
         end
 
         //====================================================================
-        // 测试6: PC更新
+        // 测试6: 非分支PC更新（+4）
         //====================================================================
-        $display("\n--- PC Update Test ---");
+        $display("\n--- Sequential PC Update Test (+4) ---");
 
         @(posedge clk);
         ws_pc_update_en <= 1;
         ws_pc_update_warp <= 2'd0;
-        ws_pc_update_value <= 32'h1004;
+        ws_pc_update_value <= 32'hDEAD_BEEF;
+        ws_pc_is_branch <= 0;
         @(posedge clk);
         ws_pc_update_en <= 0;
 
@@ -319,6 +502,30 @@ module tb_warp_scheduler;
             passed = passed + 1;
         end else begin
             $display("[FAIL] PC update error: got 0x%08X", ws_warp_pc[0]);
+            failed = failed + 1;
+        end
+
+        //====================================================================
+        // 测试6b: 分支PC更新（使用目标地址）
+        //====================================================================
+        $display("\n--- Branch PC Update Test (target redirect) ---");
+
+        @(posedge clk);
+        ws_pc_update_en <= 1;
+        ws_pc_update_warp <= 2'd0;
+        ws_pc_update_value <= 32'h1400;
+        ws_pc_is_branch <= 1;
+        @(posedge clk);
+        ws_pc_update_en <= 0;
+        ws_pc_is_branch <= 0;
+
+        @(posedge clk);
+
+        if (ws_warp_pc[0] === 32'h1400) begin
+            $display("[PASS] Branch update redirected PC to 0x1400");
+            passed = passed + 1;
+        end else begin
+            $display("[FAIL] Branch PC update error: got 0x%08X", ws_warp_pc[0]);
             failed = failed + 1;
         end
 
@@ -432,6 +639,7 @@ module tb_warp_scheduler;
             $display("*** SOME TESTS FAILED ***");
         end
 
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -446,6 +654,7 @@ module tb_warp_scheduler;
     initial begin
         #50000;
         $display("ERROR: Timeout!");
+        if (failed > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

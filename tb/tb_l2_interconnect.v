@@ -45,6 +45,7 @@ module tb_l2_interconnect;
     integer fail_count;
     integer cyc;
     integer grant_sm;
+    integer smi;
 
     l2_interconnect #(
         .NUM_SM(NUM_SM),
@@ -177,24 +178,22 @@ module tb_l2_interconnect;
         #1;
 
         //============================================================
-        // Test 2: Arbitration fairness under contention (same slice)
+        // Test 2: 2-way arbitration fairness (same slice, same line)
         // Expect RR grants: SM0, SM1, SM0, SM1
         //============================================================
         do_reset();
         for (cyc = 0; cyc < 4; cyc = cyc + 1) begin
             clear_reqs();
             set_req(0, 1'b0, 16'h0000, 4'h3, 64'hA0 + cyc);
-            set_req(1, 1'b0, 16'h1000, 4'h4, 64'hB0 + cyc); // b6=0,b12=1 => slice1? wait: xor=1, use 0x0000 to force same slice
-            // Force both to slice0 using same-hash addresses
-            sm_req_addr[1*ADDR_WIDTH +: ADDR_WIDTH] = 16'h0000;
+            set_req(1, 1'b0, 16'h0000, 4'h4, 64'hB0 + cyc);
 
             #1;
-            expect_true(l2_req_valid[0] == 1'b1, "fairness: slice0 should have grant each contended cycle");
+            expect_true(l2_req_valid[0] == 1'b1, "fairness-2way: slice0 should grant every contended cycle");
             grant_sm = l2_req_sm_id[0*SM_W +: SM_W];
             if (cyc[0] == 1'b0)
-                expect_true(grant_sm == 0, "fairness: even cycle should grant SM0");
+                expect_true(grant_sm == 0, "fairness-2way: even cycle should grant SM0");
             else
-                expect_true(grant_sm == 1, "fairness: odd cycle should grant SM1");
+                expect_true(grant_sm == 1, "fairness-2way: odd cycle should grant SM1");
 
             @(posedge clk);
             #1;
@@ -202,21 +201,52 @@ module tb_l2_interconnect;
         clear_reqs();
 
         //============================================================
-        // Test 3: Bandwidth under contention across slices
-        // Two slices should issue in parallel in same cycle
+        // Test 3: 4-way same-line contention fairness
+        // All SMs target the same line/slice. Expect rotating grants 0,1,2,3...
         //============================================================
         do_reset();
+        for (cyc = 0; cyc < 8; cyc = cyc + 1) begin
+            clear_reqs();
+            for (smi = 0; smi < NUM_SM; smi = smi + 1) begin
+                set_req(smi, 1'b0, 16'h0000, smi[ID_WIDTH-1:0], 64'h1000 + smi + cyc);
+            end
+
+            #1;
+            expect_true(l2_req_valid[0] == 1'b1, "fairness-4way: slice0 must issue one grant");
+            grant_sm = l2_req_sm_id[0*SM_W +: SM_W];
+            expect_true(grant_sm == (cyc % NUM_SM), "fairness-4way: round-robin order mismatch");
+
+            for (smi = 0; smi < NUM_SM; smi = smi + 1) begin
+                if (smi == grant_sm)
+                    expect_true(sm_req_ready[smi] == 1'b1, "fairness-4way: granted SM ready should assert");
+                else
+                    expect_true(sm_req_ready[smi] == 1'b0, "fairness-4way: non-granted SM ready should deassert");
+            end
+
+            @(posedge clk);
+            #1;
+        end
         clear_reqs();
-        set_req(0, 1'b0, 16'h0000, 4'h5, 64'hAAAA); // slice0
-        set_req(2, 1'b0, 16'h0040, 4'h6, 64'hBBBB); // slice1
-        #1;
-        expect_true(l2_req_valid == 2'b11, "bandwidth: two independent slices should issue concurrently");
-        expect_true(sm_req_ready[0] && sm_req_ready[2], "bandwidth: both SM0 and SM2 should be ready");
-        @(posedge clk);
-        #1;
 
         //============================================================
-        // Test 4: Response routing back to source SM
+        // Test 4: Parallel bandwidth across slices under load
+        // Two independent slices should issue in parallel each cycle.
+        //============================================================
+        do_reset();
+        for (cyc = 0; cyc < 5; cyc = cyc + 1) begin
+            clear_reqs();
+            set_req(0, 1'b0, 16'h0000, 4'h5, 64'hAAAA + cyc); // slice0
+            set_req(2, 1'b0, 16'h0040, 4'h6, 64'hBBBB + cyc); // slice1
+            #1;
+            expect_true(l2_req_valid == 2'b11, "bandwidth: two slices should issue concurrently");
+            expect_true(sm_req_ready[0] && sm_req_ready[2], "bandwidth: both requesting SMs should be ready");
+            @(posedge clk);
+            #1;
+        end
+        clear_reqs();
+
+        //============================================================
+        // Test 5: Response routing back to source SM
         //============================================================
         do_reset();
         clear_resps();
@@ -246,7 +276,8 @@ module tb_l2_interconnect;
                     "resp route: non-target SMs should stay invalid");
 
         //============================================================
-        // Test 5: Conflict and request counters
+        // Test 6: Counter accuracy under single-slice contention
+        // 3 cycles of 2-way contention -> 3 accepted requests, 3 conflicts.
         //============================================================
         do_reset();
         for (cyc = 0; cyc < 3; cyc = cyc + 1) begin
@@ -258,9 +289,30 @@ module tb_l2_interconnect;
             #1;
         end
         clear_reqs();
+        @(posedge clk);
         #1;
-        expect_true(stat_xbar_conflicts >= 1, "stats: conflict counter should increment under contention");
-        expect_true(stat_total_requests >= 3, "stats: total requests should increase under traffic");
+        expect_true(stat_total_requests == 32'd3, "stats: expected exactly 3 total requests");
+        expect_true(stat_xbar_conflicts == 32'd3, "stats: expected exactly 3 conflicts");
+
+        //============================================================
+        // Test 7: Counter accuracy under dual-slice parallel issue
+        // 4 cycles, 2 accepted requests per cycle -> 8 total requests, 0 conflict.
+        //============================================================
+        do_reset();
+        for (cyc = 0; cyc < 4; cyc = cyc + 1) begin
+            clear_reqs();
+            set_req(0, 1'b0, 16'h0000, 4'h9, 64'h300 + cyc); // slice0
+            set_req(1, 1'b0, 16'h0040, 4'hA, 64'h400 + cyc); // slice1
+            #1;
+            expect_true(l2_req_valid == 2'b11, "stats-parallel: expected dual-slice issue");
+            @(posedge clk);
+            #1;
+        end
+        clear_reqs();
+        @(posedge clk);
+        #1;
+        expect_true(stat_total_requests == 32'd8, "stats-parallel: expected exactly 8 total requests");
+        expect_true(stat_xbar_conflicts == 32'd0, "stats-parallel: expected 0 conflicts");
 
         $display("============================================================");
         $display("tb_l2_interconnect Summary: %0d PASSED, %0d FAILED", pass_count, fail_count);

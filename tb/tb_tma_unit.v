@@ -792,6 +792,7 @@ module tb_tma_unit;
         $display("============================================================");
 
         #100;
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -799,6 +800,7 @@ module tb_tma_unit;
     initial begin
         #100000;
         $display("ERROR: Test timeout!");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

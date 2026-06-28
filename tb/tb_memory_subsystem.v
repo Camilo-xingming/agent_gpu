@@ -534,6 +534,7 @@ module tb_memory_subsystem;
         $display("========================================");
 
         #(CLK_PERIOD * 10);
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -541,6 +542,7 @@ module tb_memory_subsystem;
     initial begin
         #(CLK_PERIOD * 10000);
         $display("ERROR: Testbench timeout");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

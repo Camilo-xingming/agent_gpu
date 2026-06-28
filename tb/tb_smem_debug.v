@@ -272,7 +272,7 @@ module tb_smem_debug;
             if (result == 32'hCAFE) begin
                 $display("[PASS] Shared memory test passed!");
             end else begin
-                $display("[FAIL] Shared memory test failed! Expected 0xCAFE, got 0x%08x", result);
+                $fatal(1, "[FAIL] Shared memory test failed! Expected 0xCAFE, got 0x%08x", result);
             end
         end else begin
             $display("[TIMEOUT] Kernel did not complete in %0d cycles", TIMEOUT_CYCLES);

@@ -51,6 +51,29 @@ module tb_control_flow_unit;
     wire        stack_overflow;
     wire        stack_underflow;
 
+
+    //------------------------------------------------------------------------
+    // Branch unit helper DUT signals
+    //------------------------------------------------------------------------
+    reg  [31:0] bu_pc_current;
+    reg  [31:0] bu_offset;
+    reg  [31:0] bu_target_reg;
+    reg         bu_taken;
+    reg         bu_is_indirect;
+    reg         bu_is_call;
+    wire [31:0] bu_next_pc;
+    wire [31:0] bu_return_addr;
+
+    //------------------------------------------------------------------------
+    // Predicate RF helper DUT signals
+    //------------------------------------------------------------------------
+    reg         prf_wr_en;
+    reg  [2:0]  prf_wr_addr;
+    reg  [31:0] prf_wr_data;
+    reg  [2:0]  prf_rd_addr_a;
+    reg  [2:0]  prf_rd_addr_b;
+    wire [31:0] prf_rd_data_a;
+    wire [31:0] prf_rd_data_b;
     //------------------------------------------------------------------------
     // DUT instantiation
     //------------------------------------------------------------------------
@@ -83,6 +106,35 @@ module tb_control_flow_unit;
         .stack_underflow (stack_underflow)
     );
 
+
+    //------------------------------------------------------------------------
+    // Helper DUT instantiations (branch_unit / predicate_rf)
+    //------------------------------------------------------------------------
+    branch_unit u_branch_unit (
+        .pc_current (bu_pc_current),
+        .offset     (bu_offset),
+        .target_reg (bu_target_reg),
+        .taken      (bu_taken),
+        .is_indirect(bu_is_indirect),
+        .is_call    (bu_is_call),
+        .next_pc    (bu_next_pc),
+        .return_addr(bu_return_addr)
+    );
+
+    predicate_rf #(
+        .NUM_PREDICATES(8),
+        .NUM_THREADS(32)
+    ) u_predicate_rf (
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .wr_en    (prf_wr_en),
+        .wr_addr  (prf_wr_addr),
+        .wr_data  (prf_wr_data),
+        .rd_addr_a(prf_rd_addr_a),
+        .rd_addr_b(prf_rd_addr_b),
+        .rd_data_a(prf_rd_data_a),
+        .rd_data_b(prf_rd_data_b)
+    );
     //------------------------------------------------------------------------
     // Clock generation
     //------------------------------------------------------------------------
@@ -161,6 +213,19 @@ module tb_control_flow_unit;
         call_target   = 32'b0;
         ret_valid     = 1'b0;
         diverge_mask  = 32'b0;
+
+        bu_pc_current  = 32'b0;
+        bu_offset      = 32'b0;
+        bu_target_reg  = 32'b0;
+        bu_taken       = 1'b0;
+        bu_is_indirect = 1'b0;
+        bu_is_call     = 1'b0;
+
+        prf_wr_en      = 1'b0;
+        prf_wr_addr    = 3'b0;
+        prf_wr_data    = 32'b0;
+        prf_rd_addr_a  = 3'b0;
+        prf_rd_addr_b  = 3'b0;
 
         //====================================================================
         // Test 1: Reset behavior
@@ -602,6 +667,129 @@ module tb_control_flow_unit;
         @(posedge clk);
         wait_clk(2);
 
+
+        //====================================================================
+        // Test 13: Predicated execution path (via predicate_rf mask)
+        //====================================================================
+        $display("\n--- Test Group 13: Predicated Execution ---");
+
+        // Predicate false: all threads masked off -> branch should be skipped
+        clear_inputs;
+        prf_wr_en   <= 1'b1;
+        prf_wr_addr <= 3'd2;
+        prf_wr_data <= 32'h0000_0000;
+        @(posedge clk);
+        prf_wr_en   <= 1'b0;
+
+        prf_rd_addr_a <= 3'd2;
+        @(posedge clk);
+        #1;
+
+        clear_inputs;
+        pc_current    <= 32'h0000_5000;
+        active_mask   <= 32'hFFFF_FFFF;
+        branch_valid  <= 1'b1;
+        branch_type   <= BR_IF_TRUE;
+        branch_target <= 32'h0000_5200;
+        diverge_mask  <= prf_rd_data_a;
+        branch_cond   <= prf_rd_data_a;
+        is_uniform    <= 1'b0;
+        @(posedge clk);
+        #1;
+
+        check("Predicate false: branch skipped (pc+4)",
+              next_pc === 32'h0000_5004);
+        check("Predicate false: active_mask unchanged",
+              next_active_mask === 32'hFFFF_FFFF);
+        clear_inputs;
+        @(posedge clk);
+
+        // Predicate true on subset: branch should execute for predicate-true threads
+        clear_inputs;
+        prf_wr_en   <= 1'b1;
+        prf_wr_addr <= 3'd2;
+        prf_wr_data <= 32'h0000_F0F0;
+        @(posedge clk);
+        prf_wr_en   <= 1'b0;
+
+        prf_rd_addr_a <= 3'd2;
+        @(posedge clk);
+        #1;
+
+        clear_inputs;
+        pc_current    <= 32'h0000_5300;
+        active_mask   <= 32'hFFFF_FFFF;
+        branch_valid  <= 1'b1;
+        branch_type   <= BR_IF_TRUE;
+        branch_target <= 32'h0000_5400;
+        diverge_mask  <= prf_rd_data_a;
+        branch_cond   <= prf_rd_data_a;
+        is_uniform    <= 1'b0;
+        @(posedge clk);
+        #1;
+
+        check("Predicate true subset: branch target selected",
+              next_pc === 32'h0000_5400);
+        check("Predicate true subset: active mask follows predicate",
+              next_active_mask === 32'h0000_F0F0);
+        clear_inputs;
+        @(posedge clk);
+        wait_clk(2);
+
+        //====================================================================
+        // Test 14: branch_unit target calculation and edge conditions
+        //====================================================================
+        $display("\n--- Test Group 14: Branch Target Edge Cases ---");
+
+        // Branch to self (infinite loop style)
+        bu_pc_current  = 32'h0000_6000;
+        bu_offset      = 32'h0000_0000;
+        bu_target_reg  = 32'h0;
+        bu_taken       = 1'b1;
+        bu_is_indirect = 1'b0;
+        bu_is_call     = 1'b0;
+        #1;
+        check("branch_unit self-branch: next_pc == pc_current",
+              bu_next_pc === 32'h0000_6000);
+
+        // Relative negative branch
+        bu_pc_current  = 32'h0000_6000;
+        bu_offset      = 32'hFFFF_FFF0;  // -16
+        bu_taken       = 1'b1;
+        bu_is_indirect = 1'b0;
+        #1;
+        check("branch_unit relative negative offset",
+              bu_next_pc === 32'h0000_5FF0);
+
+        // Misaligned indirect branch target (validation behavior)
+        bu_pc_current  = 32'h0000_6000;
+        bu_target_reg  = 32'h0000_6103;
+        bu_taken       = 1'b1;
+        bu_is_indirect = 1'b1;
+        #1;
+        check("branch_unit indirect misaligned target preserved",
+              bu_next_pc === 32'h0000_6103);
+
+        // Address overflow wrap behavior
+        bu_pc_current  = 32'hFFFF_FFFC;
+        bu_offset      = 32'h0000_0008;
+        bu_taken       = 1'b1;
+        bu_is_indirect = 1'b0;
+        #1;
+        check("branch_unit overflow wraps in 32-bit space",
+              bu_next_pc === 32'h0000_0004);
+
+        // Not-taken path and return address
+        bu_pc_current  = 32'h0000_7000;
+        bu_offset      = 32'h0000_0020;
+        bu_taken       = 1'b0;
+        bu_is_indirect = 1'b0;
+        bu_is_call     = 1'b1;
+        #1;
+        check("branch_unit not-taken uses pc+4",
+              bu_next_pc === 32'h0000_7004);
+        check("branch_unit return_addr = pc+4",
+              bu_return_addr === 32'h0000_7004);
         //====================================================================
         // Summary
         //====================================================================
@@ -616,6 +804,7 @@ module tb_control_flow_unit;
             $display("SOME TESTS FAILED");
         $display("");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -625,6 +814,7 @@ module tb_control_flow_unit;
     initial begin
         #(CLK_PERIOD * 2000);
         $display("[TIMEOUT] Simulation exceeded maximum cycles");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

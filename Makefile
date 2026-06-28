@@ -102,6 +102,7 @@ TB_FMA_INT32 = $(TB_DIR)/tb_fma_int32.v
 TB_DEC = $(TB_DIR)/tb_decoder.v
 TB_REG = $(TB_DIR)/tb_register_file.v
 TB_REG_BANKED = $(TB_DIR)/tb_register_file_banked.v
+TB_BW_SCHED = $(TB_DIR)/tb_blackwell_scheduler.v
 TB_BW_SCHED_SB = $(TB_DIR)/tb_blackwell_scheduler_scoreboard.v
 TB_SMEM = $(TB_DIR)/tb_shared_memory.v
 TB_MEM_COALESCE = $(TB_DIR)/tb_memory_coalescing_unit.v
@@ -155,16 +156,16 @@ endif
 #=====================================================================# 目标
 #=====================================================================
 .PHONY: all sim wave clean assemble help test test_all regression
-.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_regfile_banked test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_memory_interface_wide test_l1_data_cache_optimized test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_warp_collective_unit test_dual_issue_scheduler test_control_flow_unit test_branch_predictor test_icache test_cache_policy_unit test_forwarding_unit test_fpu test_fp16_unit test_fpu64 test_sfu test_cvt_unit test_dpx_unit benchmark test_atomic test_mbarrier_unit test_tma_unit test_multimem_unit test_cluster_barrier_unit test_warp_shuffle test_tlb test_tlb_enhanced test_performance_counters test_stack_debug_unit test_griddep_unit test_st_bulk_unit
-.PHONY: test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
-.PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_sm_wbq_bank test_ralph_gpu_top_cp_integration test_memsys test_memory_controller test_l1_data_cache test_l1_data_cache_optimized test_icache_lru test_phase2 test_warp_valid_d1
+.PHONY: test_alu test_mul test_fma_int32 test_decoder test_regfile test_register_file_banked test_blackwell_scheduler test_bw_scheduler_scoreboard test_smem test_memory_coalescing_unit test_memory_interface test_memory_interface_wide test_l1_data_cache_optimized test_sm_fetch_pipeline test_sm_writeback_arbiter test_sm_gmem_arbiter test_texture_unit test_texture_smem_gmem_integration test_sm_special_reg test_memory_qos test_l2_interconnect test_reconvergence_stack test_simt_stack_controller test_lz4_decompressor test_chi_controller test_tensor_memory test_warp test_warp_collective_unit test_dual_issue_scheduler test_control_flow_unit test_branch_predictor test_icache test_cache_policy_unit test_forwarding_unit test_fpu test_fp16_unit test_fpu64 test_sfu test_cvt_unit test_dpx_unit benchmark test_atomic test_mbarrier_unit test_tma_unit test_multimem_unit test_cluster_barrier_unit test_warp_shuffle test_tlb test_tlb_enhanced test_performance_counters test_stack_debug_unit test_griddep_unit test_st_bulk_unit
+.PHONY: test_sm_v2_integration test_sm_v2_comprehensive test_sm_v2_full test_sm_v2_perf test_sm_v2_perf_gemm16_ptx test_sm_v2_perf_gemm16_wmma_ptx test_sm_v2_perf_gemm64_wgmma_ptx test_sm_v2_perf_tensor test_sm_v2_perf_tensor_multiwarp test_sm_v2_sched_raw_hazard test_streaming_multiprocessor_v2 test_raw_hazard test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_fp4_fp8_frm test_cron_optimization bench_l1d_ipc_compare bench_mcu_mem_compare dashboard dashboard-sprint21-baseline dashboard-check dashboard-baseline
+.PHONY: test_vector_add test_perf_counters test_perf_mem_stream test_perf_mem_gather test_perf_saxpy test_multi_sm test_command_queue test_command_processor test_wb_fifo test_sm_wbq_bank test_ralph_gpu_top_cp_integration test_ralph_gpu_top_smoke test_memsys test_memory_controller test_l1_data_cache test_l1_data_cache_optimized test_l1_data_cache_active test_icache_lru test_phase2 test_warp_valid_d1 test_video_unit_ext
 
 # Audited must-run regression suite (stable gates for local + CI).
 # Non-gating/extended tests are tracked separately and can be run via:
 # make regression REGRESSION_TARGETS="$(REGRESSION_EXTENDED_TARGETS)"
 REGRESSION_MUST_RUN_TARGETS = \
 	test \
-	test_regfile_banked \
+	test_register_file_banked \
 	test_bw_scheduler_scoreboard \
 	test_sfu \
 	test_cvt_unit \
@@ -272,7 +273,7 @@ test_regfile: $(BUILD_DIR)/tb_register_file.vvp
 $(BUILD_DIR)/tb_register_file.vvp: $(RTL_DIR)/register_file.v $(RTL_DIR)/gpu_defines.vh $(TB_REG) | $(BUILD_DIR)
 	$(IVERILOG) $(INCLUDES) -o $@ $(TB_REG) $(RTL_DIR)/register_file.v
 
-test_regfile_banked: $(BUILD_DIR)/tb_register_file_banked.vvp
+test_register_file_banked: $(BUILD_DIR)/tb_register_file_banked.vvp
 	@echo "========================================"
 	@echo "Running Banked Register File Unit Test"
 	@echo "========================================"
@@ -280,6 +281,15 @@ test_regfile_banked: $(BUILD_DIR)/tb_register_file_banked.vvp
 
 $(BUILD_DIR)/tb_register_file_banked.vvp: $(RTL_DIR)/register_file_banked.v $(RTL_DIR)/gpu_defines.vh $(TB_REG_BANKED) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_REG_BANKED) $(RTL_DIR)/register_file_banked.v
+
+test_blackwell_scheduler: $(BUILD_DIR)/tb_blackwell_scheduler.vvp
+	@echo "========================================"
+	@echo "Running Blackwell Scheduler Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_blackwell_scheduler.vvp
+
+$(BUILD_DIR)/tb_blackwell_scheduler.vvp: $(RTL_DIR)/blackwell_scheduler.v $(RTL_DIR)/gpu_defines.vh $(TB_BW_SCHED) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_BW_SCHED) $(RTL_DIR)/blackwell_scheduler.v
 
 test_bw_scheduler_scoreboard: $(BUILD_DIR)/tb_blackwell_scheduler_scoreboard.vvp
 	@echo "========================================"
@@ -461,6 +471,15 @@ test_reconvergence_stack: $(BUILD_DIR)/tb_reconvergence_stack.vvp
 
 $(BUILD_DIR)/tb_reconvergence_stack.vvp: $(RTL_DIR)/reconvergence_stack.v $(RTL_DIR)/gpu_defines.vh $(TB_RECONV) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_RECONV) $(RTL_DIR)/reconvergence_stack.v
+
+test_simt_stack_controller: $(BUILD_DIR)/tb_simt_stack_controller.vvp
+	@echo "========================================"
+	@echo "Running SIMT Stack Controller Unit Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_simt_stack_controller.vvp
+
+$(BUILD_DIR)/tb_simt_stack_controller.vvp: $(RTL_DIR)/reconvergence_stack.v $(RTL_DIR)/gpu_defines.vh $(TB_DIR)/tb_simt_stack_controller.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_DIR)/tb_simt_stack_controller.v $(RTL_DIR)/reconvergence_stack.v
 
 test_lz4_decompressor: $(BUILD_DIR)/tb_lz4_decompressor.vvp
 	@echo "========================================"
@@ -742,11 +761,13 @@ test_l1_data_cache_optimized: $(BUILD_DIR)/tb_l1_data_cache_optimized.vvp
 $(BUILD_DIR)/tb_l1_data_cache_optimized.vvp: $(TB_L1_DATA_CACHE_OPT) $(RTL_DIR)/l1_data_cache_optimized.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_L1_DATA_CACHE_OPT) $(RTL_DIR)/l1_data_cache_optimized.v
 
+test_l1_data_cache_active: $(BUILD_DIR)/tb_l1_data_cache_active.vvp
 	@echo "========================================"
 	@echo "Running Active L1 Data Cache Test (L1D enabled path)"
 	@echo "========================================"
 	cd $(BUILD_DIR) && $(VVP) tb_l1_data_cache_active.vvp
 
+$(BUILD_DIR)/tb_l1_data_cache_active.vvp: $(TB_L1_DATA_CACHE_ACTIVE) $(RTL_DIR)/l1_data_cache_optimized.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(TB_L1_DATA_CACHE_ACTIVE) $(RTL_DIR)/l1_data_cache_optimized.v
 
 test_icache_lru: $(BUILD_DIR)/tb_icache_lru_conflict.vvp
@@ -775,6 +796,7 @@ TB_SM_V2_PERF_PTX = $(TB_DIR)/tb_sm_v2_perf_gemm16_ptx.v
 TB_SM_V2_PERF_TC = $(TB_DIR)/tb_sm_v2_perf_tensor.v
 TB_SM_V2_PERF_TC_MW = $(TB_DIR)/tb_sm_v2_perf_tensor_multiwarp.v
 TB_SM_V2_SCHED_RAW = $(TB_DIR)/tb_sm_v2_sched_raw_hazard.v
+TB_SM_V2_STREAMING = $(TB_DIR)/tb_streaming_multiprocessor_v2.v
 
 # SM V2 RTL sources (define SM_V2 to exclude duplicate wrappers from fpu.v/sfu.v)
 SM_V2_SRCS = \
@@ -837,11 +859,15 @@ $(BUILD_DIR)/tb_sm_v2_core.vvp: $(TB_DIR)/tb_sm_v2_core.v | $(BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $(TB_DIR)/tb_sm_v2_core.v
 
 # Full integration test (requires all modules)
-test_sm_v2_full: $(BUILD_DIR)/tb_sm_v2_integration.vvp
+test_sm_v2_integration: $(BUILD_DIR)/tb_sm_v2_integration.vvp
 	@echo "========================================"
 	@echo "Running SM V2 Full Integration Test"
 	@echo "========================================"
 	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_integration.vvp
+
+# Backward-compatible alias kept for existing scripts.
+test_sm_v2_full: test_sm_v2_integration
+	@echo "Alias target completed: test_sm_v2_integration"
 
 $(BUILD_DIR)/tb_sm_v2_integration.vvp: $(SM_V2_SRCS) $(TB_SM_V2) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(SM_V2_DEFINES) -o $@ $(TB_SM_V2) $(filter %.v,$(SM_V2_SRCS))
@@ -889,6 +915,16 @@ test_sm_v2_sched_raw_hazard: $(BUILD_DIR)/tb_sm_v2_sched_raw_hazard.vvp
 
 $(BUILD_DIR)/tb_sm_v2_sched_raw_hazard.vvp: $(SM_V2_SRCS) $(TB_SM_V2_SCHED_RAW) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(SM_V2_DEFINES) -o $@ $(TB_SM_V2_SCHED_RAW) $(filter %.v,$(SM_V2_SRCS))
+
+# Dedicated streaming_multiprocessor_v2 integration coverage (Issue #603)
+test_streaming_multiprocessor_v2: $(BUILD_DIR)/tb_streaming_multiprocessor_v2.vvp
+	@echo "========================================"
+	@echo "Running streaming_multiprocessor_v2 Dedicated TB"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_streaming_multiprocessor_v2.vvp
+
+$(BUILD_DIR)/tb_streaming_multiprocessor_v2.vvp: $(SM_V2_SRCS) $(TB_SM_V2_STREAMING) | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_SM_V2_STREAMING) $(filter %.v,$(SM_V2_SRCS))
 
 # Alias for regression audit naming consistency.
 test_raw_hazard: test_sm_v2_sched_raw_hazard
@@ -1040,7 +1076,7 @@ perf_report:
 #----------------------------------------------------------------------------
 # 运行所有测试
 #----------------------------------------------------------------------------
-test: test_advanced_scheduler test_alu test_async_copy_engine test_atomic test_branch_predictor test_cache_policy_unit test_chi_controller test_cluster_barrier_unit test_command_processor test_command_queue test_control_flow_unit test_cvt_unit test_decoder test_dpx_unit test_dual_issue_scheduler test_fma_int32 test_forwarding_unit test_fp16_unit test_fpu test_fpu64 test_griddep_unit test_icache test_l1_data_cache_optimized test_l2_cache test_l2_interconnect test_lz4_decompressor test_mbarrier_unit test_memory_coalescing_unit test_memory_controller test_memory_controller_hbm test_memory_interface test_memory_interface_wide test_memory_qos test_mul test_multimem_unit test_performance_counters test_reconvergence_stack test_regfile test_register_file_banked test_sfu test_sm_fetch_pipeline test_sm_gmem_arbiter test_sm_special_reg test_sm_wbq_bank test_sm_writeback_arbiter test_smem test_st_bulk_unit test_stack_debug_unit test_tensor_core_e2e test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_memory test_texture_smem_gmem_integration test_texture_unit test_tlb test_tlb_enhanced test_tma_unit test_video_unit test_warp test_warp_collective_unit test_warp_ops test_warp_shuffle test_wb_fifo test_wgmma_throughput test_wgmma_tile_engine
+test: test_perf_gate test_advanced_scheduler test_blackwell_scheduler test_alu test_async_copy_engine test_atomic test_branch_predictor test_cache_policy_unit test_chi_controller test_cluster_barrier_unit test_command_processor test_command_queue test_ralph_gpu_top_smoke test_control_flow_unit test_cvt_unit test_decoder test_dpx_unit test_dual_issue_scheduler test_fma_int32 test_forwarding_unit test_fp16_unit test_fpu test_fpu64 test_griddep_unit test_icache test_l1_data_cache_optimized test_l1_data_cache_active test_l2_cache test_l2_interconnect test_lz4_decompressor test_mbarrier_unit test_memory_coalescing_unit test_memory_controller test_memory_controller_hbm test_memory_interface test_memory_interface_wide test_memory_qos test_mul test_multimem_unit test_performance_counters test_reconvergence_stack test_simt_stack_controller test_regfile test_register_file_banked test_sfu test_sm_fetch_pipeline test_sm_gmem_arbiter test_sm_special_reg test_sm_v2_integration test_sm_v2_comprehensive test_streaming_multiprocessor_v2 test_sm_wbq_bank test_sm_writeback_arbiter test_smem test_st_bulk_unit test_stack_debug_unit test_tensor_core_e2e test_tensor_core_fp4 test_tensor_fp4_fp8 test_tensor_memory test_texture_smem_gmem_integration test_texture_unit test_tlb test_tlb_enhanced test_tma_unit test_video_unit test_video_unit_ext test_warp test_warp_collective_unit test_warp_ops test_warp_shuffle test_wb_fifo test_wgmma_throughput test_wgmma_tile_engine test_wgmma_multiprecision test_gpu_top_integration
 	@echo "========================================"
 	@echo "All Unit Tests Completed"
 	@echo "========================================"
@@ -1198,6 +1234,7 @@ help:
 	@echo "  test_cache_policy_unit - Test cache policy helper unit"
 	@echo "  test_forwarding_unit - Test forwarding unit"
 	@echo "  test_l1_data_cache_optimized - Test optimized L1 data cache"
+	@echo "  test_l1_data_cache_active - Test active L1 data cache (L1D enabled path)"
 	@echo "  test_tensor_core_fp4 - Tensor Core FP4 sanity test"
 	@echo "  test_tensor_fp4_fp8 - Tensor Core FP4/FP8 handwritten e2e test"
 	@echo "  test_tensor_fp4_fp8_frm - Tensor Core FP4/FP8 generated RTL vs FRM e2e"
@@ -1405,7 +1442,9 @@ $(BUILD_DIR)/tb_texture_smem_gmem_integration.vvp: $(RTL_DIR)/texture_unit.v $(R
 TB_SM_V2_COMPREHENSIVE = $(TB_DIR)/tb_sm_v2_comprehensive.v
 
 test_sm_v2_comprehensive: $(BUILD_DIR)/tb_sm_v2_comprehensive.vvp
-	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_comprehensive.vvp
+	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_comprehensive.vvp +SCENARIO=1
+	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_comprehensive.vvp +SCENARIO=2
+	cd $(BUILD_DIR) && $(VVP) tb_sm_v2_comprehensive.vvp +SCENARIO=3
 
 $(BUILD_DIR)/tb_sm_v2_comprehensive.vvp: $(SM_V2_SRCS) $(TB_SM_V2_COMPREHENSIVE) | $(BUILD_DIR)
 	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_SM_V2_COMPREHENSIVE) $(filter %.v,$(SM_V2_SRCS))
@@ -1534,11 +1573,49 @@ $(BUILD_DIR)/tb_l2_cache.vvp: $(RTL_DIR)/l2_cache.v $(RTL_DIR)/l2_interconnect.v
 	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_l2_cache.v $(RTL_DIR)/l2_cache.v $(RTL_DIR)/l2_interconnect.v
 
 
-test_register_file_banked: $(BUILD_DIR)/tb_register_file_banked.vvp
-	@echo "========================================"
-	@echo "Running Register File Banked Unit Test"
-	@echo "========================================"
-	cd $(BUILD_DIR) && $(VVP) tb_register_file_banked.vvp
 
-$(BUILD_DIR)/tb_register_file_banked.vvp: $(RTL_DIR)/register_file_banked.v tb/tb_register_file_banked.v | $(BUILD_DIR)
-	$(IVERILOG) -g2012 $(INCLUDES) -o $@ tb/tb_register_file_banked.v $(RTL_DIR)/register_file_banked.v
+# Top-level GPU smoke test (dispatch -> SM execute -> memory -> writeback)
+test_gpu_top_integration: $(BUILD_DIR)/tb_gpu_top_integration.vvp
+	@echo "========================================"
+	@echo "Running GPU Top-Level Integration Test"
+	@echo "========================================"
+	$(VVP) $<
+
+$(BUILD_DIR)/tb_gpu_top_integration.vvp: $(RTL_SRCS) $(TB_DIR)/tb_gpu_top_integration.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -o $@ $(RTL_SRCS) $(TB_DIR)/tb_gpu_top_integration.v
+
+test_ralph_gpu_top_smoke: $(BUILD_DIR)/tb_ralph_gpu_top_smoke.vvp
+	@echo "========================================"
+	@echo "Running GPU Top-Level Smoke Test"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_ralph_gpu_top_smoke.vvp
+
+$(BUILD_DIR)/tb_ralph_gpu_top_smoke.vvp: $(RTL_SRCS) $(TB_DIR)/tb_ralph_gpu_top_smoke.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) $(RTL_DEFINES) -o $@ $(TB_DIR)/tb_ralph_gpu_top_smoke.v $(filter %.v,$(RTL_SRCS))
+
+test_wgmma_multiprecision: $(BUILD_DIR)/tb_wgmma_multiprecision.vvp
+	@echo "========================================"
+	@echo "Running test_wgmma_multiprecision"
+	@echo "========================================"
+	cd $(BUILD_DIR) && $(VVP) tb_wgmma_multiprecision.vvp
+
+$(BUILD_DIR)/tb_wgmma_multiprecision.vvp: $(TB_DIR)/tb_wgmma_multiprecision.v | $(BUILD_DIR)
+	$(IVERILOG) -g2012 $(INCLUDES) -y $(RTL_DIR) $(RTL_DEFINES) -o $@ $<
+
+#----------------------------------------------------------------------------
+# Project Management Automation
+#----------------------------------------------------------------------------
+.PHONY: create_next_sprint
+create_next_sprint:
+	@echo "========================================"
+	@echo "Creating Sprint N+1 Milestone"
+	@echo "========================================"
+	bash scripts/create_next_sprint.sh
+
+
+#----------------------------------------------------------------------------
+# IPC Performance Gate Check
+#----------------------------------------------------------------------------
+test_perf_gate:
+	@echo "Running IPC Performance Gate..."
+	$(PYTHON) tools/check_ipc_gate.py

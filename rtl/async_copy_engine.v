@@ -83,7 +83,7 @@ module async_copy_engine #(
     reg [SHARED_MEM_ADDR_W-1:0] req_dst_addr  [0:QUEUE_DEPTH-1];  // For load: smem addr; For store: gmem addr[13:0]
     reg [GLOBAL_ADDR_W-1:0]     req_gmem_addr [0:QUEUE_DEPTH-1];  // For store: full gmem addr
     reg [127:0]                 req_data      [0:QUEUE_DEPTH-1];  // For store: data to write
-    reg [3:0]                   req_size      [0:QUEUE_DEPTH-1];
+    reg [4:0]                   req_size      [0:QUEUE_DEPTH-1];
     reg [2:0]                   req_cache     [0:QUEUE_DEPTH-1];
     reg [2:0]                   req_group     [0:QUEUE_DEPTH-1];
     reg [QUEUE_DEPTH-1:0]       req_valid;
@@ -212,7 +212,7 @@ module async_copy_engine #(
                                         req_src_addr[req_head] <= {18'b0, dst_addr};  // SMEM addr
                                         req_gmem_addr[req_head] <= store_gmem_addr;   // Global memory address
                                         req_data[req_head] <= store_data;             // Data to store
-                                        req_size[req_head] <= size;
+                                        req_size[req_head] <= {1'b0, size};
                                         req_cache[req_head] <= cache_hint;
                                         req_group[req_head] <= current_group;
                                         req_valid[req_head] <= 1'b1;
@@ -273,7 +273,7 @@ module async_copy_engine #(
                                     if (req_count < QUEUE_DEPTH) begin
                                         req_src_addr[req_head] <= src_addr;
                                         req_dst_addr[req_head] <= dst_addr;
-                                        req_size[req_head] <= size;
+                                        req_size[req_head] <= {1'b0, size};
                                         req_cache[req_head] <= (func == `CPASYNC_CA) ? `CACHE_CA : `CACHE_CG;
                                         req_group[req_head] <= current_group;
                                         req_valid[req_head] <= 1'b1;
@@ -319,7 +319,7 @@ module async_copy_engine #(
                                 if (req_count < QUEUE_DEPTH) begin
                                     req_src_addr[req_head] <= src_addr;
                                     req_dst_addr[req_head] <= dst_addr;
-                                    req_size[req_head] <= size;
+                                    req_size[req_head] <= {1'b0, size};
                                     req_cache[req_head] <= cache_hint;
                                     req_group[req_head] <= current_group;
                                     req_valid[req_head] <= 1'b1;
@@ -360,7 +360,7 @@ module async_copy_engine #(
                     if (tma_active && tma_req_valid && req_count < QUEUE_DEPTH) begin
                         req_src_addr[req_head] <= tma_req_src_addr;
                         req_dst_addr[req_head] <= tma_req_dst_addr;
-                        req_size[req_head] <= tma_req_size[3:0];
+                        req_size[req_head] <= tma_req_size;
                         req_cache[req_head] <= `CACHE_CG;  // TMA uses global caching
                         req_group[req_head] <= current_group;
                         req_valid[req_head] <= 1'b1;
@@ -401,7 +401,7 @@ module async_copy_engine #(
                             gmem_wr_valid <= 1'b1;
                             gmem_wr_addr <= req_gmem_addr[req_tail];
                             gmem_wr_data <= req_data[req_tail];
-                            gmem_wr_size <= {1'b0, req_size[req_tail]};
+                            gmem_wr_size <= req_size[req_tail];
                             state <= ST_WAIT_WR;
 
                             `ifdef SIMULATION
@@ -412,7 +412,7 @@ module async_copy_engine #(
                             // Load operation: 发起全局内存读请求
                             gmem_req_valid <= 1'b1;
                             gmem_req_addr <= req_src_addr[req_tail];
-                            gmem_req_size <= {1'b0, req_size[req_tail]};
+                            gmem_req_size <= req_size[req_tail];
                             gmem_req_cache <= req_cache[req_tail];
                             state <= ST_WAIT_RESP;
                         end
@@ -440,7 +440,7 @@ module async_copy_engine #(
                     smem_wr_en <= 1'b1;
                     smem_wr_addr <= req_dst_addr[current_req];
                     smem_wr_data <= data_buffer;
-                    smem_wr_size <= {1'b0, req_size[current_req]};
+                    smem_wr_size <= req_size[current_req];
 
                     // 标记完成
                     req_complete[current_req] <= 1'b1;

@@ -1774,6 +1774,7 @@ module tb_b300_features;
             $display("*** SOME TESTS FAILED ***");
         end
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -1781,6 +1782,7 @@ module tb_b300_features;
     initial begin
         #2000000;  // Increased timeout for extended tests
         $display("TIMEOUT: Test took too long");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

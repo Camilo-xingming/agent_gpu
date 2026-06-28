@@ -584,6 +584,7 @@ module tb_batched_matmul_4x4x4_fp16;
         $display("============================================================");
 
         #100;
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -603,6 +604,7 @@ module tb_batched_matmul_4x4x4_fp16;
     initial begin
         #200_000_000;
         $display("SIMULATION TIMEOUT");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

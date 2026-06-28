@@ -219,7 +219,7 @@ module tb_single_ptx_test;
         end else if (result == PASS_MARKER) begin
             $display("[PASS] Completed in %0d cycles", cycle_count);
         end else begin
-            $display("[FAIL] Result: 0x%08X after %0d cycles", result, cycle_count);
+            $fatal(1, "[FAIL] Result: 0x%08X after %0d cycles", result, cycle_count);
             // Dump some memory for debugging
             $display("  Global mem dump around result:");
             for (integer i = 0; i < 16; i = i + 1)

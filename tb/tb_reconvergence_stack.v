@@ -2,11 +2,11 @@
 `include "gpu_defines.vh"
 
 module tb_reconvergence_stack;
-    localparam NUM_WARPS   = 2;
+    localparam NUM_WARPS   = 4;
     localparam STACK_DEPTH = 4;
     localparam NUM_THREADS = 32;
     localparam ADDR_WIDTH  = 32;
-    localparam WARP_W      = 1;
+    localparam WARP_W      = (NUM_WARPS > 1) ? $clog2(NUM_WARPS) : 1;
 
     reg                     clk;
     reg                     rst_n;
@@ -32,6 +32,12 @@ module tb_reconvergence_stack;
     integer pass_count;
     integer fail_count;
     integer test_num;
+    integer warp_iter;
+    integer depth_iter;
+
+    reg [31:0] lane_active_pattern;
+    reg [31:0] lane_waiting_pattern;
+    reg [31:0] expected_rpc;
 
     reconvergence_stack #(
         .NUM_WARPS(NUM_WARPS),
@@ -58,6 +64,30 @@ module tb_reconvergence_stack;
         .stack_empty(stack_empty),
         .stack_depth(stack_depth)
     );
+
+    function [31:0] warp_active_mask_pattern;
+        input [WARP_W-1:0] wid;
+        begin
+            case (wid)
+                2'd0: warp_active_mask_pattern = 32'h0000_00F0;
+                2'd1: warp_active_mask_pattern = 32'h0000_0F00;
+                2'd2: warp_active_mask_pattern = 32'h0000_F000;
+                default: warp_active_mask_pattern = 32'h000F_0000;
+            endcase
+        end
+    endfunction
+
+    function [31:0] warp_waiting_mask_pattern;
+        input [WARP_W-1:0] wid;
+        begin
+            case (wid)
+                2'd0: warp_waiting_mask_pattern = 32'h0000_0300;
+                2'd1: warp_waiting_mask_pattern = 32'h0000_3000;
+                2'd2: warp_waiting_mask_pattern = 32'h0003_0000;
+                default: warp_waiting_mask_pattern = 32'h0030_0000;
+            endcase
+        end
+    endfunction
 
     initial begin
         clk = 1'b0;
@@ -215,6 +245,286 @@ module tb_reconvergence_stack;
         check("underflow edge: stack_empty stays asserted", stack_empty === 1'b1);
         check("underflow edge: no reconvergence pulse", at_reconvergence === 1'b0);
         check("underflow edge: no pc_valid pulse", pc_valid === 1'b0);
+
+        //====================================================================
+        // Test 8: All-warps reconvergence PC + lane-mask integrity
+        //====================================================================
+        for (warp_iter = 0; warp_iter < NUM_WARPS; warp_iter = warp_iter + 1) begin
+            clear_inputs();
+            warp_id = warp_iter[WARP_W-1:0];
+            lane_active_pattern = warp_active_mask_pattern(warp_id);
+            lane_waiting_pattern = warp_waiting_mask_pattern(warp_id);
+            expected_rpc = 32'h0000_5004 + (warp_iter * 32'h100);
+            current_pc = expected_rpc;
+            active_mask = lane_active_pattern;
+
+            dut.stack_ptr[warp_iter] = 1;
+            dut.state[warp_iter] = 3'd0; // ST_NORMAL
+            dut.stack_mem[warp_iter][0] = {expected_rpc, lane_waiting_pattern, expected_rpc};
+
+            @(posedge clk);
+            #1;
+            check("all-warps reconv: at_reconvergence asserted", at_reconvergence === 1'b1);
+            check("all-warps reconv: next_pc == expected RPC", next_pc === expected_rpc);
+            check("all-warps reconv: merged mask preserved",
+                  next_active_mask === (lane_waiting_pattern | lane_active_pattern));
+            check("all-warps reconv: stack popped", stack_depth === 0);
+        end
+
+        //====================================================================
+        // Test 9: Dynamic depth fill to limit + overflow guard
+        //====================================================================
+        dut.stack_ptr[3] = 0;
+        dut.state[3] = 3'd0;
+
+        for (depth_iter = 0; depth_iter < STACK_DEPTH; depth_iter = depth_iter + 1) begin
+            clear_inputs();
+            warp_id = 2'd3;
+            current_pc = 32'h0000_7000 + (depth_iter * 32'h0100);
+            branch_valid = 1'b1;
+            branch_target = current_pc + 32'h0000_0040;
+            fallthrough_pc = current_pc + 32'h0000_0004;
+            branch_taken_mask = depth_iter[0] ? 32'hAAAA_AAAA : 32'h5555_5555;
+            active_mask = 32'hFFFF_FFFF;
+            is_uniform = 1'b0;
+
+            @(posedge clk);
+            #1;
+            check("depth fill: pc_valid asserted", pc_valid === 1'b1);
+            check("depth fill: stack depth increments", stack_depth === (depth_iter + 1));
+        end
+
+        #1;
+        check("depth fill: stack_overflow asserted at full depth", stack_overflow === 1'b1);
+
+        clear_inputs();
+        warp_id = 2'd3;
+        current_pc = 32'h0000_7F00;
+        branch_valid = 1'b1;
+        branch_target = 32'h0000_7F40;
+        fallthrough_pc = 32'h0000_7F04;
+        branch_taken_mask = 32'h0F0F_F0F0;
+        active_mask = 32'hFFFF_FFFF;
+        is_uniform = 1'b0;
+
+        @(posedge clk);
+        #1;
+        check("depth guard: stack depth clamped at limit", stack_depth === STACK_DEPTH);
+        check("depth guard: stack_overflow remains asserted", stack_overflow === 1'b1);
+        check("depth guard: no extra pc_valid pulse", pc_valid === 1'b0);
+
+        //====================================================================
+        // Test 10: 4-level nested divergence + overflow block
+        //====================================================================
+        clear_inputs();
+        warp_id = 2'd2;
+        dut.stack_ptr[2] = 0;
+        dut.state[2] = 3'd0;
+
+        // Level 1
+        current_pc = 32'h0000_8000;
+        branch_valid = 1'b1;
+        branch_target = 32'h0000_8100;
+        fallthrough_pc = 32'h0000_8004;
+        branch_taken_mask = 32'h00FF_00FF;
+        active_mask = 32'hFFFF_FFFF;
+        is_uniform = 1'b0;
+
+        @(posedge clk);
+        #1;
+        check("nested-4 lvl1: pc_valid", pc_valid === 1'b1);
+        check("nested-4 lvl1: stack_depth=1", stack_depth === 1);
+        check("nested-4 lvl1: next_mask=taken", next_active_mask === 32'h00FF_00FF);
+        check("nested-4 lvl1: pushed not-taken entry",
+              dut.stack_mem[2][0] === {32'h0000_8004, 32'hFF00_FF00, 32'h0000_8004});
+
+        // Level 2
+        clear_inputs();
+        warp_id = 2'd2;
+        current_pc = 32'h0000_8100;
+        branch_valid = 1'b1;
+        branch_target = 32'h0000_8200;
+        fallthrough_pc = 32'h0000_8104;
+        branch_taken_mask = 32'h000F_000F;
+        active_mask = 32'h00FF_00FF;
+        is_uniform = 1'b0;
+
+        @(posedge clk);
+        #1;
+        check("nested-4 lvl2: pc_valid", pc_valid === 1'b1);
+        check("nested-4 lvl2: stack_depth=2", stack_depth === 2);
+        check("nested-4 lvl2: next_mask=taken", next_active_mask === 32'h000F_000F);
+        check("nested-4 lvl2: pushed not-taken entry",
+              dut.stack_mem[2][1] === {32'h0000_8104, 32'h00F0_00F0, 32'h0000_8104});
+
+        // Level 3
+        clear_inputs();
+        warp_id = 2'd2;
+        current_pc = 32'h0000_8200;
+        branch_valid = 1'b1;
+        branch_target = 32'h0000_8300;
+        fallthrough_pc = 32'h0000_8204;
+        branch_taken_mask = 32'h0003_0003;
+        active_mask = 32'h000F_000F;
+        is_uniform = 1'b0;
+
+        @(posedge clk);
+        #1;
+        check("nested-4 lvl3: pc_valid", pc_valid === 1'b1);
+        check("nested-4 lvl3: stack_depth=3", stack_depth === 3);
+        check("nested-4 lvl3: next_mask=taken", next_active_mask === 32'h0003_0003);
+        check("nested-4 lvl3: pushed not-taken entry",
+              dut.stack_mem[2][2] === {32'h0000_8204, 32'h000C_000C, 32'h0000_8204});
+
+        // Level 4 (fill to hardware depth)
+        clear_inputs();
+        warp_id = 2'd2;
+        current_pc = 32'h0000_8300;
+        branch_valid = 1'b1;
+        branch_target = 32'h0000_8400;
+        fallthrough_pc = 32'h0000_8304;
+        branch_taken_mask = 32'h0001_0001;
+        active_mask = 32'h0003_0003;
+        is_uniform = 1'b0;
+
+        @(posedge clk);
+        #1;
+        check("nested-4 lvl4: pc_valid", pc_valid === 1'b1);
+        check("nested-4 lvl4: stack_depth=4", stack_depth === STACK_DEPTH);
+        check("nested-4 lvl4: stack_overflow asserted at limit", stack_overflow === 1'b1);
+        check("nested-4 lvl4: pushed not-taken entry",
+              dut.stack_mem[2][3] === {32'h0000_8304, 32'h0002_0002, 32'h0000_8304});
+
+        // One more divergent branch attempt must be blocked
+        clear_inputs();
+        warp_id = 2'd2;
+        current_pc = 32'h0000_8400;
+        branch_valid = 1'b1;
+        branch_target = 32'h0000_8500;
+        fallthrough_pc = 32'h0000_8404;
+        branch_taken_mask = 32'h0000_0001;
+        active_mask = 32'h0001_0001;
+        is_uniform = 1'b0;
+
+        @(posedge clk);
+        #1;
+        check("nested-4 overflow: no extra push", stack_depth === STACK_DEPTH);
+        check("nested-4 overflow: pc_valid suppressed", pc_valid === 1'b0);
+        check("nested-4 overflow: overflow stays asserted", stack_overflow === 1'b1);
+
+        //====================================================================
+        // Test 11: LIFO reconvergence ordering + early-exit-like recovery
+        //====================================================================
+        // First hit top RPC in diverged mode: should switch to saved path mask
+        clear_inputs();
+        warp_id = 2'd2;
+        current_pc = 32'h0000_8304;
+        active_mask = 32'h0001_0001;
+
+        @(posedge clk);
+        #1;
+        check("lifo step1: pc_valid at top rpc", pc_valid === 1'b1);
+        check("lifo step1: next_pc selects top entry", next_pc === 32'h0000_8304);
+        check("lifo step1: next_mask selects top waiting mask", next_active_mask === 32'h0002_0002);
+        check("lifo step1: depth unchanged before pop", stack_depth === STACK_DEPTH);
+
+        // Simulate early-exit completion of saved path by clearing top waiting mask
+        dut.stack_mem[2][3] = {32'h0000_8304, 32'h0000_0000, 32'h0000_8304};
+
+        clear_inputs();
+        warp_id = 2'd2;
+        current_pc = 32'h0000_8304;
+        active_mask = 32'h0002_0002;
+
+        @(posedge clk);
+        #1;
+        check("lifo step2: reconvergence pulse when waiting mask drained", at_reconvergence === 1'b1);
+        check("lifo step2: popped one level", stack_depth === 3);
+        check("lifo step2: returns to ST_NORMAL", dut.state[2] === 3'd0);
+
+        // Continue LIFO pops in ST_NORMAL and verify mask merges level-by-level
+        clear_inputs();
+        warp_id = 2'd2;
+        current_pc = 32'h0000_8204;
+        active_mask = 32'h0002_0002;
+
+        @(posedge clk);
+        #1;
+        check("lifo step3: pop level3", stack_depth === 2);
+        check("lifo step3: merge mask level3", next_active_mask === 32'h000E_000E);
+
+        clear_inputs();
+        warp_id = 2'd2;
+        current_pc = 32'h0000_8104;
+        active_mask = 32'h000E_000E;
+
+        @(posedge clk);
+        #1;
+        check("lifo step4: pop level2", stack_depth === 1);
+        check("lifo step4: merge mask level2", next_active_mask === 32'h00FE_00FE);
+
+        clear_inputs();
+        warp_id = 2'd2;
+        current_pc = 32'h0000_8004;
+        active_mask = 32'h00FE_00FE;
+
+        @(posedge clk);
+        #1;
+        check("lifo step5: pop level1", stack_depth === 0);
+        check("lifo step5: final merge with outer waiting mask", next_active_mask === 32'hFFFE_FFFE);
+        check("lifo step5: diverged cleared", diverged === 1'b0);
+
+        //====================================================================
+        // Test 12: Sparse vote-like masks + branch-in-diverged interaction
+        //====================================================================
+        clear_inputs();
+        warp_id = 2'd3;
+        dut.stack_ptr[3] = 0;
+        dut.state[3] = 3'd0;
+
+        // Non-contiguous branch mask (vote-like) to create divergence
+        current_pc = 32'h0000_9000;
+        branch_valid = 1'b1;
+        branch_target = 32'h0000_9100;
+        fallthrough_pc = 32'h0000_9004;
+        branch_taken_mask = 32'h8421_8421;
+        active_mask = 32'hFFFF_FFFF;
+        is_uniform = 1'b0;
+
+        @(posedge clk);
+        #1;
+        check("sparse vote: divergence issued", pc_valid === 1'b1);
+        check("sparse vote: next mask keeps sparse taken lanes", next_active_mask === 32'h8421_8421);
+        check("sparse vote: waiting mask stored exactly",
+              dut.stack_mem[3][0] === {32'h0000_9004, 32'h7BDE_7BDE, 32'h0000_9004});
+
+        // Uniform branch inside diverged mode must keep stack stable
+        clear_inputs();
+        warp_id = 2'd3;
+        current_pc = 32'h0000_9100;
+        branch_valid = 1'b1;
+        branch_target = 32'h0000_9200;
+        fallthrough_pc = 32'h0000_9104;
+        branch_taken_mask = 32'hFFFF_FFFF;
+        active_mask = 32'h8421_8421;
+        is_uniform = 1'b1;
+
+        @(posedge clk);
+        #1;
+        check("sparse vote: uniform branch in diverged state allowed", pc_valid === 1'b1);
+        check("sparse vote: uniform branch keeps active mask", next_active_mask === 32'h8421_8421);
+        check("sparse vote: stack depth unchanged", stack_depth === 1);
+
+        // Returning to RPC should restore saved sparse complement mask
+        clear_inputs();
+        warp_id = 2'd3;
+        current_pc = 32'h0000_9004;
+        active_mask = 32'h8421_8421;
+
+        @(posedge clk);
+        #1;
+        check("sparse vote: rpc emits saved waiting mask", next_active_mask === 32'h7BDE_7BDE);
+        check("sparse vote: depth unchanged before saved-path completion", stack_depth === 1);
 
         $display("============================================================");
         $display("tb_reconvergence_stack Summary: %0d PASSED, %0d FAILED, total %0d",

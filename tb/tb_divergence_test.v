@@ -338,6 +338,7 @@ module tb_divergence_test;
         end
         $display("============================================================\n");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

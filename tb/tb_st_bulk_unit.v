@@ -482,6 +482,7 @@ module tb_st_bulk_unit;
         else
             $display("SOME TESTS FAILED!");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -491,6 +492,7 @@ module tb_st_bulk_unit;
     initial begin
         #50000;
         $display("ERROR: Test timeout!");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

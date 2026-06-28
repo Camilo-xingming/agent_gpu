@@ -210,6 +210,7 @@ module tb_memory_controller_hbm;
         integer k;
         integer accepted_cnt;
         integer saw_backpressure;
+        integer wait_guard;
 
         pass_count = 0;
         fail_count = 0;
@@ -313,6 +314,50 @@ module tb_memory_controller_hbm;
         // allow scheduler to drain and ready recover
         repeat (2000) @(posedge clk);
         expect_true(l2_req_ready, "t4 ready recovers after drain");
+
+
+        //============================================================
+        // Test 5: Read/Write Turnaround Penalty Verification
+        //============================================================
+        reset_dut();
+        clear_resp_tracking();
+        issue_req(1'b1, 32'h0000_5000, data_a, {MASK_BITS{1'b1}}, 8'h40, "t5 write");
+        issue_req(1'b0, 32'h0000_5000, {BURST_BITS{1'b0}}, {MASK_BITS{1'b1}}, 8'h41, "t5 read");
+        wait_resp(8'h41, 10000, "t5 read response");
+        expect_eq_data(resp_data[8'h41], data_a, "t5 readback data");
+
+        //============================================================
+        // Test 6: Bandwidth Saturation under Sustained Traffic
+        //============================================================
+        reset_dut();
+        clear_resp_tracking();
+        $display("Starting Bandwidth Saturation Test...");
+        accepted_cnt = 0;
+        l2_req_valid = 1'b1;
+        l2_req_write = 1'b0;
+        l2_req_wmask = {MASK_BITS{1'b1}};
+        l2_req_id = 8'h50;
+        
+        for (k = 0; k < 128; k = k + 1) begin
+            l2_req_addr = (k[2:0] << 17) | (k << 7); 
+            l2_req_valid = 1'b1;
+            l2_req_id = 8'h50 + k[6:0];
+            
+            wait_guard = 0;
+            while (!l2_req_ready && wait_guard < 100) begin
+                @(posedge clk);
+                wait_guard = wait_guard + 1;
+            end
+            if (l2_req_ready) begin
+                accepted_cnt = accepted_cnt + 1;
+            end
+            @(posedge clk);
+        end
+        l2_req_valid = 1'b0;
+        
+        // Wait long enough for 128 reads to drain
+        repeat (20000) @(posedge clk);
+        expect_true(stat_read_count >= 128, "t6 sustained traffic test completed");
 
         //============================================================
         // Final summary

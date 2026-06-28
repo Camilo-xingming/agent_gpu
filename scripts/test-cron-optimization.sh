@@ -147,6 +147,18 @@ cat > "$FIXTURE_DIR/issues-open.json" << 'JSON'
 ]
 JSON
 
+cat > "$FIXTURE_DIR/issues-open-sla.json" << 'JSON'
+[
+  {
+    "number": 42,
+    "title": "Cross-review SLA item",
+    "assignees": [{"login": "alice"}],
+    "createdAt": "2026-02-20T00:00:00Z",
+    "url": "https://example.invalid/issues/42"
+  }
+]
+JSON
+
 cat > "$FIXTURE_DIR/issues-all.json" << 'JSON'
 [
   {
@@ -170,6 +182,31 @@ cat > "$FIXTURE_DIR/issues-all.json" << 'JSON'
 ]
 JSON
 
+cat > "$FIXTURE_DIR/pr-list-sla-breach.json" << 'JSON'
+[
+  {
+    "number": 900,
+    "title": "fix: issue-42",
+    "url": "https://example.invalid/pr/900",
+    "headRefName": "issue-42/codex",
+    "comments": [
+      {
+        "id": "comment-1",
+        "author": {"login": "alice"},
+        "body": "**[Codex]** CROSS_REVIEW_REQUEST @bob Please return CROSS_REVIEW_PASS or CROSS_REVIEW_FAIL.",
+        "createdAt": "2026-02-20T00:00:00Z"
+      }
+    ]
+  }
+]
+JSON
+
+cat > "$FIXTURE_DIR/matching-refs.json" << 'JSON'
+[
+  {"ref": "refs/heads/issue-42/codex"}
+]
+JSON
+
 cat > "$FIXTURE_DIR/pr-list.json" << 'JSON'
 [
   {
@@ -179,6 +216,89 @@ cat > "$FIXTURE_DIR/pr-list.json" << 'JSON'
     "author": {"login": "bob"},
     "createdAt": "2026-02-25T00:30:00Z",
     "url": "https://example.invalid/pr/300"
+  }
+]
+JSON
+
+cat > "$FIXTURE_DIR/milestones-all-ceremony.json" << 'JSON'
+[
+  {
+    "title": "Sprint 59",
+    "number": 59,
+    "state": "closed",
+    "closed_at": "2026-03-07T00:00:00Z",
+    "created_at": "2026-03-06T00:00:00Z",
+    "open_issues": 0
+  },
+  {
+    "title": "Sprint 60",
+    "number": 60,
+    "state": "closed",
+    "closed_at": "2026-03-08T00:00:00Z",
+    "created_at": "2026-03-07T00:00:00Z",
+    "open_issues": 0
+  },
+  {
+    "title": "Sprint 61",
+    "number": 61,
+    "state": "open",
+    "created_at": "2026-03-08T00:00:00Z",
+    "open_issues": 1
+  }
+]
+JSON
+
+cat > "$FIXTURE_DIR/milestones-open-ceremony.json" << 'JSON'
+[
+  {
+    "title": "Sprint 61",
+    "number": 61,
+    "state": "open",
+    "created_at": "2026-03-08T00:00:00Z",
+    "open_issues": 1
+  }
+]
+JSON
+
+cat > "$FIXTURE_DIR/issues-open-empty.json" << 'JSON'
+[]
+JSON
+
+cat > "$FIXTURE_DIR/issues-all-empty.json" << 'JSON'
+[]
+JSON
+
+cat > "$FIXTURE_DIR/pr-list-empty.json" << 'JSON'
+[]
+JSON
+
+cat > "$FIXTURE_DIR/issues-ceremony-cooldown.json" << 'JSON'
+[
+  {
+    "number": 9001,
+    "title": "Sprint 59 Ceremony — Review + Retro + Planning",
+    "state": "OPEN",
+    "createdAt": "2026-03-08T00:00:00Z",
+    "url": "https://example.invalid/issues/9001"
+  }
+]
+JSON
+
+cat > "$FIXTURE_DIR/issues-ceremony-stale.json" << 'JSON'
+[
+  {
+    "number": 7001,
+    "title": "Sprint 58 Ceremony — Review + Retro + Planning",
+    "state": "OPEN",
+    "createdAt": "2026-03-07T00:00:00Z",
+    "url": "https://example.invalid/issues/7001"
+  },
+  {
+    "number": 7002,
+    "title": "Sprint 59 Ceremony — Review + Retro + Planning",
+    "state": "OPEN",
+    "createdAt": "2026-03-08T00:00:00Z",
+    "url": "https://example.invalid/issues/7002"
   }
 ]
 JSON
@@ -198,6 +318,10 @@ EOF_DC
 cat > "$FIXTURE_DIR/discord-main.txt" << 'EOF_DC'
 TODO: review sprint health summary
 EOF_DC
+
+cat > "$FIXTURE_DIR/memory-fresh-61.md" << 'EOF_MEM'
+Current State (Sprint 61)
+EOF_MEM
 
 cat > "$BIN_DIR/gh" << 'EOF_GH'
 #!/usr/bin/env bash
@@ -224,6 +348,14 @@ if [[ "$cmd" == "api" ]]; then
       cat "$GH_STUB_MILESTONE_ISSUES_JSON"
       exit 0
       ;;
+    repos/*/git/matching-refs/heads/issue-*/)
+      if [[ -n "${GH_STUB_MATCHING_REFS_JSON:-}" && -f "${GH_STUB_MATCHING_REFS_JSON}" ]]; then
+        cat "$GH_STUB_MATCHING_REFS_JSON"
+      else
+        echo '[]'
+      fi
+      exit 0
+      ;;
     repos/*/milestones/*)
       if printf "%s\n" "$*" | grep -Eq -- "--method[[:space:]]+PATCH" \
         && printf "%s\n" "$*" | grep -Eq -- "-f[[:space:]]+state=closed"; then
@@ -248,10 +380,15 @@ fi
 if [[ "$cmd" == "issue" && "$sub" == "list" ]]; then
   shift 2
   state=''
+  label=''
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --state)
         state="${2:-}"
+        shift 2
+        ;;
+      --label)
+        label="${2:-}"
         shift 2
         ;;
       *)
@@ -260,11 +397,32 @@ if [[ "$cmd" == "issue" && "$sub" == "list" ]]; then
     esac
   done
 
-  if [[ "$state" == "open" ]]; then
+  if [[ "$label" == "ceremony" ]]; then
+    if [[ -n "${GH_STUB_ISSUES_CEREMONY_JSON:-}" && -f "${GH_STUB_ISSUES_CEREMONY_JSON}" ]]; then
+      cat "$GH_STUB_ISSUES_CEREMONY_JSON"
+    else
+      echo '[]'
+    fi
+  elif [[ "$state" == "open" ]]; then
     cat "$GH_STUB_ISSUES_OPEN_JSON"
   else
     cat "$GH_STUB_ISSUES_ALL_JSON"
   fi
+  exit 0
+fi
+
+if [[ "$cmd" == "issue" && "$sub" == "create" ]]; then
+  if [[ -n "${GH_STUB_ISSUE_CREATE_URL:-}" ]]; then
+    printf '%s\n' "$GH_STUB_ISSUE_CREATE_URL"
+  else
+    printf 'https://example.invalid/issues/9999\n'
+  fi
+  exit 0
+fi
+
+if [[ "$cmd" == "issue" && "$sub" == "close" ]]; then
+  issue_num="${3:-0}"
+  jq -cn --arg n "$issue_num" '{number: ($n | tonumber), state: "CLOSED"}'
   exit 0
 fi
 
@@ -471,6 +629,8 @@ run_heartbeat_schedule_test() {
   grep -q "长任务心跳" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing heartbeat policy marker"
   grep -q "每 60 秒" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing heartbeat interval marker"
   grep -q "3 分钟" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing heartbeat threshold marker"
+  grep -q "不要自动认领无人认领 issue" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing no-auto-assign policy marker"
+  grep -q "默认输出 NO_REPLY 并保持 standby" "$SCRIPT_DIR/coder-codex-heartbeat.prompt.txt" || fail "prompt missing standby policy marker"
 
   OPENCLAW_LOG_FILE="$hb_log" \
   OPENCLAW_STUB_DEV_TEXT="$FIXTURE_DIR/discord-dev.txt" \
@@ -531,9 +691,96 @@ fi
 EOF_BASH
 }
 
+run_sprint_watchdog_review_sla_test() {
+  local out_file="$TMP_ROOT/sprint-watchdog-sla.json"
+  local rc=0
+
+  GH_LOG_FILE="$GH_LOG" \
+  GH_STUB_MILESTONES_ALL_JSON="$FIXTURE_DIR/milestones-all.json" \
+  GH_STUB_MILESTONES_OPEN_JSON="$FIXTURE_DIR/milestones-open.json" \
+  GH_STUB_MILESTONE_ISSUES_JSON="$FIXTURE_DIR/milestone-issues.json" \
+  GH_STUB_RUN_LIST_JSON="$FIXTURE_DIR/run-list.json" \
+  GH_STUB_ISSUES_OPEN_JSON="$FIXTURE_DIR/issues-open-sla.json" \
+  GH_STUB_ISSUES_ALL_JSON="$FIXTURE_DIR/issues-all.json" \
+  GH_STUB_PR_LIST_JSON="$FIXTURE_DIR/pr-list-sla-breach.json" \
+  GH_STUB_MATCHING_REFS_JSON="$FIXTURE_DIR/matching-refs.json" \
+  GH_BIN="$BIN_DIR/gh" \
+  OPENCLAW_BIN="/nonexistent/openclaw" \
+  "$SCRIPT_DIR/sprint-watchdog.sh" --repo ssql2014/RalphGPU --json --review-sla-minutes 30 --no-discord-notify > "$out_file" || rc=$?
+
+  [[ "$rc" -eq 2 ]] || fail "expected sprint-watchdog exit 2 on SLA breach, got $rc"
+  assert_jq "$out_file" '.status == "FAIL"' "sprint-watchdog status should be FAIL"
+  assert_jq "$out_file" '.cross_review_sla.violation_count == 1' "top-level review SLA violation count"
+  assert_jq "$out_file" '.cross_review_sla.notify_result == "not_triggered"' "notify should be disabled in test"
+  assert_jq "$out_file" '.results[0].status == "FAIL"' "issue status should become FAIL on SLA breach"
+  assert_jq "$out_file" '.results[0].cross_review_sla.status == "violated"' "issue review SLA status"
+  assert_jq "$out_file" '.results[0].cross_review_sla.violation_count == 1' "issue violation count"
+  assert_jq "$out_file" '.results[0].reason == "cross-review SLA violated (30m)"' "issue reason should point to review SLA"
+  assert_jq "$out_file" '.cross_review_sla.violations[0].pr_number == 900' "violation should capture PR number"
+}
+
+run_sprint_watchdog_ceremony_guard_test() {
+  local cooldown_out="$TMP_ROOT/sprint-watchdog-ceremony-cooldown.json"
+  local active_out="$TMP_ROOT/sprint-watchdog-ceremony-active.json"
+  local state_file="$TMP_ROOT/sprint-watchdog-ceremony.state.json"
+  local rc=0
+
+  : > "$GH_LOG"
+  GH_LOG_FILE="$GH_LOG" \
+  GH_STUB_MILESTONES_ALL_JSON="$FIXTURE_DIR/milestones-all-ceremony.json" \
+  GH_STUB_MILESTONES_OPEN_JSON="$FIXTURE_DIR/milestones-open-ceremony.json" \
+  GH_STUB_MILESTONE_ISSUES_JSON="$FIXTURE_DIR/milestone-issues.json" \
+  GH_STUB_RUN_LIST_JSON="$FIXTURE_DIR/run-list.json" \
+  GH_STUB_ISSUES_OPEN_JSON="$FIXTURE_DIR/issues-open-empty.json" \
+  GH_STUB_ISSUES_ALL_JSON="$FIXTURE_DIR/issues-all-empty.json" \
+  GH_STUB_ISSUES_CEREMONY_JSON="$FIXTURE_DIR/issues-ceremony-cooldown.json" \
+  GH_STUB_PR_LIST_JSON="$FIXTURE_DIR/pr-list-empty.json" \
+  GH_STUB_MATCHING_REFS_JSON="$FIXTURE_DIR/matching-refs.json" \
+  MEMORY_FILE="$FIXTURE_DIR/memory-fresh-61.md" \
+  GH_BIN="$BIN_DIR/gh" \
+  OPENCLAW_BIN="/nonexistent/openclaw" \
+  CEREMONY_STATE_FILE="$state_file" \
+  "$SCRIPT_DIR/sprint-watchdog.sh" --repo ssql2014/RalphGPU --json --ceremony-cooldown-hours 99999 --no-discord-notify > "$cooldown_out" || rc=$?
+  [[ "$rc" -eq 0 ]] || fail "expected ceremony cooldown run to exit 0, got $rc"
+  assert_jq "$cooldown_out" '.ceremony.pending_closed_sprint_count > 0' "cooldown scenario should have pending closed sprints"
+  assert_jq "$cooldown_out" '.ceremony.created_issue.number == null' "no ceremony issue should be created during cooldown"
+  if grep -q '^issue create ' "$GH_LOG"; then
+    fail "ceremony cooldown run should not call issue create"
+  fi
+
+  jq -n '{last_ceremony_sprint: 59}' > "$state_file"
+  : > "$GH_LOG"
+  rc=0
+  GH_LOG_FILE="$GH_LOG" \
+  GH_STUB_MILESTONES_ALL_JSON="$FIXTURE_DIR/milestones-all-ceremony.json" \
+  GH_STUB_MILESTONES_OPEN_JSON="$FIXTURE_DIR/milestones-open-ceremony.json" \
+  GH_STUB_MILESTONE_ISSUES_JSON="$FIXTURE_DIR/milestone-issues.json" \
+  GH_STUB_RUN_LIST_JSON="$FIXTURE_DIR/run-list.json" \
+  GH_STUB_ISSUES_OPEN_JSON="$FIXTURE_DIR/issues-open-empty.json" \
+  GH_STUB_ISSUES_ALL_JSON="$FIXTURE_DIR/issues-all-empty.json" \
+  GH_STUB_ISSUES_CEREMONY_JSON="$FIXTURE_DIR/issues-ceremony-stale.json" \
+  GH_STUB_ISSUE_CREATE_URL="https://example.invalid/issues/7999" \
+  GH_STUB_PR_LIST_JSON="$FIXTURE_DIR/pr-list-empty.json" \
+  GH_STUB_MATCHING_REFS_JSON="$FIXTURE_DIR/matching-refs.json" \
+  MEMORY_FILE="$FIXTURE_DIR/memory-fresh-61.md" \
+  GH_BIN="$BIN_DIR/gh" \
+  OPENCLAW_BIN="/nonexistent/openclaw" \
+  CEREMONY_STATE_FILE="$state_file" \
+  "$SCRIPT_DIR/sprint-watchdog.sh" --repo ssql2014/RalphGPU --json --ceremony-cooldown-hours 0 --no-discord-notify > "$active_out" || rc=$?
+  [[ "$rc" -eq 0 ]] || fail "expected ceremony active run to exit 0, got $rc"
+  assert_jq "$active_out" '.ceremony.created_issue.number == 7999' "ceremony run should create merged issue"
+  assert_jq "$active_out" '.ceremony.pending_closed_sprint_count == 1' "ceremony run should detect one pending closed sprint"
+  assert_jq "$active_out" '.ceremony.stale_closed | length == 1' "ceremony run should auto-close one stale issue"
+  assert_jq "$active_out" '.ceremony.stale_closed[0].number == 7001' "stale close target should be oldest open ceremony issue"
+  grep -q '^issue create ' "$GH_LOG" || fail "expected ceremony issue creation API call"
+  grep -q '^issue close 7001 ' "$GH_LOG" || fail "expected stale ceremony auto-close API call"
+}
+
 run_warning_vs_critical_test
 run_zero_token_and_coverage_test
 run_atomic_write_race_test
 run_heartbeat_schedule_test
+run_sprint_watchdog_review_sla_test
+run_sprint_watchdog_ceremony_guard_test
 
 echo "PASS: cron optimization tests completed"

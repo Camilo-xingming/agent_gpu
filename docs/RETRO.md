@@ -1,3 +1,25 @@
+# Retrospective Action Items Tracking
+
+**Note:** Recurring action items have been converted to GitHub Issues to reduce document clutter:
+- CI Billing/Queued issues: [#500](https://github.com/ssql2014/RalphGPU/issues/500)
+- Stale branch cleanup: [#501](https://github.com/ssql2014/RalphGPU/issues/501)
+- WIP/PR SLA enforcement: [#502](https://github.com/ssql2014/RalphGPU/issues/502)
+- CoderGemini Retro participation: [#503](https://github.com/ssql2014/RalphGPU/issues/503)
+
+
+## Retro Action Item Audit (Issue #558, 2026-03-07)
+
+Reviewed the latest three retros with explicit action items in this file and mapped each item to a GitHub issue/state.
+
+| Sprint | Action Item | Status | Tracking |
+|---|---|---|---|
+| Sprint 42 | Coder responsiveness: heartbeat cron health check and alerting | Open | #562 |
+| Sprint 42 | Carry-over priority for #412/#413/#414/#415 | Done | #412 #413 #414 #415 (closed) |
+| Sprint 41 | Sprint startup branch + assignee enforcement | Done | #502 + PR #560 |
+| Sprint 39 | cross-review SLA 30min enforcement | Open | #561 |
+
+Outstanding items above have been converted to `process` issues for Sprint 58 tracking.
+
 # Sprint Retrospective — Sprint 22
 
 ## Sprint Goal
@@ -42,7 +64,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - **CoderGemini 原始 JSON 工具调用泄露到 Discord**：多条包含 `startcall:default_api:run_shell_command` 的原始调试输出发到 #ralphgpu-dev，降低频道信噪比
 - **Lily 连续重复消息**：同一个结论发了 4-5 条略有不同的消息（#233 blocker resolved），违反 ≤3 行原则
 - **长任务心跳（第 4 Sprint 未落地）**：Codex 和 Gemini 都点名此问题，连续 4 Sprint 未实现 → 必须本 Sprint 决策
-- **stale branch issue-131/gemini**：CI 仍 fail，未清理（上期 action item 未执行）
 - **CoderGemini git checkout 自我回滚**：在调试中意外回滚了自己的修复提交，反复推了两次相同内容
 
 ## 💬 Coder Feedback
@@ -54,7 +75,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - [ ] **SHA discipline 强化**：DoD checklist 加一条：merge 前 Lily 必须验证 reviewer SHA = PR head SHA，不一致则要求重新 review
 - [x] **每日经济要闻 cron 修复**：已于 2026-02-28 禁用 job 828d4110-1aa7-4616-9fa8-13b2813e6037（连续 timeout: 180s/300s），终止反复 error（Issue #237）
 - [x] **ist-mac-s 代理修复**：已新增 scripts/update-coder-codex-heartbeat-cron.sh + scripts/coder-codex-heartbeat.prompt.txt，并已将 codex cron job 更新为显式代理 + IP SSH（Issue #253）
-- [ ] **stale branch 清理**：删除 issue-131/gemini 等 CI 持续 fail 的旧分支
 - [ ] **CoderGemini 输出净化**：禁止将 `startcall:default_api:*` 工具调用原文发到 Discord；只发结论
 - [ ] **Lily 消息去重**：同一件事不允许发超过 2 条消息；确认/通知合并为一条
 - [ ] **Issue-first 协议**：任何状态变更必须先 `gh issue comment`，再发 Discord（Codex 的建议 — 再次强调）
@@ -70,7 +90,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 ## ✅ Went Well
 - **Sprint 5 velocity 100% (6/6)**：#148, #221, #222, #223, #227, #228 全部关闭，完美收尾
 - **Gemini 独扛 PR #231**：rebase + mojibake 清理 + CVT 单测 12/12 全绿，单 coder 完整交付
-- **PR #230 cross-review 完成**：Gemini 完成 `sm_fetch_pipeline.v` 双发射审查，PASS ✅ + SHA 绑定
 - **Master CI 全天绿**：Nightly Regression + 2x CI runs on master 全部 success
 - **Network anomaly 主动上报**：ist-mac-01/02 unreachable from ist-mac-s 被检测并升级给 Jerry
 - **Codex 回来后给出实质性 retro 建议**：超时升级机制方向明确
@@ -83,7 +102,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - **每日经济政治要闻 cron 错误**：持续 error 状态，未排查
 - **ist-mac-s 代理异常**：curl/gh 从 ist-mac-s 出站走 Clash 7897 端口被拒，影响 GitHub CLI 操作
 - **前两次 Retro action items 执行率低**：长任务心跳、同步消息模板、Post-merge SOP 连续 2 Sprint 未落地
-- **PR #231 feature branch CI 仍 fail**：issue-131/gemini branch 未清理或修复
 
 ## 💬 Coder Feedback
 - **CoderCodex**：好 — Lily 及时识别并公开同步了 Codex 失联风险；需改进 — 加"等待依赖超 30 分钟自动升级并切换 owner"机制，避免任务再卡 10h+
@@ -98,7 +116,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - [ ] **ist-mac-s 代理修复**：为 GitHub CLI 配置显式 proxy（`HTTPS_PROXY=http://127.0.0.1:7897`）或排查 TUN 出站路由
 - [ ] **长任务心跳（第 3 次提出 — 强制执行或移除）**：本次 Sprint 必须上线或永久关闭此 item
 - [x] **Post-merge SOP（Checklist 条目）**：已落地 `docs/pm/pr-submission.md`（Issue #268），合并后必须跑 `make regression` + `make lint` 并 comment 结果
-- [ ] **stale branch 清理**：关闭 issue-131/gemini CI fail 的 stale branch，避免持续报警
 - [x] **Jerry escalation 阈值**：已纳入 `docs/pm/pr-submission.md`（Issue #268），agent 下线 30min 时主动升级并重新分配
 - [x] **#148 研究时间盒**：已文档化到 `docs/pm/pr-submission.md`（Issue #268），研究类 issue 最多 2h，超时必须产出草稿文档提交 review
 
@@ -114,7 +131,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 ## ✅ Went Well
 - **Velocity 100%（3/3）**：#149（WB precision replay）、#152（regfile banking）、#156（perf dashboard）全部关闭，Sprint 2026-02-24 满分完成
 - **Retro 参与率 100%（连续第 2 次）**：3 位 coder 全部在 30 秒内回复（2/23: 33% → 2/24: 100% → 2/25: 100%）
-- **PR 交付质量稳定**：CoderClaude + CoderCodex 一致反映 PR #219/#220 高质量、lint + 回归基线全绿
 - **Dual-issue PC 步进 + L1 Cache 关键回归**：CoderGemini 彻底解决，不再反复
 - **Retro-gather.sh 自动化运转**：cron 脚本无需手动触发，数据采集正常
 
@@ -223,7 +239,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 
 ## ❌ Didn't Go Well
 - **`Stats:` 泄漏仍未完全解决**：CoderGemini 输出中仍有系统状态字符串泄漏到 Discord 消息，需脚本拦截
-- **PR #317 跨 Sprint 遗留**：#309 issue 已关闭但 PR #317 仍 open，需 cross-review 后合并清理
 - **多个 ceremony cron 并发**：本 Sprint 结束时出现两个 ceremony 实例同时运行，重复发消息
 
 ## 💬 Coder Feedback
@@ -232,8 +247,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 
 ## 🔧 Action Items (Sprint 26 Planning 必须参考)
 - [ ] **CoderGemini `Stats:` 泄漏根治**：在 gateway 层或 cron prompt 层增加输出过滤，彻底阻止系统状态字符串进入 Discord 消息
-- [ ] **PR #317 cross-review + merge**：CoderCodex review，通过后 Lily merge
-- [ ] **stale branch 清理**：删除 issue-131/gemini 等 CI 持续 fail 的旧分支
 - [ ] **SHA discipline 检查**：Lily merge 前必须验证 reviewer SHA = PR head SHA
 
 ## 📈 Velocity
@@ -259,11 +272,9 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - **CoderGemini**：已在 Sprint 内开始 #325 分析（12:22 汇报），但无正式 branch/commit 记录
 
 ## 🔧 Action Items (Sprint 28 Planning 必须参考)
-- [ ] **WIP 启动纪律**：Sprint 开始 2h 内每个 issue 必须有 branch + WIP comment，否则 watchdog 告警
 - [ ] **并行启动**：持有多个 issues 的 coder 必须并行建 branch，不能等第一个完成再动第二个
 - [ ] **carry-over P0**：#324 #325 作为 carry-over 在 Sprint 28 优先分配，标记 P0
 - [ ] **CoderGemini 任务归属明确化**：assign 前必须在 GitHub Issue 上 comment 认领，不允许"隐形工作"
-- [ ] **PR review 响应时限**：被 review 的 PR 必须在 4h 内给出 PASS/FAIL，否则 Lily 重新分配 reviewer
 
 ## 📈 Velocity
 - Sprint 27：1/3 (33%) — #323 ✅，#324 #325 carry-over
@@ -291,7 +302,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 
 ## 🔧 Action Items (Sprint 28 Planning 必须参考)
 - [ ] **Planning 先讨论再创建**：cron ceremony prompt 中加入：创建 milestone 前必须先 @coders 在 dev_channel 确认 scope + 能否交付，无异议才建
-- [ ] **WIP 最小启动**：Sprint 启动当天每个 assigned issue 必须建好 branch + WIP comment，即使未开始编码
 - [ ] **#324 carry-over**：Warp scheduler active warp occupancy tracking + per-cycle IPC metric
 - [ ] **#325 carry-over**：Cache hit rate profiling — L1D/L2 miss rate baseline + tuning（CoderGemini 环境问题需先确认）
 
@@ -306,7 +316,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 ## ✅ Went Well
 - **Velocity 100% (2/2)**：#324 Warp occupancy + per-cycle IPC tracking ✅ | #325 L1D/L2 miss-rate profiling baseline ✅
 - **Carry-over 完成**：Sprint 27 遗留的 #324/#325 在 Sprint 28 全部交付，WIP 启动纪律执行到位
-- **PR 质量高**：PR #326 + #327 均一次合入，CI 绿（master 连续 success）
 - **CoderCodex**：#324/#325 把 occupancy/IPC 与 L1D/L2 baseline 的"采集→解析→dashboard"链路打通了
 - **CoderGemini**：在任务重叠期间与 CoderCodex 保持了良好的同步，避免了性能计数器模块的编辑冲突
 
@@ -334,7 +343,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 
 ## ✅ Went Well
 - **Velocity 100% (2/2)**：#324 Warp occupancy tracking + per-cycle IPC metric、#325 L1D/L2 cache hit rate baseline 全部关闭
-- **PR #326/#327 快速交付**：两个可观测性功能 PR 同天合并，CI 通过
 - **CI master 全绿**：Sprint 期间 master 连续多次 CI success
 - **Sprint 27 carry-over 清零**：#324/#325 作为 carry-over 完整交付，无遗留
 
@@ -346,7 +354,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 ## 🔧 Action Items (Sprint 29 必须参考)
 - [ ] **issue-325/codex stale branch 清理**：CI failure 分支应在 merge 后立即删除
 - [ ] **Sprint 启动即分配**：Planning 后立即给所有 Sprint issues assign coder，不留空白
-- [ ] **CoderGemini Retro 参与率**：连续 2 Sprint 无回复，确认 heartbeat cron 是否正常
 
 ## 📈 Velocity
 - Sprint 28：2/2 (100%) — #324 #325
@@ -366,7 +373,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 ## ❌ Didn't Go Well
 - **CoderGemini #329 初次尝试无效**：首次 VCD 分析产出无法验证的结果，需重新分配给 Codex 才完成分析
 - **Tensor WB 4095/4096 未到 4096/4096**：最后 1 个 WB 启动边界问题，fix 在本地验证但未提 PR，遗留
-- **PR #335 base drift**：从旧 base 开分支导致 #332 回退风险，需额外 rebase round
 - **CI 全部 queued**：GitHub Actions billing 限制，所有 CI 状态仍为 queued，本地验证替代
 - **CoderGemini**：路径错配 fix 有效；需改进 VCD 分析准确性，初次结果必须可重现
 
@@ -377,8 +383,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 ## 🔧 Action Items (Sprint 30 Planning 必须参考)
 - [ ] **Tensor WB 4096/4096**：基于 #329 findings，提 PR 移除 lane1 tensor_push_lockout gate（仅保留 isn_match dedup）
 - [ ] **bench_divergence scoreboard fix**：定位并修复 scoreboard 0x40 持续占用导致的 kernel_done 不触发
-- [ ] **PR rebase-before-submit DoD 强制化**：任何 PR 开 branch 时必须先 rebase latest master，不合规则 Lily reject
-- [ ] **PR #336 lint fix merge**：CoderGemini cross-review，通过后 Lily merge，关闭 #273
 
 ## 📈 Velocity
 - Sprint 29：3/3 (100%) — #328 #329 #330，bonus #333
@@ -402,7 +406,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 
 ## 🔧 Action Items (Sprint 31 Planning 必须参考)
 - [ ] **Planning must link issues to milestone**: After `gh milestone create`, immediately `gh issue edit NUM --milestone "Sprint N"` for every selected issue
-- [ ] **WIP 启动纪律**: Sprint 启动后 2h 内每个 assigned issue 必须有 branch + WIP comment
 - [ ] **Ceremony verify**: After planning, ceremony cron should verify milestone has >0 issues before declaring planning complete
 - [ ] **#337 carry-over P0**: Tensor WB 4096/4096 — lane1 lockout removal
 - [ ] **#338 carry-over P0**: bench_divergence scoreboard deadlock fix
@@ -419,8 +422,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - **Velocity 100% (3/3)**：#354 NOP retirement bug fix + #355 WB FIFO silent drop test coverage + #356 Texture bilinear 24.8 fixed-point 全部关闭
 - **Tech debt audit (#346) 全部清零**：Sprint 32 CoderGemini 发现的全部 5 个 correctness/coverage 问题（ALU overflow, CFU warp_diverged, texture bilinear, NOP retirement, WB FIFO）在 Sprint 33-34 完整交付
 - **Evidence binding 质量高**：CoderCodex 反馈每个结论均绑定可验证证据（SHA + issue/pr comment + 本地复跑），#354/#355/#356 收口干净（CoderCodex 自评）
-- **Stale branch 主动清理**：CoderGemini Sprint 结束前主动清理 Sprint 34 过期分支
-- **PRs #357/#358/#360 快速合并**：三个 PR 在同一天合并，无冲突
 
 ## ❌ Didn't Go Well
 - **CoderGemini 未提供 Retro 反馈**：60s 内无结构化 Retro 意见，连续多 Sprint 未参与
@@ -432,8 +433,6 @@ IPC performance optimization — L1 cache enable + stall analysis + memory coale
 - **CoderGemini**：无结构化 Retro 反馈（60s 超时）；Sprint 内主动清理了 stale branches
 
 ## 🔧 Action Items (Sprint 35 Planning 必须参考)
-- [ ] **GitHub Actions billing 修复**：联系 Jerry 确认 GitHub 账单状态，恢复 CI 自动化（连续多 Sprint 未解决）
-- [ ] **CoderGemini Retro 参与率**：连续 3+ Sprint 无 Retro 反馈，确认 heartbeat cron 是否正常运行
 - [ ] **ICache LRU 修复**：`rtl/icache.v:466` 读写冲突 workaround 影响 cache 替换策略准确性，需正式修复
 - [ ] **Scheduler scoreboard SET gap**：`rtl/blackwell_scheduler.v:491` 中 stall/suppress 时 scoreboard SET 跳过逻辑需补全
 - [ ] **CP TB 现代化**：`tb/tb_command_processor.v:413` Legacy launch 替换为 modern kernel dispatch path
@@ -483,7 +482,6 @@ TB coverage expansion — chi_controller (CHI protocol) + l2_interconnect + fma_
 - **节奏连续**：Sprint 38→39 无 milestone gap，ceremony 链路正常
 
 ## ❌ Didn't Go Well
-- **CoderGemini Retro 未响应**：60s 内无回复，连续多 Sprint 模式
 - **CI 仍 billing-limited**：所有 CI runs queued，本地验证替代，问题持续未解决
 - **review SLA 不明确**：CoderCodex 反馈 cross-review 等待时间需有明确上限（30min）
 
@@ -493,8 +491,6 @@ TB coverage expansion — chi_controller (CHI protocol) + l2_interconnect + fma_
 
 ## 🔧 Action Items (Sprint 40 必须参考)
 - [ ] **cross-review SLA 30min**：收到 review 请求后 30min 内必须给出 PASS/FAIL，否则 Lily 重新分配
-- [ ] **GitHub Actions billing 修复**：联系 Jerry 恢复 CI（连续多 Sprint 未解决，本地验证为 workaround）
-- [ ] **CoderGemini Retro 参与率**：连续多 Sprint 无回复，确认 heartbeat cron 是否正常
 
 ## 📈 Velocity
 - Sprint 39：3/3 (100%) — #382 #383 #384
@@ -521,8 +517,6 @@ TB coverage expansion — chi_controller (CHI protocol) + l2_interconnect + fma_
 - **CoderGemini**：无响应（60s 超时）
 
 ### 🔧 Action Items (Sprint 43 必须参考)
-- [ ] **PR 时限**：branch 建立后 2h 内必须开 PR（不得只建 branch 停止）
-- [ ] **GitHub Actions billing**：Jerry 需要解决 CI billing 问题（连续多 Sprint 影响）
 - [ ] **Coder responsiveness**：两个 coders 均无 Retro 回复，检查 heartbeat cron 状态
 - [ ] **carry-over 优先**：#412 #413 #414 #415 进入 Sprint 43 作为 P0 carry-over
 
@@ -539,14 +533,12 @@ TB coverage for dual_issue_scheduler (#392) — verification coverage expansion 
 ## ✅ Went Well
 - **Velocity 100% (8/8)**: #392 #396 #397 #398 #404 #405 #407 #409 全部关闭，8 PRs merged
 - **高速批量交付**: dual_issue_scheduler + blackwell_scheduler + async_copy_engine + wgmma + performance_counters + lz4_decompressor + memory_controller_hbm + tensor_memory TB 全部完成
-- **PRs #400-#411 全部同日合并**: Issue→WIP→验证→PR 闭环节奏稳定，无遗留
 - **CoderCodex 主导交付**: #396 #397 #398 #404 全部由 Tony-zf1(CoderCodex) 完成，delivery rate 高
 - **Milestone 8/8 完整**: 零遗留 carry-over，Sprint 41 干净收尾
 
 ## ❌ Didn't Go Well
 - **CI 全部 QUEUED**: GitHub Actions billing 问题持续，所有 CI runs 无法执行，本地验证替代（连续多 Sprint 未解决）
 - **Sprint 42 紧接 0/4**: Sprint 41 收尾时，Sprint 42 的 4 个 issues 无一启动（无 branch，无 PR），carry-forward 失败
-- **CoderGemini Retro 未响应**: 60s 内无结构化 Retro 反馈（连续多 Sprint 模式）
 - **Issue assignee 不完整**: #409 #407 #405 无 assignee 记录，tracability 差
 
 ## 💬 Coder Feedback
@@ -554,11 +546,8 @@ TB coverage for dual_issue_scheduler (#392) — verification coverage expansion 
 - **CoderGemini**: 无响应（60s 超时，自动生成）
 
 ## 🔧 Action Items (Sprint 43 Planning 必须参考)
-- [ ] **GitHub Actions billing 修复 (P0)**: 联系 Jerry 确认 GitHub 账单状态，恢复 CI 自动化（连续多 Sprint P0 未解决）
 - [ ] **Sprint 启动即建 branch**: Sprint 创建后 2h 内每个 assigned issue 必须有 branch + WIP comment，否则 watchdog 告警
-- [ ] **PR 提交时限**: branch 建立后 24h 内必须开 PR，不能停留在 branch 阶段
 - [ ] **Issue assignee 强制化**: Planning 时所有 Sprint issues 必须有 assignee，无 assignee 则 watchdog 告警
-- [ ] **CoderGemini Retro 参与率**: 确认 heartbeat cron 是否正常，连续多 Sprint 无 Retro 反馈
 
 ## 📈 Velocity
 - Sprint 41: 8/8 (100%) — #392 #396 #397 #398 #404 #405 #407 #409

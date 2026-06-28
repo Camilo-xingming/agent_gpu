@@ -350,6 +350,7 @@ module tb_video_unit;
             $display("ALL TESTS PASSED");
         else
             $display("FAILURES: %0d", fail_count);
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -357,6 +358,7 @@ module tb_video_unit;
     initial begin
         #50000;
         $display("TIMEOUT");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

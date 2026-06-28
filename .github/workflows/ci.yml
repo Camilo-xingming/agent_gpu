@@ -1,5 +1,9 @@
 name: CI
 
+permissions:
+  contents: read
+  pull-requests: read
+
 on:
   push:
     branches: [master]
@@ -10,14 +14,18 @@ jobs:
   lint:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n        with:\n          fetch-depth: 0
+        with:
+          fetch-depth: 0
       - name: Verilator Lint
         run: make lint VERILATOR=verilator
 
   synth:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n        with:\n          fetch-depth: 0
+        with:
+          fetch-depth: 0
       - name: "DoD #4: Yosys Synthesis Check"
         run: make synth
       - name: Post synth failure to PR
@@ -35,7 +43,9 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     needs: lint
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n        with:\n          fetch-depth: 0
+        with:
+          fetch-depth: 0
       - name: Run Unit Test Suite
         run: make test IVERILOG=iverilog VVP=vvp
 
@@ -43,7 +53,9 @@ jobs:
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n        with:\n          fetch-depth: 0
+        with:
+          fetch-depth: 0
       - name: Fetch base branch
         run: git fetch origin master
 
@@ -82,7 +94,7 @@ jobs:
         run: |
           if git diff --name-only origin/master...HEAD -- 'rtl/*.v' 'rtl/*.sv' | \
              xargs -r grep -n '\$display\|\$monitor\|\$dumpvars' 2>/dev/null | \
-             grep -v '// keep' | head -20; then
+             grep -v '// keep' ; then
             echo "::error::Found debug statements in RTL files. Remove before merge."
             exit 1
           fi
@@ -105,3 +117,12 @@ jobs:
             exit 1
           fi
           echo "✅ Cross-review passed. Reviewers: $reviewers"
+
+  regression:
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON_JSON != '' && vars.CI_RUNS_ON_JSON || '["self-hosted","macOS","ARM64"]') }}
+    steps:
+      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n        with:\n          fetch-depth: 0
+        with:
+          fetch-depth: 0
+      - name: Run make test
+        run: make -j8 test VERILATOR=verilator

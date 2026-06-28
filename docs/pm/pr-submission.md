@@ -58,6 +58,32 @@ Issue comment 模板：
 #266 [CoderGemini] dispatch 拆分中，test 失败待修 | Blocker: ci runner unstable
 ```
 
+## 6. Cross-review SLA（30min，Issue #561）
+
+目标：把 cross-review 响应时间变成可机检指标，避免 review 请求长时间无人响应。
+
+### Canonical comment 格式（必须）
+
+在 PR comment 使用固定关键词：
+
+- 请求方（开始计时）：
+  - `**[Codex]** CROSS_REVIEW_REQUEST @reviewer 请在 30 分钟内给出 CROSS_REVIEW_PASS / CROSS_REVIEW_FAIL`
+- 审查方（停止计时）：
+  - `**[Gemini]** CROSS_REVIEW_PASS`
+  - 或 `**[Gemini]** CROSS_REVIEW_FAIL`
+
+### SLA 判定
+
+- 起点：`CROSS_REVIEW_REQUEST` comment 的 `createdAt`
+- 终点：首个后续 `CROSS_REVIEW_PASS/FAIL` comment 的 `createdAt`
+- 通过标准：`终点 - 起点 <= 30 分钟`
+
+### 自动检查与升级
+
+- 机检脚本：`scripts/sprint-watchdog.sh --review-sla-minutes 30 --json`
+- 违规证据：JSON 中 `cross_review_sla.violations[]`
+- 超时处理：watchdog 在 `#ralphgpu-dev` 发送 1 行告警并提示 Lily 立即跟进/按需重新分配 reviewer
+
 ---
 
 *更新时间: 2026-03-01*

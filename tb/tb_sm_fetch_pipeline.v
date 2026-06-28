@@ -572,6 +572,7 @@ module tb_sm_fetch_pipeline;
         else
             $display("SOME TESTS FAILED");
         $display("========================================\n");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
@@ -579,6 +580,7 @@ module tb_sm_fetch_pipeline;
     initial begin
         #50000;
         $display("TIMEOUT");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

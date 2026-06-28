@@ -626,7 +626,7 @@ module tb_ralph_gpu_top;
                 $display("[PASS] Test %0d: %0s", test_num, name);
             end else begin
                 failed_tests = failed_tests + 1;
-                $display("[FAIL] Test %0d: %0s", test_num, name);
+                $fatal(1, "[FAIL] Test %0d: %0s", test_num, name);
             end
         end
     endtask

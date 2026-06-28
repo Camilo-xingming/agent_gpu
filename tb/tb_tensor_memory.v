@@ -546,12 +546,14 @@ module tb_tensor_memory;
         else
             $display("SOME TESTS FAILED");
 
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 
     initial begin
         #200000;
         $display("TIMEOUT");
+        if (fail_count > 0) $fatal(1, "Test Failed");
         $finish;
     end
 

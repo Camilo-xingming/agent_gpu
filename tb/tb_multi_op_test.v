@@ -267,7 +267,7 @@ module tb_multi_op_test;
                 $display("[PASS] ALU ADD:  10 + 5 = %0d (expected %0d)", result_add, EXPECTED_ADD);
                 pass_count = pass_count + 1;
             end else begin
-                $display("[FAIL] ALU ADD:  10 + 5 = %0d (expected %0d)", result_add, EXPECTED_ADD);
+                $fatal(1, "[FAIL] ALU ADD:  10 + 5 = %0d (expected %0d)", result_add, EXPECTED_ADD);
             end
 
             // Test 2: SUB
@@ -275,7 +275,7 @@ module tb_multi_op_test;
                 $display("[PASS] ALU SUB:  20 - 7 = %0d (expected %0d)", result_sub, EXPECTED_SUB);
                 pass_count = pass_count + 1;
             end else begin
-                $display("[FAIL] ALU SUB:  20 - 7 = %0d (expected %0d)", result_sub, EXPECTED_SUB);
+                $fatal(1, "[FAIL] ALU SUB:  20 - 7 = %0d (expected %0d)", result_sub, EXPECTED_SUB);
             end
 
             // Test 3: MUL
@@ -283,7 +283,7 @@ module tb_multi_op_test;
                 $display("[PASS] MUL:      6 * 7 = %0d (expected %0d)", result_mul, EXPECTED_MUL);
                 pass_count = pass_count + 1;
             end else begin
-                $display("[FAIL] MUL:      6 * 7 = %0d (expected %0d)", result_mul, EXPECTED_MUL);
+                $fatal(1, "[FAIL] MUL:      6 * 7 = %0d (expected %0d)", result_mul, EXPECTED_MUL);
             end
 
             // Test 4: DP4A
@@ -291,7 +291,7 @@ module tb_multi_op_test;
                 $display("[PASS] DP4A:     [1,2]*[3,3]+10 = %0d (expected %0d)", result_dp4a, EXPECTED_DP4A);
                 pass_count = pass_count + 1;
             end else begin
-                $display("[FAIL] DP4A:     [1,2]*[3,3]+10 = %0d (expected %0d)", result_dp4a, EXPECTED_DP4A);
+                $fatal(1, "[FAIL] DP4A:     [1,2]*[3,3]+10 = %0d (expected %0d)", result_dp4a, EXPECTED_DP4A);
             end
 
             // Test 5: AND
@@ -299,7 +299,7 @@ module tb_multi_op_test;
                 $display("[PASS] ALU AND:  0xFF & 0x0F = %0d (expected %0d)", result_and, EXPECTED_AND);
                 pass_count = pass_count + 1;
             end else begin
-                $display("[FAIL] ALU AND:  0xFF & 0x0F = %0d (expected %0d)", result_and, EXPECTED_AND);
+                $fatal(1, "[FAIL] ALU AND:  0xFF & 0x0F = %0d (expected %0d)", result_and, EXPECTED_AND);
             end
 
             // Test 6: OR
@@ -307,7 +307,7 @@ module tb_multi_op_test;
                 $display("[PASS] ALU OR:   0xF0 | 0x0F = %0d (expected %0d)", result_or, EXPECTED_OR);
                 pass_count = pass_count + 1;
             end else begin
-                $display("[FAIL] ALU OR:   0xF0 | 0x0F = %0d (expected %0d)", result_or, EXPECTED_OR);
+                $fatal(1, "[FAIL] ALU OR:   0xF0 | 0x0F = %0d (expected %0d)", result_or, EXPECTED_OR);
             end
 
             $display("-----------------------------------------------------------");
